@@ -25,11 +25,29 @@
  *     `shared/notificationKinds.test.ts` reads its producers out of source.
  *
  * A migration that adds an eleventh status fails this file, which is the point.
+ *
+ * THE SAME SHAPE BIT A SECOND TIME AND IN THE OTHER DIRECTION, so this file
+ * now covers that too. `POST /api/admin/mechanics/proposals/:id/apply` accepts
+ * FOUR statuses and its own comment says why the fourth is there: a proposal
+ * the village carried at its own ballot is applied by the same human hand as a
+ * Hypha-verified one. The page's apply button listed three, so a carried
+ * proposal held by the auto-apply brake could be applied from no surface a
+ * human uses. A hand-kept list agreeing with a route by memory is the same
+ * defect as a hand-kept union agreeing with a column by memory, and the fix is
+ * the same: read the authority.
+ *
+ * AND THE ROUTE WITH NO DOOR. `POST /api/governance/mechanics/:id/open-ballot`
+ * shipped complete, tested, and called by nothing in `client/` at all, which
+ * meant the shipped default posture (`governance.default_method` at `custom`)
+ * had no way for a village to open its own vote. `check-route-reachability`
+ * could not see it: that gate reads PAGE routes out of App.tsx and never looks
+ * at API routes. So the door is asserted here, against the route's own path
+ * read out of the server, next to the states it produces.
  */
 import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { STATUS_COPY, BALLOT_RETURN } from "./GameMechanics";
+import { STATUS_COPY, BALLOT_RETURN, APPLYABLE } from "./GameMechanics";
 
 const ROOT = path.resolve(__dirname, "../../..");
 
@@ -58,6 +76,31 @@ function proposalStatusesFromMigrations(): string[] {
   return last;
 }
 
+/** The statuses the ONE apply route accepts, off the route's own refusal. */
+function applyableFromRoute(): string[] {
+  const src = fs.readFileSync(path.join(ROOT, "server/index.ts"), "utf8");
+  const at = src.indexOf('app.post("/api/admin/mechanics/proposals/:id/apply"');
+  if (at < 0) throw new Error("the admin apply route was not found in server/index.ts");
+  const guard = src.slice(at, at + 1200);
+  const statuses = [...guard.matchAll(/p\.status !== "([a-z_]+)"/g)].map((m) => m[1]);
+  if (statuses.length === 0) throw new Error("the apply route's status guard was not found");
+  return statuses;
+}
+
+/** Every client file, so a route's doors can be counted the way a member finds them. */
+function clientSources(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) out.push(fs.readFileSync(p, "utf8"));
+    }
+  };
+  walk(path.join(ROOT, "client/src"));
+  return out;
+}
+
 /** The values `ballots.status` can hold, off the row type that enumerates it. */
 function ballotStatusesFromSource(): string[] {
   const src = fs.readFileSync(path.join(ROOT, "server/lib/ballots.ts"), "utf8");
@@ -74,6 +117,28 @@ describe("the mechanics page speaks every state the server can send", () => {
     expect(statuses).toContain("passed_onsite");
     const missing = statuses.filter((s) => !(s in STATUS_COPY));
     expect(missing, `no STATUS_COPY entry for: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("offers the apply button for every status the apply route accepts", () => {
+    const fromRoute = applyableFromRoute();
+    // The shape that shipped: the route took passed_onsite and the page did
+    // not, so a proposal the village carried had no door to the ledger.
+    expect(fromRoute).toContain("passed_onsite");
+    const missing = fromRoute.filter((s) => !APPLYABLE.has(s as never));
+    expect(missing, `the apply route accepts these and the page has no button: ${missing.join(", ")}`).toEqual([]);
+    // And the other way: a button offering a status the route refuses walks
+    // an admin into a 409 with no way to know why.
+    const extra = [...APPLYABLE].filter((s) => !fromRoute.includes(s));
+    expect(extra, `the page offers apply for statuses the route refuses: ${extra.join(", ")}`).toEqual([]);
+  });
+
+  it("gives the village's own vote a door in the client, and not only in the tests", () => {
+    const server = fs.readFileSync(path.join(ROOT, "server/index.ts"), "utf8");
+    expect(server).toContain('app.post("/api/governance/mechanics/:id/open-ballot"');
+    // Counted the way check-route-reachability counts a page door, on the
+    // path the route is actually mounted at. It was zero when this shipped.
+    const doors = clientSources().filter((s) => s.includes("/api/governance/mechanics/")).length;
+    expect(doors, "no file in client/src calls the open-ballot route").toBeGreaterThan(0);
   });
 
   it("has a reading for every way a ballot can end", () => {

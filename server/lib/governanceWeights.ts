@@ -103,12 +103,28 @@ export function weightChangeProblem(input: { weight: unknown; note: unknown }): 
   return null;
 }
 
+export interface WeightChangeResult {
+  /** The audit row this write appended. The bell's dedupe key rides it. */
+  changeId: string;
+  /** What the member weighed before, or null when they had no row at all. */
+  oldWeight: number | null;
+  /** Whether the member's actual weight moved. A re-save of the same number
+   *  appends a trail row (the act happened) and changes no power. */
+  moved: boolean;
+}
+
 /**
  * Set one member's custom-mode weight and append the audit row, in one
  * transaction. The current-state upsert and the trail row commit together or
  * never: an allocation the trail cannot explain must not exist.
+ *
+ * Returns what changed, because the member whose power moved has to be TOLD
+ * and the caller cannot work either fact out afterwards: the previous weight
+ * is gone the moment this commits, and the trail row's id is what makes the
+ * notice dedupe per change instead of collapsing every future change into
+ * one row that is never seen again.
  */
-export async function setWeight(pool: Pool, input: WeightChangeInput): Promise<void> {
+export async function setWeight(pool: Pool, input: WeightChangeInput): Promise<WeightChangeResult> {
   const problem = weightChangeProblem(input);
   if (problem) throw new Error(problem);
   const conn = await pool.getConnection();
@@ -123,11 +139,18 @@ export async function setWeight(pool: Pool, input: WeightChangeInput): Promise<v
       "INSERT INTO governance_weights (user_id, weight) VALUES (?,?) ON DUPLICATE KEY UPDATE weight = VALUES(weight)",
       [input.userId, input.weight],
     );
-    await conn.query( // module-review-ok: the weight tables' one enumerable home; state and trail commit in one transaction here and nowhere else
+    const [trail] = await conn.query<any>( // module-review-ok: the weight tables' one enumerable home; state and trail commit in one transaction here and nowhere else
       "INSERT INTO governance_weight_changes (user_id, old_weight, new_weight, actor_user_id, note) VALUES (?,?,?,?,?)",
       [input.userId, oldWeight, input.weight, input.actorUserId, input.note.trim()],
     );
     await conn.commit();
+    return {
+      changeId: String(trail?.insertId ?? ""),
+      oldWeight,
+      // An absent row and a stored zero are the same amount of power, so
+      // going from one to the other moved nothing and is not news.
+      moved: (oldWeight ?? 0) !== input.weight,
+    };
   } catch (e) {
     await conn.rollback();
     throw e;

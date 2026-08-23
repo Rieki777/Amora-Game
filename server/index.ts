@@ -22291,6 +22291,17 @@ Send an empty drafts array when you are still listening. A role payload is {name
    *   modules      — which parts of the game this village is running.
    * Variables of OFF modules are omitted the same way Admin omits them: a
    * dial for a game the village is not playing is noise, not transparency.
+   *
+   * AND `governance`, WHICH IS WHERE THE BINDING VOTE ACTUALLY HAPPENS. The
+   * page shipped saying "the binding vote happens on the village's Hypha" as
+   * a flat fact, and it stopped being one when the on-site engine landed: a
+   * village running the governance module at its shipped `default_method`
+   * decides its own mechanics here. The page could not tell, because this
+   * payload carried neither the method nor the auto-apply brake, so it had no
+   * way to word a true sentence or to offer the door to the village's own
+   * vote. Both are resolved here, through the same helpers the routes
+   * enforce with, so the sentence and the door cannot disagree with the
+   * engine.
    */
   app.get("/api/game/mechanics", async (_req, res) => {
     // Rank test, not an off test: a module at PREVIEW is invisible to
@@ -22330,8 +22341,47 @@ Send an empty drafts array when you are still listening. A role payload is {name
         name: m.name,
         core: !!m.core,
       })),
+      governance: mechanicsGovernanceFacts(),
     });
   });
+
+  /**
+   * WHERE A MECHANICS PROPOSAL IS ACTUALLY DECIDED, AND WHAT HAPPENS AFTER.
+   *
+   * One function, because the page words three sentences off this and offers
+   * two buttons off it, and a second opinion about the venue is a page that
+   * sends a member to Hypha for a vote their village is holding at home.
+   *
+   * `decidesBy` folds two facts that always travel together into the one a
+   * member can act on. The on-site route lives behind `requireModule`, so a
+   * village with the governance module off decides on Hypha whatever
+   * `default_method` says, and the honest answer for it is "hypha" and not a
+   * method it cannot reach. The rank test is `>= members`, matching the
+   * hidden-dial rule right above: a module at PREVIEW is a thing the village
+   * is trying in private, and this route is anonymous, so a preview-stage
+   * engine reads as the shipped loop here even to an admin whose own request
+   * the route would accept.
+   *
+   * `method` is resolved through villageBallotMethod, the same one rule the
+   * open-ballot route conducts by, so the page never restates the fallback.
+   */
+  function mechanicsGovernanceFacts() {
+    const engineOn =
+      LIFECYCLE_RANK[effectiveLifecycle("governance")] >= LIFECYCLE_RANK.members;
+    const conducts = villageBallotMethod(stringVar("governance.default_method"));
+    const onSite = engineOn && conducts !== "hypha";
+    return {
+      decidesBy: onSite ? "onsite" : "hypha",
+      method: onSite ? conducts : null,
+      // The founder's brake, and the reason a carried proposal can sit at
+      // passed_onsite with nothing visibly wrong. Already public in the
+      // variables list above (it belongs to no module, so no rank test hides
+      // it); named here so the page can say WHY something is waiting instead
+      // of leaving a member to find the dial and infer it.
+      autoApply: boolVar("governance.auto_apply_enabled"),
+      supportThreshold: Math.max(0, numberVar("governance.proposal_support_threshold")),
+    };
+  }
 
   /**
    * The amendment history — public, newest first. Actor names are first
@@ -22469,7 +22519,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json(await Promise.all(proposals.map((p) => serveProposal(p, backers, lastBallot))));
   });
 
-  /** The viewer's own standing + which proposals they already back. */
+  /**
+   * The viewer's own standing + which proposals they already back.
+   *
+   * `mayOpenBallot` and `mine` are what the door to the village's own vote
+   * needs to know whether to appear. The open-ballot route admits the
+   * PROPOSER or a `proposal.open` holder, and this answers both halves of
+   * that question with the same gate the route enforces with, so the button
+   * and the door agree by construction. Guessing either half was the
+   * alternative, and the two shapes of guess are both bad: hide it from the
+   * proposer and the ordinary path has no door, or show it to everyone and a
+   * member learns their standing by being refused.
+   */
   app.get("/api/game/mechanics/standing", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
@@ -22478,10 +22539,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
       "SELECT proposal_id, kind FROM mechanics_proposal_backers WHERE user_id = ?",
       [user.id],
     );
+    const [mine] = await getPool().query<any[]>(
+      "SELECT id FROM mechanics_proposals WHERE proposer_user_id = ? ORDER BY created_at DESC LIMIT 200",
+      [user.id],
+    );
     res.json({
       ...standing,
       supportThreshold: Math.max(0, numberVar("governance.proposal_support_threshold")),
       backed: rows.map((r) => ({ proposalId: String(r.proposal_id), kind: String(r.kind) })),
+      mayOpenBallot: hasCapability("proposal.open", await capabilityCtx(user)),
+      mine: mine.map((r) => String(r.id)),
     });
   });
 
@@ -24091,6 +24158,62 @@ Send an empty drafts array when you are still listening. A role payload is {name
     });
   });
 
+  /**
+   * TELL THE MEMBER WHOSE VOTE JUST CHANGED WEIGHT.
+   *
+   * `server/lib/governanceWeights.ts` opens with the village's own promise:
+   * weight is power, and this game holds no hidden power. The append-only
+   * trail kept the first half of that and both write routes sent the person
+   * affected nothing, so the reason the route DEMANDS at the point of the
+   * change reached the record and never reached the one person it was
+   * written for. A trail you have to already suspect something to go and read
+   * is not the same as being told.
+   *
+   * Three judgments in here, each one deliberate:
+   *
+   *  - SILENCE WHEN NOTHING MOVED. Re-saving the same number appends a trail
+   *    row, because the act happened, and moves no power. A notice saying a
+   *    weight went from 5 to 5 is noise with a false shape.
+   *  - SILENCE TOWARD YOURSELF. An admin allocating their own weight already
+   *    knows; the open-ballot route excepts its own actor the same way.
+   *  - THE MODE IS PART OF THE TRUTH. `governance_weights` only weighs votes
+   *    while the mode is `custom`. Under equal or token the row is a real
+   *    record of a real decision that weighs nothing today, and a notice that
+   *    left that out would tell a member their vote counts for five when it
+   *    counts for one.
+   *
+   * Fire-and-forget on purpose: a bulk pass is one of these per member, and
+   * the admin's request must not hang on the bell.
+   */
+  async function tellMemberTheirWeightChanged(
+    target: { id: string; name?: string | null },
+    outcome: { changeId: string; oldWeight: number | null; moved: boolean },
+    weight: number,
+    note: string,
+    actorId: string,
+  ): Promise<void> {
+    if (!outcome.moved || actorId === target.id) return;
+    const snapshot = weightModeNow();
+    const actorUser = await members.byId(actorId);
+    const actorName = actorUser ? firstName(actorUser.name) : "A steward";
+    const was = outcome.oldWeight === null ? "no allocation" : String(outcome.oldWeight);
+    const modeLine =
+      snapshot.mode === "custom"
+        ? ""
+        : snapshot.mode === "equal"
+          ? " This village weighs every eligible vote the same today, so the allocation is on the record and is not what your vote weighs right now."
+          : " This village weighs votes by token balance today, so the allocation is on the record and is not what your vote weighs right now.";
+    await notify({
+      userId: target.id,
+      type: "weight_changed",
+      title: `Your voting weight allocation is now ${weight}`,
+      body: `${actorName} changed it from ${was}. The reason they gave: ${note.trim()}${modeLine}`,
+      link: "/decisions",
+      actorUserId: actorId,
+      dedupeKey: `gw:${outcome.changeId}`,
+    });
+  }
+
   app.put("/api/admin/governance/weights/:userId", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const problem = weightChangeProblem({ weight: req.body?.weight, note: req.body?.note });
@@ -24099,12 +24222,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!target) return res.status(404).json({ error: "Not found" });
     if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
-    await setWeight(getPool(), {
+    const outcome = await setWeight(getPool(), {
       userId: target.id,
       weight: Number(req.body.weight),
       actorUserId: actor,
       note: String(req.body.note),
     });
+    void tellMemberTheirWeightChanged(target, outcome, Number(req.body.weight), String(req.body.note), actor);
     res.json({ success: true });
   });
 
@@ -24123,12 +24247,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
     }
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
     for (const c of changes) {
-      await setWeight(getPool(), {
+      const outcome = await setWeight(getPool(), {
         userId: String(c.userId),
         weight: Number(c.weight),
         actorUserId: actor,
         note,
       });
+      // One note explains the whole pass, and each member hears about their
+      // own row. A member has no way to see the other rows, so a shared note
+      // is the only context the notice can carry, which is why the route
+      // asks for one that reads as a reason and not as a label.
+      const who = await members.byId(String(c.userId));
+      if (who) void tellMemberTheirWeightChanged(who, outcome, Number(c.weight), note, actor);
     }
     res.json({ success: true, changed: changes.length });
   });
