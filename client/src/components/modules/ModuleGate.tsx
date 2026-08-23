@@ -71,9 +71,59 @@ function safeNext(path: string): string {
   return path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\") ? path : "/";
 }
 
-const DOOR = "inline-flex items-center justify-center min-h-[44px] px-5 rounded-lg font-semibold";
-const DOOR_PRIMARY = `${DOOR} bg-teal-deep text-white`;
-const DOOR_SECOND = `${DOOR} border border-teal-deep text-teal-deep`;
+const DOOR =
+  "inline-flex items-center justify-center min-h-[44px] px-5 rounded-lg font-semibold" +
+  " focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2";
+const DOOR_PRIMARY = `${DOOR} bg-teal-deep text-white hover:bg-teal-deep-dark`;
+const DOOR_SECOND = `${DOOR} border border-teal-deep text-teal-deep hover:bg-teal-deep/5`;
+
+/**
+ * BOTH DOORS, WITH NO CARD AROUND THEM.
+ *
+ * Four pages carry their own sign-in gate rather than this file's, and every
+ * one of those is a deliberate choice that is still right: `Decisions` and
+ * `Propose` keep their own hero, `Introductions` renders the PUBLIC board
+ * underneath its card, and `ResourcesPanel` is a panel inside the map and
+ * cannot host a second site shell. `SignInToSee` owns a `Layout`, so it can
+ * never be the answer for any of them.
+ *
+ * What all five DO share is the pair of doors, and four of them were missing
+ * the second one. The person a sign-in card meets most often has no account,
+ * and until now three of those pages offered them a sign-in form and nothing
+ * else while the fourth offered a sentence with no link in it at all.
+ *
+ * So the doors come out and the cards stay. This owns no margin, no border
+ * and no copy about what is behind it, because each of those belongs to the
+ * page that knows its own subject.
+ *
+ * `/register` takes no `next` and that is not an oversight of this component:
+ * `Register.tsx` sends a new member to character creation with `?first=1`,
+ * which is a first-run walk and the right place to land. Sign-in is the door
+ * that returns you to where you were.
+ */
+export function SignInDoors({
+  next,
+  /** Centred inside a card of its own, left where it sits in a panel. */
+  align = "center",
+}: {
+  next?: string;
+  align?: "center" | "start";
+}) {
+  const [location] = useLocation();
+  const target = safeNext(next ?? location);
+  return (
+    <div
+      className={`flex flex-col sm:flex-row gap-3 ${align === "start" ? "sm:justify-start" : "justify-center"}`}
+    >
+      <Link href={`/login?next=${encodeURIComponent(target)}`} className={DOOR_PRIMARY}>
+        Sign in
+      </Link>
+      <Link href="/register" className={DOOR_SECOND}>
+        Create an account
+      </Link>
+    </div>
+  );
+}
 
 /** The card's frame, so all four states are one shape at one width. */
 function GateShell({ name, children }: { name: string; children: React.ReactNode }) {
@@ -151,13 +201,8 @@ export function SignInToSee({
     <GateShell name={name}>
       {line && <p className="text-foreground leading-relaxed mb-2">{line}</p>}
       <p className="text-muted-foreground mb-6">This part of the village opens when you sign in.</p>
-      <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6">
-        <Link href={`/login?next=${encodeURIComponent(target)}`} className={DOOR_PRIMARY}>
-          Sign in
-        </Link>
-        <Link href="/register" className={DOOR_SECOND}>
-          Create an account
-        </Link>
+      <div className="mb-6">
+        <SignInDoors next={target} />
       </div>
       <StillOpen signedIn={false} />
     </GateShell>

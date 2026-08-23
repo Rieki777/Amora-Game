@@ -36,7 +36,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { PenLine, Scale } from "lucide-react";
 import Layout from "@/components/Layout";
-import ModuleGate from "@/components/modules/ModuleGate";
+import ModuleGate, { SignInDoors } from "@/components/modules/ModuleGate";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { BreathingLoader } from "@/components/natural";
@@ -130,12 +130,13 @@ export default function Decisions() {
             <p className="mx-auto mt-2 max-w-md text-stone-600 leading-relaxed">
               Votes here carry names, so the page opens for members.
             </p>
-            <Link
-              href="/login?next=%2Fdecisions"
-              className="mt-5 inline-flex min-h-[44px] items-center rounded-lg bg-teal-deep px-5 font-semibold text-white hover:bg-teal-deep-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2"
-            >
-              Sign in
-            </Link>
+            {/* This card is deliberate and stays: the hero above it is this
+                page's own, and SignInToSee would replace the whole thing with
+                a bare column. What was missing is the second door, for the
+                visitor with no account to sign in with. */}
+            <div className="mt-5">
+              <SignInDoors next="/decisions" />
+            </div>
           </div>
         ) : ballots === null ? (
           <div className="flex justify-center py-16">

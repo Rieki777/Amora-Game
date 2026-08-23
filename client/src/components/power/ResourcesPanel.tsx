@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useModule } from "@/modules/ModuleProvider";
+import { SignInDoors } from "@/components/modules/ModuleGate";
 import { authToken } from "@/lib/gameApi";
 import { crossRate, exponentOf, formatMoney } from "@shared/money";
 import { storedDisplayCurrency, type FxTable } from "./CurrencyPicker";
@@ -150,7 +151,12 @@ export default function ResourcesPanel({
     return (
       <div className="bg-card border border-border rounded-2xl p-5" data-resources-panel>
         <h2 className="font-display text-lg font-bold text-foreground mb-1">What can I spend?</h2>
-        <p className="text-sm text-muted-foreground">Sign in to see which rules name you.</p>
+        <p className="text-sm text-muted-foreground mb-3">Sign in to see which rules name you.</p>
+        {/* This one had no link at all, so the sentence was the whole offer.
+            It stays a panel: it sits inside the map beside the lens controls,
+            and SignInToSee carries a Layout that would nest a second site
+            shell in the middle of the page. Only the doors are shared. */}
+        <SignInDoors align="start" />
       </div>
     );
   }
