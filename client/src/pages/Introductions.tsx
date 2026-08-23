@@ -460,16 +460,21 @@ function Compose({ onDone }: { onDone: (created: boolean) => void }) {
         <legend className="text-xs font-semibold text-muted-foreground">Who can see it</legend>
         {(Object.keys(TIER_GLOSS) as Tier[]).map((t) => (
           <label key={t} className="flex items-start gap-2 text-sm cursor-pointer">
+            {/* The tier names the choice; the gloss explains it. Wrapped in a
+                <label> the two were read as one name, so picking a visibility
+                meant hearing four sentences to find four words. */}
             <input
               type="radio"
               name="tier"
               checked={tier === t}
               onChange={() => setTier(t)}
+              aria-label={t.charAt(0).toUpperCase() + t.slice(1)}
+              aria-describedby={`tier-${t}-gloss`}
               className="mt-1 accent-[#2D5A5A]"
             />
             <span>
               <span className="font-semibold capitalize">{t}</span>
-              <span className="block text-xs text-muted-foreground">{TIER_GLOSS[t]}</span>
+              <span id={`tier-${t}-gloss`} className="block text-xs text-muted-foreground">{TIER_GLOSS[t]}</span>
             </span>
           </label>
         ))}

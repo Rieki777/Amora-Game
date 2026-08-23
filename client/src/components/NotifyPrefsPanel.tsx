@@ -191,16 +191,20 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
           carried, a cycle settled, a quest consented. The notice itself lands
           in the bell either way, so turning this off loses no information. */}
       <label className="flex items-start gap-2 text-sm text-gray-700 mb-4">
+        {/* The toggle names itself; the four moments are a description. A
+            wrapping <label> read the whole paragraph as this checkbox's name. */}
         <input
           type="checkbox"
           className="mt-1"
           checked={prefs.celebrations !== "off"}
           disabled={saving}
+          aria-label="Mark the rare moments on screen"
+          aria-describedby="celebrations-hint"
           onChange={(e) => save({ celebrations: e.target.checked ? "on" : "off" })}
         />
         <span>
           Mark the rare moments on screen
-          <span className="block text-xs text-gray-600">
+          <span id="celebrations-hint" className="block text-xs text-gray-600">
             A stage crossed, a vote carried, a cycle settled, a quest consented. Four things, no sound.
           </span>
         </span>
@@ -209,9 +213,13 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
       {contactable !== null && (
         <div className="mb-4">
           <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={contactable} onChange={(e) => saveContactable(e.target.checked)} />
+            {/* The setting names the control. The parenthetical says who can
+                reach you and how, which is a description, not a name. */}
+            <input type="checkbox" checked={contactable} onChange={(e) => saveContactable(e.target.checked)}
+              aria-label="Contactable through the Village Map"
+              aria-describedby="contactable-hint" />
             Contactable through the Village Map
-            <span className="text-xs text-gray-600">(role holders only; senders see a relay, never your email)</span>
+            <span id="contactable-hint" className="text-xs text-gray-600">(role holders only; senders see a relay, never your email)</span>
           </label>
           {contactNote && <p role="alert" className="text-xs text-red-600 mt-1">{contactNote}</p>}
         </div>

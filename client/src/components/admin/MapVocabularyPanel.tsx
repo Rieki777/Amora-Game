@@ -93,14 +93,26 @@ export default function MapVocabularyPanel({ password }: { password: string }) {
     toast.success("Words saved. The map reads them on its next load");
   };
 
-  const box = (label: string, hint: string, value: string, onChange: (v: string) => void) => (
-    <label className="text-xs text-gray-500 block">
-      <span className="font-medium text-gray-700">{label}</span>
-      <textarea rows={5} value={value} onChange={(e) => onChange(e.target.value)}
-        className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]" />
-      <span className="block text-[11px] text-gray-400 mt-0.5">{hint}</span>
-    </label>
-  );
+  /*
+   * THE FIELD NAME IS THE NAME, and the examples under it are a description.
+   * A wrapping <label> names its control with every string it contains, so
+   * without the explicit aria-label this box announced as "Paths and roads
+   * Track, lane, camino. The first is the default." on every focus. The hint
+   * earns its place on screen; it just cannot be part of the name.
+   */
+  const box = (label: string, hint: string, value: string, onChange: (v: string) => void) => {
+    const hintId = `map-vocab-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-hint`;
+    return (
+      <label className="text-xs text-gray-500 block">
+        <span className="font-medium text-gray-700">{label}</span>
+        <textarea rows={5} value={value} onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
+          aria-describedby={hintId}
+          className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]" />
+        <span id={hintId} className="block text-[11px] text-gray-400 mt-0.5">{hint}</span>
+      </label>
+    );
+  };
 
   return (
     <div className="bg-white border border-gray-100 rounded-xl p-5">

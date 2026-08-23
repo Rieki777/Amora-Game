@@ -37,6 +37,7 @@ import { History, Scale } from "lucide-react";
 import { toast } from "sonner";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import InfoTip from "@/components/InfoTip";
+import { sortMembersByName } from "@shared/memberOrder";
 
 type WeightMode = "equal" | "token" | "custom";
 
@@ -241,14 +242,19 @@ export default function VotingWeightsPanel({
   }
 
   /*
-   * SORTED BY NAME, and this is not a nicety. The server answers in whatever
-   * order `members.all()` returns, which changes when a row is written: the
-   * first drive of this screen saved Ada's weight and watched her jump from
-   * the second row to the first, moving every other row under a founder's
-   * cursor. An allocation table that reshuffles after every save is one where
-   * the next save lands on the wrong person.
+   * SORTED BY NAME, and this is not a nicety. An admin works down this table
+   * row by row, and the read after a save has to put every row back where the
+   * read before it did. A table that reshuffles after a save is one where the
+   * next click lands on the wrong person.
+   *
+   * The route sorts too, through this same comparator. Sorting again here is
+   * deliberate: it costs nothing on a village-sized list, and it means the
+   * table holds its order even if a future payload arrives unsorted. The
+   * comparator lives in `shared/memberOrder.ts` so that every admin surface
+   * showing members agrees on one order, and the reasoning is written out
+   * there in full.
    */
-  const members = [...data.members].sort((a, b) => a.name.localeCompare(b.name));
+  const members = sortMembersByName(data.members);
   const total = members.reduce((s, m) => s + m.weight, 0);
   const allPicked = picked.size > 0 && picked.size === members.length;
   const bulkNumber = Number(bulkWeight);

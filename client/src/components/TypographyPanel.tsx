@@ -203,9 +203,13 @@ export default function TypographyPanel({ password }: { password: string }) {
           </button>
         </div>
         <label className="flex items-start gap-2 text-xs text-gray-600">
-          <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
+          {/* The confirmation is the name. What counts as a web licence is a
+              description: useful, and too long to hear before every tick. */}
+          <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5"
+            aria-label="I confirm this project holds a licence to embed this font on the web."
+            aria-describedby="font-licence-hint" />
           <span>
-            I confirm this project holds a licence to embed this font on the web. <span className="text-gray-400">
+            I confirm this project holds a licence to embed this font on the web. <span id="font-licence-hint" className="text-gray-400">
             ("Free to download" usually covers desktop use only. Web embedding is a separate right.
             Fonts from Google Fonts / Fontsource are OFL and always fine.)</span>
           </span>

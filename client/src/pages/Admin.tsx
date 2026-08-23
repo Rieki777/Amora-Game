@@ -4611,9 +4611,15 @@ function OrgChartTab({ password }: { password: string }) {
                       </div>
                     </div>
                     <label className="text-xs text-gray-500 block mt-2">Purpose
+                      {/* A wrapping <label> names the control with EVERY string
+                          inside it, so this field announced its name plus the
+                          whole hint as one sentence. The name is the field, the
+                          hint is a description a reader can take or skip. */}
                       <textarea rows={2} value={cd.purpose ?? ""} className={`${inputCls} w-full mt-1`} disabled={!!c.isExample}
+                        aria-label="Purpose"
+                        aria-describedby={`${c.id}-purpose-hint`}
                         onChange={(e) => setCircle({ purpose: e.target.value })} />
-                      <span className="block text-[11px] text-gray-400 mt-0.5">
+                      <span id={`${c.id}-purpose-hint`} className="block text-[11px] text-gray-400 mt-0.5">
                         Printed on /circles as the circle's description, and on /roles as the heading under its name.
                       </span>
                     </label>
@@ -4686,20 +4692,27 @@ function OrgChartTab({ password }: { password: string }) {
                         here promising the site updates immediately.
                       */}
                       <div className="grid sm:grid-cols-2 gap-2 mt-2">
+                        {/* Both fields carry an explicit aria-label: a wrapping
+                            <label> would otherwise name each control with its
+                            field name AND the hint under it, run together. */}
                         <label className="text-xs text-gray-500">Key accountabilities, one per line
                           <textarea rows={4} value={(d.accountabilities ?? []).join("\n")} className={`${inputCls} w-full mt-1`}
+                            aria-label="Key accountabilities, one per line"
+                            aria-describedby={`${r.id}-accountabilities-hint`}
                             onChange={(e) => setDraft({
                               ...draft,
                               [r.id]: { ...d, accountabilities: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) },
                             })} />
-                          <span className="block text-[11px] text-gray-400 mt-0.5">
+                          <span id={`${r.id}-accountabilities-hint`} className="block text-[11px] text-gray-400 mt-0.5">
                             The ongoing work the circle counts on this seat to keep doing. Listed on /roles.
                           </span>
                         </label>
                         <label className="text-xs text-gray-500">Why this seat matters
                           <textarea rows={4} value={d.whyItMatters ?? ""} className={`${inputCls} w-full mt-1`}
+                            aria-label="Why this seat matters"
+                            aria-describedby={`${r.id}-why-hint`}
                             onChange={(e) => setDraft({ ...draft, [r.id]: { ...d, whyItMatters: e.target.value } })} />
-                          <span className="block text-[11px] text-gray-400 mt-0.5">
+                          <span id={`${r.id}-why-hint`} className="block text-[11px] text-gray-400 mt-0.5">
                             Shown on /roles under Why This Role Matters.
                           </span>
                         </label>
@@ -7373,10 +7386,16 @@ function ExitsAdminTab({ password }: { password: string }) {
           <label className="text-xs text-gray-500 block mb-4">
             <span className="font-medium text-gray-700">How contributed value is honored</span>
             {mark(stale.includes("How contributed value is honored"))}
+            {/* The name is the term. Without an explicit one the wrapping
+                <label> handed a reader the term, the stale badge and the whole
+                hint as a single sentence. Badge and hint both stay, as
+                descriptions, in the order a reader would want them. */}
             <textarea rows={3} value={policyDraft.voluntary?.valuationMethod ?? ""}
+              aria-label="How contributed value is honored"
+              aria-describedby="exit-valuation-hint"
               onChange={(e) => setVol({ valuationMethod: e.target.value })}
               className={`${inputCls} w-full mt-1`} />
-            <span className="block text-[11px] text-gray-400 mt-1">
+            <span id="exit-valuation-hint" className="block text-[11px] text-gray-400 mt-1">
               What a departing member is owed for what they built, and how it is worked out.
             </span>
           </label>
@@ -7392,7 +7411,10 @@ function ExitsAdminTab({ password }: { password: string }) {
           <label className="text-xs text-gray-500 block mb-4">
             <span className="font-medium text-gray-700">If the village asks someone to leave</span>
             {mark(stale.includes("If the village asks someone to leave"))}
+            {/* Same shape as the field above: the term names the control, the
+                stale badge stops being read as part of that name. */}
             <textarea rows={3} value={policyDraft.involuntary?.process ?? ""}
+              aria-label="If the village asks someone to leave"
               onChange={(e) => setInv({ process: e.target.value })}
               className={`${inputCls} w-full mt-1`} />
           </label>

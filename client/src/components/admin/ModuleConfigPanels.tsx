@@ -323,10 +323,16 @@ export function CategoryListEditor({
             <div key={i} className="grid sm:grid-cols-12 gap-2 items-end">
               <label className="text-xs text-gray-500 sm:col-span-4">
                 Id
+                {/* The locked note is a description. Inside the <label> it
+                    became part of this field's name, and only on the rows
+                    where it appears, so the same field announced two
+                    different names depending on the row. */}
                 <input value={r.id} disabled={locked}
+                  aria-label="Id"
+                  aria-describedby={locked ? `category-${i}-locked` : undefined}
                   onChange={(e) => set(i, { id: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })}
                   placeholder="village-life" className={`${inputCls} w-full mt-1 disabled:bg-gray-50 disabled:text-gray-500`} />
-                {locked && <span className="block text-[11px] text-gray-400 mt-0.5">Fixed. Threads and tools already point at it.</span>}
+                {locked && <span id={`category-${i}-locked`} className="block text-[11px] text-gray-400 mt-0.5">Fixed. Threads and tools already point at it.</span>}
               </label>
               <label className="text-xs text-gray-500 sm:col-span-5">
                 What people read
@@ -417,13 +423,19 @@ export function ResourcesRoutingEditor({ password }: { password: string }) {
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="text-xs text-gray-500">
           Forum category a spending request is filed under
+          {/* The warning is a description, and a conditional one: inside the
+              <label> it appeared in this control's name only when a category
+              had gone missing, which is the moment the name most needed to
+              stay recognisable. */}
           <select value={category} onChange={(e) => setCategory(e.target.value)}
+            aria-label="Forum category a spending request is filed under"
+            aria-describedby={known ? undefined : "spend-category-warning"}
             className={`${inputCls} w-full mt-1`}>
             {!known && <option value={category}>{category} (no forum category by that name)</option>}
             {categories.map((c) => <option key={c.id} value={c.id}>{c.label} ({c.id})</option>)}
           </select>
           {!known && (
-            <span className="block text-[11px] text-amber-800 mt-1">
+            <span id="spend-category-warning" className="block text-[11px] text-amber-800 mt-1">
               Nothing on the forum answers to this name, so every approval request
               lands in whichever category sorts first. Pick one from the list.
             </span>

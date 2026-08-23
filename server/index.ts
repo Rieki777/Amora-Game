@@ -19,6 +19,7 @@ import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } fr
 import { buildThemeCss, sanitizeFontName } from "./lib/themeCss";
 import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
 import { CONSTITUTION } from "../shared/constitution";
+import { sortMembersByName } from "../shared/memberOrder";
 import { DEFAULT_MAP_SKIN, sanitiseMapSkin } from "../shared/mapSkin";
 import {
   DEFAULT_MAP_VOCABULARY,
@@ -8207,13 +8208,20 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const q = String(req.query.q ?? "").trim().toLowerCase();
     if (q.length < 2) return res.json([]);
     const all = await members.all();
-    const matches = all
-      .filter((u: any) => u.id !== user.id && !isExampleUser(u) && u.passwordHash)
-      .filter(
-        (u: any) =>
-          String(u.name ?? "").toLowerCase().includes(q) ||
-          String(u.handle ?? "").toLowerCase().includes(q),
-      )
+    // SORTED BEFORE THE SLICE, and the slice is why it matters. This cut the
+    // first ten matches out of join order, so on a village where eleven names
+    // contain the query the ten oldest accounts answered and the newest member
+    // could not be found at all. Ten alphabetical matches are at least the same
+    // ten every time, and a searcher can tell what they are looking at.
+    const matches = sortMembersByName(
+      all
+        .filter((u: any) => u.id !== user.id && !isExampleUser(u) && u.passwordHash)
+        .filter(
+          (u: any) =>
+            String(u.name ?? "").toLowerCase().includes(q) ||
+            String(u.handle ?? "").toLowerCase().includes(q),
+        ),
+    )
       .slice(0, 10)
       .map((u: any) => ({ userId: u.id, name: firstName(u.name ?? "Member"), handle: u.handle ?? null }));
     res.json(matches);
@@ -23106,13 +23114,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const snapshot = weightModeNow();
     const allocations = await allWeights(getPool());
-    const rows = ((await members.all()) as any[])
-      .filter((u) => !isExampleUser(u) && u.passwordHash)
-      .map((u) => ({
-        id: String(u.id),
-        name: String(u.name),
-        weight: allocations.get(String(u.id)) ?? 0,
-      }));
+    // SORTED BY NAME here, where the allocation table can trust it. An admin
+    // works down this table row by row, so the order has to be the same on the
+    // read after a save as it was on the read before it.
+    const rows = sortMembersByName(
+      ((await members.all()) as any[])
+        .filter((u) => !isExampleUser(u) && u.passwordHash)
+        .map((u) => ({
+          id: String(u.id),
+          name: String(u.name),
+          weight: allocations.get(String(u.id)) ?? 0,
+        })),
+    );
     res.json({
       mode: snapshot.mode,
       token: snapshot.token,
@@ -24732,7 +24745,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // Standing-example identities author example threads; they are content,
     // not people, and have no password_hash. They do not belong on the roster.
-    const allMembers = (await members.all()).filter((u: any) => !u.isExample);
+    // SORTED BY NAME, and this is the one place that decides it for nine
+    // client surfaces. `members.all()` answers in join order, which is total
+    // and never moves under a write, so nothing here is chasing stability.
+    // Join order is simply unsearchable: this payload feeds the roster, the
+    // seat picker on /admin org chart, and six member dropdowns, and every one
+    // of them listed people in registration sequence. Sorting at the route
+    // rather than in each caller keeps admin to ONE order.
+    const allMembers = sortMembersByName((await members.all()).filter((u: any) => !u.isExample));
     // One grouped COUNT for the whole roster, not one query per member.
     const consented = await claimsRepo.consentedCounts();
     res.json(

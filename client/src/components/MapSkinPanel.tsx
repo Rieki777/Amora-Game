@@ -211,17 +211,25 @@ export default function MapSkinPanel({ password }: { password: string }) {
     </div>
   );
 
+  /*
+   * The checkbox is named by the toggle, described by the line under it. A
+   * wrapping <label> would otherwise read both as one name, so a reader
+   * tabbing these heard "Dream mist A soft haze over the land." where the
+   * useful word is the first two.
+   */
   const toggleRow = (key: "mist" | "glow", label: string, hint: string) => (
     <label className="flex items-start gap-2.5 cursor-pointer">
       <input
         type="checkbox"
         checked={skin[key]}
         onChange={(e) => set({ [key]: e.target.checked } as Partial<MapSkin>)}
+        aria-label={label}
+        aria-describedby={`map-skin-${key}-hint`}
         className="h-4 w-4 mt-0.5 accent-[#2D5A5A]"
       />
       <span>
         <span className="block text-sm font-medium text-gray-900">{label}</span>
-        <span className="block text-[11px] text-gray-400">{hint}</span>
+        <span id={`map-skin-${key}-hint`} className="block text-[11px] text-gray-400">{hint}</span>
       </span>
     </label>
   );
