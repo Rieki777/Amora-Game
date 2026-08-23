@@ -28,7 +28,9 @@
  *      what they met.
  *   4. An admin who is not the holder gets 409 and a sentence naming who
  *      holds it and what to send. Then the break-glass, and the line lands on
- *      the PUBLIC pulse the village itself reads.
+ *      the PUBLIC pulse the village itself reads, IF the act completed. The
+ *      glass round moved that line off the gate and onto the response, so
+ *      `completes` below says which of the two things each block proves.
  *   5. The power goes back, and the admin passes again with no ceremony.
  *
  * ── AND THE ONE THAT IS NOT A ROUND TRIP ─────────────────────────────────
@@ -148,6 +150,27 @@ async function reachCount(): Promise<number> {
   const [[row]] = await pool.query<any[]>( // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
     "SELECT COUNT(*) AS n FROM health_events WHERE audience = 'public' AND is_example = 0 " +
       "AND text LIKE '%acted on a power this village holds%'",
+  );
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * How many times the glass has been broken FOR this key, act or no act.
+ *
+ * The admin trail carries the attempt and the public pulse carries the act,
+ * and the two stopped being the same row in the glass round. Reading both is
+ * what tells a refused-after-the-gate case apart from a gate that never
+ * opened: the attempt is there, and the village was told nothing.
+ *
+ * No polling anywhere in this file, and that is a property of the ordering
+ * and not luck. The attempt is awaited before the route runs, and the public
+ * line is awaited before the response leaves, so a read that follows the
+ * answer can never be ahead of either.
+ */
+async function attemptCount(cap: string): Promise<number> {
+  const [[row]] = await pool.query<any[]>( // module-review-ok: a fixture or readback on the scratch schema this suite provisioned
+    "SELECT COUNT(*) AS n FROM health_events WHERE audience = 'admin' AND text LIKE ?",
+    [`capability:override:${cap}:%`],
   );
   return Number(row?.n ?? 0);
 }
@@ -282,6 +305,20 @@ afterAll(async () => {
  * AFTER the gate let them through. A 404 there is the gate saying yes, and it
  * is a stronger reading than a 200 would be for a route whose success has
  * side effects this suite would then have to unwind.
+ *
+ * ── `completes`, AND WHY THOSE TWO NOW ASSERT THE OPPOSITE ────────────────
+ *
+ * The public line used to be written by the gate, before the route ran, so
+ * both 404 cases left the village reading "acted on a power this village
+ * holds" about an act that never happened. That was the second defect of the
+ * glass round and it is fixed by moving the line to the response: the village
+ * hears about a reach when the reach did something.
+ *
+ * So a 404 case is no longer weaker evidence than a 200 case, it is evidence
+ * of a different thing, and the flag says which. `completes: true` asserts the
+ * pulse grows by exactly one. `completes: false` asserts the pulse does NOT
+ * grow AND the admin trail carries the attempt, which together are the whole
+ * of the honest ordering, per key, on a real route.
  */
 function drivePower(opts: {
   /** A name for the block, because one key can gate more than one act. */
@@ -301,8 +338,10 @@ function drivePower(opts: {
   refusedStatus: number;
   /** Which break-glass this route's shape allows. */
   hatch: "body" | "header";
+  /** Does the act this block drives actually complete? See the header. */
+  completes: boolean;
 }) {
-  const { title, cap, act, passes, refusal, refusedStatus, hatch } = opts;
+  const { title, cap, act, passes, refusal, refusedStatus, hatch, completes } = opts;
   const glass = (token: string) =>
     hatch === "body"
       ? act(token, { override: true })
@@ -355,17 +394,50 @@ function drivePower(opts: {
       expect(blocked.json?.capability).toBe(cap);
       expect(String(blocked.json?.error)).toContain("Steward Circle");
       expect(String(blocked.json?.error)).toContain("override");
+      /*
+       * THE FACTS A BROWSER NEEDS, beside the sentence a terminal needs.
+       *
+       * `error` tells an operator to send a header, which is the only thing a
+       * person with curl can act on and the only thing a control cannot use.
+       * These three are what the dialog says its own sentence out of, and
+       * every one of them comes off the registry or the holdings row.
+       */
+      expect(blocked.json?.holder, `${cap} must name its holder as a bare name`).toBe("Steward Circle");
+      expect(typeof blocked.json?.title, `${cap} must carry the power's name`).toBe("string");
+      expect(String(blocked.json?.title).length).toBeGreaterThan(0);
+      expect(typeof blocked.json?.consequence, `${cap} must carry what a holder can do`).toBe("string");
     });
 
-    it("goes through with the break-glass, and the village reads it on its own pulse", async () => {
-      const before = await reachCount();
-      const forced = await glass(founderToken);
-      expect(passes, `${cap} with the glass broken: ${forced.text}`).toContain(forced.status);
-      expect(await reachCount(), `${cap} must leave exactly one public line`).toBe(before + 1);
-      const line = (await publicPulse()).find((t) => t.includes("acted on a power this village holds"));
-      expect(line).toContain("Eight Founder");
-      expect(line).toContain("Steward Circle");
-    });
+    if (completes) {
+      it("goes through with the break-glass, and the village reads it on its own pulse", async () => {
+        const before = await reachCount();
+        const attempts = await attemptCount(cap);
+        const forced = await glass(founderToken);
+        expect(passes, `${cap} with the glass broken: ${forced.text}`).toContain(forced.status);
+        expect(await reachCount(), `${cap} must leave exactly one public line`).toBe(before + 1);
+        expect(await attemptCount(cap), `${cap} must leave the attempt in the admin trail`).toBe(attempts + 1);
+        const line = (await publicPulse()).find((t) => t.includes("acted on a power this village holds"));
+        expect(line).toContain("Eight Founder");
+        expect(line).toContain("Steward Circle");
+      });
+    } else {
+      it("opens on the break-glass, and the village hears nothing because nothing happened", async () => {
+        /*
+         * The gate said yes and the route then answered 404, so the act never
+         * happened. The village's own pulse stays exactly where it was, and
+         * the admin trail carries the attempt, which is the pair that lets an
+         * operator tell an abandoned reach from a lost record.
+         */
+        const before = await reachCount();
+        const attempts = await attemptCount(cap);
+        const forced = await glass(founderToken);
+        expect(passes, `${cap} with the glass broken: ${forced.text}`).toContain(forced.status);
+        expect(forced.status, `${cap}: this block exists for a route that refuses after the gate`)
+          .toBeGreaterThanOrEqual(400);
+        expect(await reachCount(), `${cap} wrote a public line about an act that did not happen`).toBe(before);
+        expect(await attemptCount(cap), `${cap} must still record the attempt`).toBe(attempts + 1);
+      });
+    }
 
     it("hands it back, and the admin passes again with no ceremony at all", async () => {
       expect((await handBack(cap)).status).toBe(200);
@@ -410,6 +482,7 @@ drivePower({
   refusal: "auth_required",
   refusedStatus: 401,
   hatch: "body",
+  completes: true,
 });
 
 drivePower({
@@ -421,6 +494,7 @@ drivePower({
   refusal: "Setting housing numbers is an appointment",
   refusedStatus: 403,
   hatch: "body",
+  completes: true,
 });
 
 drivePower({
@@ -433,6 +507,7 @@ drivePower({
   refusal: "needs the capability to curate them",
   refusedStatus: 403,
   hatch: "body",
+  completes: true,
 });
 
 drivePower({
@@ -450,6 +525,7 @@ drivePower({
   refusal: "Consenting to finished work is for stewards",
   refusedStatus: 403,
   hatch: "body",
+  completes: false,
 });
 
 drivePower({
@@ -466,6 +542,7 @@ drivePower({
   refusal: "Updating reservations is an appointment",
   refusedStatus: 403,
   hatch: "header",
+  completes: false,
 });
 
 describe.skipIf(!DB_CONFIGURED)("org.declare crosses, and its hatch is the header", () => {

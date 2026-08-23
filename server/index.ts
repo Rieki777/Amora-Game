@@ -3021,6 +3021,18 @@ interface CapabilityVerdict {
    * stopped being worth leaving as a coincidence of wording.
    */
   needsOverride: boolean;
+  /**
+   * WHO HOLDS IT, as a bare name, when `needsOverride` is true.
+   *
+   * `message` already carries this name inside a sentence, and a browser
+   * cannot use a sentence: the sentence tells an operator to send a header,
+   * which is advice for somebody holding a terminal. The 409 carries the
+   * facts separately so a control can compose its own words out of them and
+   * the curl sentence can stay exactly what it was.
+   *
+   * Null on every other verdict, because there is nothing to name.
+   */
+  holderName: string | null;
 }
 
 function wantsOverride(req: express.Request): boolean {
@@ -3029,12 +3041,107 @@ function wantsOverride(req: express.Request): boolean {
   return String(Array.isArray(header) ? header[0] : header ?? "") === "true";
 }
 
+/**
+ * ── THE ORDERING OF THE RECORD, AND WHY IT IS THIS ONE ─────────────────────
+ *
+ * The public line said "acted on a power this village holds" and it was
+ * written by `mayAct`, which runs BEFORE the route does. So an admin who
+ * broke the glass and then failed validation, or addressed a row that was not
+ * there, left the village a permanent record of an act that never happened.
+ * A village reading its own pulse could not tell those from the real ones.
+ *
+ * Two rows now, and they answer two different questions:
+ *
+ *  - THE ATTEMPT is written immediately, to the ADMIN trail, and awaited. It
+ *    is true the moment it is written and it stays true whatever the route
+ *    does next, so nothing can lose it and nothing can make it a lie.
+ *  - THE ACT is the PUBLIC line and the notification to the holders. It waits
+ *    for the response, and it is written only when the response says the act
+ *    completed.
+ *
+ * WHY THE RESPONSE IS HELD until the public line lands, instead of the
+ * cheaper `res.on("finish")` the admin audit attribution uses a few hundred
+ * lines up: a record written after the caller has been told "done" can be
+ * lost to a crash in between, and the operator walks away believing the
+ * village saw it. Sealing before the bytes go out closes that: if the process
+ * dies before the line commits, the request never answers, so nobody was told
+ * a thing that is not in the record. The act itself has already committed by
+ * then, which is the residue, and the admin row above is what an operator
+ * reconciles from.
+ *
+ * A CLIENT THAT WALKS AWAY is the other case and it lands the right way round
+ * on its own. Node still calls `end` on an aborted response with the status
+ * the route set, so the act that happened is still recorded and only the
+ * person who left never reads the answer.
+ *
+ * The wait is bounded. A record must never hold a response open forever, so a
+ * stalled write gives up after `REACH_SEAL_DEADLINE_MS` and the response goes
+ * out; `recordEvent` swallows its own failures for the same reason.
+ */
+const REACH_SEAL_DEADLINE_MS = 5_000;
+
+interface PendingReach {
+  cap: Capability;
+  user: any;
+  /** Method and path, captured before the route ran and never re-derived. */
+  where: string;
+}
+
+/**
+ * Hold this response until every reach it carries has been sealed.
+ *
+ * `res.end` is the one exit every response leaves by, including the ones
+ * Express writes for us, so patching it once catches `res.json`,
+ * `res.status().json()` and a bare `res.end()` alike. It is installed ONLY on
+ * a request that broke the glass, which is a handful of routes and a rare
+ * moment on each, so nothing ordinary is deferred by a microsecond.
+ */
+function sealReachOnResponse(res: express.Response, pending: PendingReach[]): void {
+  const done = (completed: boolean, status: number) =>
+    Promise.all(
+      pending.splice(0, pending.length).map((p) =>
+        completed ? recordAdminReach(p.cap, p.user, p.where) : noteReachIncomplete(p.cap, p.user, p.where, status),
+      ),
+    );
+  const originalEnd = res.end.bind(res);
+  let sealing = false;
+  (res as any).end = function patchedEnd(...args: any[]) {
+    if (sealing) return (originalEnd as any)(...args);
+    sealing = true;
+    // The status is read HERE and not inside the promise: Express has already
+    // set it by the time anything calls end, and reading it later would race
+    // an error handler that has not run.
+    const status = res.statusCode;
+    const caps = pending.map((p) => p.cap).join(",");
+    let timedOut = false;
+    const timer = new Promise<void>((r) => {
+      const t = setTimeout(() => { timedOut = true; r(); }, REACH_SEAL_DEADLINE_MS);
+      if (typeof (t as any).unref === "function") (t as any).unref();
+    });
+    void Promise.race([done(status < 400, status).then(() => undefined), timer])
+      .catch((e) => console.error("[capability] sealing the reach failed (the act stands)", e))
+      .then(() => {
+        // A silent give-up is how a record goes missing with nobody the
+        // wiser, so the one case that can lose a line says so out loud. The
+        // write may still land after this; what is gone is the guarantee.
+        if (timedOut) {
+          console.error(
+            `[capability] gave up waiting ${REACH_SEAL_DEADLINE_MS}ms for the record of a reach past ${caps};` +
+              " the response is going out and the line may land late or not at all",
+          );
+        }
+        (originalEnd as any)(...args);
+      });
+    return res;
+  };
+}
+
 async function mayAct(req: express.Request, cap: Capability): Promise<CapabilityVerdict> {
   const user = await authedUser(req);
   if (!user) {
     return {
       ok: false, reachedPast: false, villageHolds: false,
-      source: "not granted", message: "auth_required", needsOverride: false,
+      source: "not granted", message: "auth_required", needsOverride: false, holderName: null,
     };
   }
   // `adminActor(req)` reads this, and it is how a hundred routes attribute
@@ -3051,16 +3158,40 @@ async function mayAct(req: express.Request, cap: Capability): Promise<Capability
     // The record and the notification are the whole of what makes a
     // village-held power real, so they happen HERE and not at the call site.
     // Twenty-six call sites is twenty-six chances to forget.
-    await recordAdminReach(cap, user, req);
+    //
+    // WHAT HAPPENS HERE AND WHAT WAITS is the ordering argument above
+    // `REACH_SEAL_DEADLINE_MS`. The attempt goes into the admin trail now.
+    // The public line and the tap on the holder's shoulder wait for the
+    // response, because until the route answers, nothing has happened yet.
+    const where = `${req.method} ${req.path}`;
+    await noteGlassBroken(cap, user, where);
+    const res = (req as any).res as express.Response | undefined;
+    if (res) {
+      const pending: PendingReach[] = (res as any).__pendingReaches ?? [];
+      // One line per capability per request. A route that asks the same key
+      // twice reached past the village once, which is the same reasoning the
+      // holder's notification already uses for its dedupe key.
+      if (!pending.some((p) => p.cap === cap)) pending.push({ cap, user, where });
+      if (!(res as any).__pendingReaches) {
+        (res as any).__pendingReaches = pending;
+        sealReachOnResponse(res, pending);
+      }
+    } else {
+      // No response to hang the record on. This cannot happen through Express,
+      // which assigns `req.res` before any handler runs, and if it ever does
+      // the record must not be the thing that goes missing quietly.
+      console.error("[capability] a reach had no response to seal against; writing it now", where);
+      await recordAdminReach(cap, user, where);
+    }
     return {
       ok: true, reachedPast: true, villageHolds: true,
-      source: decision.source, message: "", needsOverride: false,
+      source: decision.source, message: "", needsOverride: false, holderName: null,
     };
   }
   if (decision.allowed) {
     return {
       ok: true, reachedPast: false, villageHolds: decision.villageHolds,
-      source: decision.source, message: "", needsOverride: false,
+      source: decision.source, message: "", needsOverride: false, holderName: null,
     };
   }
   if (decision.villageHolds && ctx.isAdmin) {
@@ -3071,6 +3202,7 @@ async function mayAct(req: express.Request, cap: Capability): Promise<Capability
       reachedPast: false,
       villageHolds: true,
       needsOverride: true,
+      holderName: who,
       source: decision.source,
       message:
         `This village holds this one. ${who} looks after it now, and you are not seated there. ` +
@@ -3080,7 +3212,7 @@ async function mayAct(req: express.Request, cap: Capability): Promise<Capability
   }
   return {
     ok: false, reachedPast: false, villageHolds: decision.villageHolds,
-    source: decision.source, message: "auth_required", needsOverride: false,
+    source: decision.source, message: "auth_required", needsOverride: false, holderName: null,
   };
 }
 
@@ -3148,7 +3280,32 @@ function overrideRefusal(
   verdict: CapabilityVerdict,
 ): Record<string, unknown> | null {
   if (!verdict.needsOverride) return null;
-  return { error: verdict.message, capability: cap, villageHolds: true, requiresOverride: true };
+  /*
+   * THE FACTS, BESIDE THE SENTENCE (the glass round).
+   *
+   * `error` is unchanged and stays the curl answer: it names the holder and
+   * says what to send. A browser control cannot use that, because "send the
+   * x-capability-override header" is an instruction to a person holding a
+   * terminal, and the whole defect this round is about is that the terminal
+   * was the only way in.
+   *
+   * So the three facts a control needs to say its own sentence ride
+   * alongside: WHO holds it, WHAT the power is called, and WHAT whoever holds
+   * it can do. Every one of them comes off the registry or the holdings row.
+   * `title` is absent when the registry has no entry, and the control prints
+   * the key itself in that case, which says "this table is missing a row"
+   * out loud instead of inventing a name for a power.
+   */
+  const entry = POWERS.find((p) => p.capability === cap);
+  return {
+    error: verdict.message,
+    capability: cap,
+    villageHolds: true,
+    requiresOverride: true,
+    holder: verdict.holderName,
+    title: entry?.title,
+    consequence: CAPABILITY_CONSEQUENCE[cap],
+  };
 }
 
 /**
@@ -3163,10 +3320,24 @@ function overrideRefusal(
  *
  * THE OPERATOR KEEPS THE READ, which is the other half. A village taking a
  * power on takes the ACT, and a GET carries no break-glass, so an admin
- * refused here would have no way back through the product at all. The four
- * routes that ask this are the ones that answer 403 or 404 to a non-holder:
- * the curator's queue, the bytes of a suppressed photograph, the housing
- * numbers and the consent queue.
+ * refused here would have no way back through the product at all. The routes
+ * that ask this are the ones that answer 403 or 404 to a non-holder: the
+ * curator's queue, the bytes of a suppressed photograph, the housing numbers,
+ * the consent queue, the forum's hidden rows, the calendar's own tab and the
+ * exchange's management overview.
+ *
+ * ── THE SEVEN THAT WERE ASKING THE ACT PATH (the glass round) ─────────────
+ *
+ * The 0103 sweep audited the seven keys it converted and left the eight that
+ * shipped with 0098 unswept, so seven READS were still asking `mayAct`:
+ * `GET /api/forum/threads`, `GET /api/forum/threads/:id`,
+ * `GET /api/admin/exchange`, and the four calendar GETs under
+ * `/api/admin/events`. Each of them was wrong twice over. An admin who sent
+ * the header while merely looking wrote "acted on a power this village holds"
+ * to the public pulse, which is the exact defect the RSVP route shipped; and
+ * an admin who did NOT send it was refused a READ on a village-held key, with
+ * a 409 telling them to break glass to look at a list. Both halves are fixed
+ * by asking here instead, and the fix is one line at each site.
  *
  * A payload FLAG is a different question and does not come here. Those stay
  * on `hasCapability` at their own call sites, which is the pure gate: an
@@ -3186,16 +3357,67 @@ async function mayStillSee(req: express.Request, cap: Capability): Promise<boole
 }
 
 /**
- * The witness. An admin reached past a power the village holds, so the
- * village hears about it from the village's own surfaces.
+ * THE ATTEMPT. The glass is broken, and the admin trail says so at once.
+ *
+ * Awaited, and written before the route is allowed to run. This row is the
+ * only part of the record that can be true unconditionally, because breaking
+ * the glass is a thing the request did and no later outcome can un-do it.
+ * Everything the VILLAGE reads waits for the act itself.
+ *
+ * The text is byte-for-byte what `recordAdminReach` used to write, because
+ * this row is the one an operator greps for and moving a record is not a
+ * reason to rename it.
+ */
+async function noteGlassBroken(cap: Capability, user: any, where: string): Promise<void> {
+  await recordEvent(getPool(), {
+    kind: "audit",
+    text: `capability:override:${cap}:${where}`,
+    actorUserId: user.id ?? null,
+    entityType: "capability",
+    entityRef: cap,
+    audience: "admin",
+  });
+}
+
+/**
+ * THE ACT THAT DID NOT HAPPEN. Admin trail only, on purpose.
+ *
+ * An admin broke the glass and the route then refused them for its own
+ * reasons: a value out of range, a row that is not there, a rule the
+ * capability has nothing to do with. Nothing changed, so the village is told
+ * nothing and no holder is woken up. The admin trail carries both halves so
+ * an operator reading it can tell an abandoned reach from a lost one.
+ */
+async function noteReachIncomplete(
+  cap: Capability,
+  user: any,
+  where: string,
+  status: number,
+): Promise<void> {
+  await recordEvent(getPool(), {
+    kind: "audit",
+    text: `capability:override-incomplete:${cap}:${status}:${where}`,
+    actorUserId: user.id ?? null,
+    entityType: "capability",
+    entityRef: cap,
+    audience: "admin",
+  });
+}
+
+/**
+ * The witness. An admin reached past a power the village holds AND the act
+ * went through, so the village hears about it from the village's own surfaces.
  *
  * `audience: "public"` is load-bearing and is the difference between this
  * being a record and being a receipt. The admin audit trail already exists
  * and only admins read it; a village that cannot read the record of somebody
  * overriding it has been given a ceiling with no witness, which the admin who
  * lost their own grant undoes in one write.
+ *
+ * Called from the response seal, never from the gate. The gate cannot know
+ * whether anything happened, and this sentence claims that something did.
  */
-async function recordAdminReach(cap: Capability, user: any, req: express.Request): Promise<void> {
+async function recordAdminReach(cap: Capability, user: any, _where: string): Promise<void> {
   const holder = (await capabilityHoldings(getPool())).find((h) => h.capability === cap);
   const who = holder?.holderRoleName ?? holder?.holderRoleId ?? "the village";
   const what = CAPABILITY_CONSEQUENCE[cap];
@@ -3206,14 +3428,6 @@ async function recordAdminReach(cap: Capability, user: any, req: express.Request
     entityType: "capability",
     entityRef: cap,
     audience: "public",
-  });
-  void recordEvent(getPool(), {
-    kind: "audit",
-    text: `capability:override:${cap}:${req.method} ${req.path}`,
-    actorUserId: user.id ?? null,
-    entityType: "capability",
-    entityRef: cap,
-    audience: "admin",
   });
   try {
     const holderIds = holder
@@ -8178,12 +8392,18 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   }
 
   /**
-   * 0098: through `mayAct`, so `forum.moderate` is a power that can actually
-   * move. The admin short-circuit is still the first thing asked and still
-   * answers yes, right up until the village records a holder for this key.
+   * LOOK. Whether this viewer sees the hidden rows (the glass round).
+   *
+   * The two thread reads used to ask `canModerateForum`, and a listing is not
+   * a moderation. An admin who sent `x-capability-override: true` while
+   * fetching the thread list wrote "acted on a power this village holds" to
+   * the public pulse for having looked at a list, and an admin who did not
+   * send it lost sight of the hidden rows entirely on a village-held key.
+   * `mayStillSee` cannot write anything and keeps the operator's eyes, which
+   * is what a read wanted from the start.
    */
-  async function canModerateForum(req: express.Request, _user: any): Promise<boolean> {
-    return (await mayAct(req, "forum.moderate")).ok;
+  async function seesHiddenThreads(req: express.Request): Promise<boolean> {
+    return mayStillSee(req, "forum.moderate");
   }
 
   app.get("/api/forum/categories", async (_req, res) => {
@@ -8193,7 +8413,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   /** Thread list: pinned first, then latest activity. Hidden rows only for moderators. */
   app.get("/api/forum/threads", async (req, res) => {
     const user = await authedUser(req);
-    const mod = user ? await canModerateForum(req, user) : false;
+    const mod = user ? await seesHiddenThreads(req) : false;
     const params: any[] = [];
     // Every predicate prefixed with t. — the users join makes bare column
     // names ambiguous, and MySQL's error for that is a silent 500.
@@ -8349,7 +8569,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const thread = await forumThreadById(req.params.id);
     if (!thread) return res.status(404).json({ error: "Not found" });
     const user = await authedUser(req);
-    const mod = user ? await canModerateForum(req, user) : false;
+    const mod = user ? await seesHiddenThreads(req) : false;
     // Hidden threads answer 410 for everyone but moderators: it existed, it
     // is gone, and the difference matters to whoever bookmarked it.
     if (thread.hiddenAt && !mod) return res.status(410).json({ error: "This thread was hidden by moderation" });
@@ -8577,9 +8797,20 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (await isExampleRow(getPool(), "forum_threads", req.params.id)) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
-    if (!(await canModerateForum(req, user))) {
-      return res.status(403).json({ error: "Moderation requires the forum.moderate capability" });
-    }
+    /*
+     * ACT, and the 409 the hatch needs (the glass round).
+     *
+     * This route answered a bare 403 whatever the reason, so an operator on
+     * a village-held `forum.moderate` was refused with a sentence about a
+     * capability and no way through. The hatch existed and the product never
+     * said so, which is a ceiling with no ladder for two of the fifteen keys.
+     * `guardCapability` adds the 409 ON TOP of the sentence this route
+     * already said, and changes nothing else about the refusal.
+     */
+    if (!(await guardCapability(req, res, "forum.moderate", {
+      status: 403,
+      body: { error: "Moderation requires the forum.moderate capability" },
+    }))) return;
     const thread = await forumThreadById(req.params.id);
     if (!thread) return res.status(404).json({ error: "Not found" });
     const action = String(req.body?.action ?? "");
@@ -11463,7 +11694,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
 
   /** Admin list: the only surface that sees drafts. */
   app.get("/api/admin/events", async (req, res) => {
-    if (!(await guardCapability(req, res, "event.manage"))) return;
+    // LOOK: the calendar tab itself. See `mayStillSee` for the four GETs
+    // the 0103 sweep did not reach.
+    if (!(await mayStillSee(req, "event.manage"))) return res.status(401).json({ error: "auth_required" });
     const list = await listGatherings(getPool(), {
       includeDrafts: true,
       timezone: villageTimezone(),
@@ -11600,7 +11833,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * Registered above the `:id` routes so "month-names" is never read as an id.
    */
   app.get("/api/admin/events/month-names", async (req, res) => {
-    if (!(await guardCapability(req, res, "event.manage"))) return;
+    // LOOK.
+    if (!(await mayStillSee(req, "event.manage"))) return res.status(401).json({ error: "auth_required" });
     const settings = calendarSkyOptions();
     res.json({ monthNames: await listMonthNames(getPool()), hemisphere: settings.hemisphere, anchor: settings.anchor });
   });
@@ -11626,7 +11860,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
 
   /** Who is coming, for whoever is catering. Names only, never emails. */
   app.get("/api/admin/events/:id/rsvps", async (req, res) => {
-    if (!(await guardCapability(req, res, "event.manage"))) return;
+    // LOOK.
+    if (!(await mayStillSee(req, "event.manage"))) return res.status(401).json({ error: "auth_required" });
     const occ = typeof req.query.occurrence === "string" ? req.query.occurrence : undefined;
     res.json({ rsvps: await listRsvps(getPool(), req.params.id, occ) });
   });
@@ -11638,7 +11873,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * route.
    */
   app.get("/api/admin/events/:id/slots", async (req, res) => {
-    if (!(await guardCapability(req, res, "event.manage"))) return;
+    // LOOK.
+    if (!(await mayStillSee(req, "event.manage"))) return res.status(401).json({ error: "auth_required" });
     const occ = typeof req.query.occurrence === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.occurrence)
       ? req.query.occurrence
       : "";
@@ -16343,8 +16579,17 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.use("/api/exchange", requireModule("exchange"));
   app.use("/api/admin/exchange", requireModule("exchange"));
 
-  async function canManageExchange(req: express.Request): Promise<boolean> {
-    return (await mayAct(req, "exchange.manage")).ok;
+  /**
+   * LOOK. `GET /api/admin/exchange` is the management OVERVIEW (glass round).
+   *
+   * Same pair of defects the two forum reads carried: a header on a GET wrote
+   * a public line about an act nobody performed, and an operator without one
+   * could not read the market's own numbers on a village-held key. Reading
+   * prices, stock and the order history changes nothing, so it goes through
+   * the helper that cannot write.
+   */
+  async function seesExchangeDesk(req: express.Request): Promise<boolean> {
+    return mayStillSee(req, "exchange.manage");
   }
 
   /** The market, one call: listings, prices, stock, my balances and receipts. */
@@ -16836,7 +17081,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Halt is one click. Resume takes a sentence. */
   app.post("/api/admin/exchange/tokens/:slug/halt", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "exchange.manage"))) return;
     // The example market is display-only. Halting it would record a real
     // governance act, with a named actor and an audit line, about nothing.
     if (await isExampleRow(getPool(), "tokens", String(req.params.slug), "slug")) {
@@ -16856,7 +17101,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   app.post("/api/admin/exchange/tokens/:slug/resume", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "exchange.manage"))) return;
     if (await isExampleRow(getPool(), "tokens", String(req.params.slug), "slug")) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
@@ -16882,7 +17127,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Management overview: settings, refusal reasons, prices, stock, orders. */
   app.get("/api/admin/exchange", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
+    // LOOK. See `seesExchangeDesk` for why this stopped asking the act path.
+    if (!(await seesExchangeDesk(req))) return res.status(401).json({ error: "auth_required" });
     const settings = await exchangeSettings(getPool());
     const stock = await treasuryStock(getPool());
     const prices: Record<string, any> = {};
@@ -16925,7 +17171,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** List / delist a token. The firewalls answer here AND at boot. */
   app.put("/api/admin/exchange/tokens/:slug", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "exchange.manage"))) return;
     // An example token is never the village's first real listing. upsertSettings
     // claims the row as real (is_example = 0) on every write, which is right for
     // a real slug sharing the key with an example listing and catastrophic for
@@ -16963,7 +17209,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Post a price: append-only, bounded, always with a note. */
   app.post("/api/admin/exchange/tokens/:slug/price", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "exchange.manage"))) return;
     const slug = String(req.params.slug);
     if (!tokenDef(slug)) return res.status(404).json({ error: `unknown token "${slug}"` });
     // The registry loads example tokens like any other, so tokenDef resolves
@@ -17043,7 +17289,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * with one cap beats two doors with two.
    */
   app.post("/api/admin/exchange/stock", async (req, res) => {
-    if (!(await canManageExchange(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "exchange.manage"))) return;
     const slug = String(req.body?.tokenSlug ?? "");
     const amt = Math.floor(Number(req.body?.amount) || 0);
     const def = tokenDef(slug);
@@ -21170,18 +21416,17 @@ Send an empty drafts array when you are still listening. A role payload is {name
       };
     }
     if (!viewer) return { ok: false, status: 401, body: { error: "Unauthorized" } };
-    if (verdict.needsOverride) {
-      return {
-        ok: false,
-        status: 409,
-        body: {
-          error: verdict.message,
-          capability: "quest.consent",
-          villageHolds: true,
-          requiresOverride: true,
-        },
-      };
-    }
+    /*
+     * THE ONE 409 BODY, and not a second copy of it (the glass round).
+     *
+     * This was a hand-built twin of `overrideRefusal` and it drifted the day
+     * the shared one grew the three facts a browser needs, so the handle
+     * never appeared on the one power whose route did not share the helper.
+     * That is the drift `overrideRefusal` was extracted to prevent, and the
+     * only fix that stays fixed is to ask it.
+     */
+    const hatch = overrideRefusal("quest.consent", verdict);
+    if (hatch) return { ok: false, status: 409, body: hatch };
     return { ok: false, status: 403, body: { error: "Consenting to finished work is for stewards" } };
   }
 
