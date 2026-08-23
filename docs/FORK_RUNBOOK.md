@@ -970,3 +970,21 @@ Before turning it on, know what changes:
 
 Turn it off and any batch already in flight still lands: the poll keeps
 draining open batches. Nothing new is submitted.
+
+## Investor vault documents (0099, migration `0099_investor_vault_document_fields.sql`)
+
+No env var and no seed. `page_link` and `uploaded_at` join `investor_docs`, both
+nullable, so rows loaded by `scripts/import-json-to-mysql.ts` stay valid and a
+row pointing at an external `url` renders the same as an uploaded one.
+
+The provisioning note is about the uploads volume, and it is a cleanup rather
+than a sizing change. `POST /api/admin/investor-docs/upload` could never save
+its row (`title` is NOT NULL and the handler never set it), and the file reached
+the volume before the row was attempted, so **every press of that button since
+the route shipped left a file nothing references.** A village that has been
+running for a while may hold a pile of them. They are the vault's own naming
+shape, `<document-name>-<stamp>-<suffix>.<ext>`, and any of them that predates
+this migration is unreferenced by definition, because no `investor_docs` row
+could exist to name it. Compare the volume against `SELECT url FROM
+investor_docs` before deleting anything, since uploads from other doors share
+the directory. `/health` reports the volume totals.

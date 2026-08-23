@@ -211,28 +211,30 @@ describe.skipIf(!DB_CONFIGURED)("the public proposal attachment door", () => {
 });
 
 /*
- * ── A PRE-EXISTING BREAK THIS LANE FOUND AND IS NOT FIXING ───────────────
+ * ── THE BREAK THE TRIPWIRE WAS WATCHING, NOW FIXED ───────────────────────
  *
- * `POST /api/admin/investor-docs/upload` builds an entry of
- * `{id, name, filename, pageLink, uploadedAt}` and hands it to a repo whose
+ * `POST /api/admin/investor-docs/upload` built an entry of
+ * `{id, name, filename, pageLink, uploadedAt}` and handed it to a repo whose
  * columns are `{id, title, description, url, requiresRequest, order}` with
- * `title` NOT NULL. So the insert has always thrown `Column 'title' cannot be
- * null` and the vault has never accepted a document through the product. It is
- * on `origin/main` at 4f32a00 in exactly this shape, so it predates this
- * branch and predates the strip.
+ * `title` NOT NULL. The insert threw `Column 'title' cannot be null` on every
+ * press since the route shipped, so no document ever reached the vault through
+ * the product, and the file was already on the volume by then: every attempt
+ * left an orphan.
  *
- * `check-admin-reach` passes it because a caller exists in the browser. Nothing
- * anywhere asks whether the route WORKS.
+ * The reader was broken in the same shape. The packet email addressed
+ * `d.filename` and `d.name`, and the admin list did the same, so even a row
+ * placed there by the legacy importer rendered as "undefined" pointing at
+ * `/api/uploads/undefined`. A fixed writer feeding a renderer that reads other
+ * columns is the other half of one defect, so both halves moved together.
  *
- * Not fixed here, deliberately: deciding which column holds a document's name
- * and its filename is a schema decision, and a sibling lane holds
- * `client/src/pages/Admin.tsx`, which is the vault's only surface. Recorded
- * instead, with a tripwire, so the next person meets it rather than inherits
- * it.
+ * `check-admin-reach` passed this route the whole time, because a caller exists
+ * in the browser. Nothing anywhere asks whether a route WORKS, which is the
+ * point the tripwire was making and the reason these tests now go round trip:
+ * write through the route, read back through what renders it.
  *
- * THE STRIP STILL LANDS, and that is what this lane owns: sanitising happens
- * before the row write, so the bytes on the volume are clean whatever the
- * database then does.
+ * 0099 gave `pageLink` and `uploadedAt` the columns the admin form always
+ * assumed they had. `title` holds the document's name and `url` holds its
+ * address, so an imported row pointing at an external document still renders.
  */
 describe.skipIf(!DB_CONFIGURED)("the investor vault door", () => {
   it("strips a photograph an admin drops in beside the cap table", async () => {
@@ -256,18 +258,53 @@ describe.skipIf(!DB_CONFIGURED)("the investor vault door", () => {
     expect(fs.readFileSync(path.join(dataDir, "uploads", written[0])).equals(xlsx)).toBe(true);
   });
 
-  it("TRIPWIRE: the vault's row write is broken on main and this says so out loud", async () => {
-    const up = await postVaultDoc(await plainJpeg(40, 30), "tripwire.jpg", "image/jpeg");
-    expect(
-      up.status,
-      "The vault upload answered something other than the pre-existing 500. If somebody has " +
-        "fixed the entry/column mismatch (name and filename are not columns of investor_docs, " +
-        "and title is NOT NULL), that is good news: delete this test and assert the real " +
-        "behaviour instead. It is here so the break is met and not inherited.",
-    ).toBe(500);
-    // And the orphan it leaves: the file is written before the row throws, so
-    // nothing ever references it. Recorded for the same reason.
-    expect(fs.readdirSync(path.join(dataDir, "uploads")).some((f) => f.includes("tripwire"))).toBe(true);
+  it("saves the document, and the vault's own reader serves it back", async () => {
+    const up = await postVaultDoc(await plainJpeg(40, 30), "round-trip.jpg", "image/jpeg");
+    expect(up.status, up.text).toBe(200);
+    expect(up.json.title, "the document's name belongs in `title`, the NOT NULL column").toBe("A document");
+    expect(String(up.json.url)).toMatch(/^\/api\/uploads\/round-trip-/);
+
+    // Read back through the route the admin vault screen actually lists from,
+    // which is the half a green write test cannot see. The row has to survive
+    // the database, not just the handler.
+    const listed = await call("GET", "/api/admin/investor-docs");
+    expect(listed.status, listed.text).toBe(200);
+    const saved = (listed.json as any[]).find((d) => d.id === up.json.id);
+    expect(saved, "the document must come back out of the table it was written to").toBeTruthy();
+    expect(saved.title).toBe("A document");
+    expect(saved.url).toBe(up.json.url);
+
+    // And the address in the row has to serve the bytes, or the link in the
+    // investor's packet email is decoration.
+    const served = await fetchUpload(path.basename(String(saved.url)));
+    expect(served.status, "the url on the row must serve the file").toBe(200);
+    expect(served.bytes.length).toBeGreaterThan(0);
+  });
+
+  it("leaves no orphan: every file on the volume is referenced by a row", async () => {
+    const up = await postVaultDoc(await plainJpeg(40, 30), "no-orphan.jpg", "image/jpeg");
+    expect(up.status, up.text).toBe(200);
+    const listed = await call("GET", "/api/admin/investor-docs");
+    const referenced = new Set((listed.json as any[]).map((d) => path.basename(String(d.url ?? ""))));
+    const stranded = fs
+      .readdirSync(path.join(dataDir, "uploads"))
+      .filter((f) => f.includes("no-orphan") && !referenced.has(f));
+    expect(stranded, "an upload that saved must leave nothing unreferenced behind it").toEqual([]);
+  });
+
+  it("deletes the row and the file it points at", async () => {
+    const up = await postVaultDoc(await plainJpeg(40, 30), "delete-me.jpg", "image/jpeg");
+    expect(up.status, up.text).toBe(200);
+    const filename = path.basename(String(up.json.url));
+    expect(fs.existsSync(path.join(dataDir, "uploads", filename))).toBe(true);
+
+    const gone = await call("DELETE", `/api/admin/investor-docs/${up.json.id}`);
+    expect(gone.status, gone.text).toBe(200);
+    const listed = await call("GET", "/api/admin/investor-docs");
+    expect((listed.json as any[]).some((d) => d.id === up.json.id)).toBe(false);
+    // The delete route read `target.filename`, which was never a column, so it
+    // joined `undefined` onto the uploads path and removed nothing.
+    expect(fs.existsSync(path.join(dataDir, "uploads", filename)), "the file must go with the row").toBe(false);
   });
 
   it("is still admin-only, and still refuses before a byte is written", async () => {
@@ -276,6 +313,38 @@ describe.skipIf(!DB_CONFIGURED)("the investor vault door", () => {
     const res = await fetch(`${BASE}/api/admin/investor-docs/upload`, { method: "POST", body: form }); // module-review-ok: the test client dialling the built server on localhost
     expect(res.status).toBe(401);
     expect(fs.readdirSync(path.join(dataDir, "uploads")).some((f) => f.includes("sneaky"))).toBe(false);
+  });
+});
+
+/*
+ * The vault's PUBLIC door, found by sweeping the class the tripwire named.
+ *
+ * `POST /api/investor-docs/request` is the "send me the investor packet" form
+ * on the investor page. It inserted `{id, type, data, submittedAt}` into
+ * `submissions`, where `status` is NOT NULL. dbCollection names every spec'd
+ * column on every insert, so the absent key wrote an explicit NULL and the
+ * DEFAULT 'new' never applied: the insert threw `Column 'status' cannot be
+ * null` and the form has never captured a lead. The other two writers into
+ * `submissions` both set `status`; this one was the outlier, and no gate
+ * compares one writer to another.
+ */
+describe.skipIf(!DB_CONFIGURED)("the investor packet request", () => {
+  it("captures the lead, and the stewards' inbox has it", async () => {
+    const res = await fetch(`${BASE}/api/investor-docs/request`, { // module-review-ok: the test client dialling the built server on localhost
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Ada Prospect", email: "ada@example.test", accredited: true }),
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+
+    // Read back through the admin submissions list, which is where a founder
+    // would look for the lead. The write is only real if this sees it.
+    const listed = await call("GET", "/api/admin/submissions?type=investor-doc-request");
+    expect(listed.status, listed.text).toBe(200);
+    const lead = (listed.json as any[]).find((s) => s?.data?.email === "ada@example.test");
+    expect(lead, "the lead must survive the insert and come back out").toBeTruthy();
+    expect(lead.status, "status is NOT NULL, so an omitted key refused the whole row").toBe("new");
+    expect(lead.data.name).toBe("Ada Prospect");
   });
 });
 

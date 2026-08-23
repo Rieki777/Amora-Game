@@ -1722,12 +1722,20 @@ function IntegrationsTab({ password }: { password: string }) {
 
 // ── Investor Vault Tab ────────────────────────────────────────────────────────
 
+/**
+ * The columns `investor_docs` actually has. This declared `name` and
+ * `filename`, which are not columns of that table, so the list rendered a blank
+ * link to `/api/uploads/undefined` for any row that reached it. Nothing ever
+ * did, because the upload route could not write a row either.
+ */
 interface InvestorDoc {
   id: string;
-  name: string;
-  filename: string;
+  title: string;
+  description: string | null;
+  /** `/api/uploads/<file>` for an upload, or any address for an imported row. */
+  url: string;
   pageLink: string | null;
-  uploadedAt: string;
+  uploadedAt: string | null;
 }
 
 function InvestorVaultTab({ password }: { password: string }) {
@@ -1858,12 +1866,12 @@ function InvestorVaultTab({ password }: { password: string }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3">
                   <a
-                    href={`${API_BASE}/uploads/${d.filename}`}
+                    href={d.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-medium text-gray-900 hover:text-[#2D5A5A]"
                   >
-                    {d.name}
+                    {d.title}
                   </a>
                   {d.pageLink && (
                     <a
@@ -1877,7 +1885,8 @@ function InvestorVaultTab({ password }: { password: string }) {
                   )}
                 </div>
                 <div className="text-xs text-gray-400 mt-0.5 truncate">
-                  {d.filename} · {new Date(d.uploadedAt).toLocaleDateString()}
+                  {d.url.split("/").pop()}
+                  {d.uploadedAt ? ` · ${new Date(d.uploadedAt).toLocaleDateString()}` : ""}
                 </div>
               </div>
               <button
