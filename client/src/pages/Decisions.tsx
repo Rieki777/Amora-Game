@@ -22,9 +22,15 @@
  *   4. Decided              the record, most recent first, each one carrying
  *                           the human sentence it closed with.
  *
- * Your own standing sits in the rail: how much you weigh and why. Weights are
- * power, and power a member cannot find is the thing the constitution's new
- * law was written against.
+ * The rail beside it is one descent, from the reader outward: what YOU weigh,
+ * then how anyone's weight got where it is, then how much of the village turns
+ * out, then how a decision travels. Weights are power, and power a member
+ * cannot find is the thing the constitution's new law was written against.
+ *
+ * The first two of those used to overlap. "Your weight" printed the reader's
+ * own weight-change rows and "The weight record" printed the village's trail,
+ * which holds those same rows, and the headings were four words apart. The
+ * trail is one list now and it marks the reader's rows; see `WeightRecord`.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
@@ -182,7 +188,10 @@ export default function Decisions() {
 
             <aside className="mt-10 space-y-6 lg:mt-0">
               {standing && <MyStanding standing={standing} />}
-              {record && <WeightRecord record={record} />}
+              {/* One trail, and it knows which rows are the reader's. `MyStanding`
+                  above states what they weigh; this states how anyone's weight got
+                  where it is, the reader's rows included and marked. */}
+              {record && <WeightRecord record={record} mine={standing?.history ?? []} />}
               <TurnoutCard ballots={ballots} />
               <div className="rounded-xl border border-stone-200 bg-white p-4">
                 <h3 className="flex items-center gap-2 text-base font-bold text-stone-900">

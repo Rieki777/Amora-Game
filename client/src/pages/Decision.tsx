@@ -42,18 +42,22 @@ import VoteClock from "@/components/governance/VoteClock";
 import VoteResult from "@/components/governance/VoteResult";
 import VoteWidget from "@/components/governance/VoteWidget";
 import VoterRoll from "@/components/governance/VoterRoll";
+import WeightRecord from "@/components/governance/WeightRecord";
 import { subjectNoun } from "@/components/governance/wizardConfig";
-import { standingObjections, weightText } from "@/components/governance/voteBars";
+import { weightText } from "@/components/governance/voteBars";
 import {
   castVote,
   closeBallot,
   fetchBallot,
   fetchStanding,
+  fetchWeightRecord,
   fileObjection,
   ruleObjection,
+  withdrawBallot,
   type Ballot,
   type CloseResult,
   type Standing,
+  type WeightRecord as WeightRecordData,
 } from "@/components/governance/governanceApi";
 
 const METHOD_TIP: Record<string, string> = {
@@ -77,10 +81,21 @@ export default function Decision() {
 
   const [ballot, setBallot] = useState<Ballot | null>(null);
   const [standing, setStanding] = useState<Standing | null>(null);
+  // The village-wide weight trail. It rides along here because this page shows
+  // "Your weight" too, and that card no longer carries a trail of its own: the
+  // reader's own changes live in this one list, marked as theirs. Without this
+  // read, a member who arrived on a decision could not see how the weights
+  // deciding it were allocated, and hidden power is what the record exists to
+  // prevent.
+  const [record, setRecord] = useState<WeightRecordData | null>(null);
   const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawReason, setWithdrawReason] = useState("");
+  /** Votes discarded by the withdrawal that just happened, stated once. */
+  const [withdrawn, setWithdrawn] = useState<number | null>(null);
   const [justClosed, setJustClosed] = useState<CloseResult | null>(null);
   const [showDoc, setShowDoc] = useState(false);
 
@@ -94,7 +109,10 @@ export default function Decision() {
   useEffect(() => {
     if (!governance) return;
     void load();
-    if (user) fetchStanding().then((s) => s.ok && setStanding(s.data));
+    if (user) {
+      void fetchStanding().then((s) => s.ok && setStanding(s.data));
+      void fetchWeightRecord().then((w) => w.ok && setRecord(w.data));
+    }
   }, [governance, load, user]);
 
   const act = async (run: () => Promise<{ ok: boolean; error?: string }>) => {
@@ -108,6 +126,31 @@ export default function Decision() {
 
   const onVote = async (choice: VoteChoice, reason?: string) => {
     await act(() => castVote(params.id!, choice, reason));
+  };
+
+  /**
+   * Call the vote off. Its own act rather than a `run` through `act`, because
+   * the answer carries `votesDiscarded` and a member who just threw away other
+   * people's votes is owed that number in words, once, from the act itself.
+   */
+  const onWithdraw = async () => {
+    if (withdrawReason.trim().length < 10) {
+      setProblem("Calling off a vote records why, in a sentence the roll will read.");
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    const answer = await withdrawBallot(params.id!, withdrawReason.trim());
+    if (answer.ok) {
+      setBallot(answer.data.ballot);
+      setWithdrawing(false);
+      setWithdrawReason("");
+      setWithdrawn(answer.data.votesDiscarded);
+    } else {
+      setProblem(answer.error);
+      await load();
+    }
+    setBusy(false);
   };
 
   const onClose = async (outcomeNote: string) => {
@@ -194,9 +237,41 @@ export default function Decision() {
           </p>
         )}
 
+        {/* WHETHER THIS BINDS, ABOVE EVERYTHING IT COULD BE MISTAKEN FOR.
+            Everything below this line is identical for an advisory vote and a
+            binding one, deliberately: the same frozen roll, the same weights,
+            the same quorum to reach, because practising on a softer engine
+            would teach a village the wrong thing. That is exactly why the
+            fact has to be stated, and stated before the vote widget rather
+            than beside the outcome. `binding` comes from the close route's
+            own subject table, so this cannot drift from what closing does. */}
+        {!ballot.binding && (
+          <div className="mt-3 rounded-lg border border-stone-200 bg-cream px-4 py-3">
+            <p className="text-sm font-semibold text-stone-900">The village is being asked, and nothing more</p>
+            <p className="mt-0.5 text-sm text-stone-700 leading-relaxed">
+              This vote runs on the real engine, with the real roll and the real weights, and closing it changes
+              nothing on its own. What it produces is an answer the village can act on, or not.
+            </p>
+          </div>
+        )}
+
         {problem && (
           <p role="alert" className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-coral">
             {problem}
+          </p>
+        )}
+
+        {/* What the withdrawal cost, said once, by the act that did it. The
+            number comes back from the route rather than being counted here,
+            because the votes are gone by the time this renders. */}
+        {withdrawn !== null && (
+          <p
+            role="status"
+            className="mt-4 rounded-lg border border-stone-200 bg-cream px-4 py-3 text-sm text-stone-800 leading-relaxed"
+          >
+            {withdrawn === 0
+              ? "This vote is called off. Nobody had voted, so no vote was thrown away, and the subject can go to a vote again whenever it is ready."
+              : `This vote is called off, and ${withdrawn} ${withdrawn === 1 ? "vote that had been cast is" : "votes that had been cast are"} discarded. The subject can go to a vote again whenever it is ready.`}
           </p>
         )}
 
@@ -235,7 +310,7 @@ export default function Decision() {
                   method={ballot.method}
                   electorateCount={ballot.electorateCount}
                   votedCount={votedCount}
-                  openObjections={standingObjections(ballot.objections)}
+                  openObjections={ballot.standingObjections}
                 />
               </div>
             </section>
@@ -245,6 +320,7 @@ export default function Decision() {
             {ballot.method === "consent" && (
               <ObjectionPanel
                 objections={ballot.objections}
+                standing={ballot.standingObjections}
                 canFile={open && !expired && inRoll}
                 canRule={open && !!standing?.mayDecide}
                 busy={busy}
@@ -287,6 +363,80 @@ export default function Decision() {
 
             {open && closing && (
               <CloseBeat ballot={ballot} busy={busy} onClose={onClose} onCancel={() => setClosing(false)} />
+            )}
+
+            {/* CALLING IT OFF, which is not closing it.
+                A withdrawal decides nothing, executes nothing, and frees the
+                subject for a fresh vote. What it costs is other people's cast
+                votes, and that is the whole shape of who may: whoever opened
+                it may call off a ballot NOBODY has answered, and once even
+                one vote stands it takes a proposal.decide holder or an admin.
+
+                NEITHER PAYLOAD SAYS WHO OPENED IT, so this surface cannot
+                check the opener half of that rule and does not pretend to. It
+                shows the door whenever somebody of that class could walk
+                through it (a facilitator always, anybody while no vote
+                stands), states the rule in words above the button, and says
+                what the act would discard. A member who did not open it reads
+                who this is for and closes the panel; nobody meets the rule
+                for the first time as a refusal. */}
+            {open && user && !closing && (!!standing?.mayDecide || ballot.votes.length === 0) && (
+              <section className="rounded-xl border border-stone-200 bg-white p-4">
+                <h2 className="text-base font-bold text-stone-900">Calling this off</h2>
+                <p className="mt-1 text-sm text-stone-600 leading-relaxed">
+                  A vote opened by mistake can be called off. It decides nothing, records why, and leaves the subject
+                  free to go to a vote again straight away.
+                </p>
+                <p className="mt-2 text-sm text-stone-700 leading-relaxed">
+                  {ballot.votes.length === 0
+                    ? "Nobody has voted yet, so whoever opened this can call it off and no vote is thrown away."
+                    : `${ballot.votes.length} ${ballot.votes.length === 1 ? "member has" : "members have"} already voted. Calling it off discards ${ballot.votes.length === 1 ? "that vote" : "those votes"}, so it takes somebody who decides proposals or an admin. Closing it and recording the outcome keeps them.`}
+                </p>
+                {!withdrawing ? (
+                  <button
+                    type="button"
+                    onClick={() => setWithdrawing(true)}
+                    className="mt-3 min-h-[44px] rounded-lg border border-stone-300 px-5 text-sm font-semibold text-stone-700 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                  >
+                    Call this vote off
+                  </button>
+                ) : (
+                  <div className="mt-3">
+                    <label htmlFor="withdraw-reason" className="block text-sm font-semibold text-stone-900">
+                      Why is it being called off?
+                    </label>
+                    <p className="mt-0.5 text-xs text-stone-600 leading-relaxed">
+                      The roll was told this vote was open and will be told it is not. This sentence is what they read.
+                    </p>
+                    <textarea
+                      id="withdraw-reason"
+                      rows={3}
+                      value={withdrawReason}
+                      maxLength={4000}
+                      onChange={(e) => setWithdrawReason(e.target.value)}
+                      placeholder="Opened against the wrong draft. The corrected one goes to a vote today."
+                      className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={onWithdraw}
+                        className="inline-flex min-h-[44px] items-center rounded-lg bg-coral px-5 text-sm font-semibold text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral focus-visible:ring-offset-2 disabled:opacity-60"
+                      >
+                        Call it off
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setWithdrawing(false)}
+                        className="min-h-[44px] rounded-lg border border-stone-300 px-5 text-sm font-medium text-stone-700 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                      >
+                        Leave it running
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </section>
             )}
 
             <VoterRoll votes={ballot.votes} silent={ballot.silent} live={open} />
@@ -353,6 +503,10 @@ export default function Decision() {
                 vote, open or closed.
               </p>
             </div>
+            {/* Last in the rail, because it is the widest thing here: this
+                vote's rules are about this vote, and the record is about every
+                weight that ever entered one. */}
+            {record && <WeightRecord record={record} mine={standing?.history ?? []} />}
           </aside>
         </div>
       </div>

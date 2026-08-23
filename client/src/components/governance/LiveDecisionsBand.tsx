@@ -101,6 +101,13 @@ export default function LiveDecisionsBand() {
                 >
                   {b.title}
                 </Link>
+                {/* The band is the doorway, so the one thing it must never
+                    imply is that a practice vote decides something. */}
+                {!b.binding && (
+                  <span className="mt-1 text-xs text-stone-600 leading-relaxed">
+                    Nothing changes by itself when this one closes.
+                  </span>
+                )}
                 <span className="mt-2">
                   <VoteClock closesAt={b.closesAt} />
                 </span>
@@ -111,6 +118,7 @@ export default function LiveDecisionsBand() {
                     unityPct={b.unityPct}
                     quorumPct={b.quorumPct}
                     method={b.method}
+                    standingObjections={b.standingObjections}
                   />
                 </div>
               </li>

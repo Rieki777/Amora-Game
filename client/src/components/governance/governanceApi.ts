@@ -43,6 +43,14 @@ export interface Ballot {
   id: string;
   subjectType: string;
   subjectRef: string;
+  /**
+   * Whether closing this changes anything by itself. The server reads it off
+   * the close route's own subject table, so "this vote binds" and "this vote
+   * executes" are one sentence there and cannot drift apart. A member is owed
+   * this BEFORE they vote: someone who thinks they decided something and finds
+   * out later that they did not is worse off than someone who never voted.
+   */
+  binding: boolean;
   title: string;
   docMarkdown: string;
   method: BallotMethod;
@@ -64,6 +72,14 @@ export interface Ballot {
   votes: BallotVote[];
   silent: BallotSilent[];
   objections: BallotObjection[];
+  /**
+   * How many objections stand between this ballot and passing, counted by the
+   * SAME function the close route evaluates with. Both payloads carry it, so
+   * no surface recounts: a client that reckoned for itself once showed
+   * "nothing stands in the way" over a consent ballot whose upheld objection
+   * was about to fail it. Zero on every method but consent.
+   */
+  standingObjections: number;
   myVote: { choice: VoteChoice; reason: string | null } | null;
   /** Null means the viewer is outside this electorate. Zero means inside it,
    *  holding no weight, which is a different and much louder fact. */
@@ -81,8 +97,17 @@ export interface BallotCard {
   id: string;
   subjectType: string;
   subjectRef: string;
+  /** As on `Ballot`: false means closing it executes nothing. */
+  binding: boolean;
   title: string;
   method: BallotMethod;
+  /**
+   * The card's ONLY source for this, and the reason the server started
+   * sending it: a list payload builds no objections array, so a consent card
+   * used to name objections as the deciding thing and then say nothing about
+   * whether one stood.
+   */
+  standingObjections: number;
   weightMode: "equal" | "token" | "custom";
   unityPct: number;
   quorumPct: number;
@@ -132,6 +157,13 @@ export interface ProposalDraft {
 
 export interface WizardFacts {
   conductable: string[];
+  /**
+   * The kinds this village can put to a NON-BINDING vote today, which is every
+   * kind the executors have not reached yet. A type step holding both lists
+   * can offer a practice vote where it used to offer a locked card.
+   */
+  advisory: string[];
+  mayOpenAdvisory: boolean;
   draftCap: number;
   supportThreshold: number;
   mayOpenBallot: boolean;
@@ -200,6 +232,41 @@ export interface CloseResult {
   held: string | null;
   ballot: Ballot;
 }
+
+/**
+ * Call a ballot off. It decides nothing, executes nothing, and frees the
+ * subject for a fresh vote straight away.
+ *
+ * `votesDiscarded` comes back so the surface can say what the withdrawal cost
+ * in members' votes. The route's own rule is that whoever opened it may call
+ * off a ballot NOBODY has answered, and once even one vote stands it takes a
+ * proposal.decide holder or an admin, because cast votes belong to somebody
+ * other than the opener.
+ */
+export const withdrawBallot = (id: string, reason: string) =>
+  call<{ success: true; votesDiscarded: number; ballot: Ballot }>(
+    `/api/governance/ballots/${encodeURIComponent(id)}/withdraw`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+
+/**
+ * Ask the village something on the real engine, without the answer doing
+ * anything: a real frozen electorate, real weights, a real quorum to reach.
+ *
+ * `about` names the kind of decision being practised and is optional; the
+ * server ignores anything outside its advisory list. `method` is offered here
+ * and not on a binding ballot, because practising with consent one moon and
+ * majority the next is most of what a practice vote is for.
+ */
+export const openAdvisory = (input: {
+  question: string;
+  detail?: string;
+  about?: string;
+  method?: string;
+}) => call<{ success: true; ballot: Ballot }>("/api/governance/advisory", {
+  method: "POST",
+  body: JSON.stringify(input),
+});
 
 export const closeBallot = (id: string, outcomeNote: string) =>
   call<CloseResult>(`/api/governance/ballots/${encodeURIComponent(id)}/close`, {

@@ -244,21 +244,38 @@ export function VoteResultMini({
   unityPct,
   quorumPct,
   method,
-}: Pick<VoteResultProps, "tallies" | "totalWeight" | "unityPct" | "quorumPct" | "method">) {
+  standingObjections,
+}: Pick<VoteResultProps, "tallies" | "totalWeight" | "unityPct" | "quorumPct" | "method"> & {
+  /**
+   * The server's count, which the list payload started sending for exactly
+   * this spot. A consent card named objections as the deciding thing and then
+   * had nothing to say about whether one stood, so a member read the rule and
+   * was shown nothing about the only fact that settles the answer.
+   */
+  standingObjections: number;
+}) {
   const unity = unityBar(tallies, unityPct, method);
   const quorum = quorumBar(tallies, totalWeight, quorumPct);
   const consent = method === "consent";
+  const objections = objectionState(standingObjections);
   const UnityMark = MARK_ICON[unity.mark];
+  const ObjectionMark = MARK_ICON[objections.mark];
   const QuorumMark = MARK_ICON[quorum.mark];
 
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
       {consent ? (
-        // No moon on a consent ballot, and a line saying why, so the missing
-        // half reads as a fact about the method instead of a gap in the card.
+        // No moon on a consent ballot, because agreement is not what decides
+        // it. What stands in the moon's place is the thing that DOES decide
+        // it, with a mark beside it so it is never colour alone.
         <div className="flex flex-col leading-tight">
-          <span className="text-[11px] font-medium text-stone-600">Agreement</span>
-          <span className="text-xs text-stone-700">Objections decide this one</span>
+          <span className="text-[11px] font-medium text-stone-600">Objections decide this one</span>
+          <span className="flex items-center gap-1 text-xs font-bold text-stone-900">
+            <ObjectionMark className={`w-3 h-3 ${MARK_TONE[objections.mark]}`} aria-hidden="true" />
+            {standingObjections > 0
+              ? `${standingObjections} standing`
+              : "None standing"}
+          </span>
         </div>
       ) : (
         <div className="flex items-center gap-2">
