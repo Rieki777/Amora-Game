@@ -29,6 +29,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { ALL_CAPABILITIES, TRANSFERABLE, type Capability } from "../../shared/capabilities";
+import { WIRED_BUT_HELD_BACK } from "./capabilityRegistry";
 
 export interface CapabilityHoldingRow {
   capability: string;
@@ -115,11 +116,18 @@ export async function moveCapabilityToVillage(
     return { ok: false, error: `"${input.capability}" is not a capability this platform knows about.` };
   }
   if (TRANSFERABLE[cap] !== true) {
+    /*
+     * 0103: the true reason, when there is a truer one than the default. A
+     * key the product uses and this map still refuses is not a personal act,
+     * and saying it is would be a sentence written before the fact it now
+     * describes. `WIRED_BUT_HELD_BACK` carries the reason beside the power.
+     */
     return {
       ok: false,
       error:
+        WIRED_BUT_HELD_BACK[input.capability] ??
         `"${input.capability}" is not a power that can move. It names something a member does for themselves, ` +
-        `or plumbing the deployment has to keep reachable, so there is nobody for it to move to.`,
+          `or plumbing the deployment has to keep reachable, so there is nobody for it to move to.`,
     };
   }
   const [roles] = await pool.query<RowDataPacket[]>(

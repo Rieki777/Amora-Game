@@ -276,6 +276,11 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
  *    village holds posting would be a category error with a lockout attached.
  *  - It is PLUMBING the deployment operator has to keep reachable. Moving
  *    those would strand a fork whose operator did not choose any of this.
+ *  - Nothing REFUSES on it. `ballot.vote` and `member.vouch` are both here:
+ *    one is read to build a roll and to report a member their standing, the
+ *    other is read nowhere at all. A `true` promises that an admin has to
+ *    reach past the village in the open, and a key with no refusal behind it
+ *    has no "past" to reach. Each carries its own reasoning below.
  *
  * A Record and not a Set on purpose: a new capability with no line here is a
  * TYPE ERROR, so the classification is a decision somebody makes rather than
@@ -307,6 +312,30 @@ export const TRANSFERABLE: Record<Capability, boolean> = {
   "event.manage": true,
   "exchange.manage": true,
   "forum.moderate": true,
+  // ── The seven that crossed in 0103 ──────────────────────────────────────
+  //
+  // Each of these was `false` for one mechanical reason: its routes asked
+  // `hasCapability(cap, await capabilityCtx(user))` inline, which never sees
+  // the request and therefore cannot carry the break-glass. Each line below
+  // moved in the SAME commit as its conversion, never one without the other,
+  // because a `true` here on an unconverted gate is a lockout with no way
+  // back through the product.
+  //
+  // What "converted" means for each of them, stated so the next reader can
+  // check it instead of trusting it: every route that REFUSES on the key now
+  // asks `mayAct`/`guardCapability`, and every surface that merely REPORTS
+  // the key still asks the pure gate with an admin short-circuit. The second
+  // half matters as much as the first. `mayAct` reads the break-glass and
+  // writes the public record, so pointing a visibility read at it would put
+  // "acted on a power this village holds" on the pulse for somebody who only
+  // looked.
+  "quest.consent": true,
+  "proposal.decide": true,
+  "map.publish": true,
+  "map.curatePhotos": true,
+  "feed.announce": true,
+  "health.record": true,
+  "org.declare": true,
 
   // ── FALSE: a personal act. There is nobody for these to move TO ─────────
   //
@@ -326,36 +355,35 @@ export const TRANSFERABLE: Record<Capability, boolean> = {
   "map.contact": false,
   "map.edit": false,
 
-  // ── FALSE FOR NOW: real powers whose gates have no hatch yet ────────────
+  // ── FALSE: a power with no act to reach past ────────────────────────────
   //
-  // Every one of these is a power a village should be able to take, and the
-  // only thing standing in the way is mechanical: their checks are inline
-  // `hasCapability(cap, await capabilityCtx(user))` calls, which never see
-  // the request and therefore cannot carry an override. Flipping one of them
-  // to `true` today would mean an admin who is not the holder is refused with
-  // no way back through the product at all.
+  // `ballot.vote` was the eighth key of the 0103 sweep and it is the one that
+  // did NOT cross. The reason is not the snapshot law and it is not nerve; it
+  // is that there is no gate here to convert, and a `true` would therefore be
+  // a claim with nothing under it.
   //
-  // The work to flip one is small and it is the same work each time: route
-  // the check through `mayAct` so the hatch and the record come with it. It
-  // is deliberately NOT done here, because doing eight of them blind in the
-  // same commit as the gate change is how a lane ships a lockout it never
-  // drove.
-  "quest.consent": false,
-  "proposal.decide": false,
-  "map.publish": false,
-  "map.curatePhotos": false,
-  "feed.announce": false,
-  "health.record": false,
-  "org.declare": false,
-  // `ballot.vote` deserves its own line, because it is the one the transfer
-  // ceremony most wants and the one that most needs care. The electorate is
-  // built by running this key over every member, so an admin is on the roll
-  // of every ballot by virtue of being an admin, and a village that took this
-  // on would get the thing the engine has never had: an admin who votes
-  // because they are a member, or does not vote at all. What makes it hard is
-  // the snapshot law. The roll is frozen at open, so a transfer landing
-  // mid-ballot must not move anybody already on it, and proving that is a
-  // test in the lane that owns the ballot engine.
+  // Both places this key is read were checked by hand:
+  //
+  //   1. `buildElectorate` runs the gate over EVERY member to freeze a roll.
+  //      It has no request, so it cannot read a break-glass and cannot write
+  //      a record. `mayAct` is not applicable to it in principle.
+  //   2. `GET /api/governance/standing` reports `eligible` to the member
+  //      asking. That is a LOOK. Routing it through `mayAct` is the exact
+  //      defect the RSVP route shipped: an admin viewing their own standing
+  //      with `override` in the request would write "acted on a power this
+  //      village holds" to the public pulse for having looked.
+  //
+  // `POST /api/governance/ballots/:id/vote` asks this key for NOTHING. It
+  // reads the frozen roll, which is what the snapshot law requires of it.
+  //
+  // So the mechanism a `true` promises does not exist for this key. Worse, an
+  // admin dropped off a village-held roll has two ways back that write no
+  // public record at all: grant themselves a role carrying the key
+  // (`PUT /api/admin/roles/:id/capabilities`, admin-only), or move
+  // `progression.unlock.ballot.vote`. Reaching past a village-held power has
+  // to stay visible, and here it would not be. Converting the roll builder to
+  // something request-shaped is the ballot engine's own work, not a gate
+  // swap, and it belongs to the lane that owns the snapshot.
   "ballot.vote": false,
   // Declared in the round 5 capability set and gated by nothing at all: the
   // membrane's vouching step does not exist, so there is no power here yet.

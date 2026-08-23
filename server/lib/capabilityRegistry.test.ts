@@ -9,7 +9,13 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { NOT_YET_WIRED, POWERS, powersForReading, undescribedPowers } from "./capabilityRegistry";
+import {
+  NOT_YET_WIRED,
+  POWERS,
+  powersForReading,
+  undescribedPowers,
+  WIRED_BUT_HELD_BACK,
+} from "./capabilityRegistry";
 import { ALL_CAPABILITIES, TRANSFERABLE, type Capability } from "../../shared/capabilities";
 import { CAPABILITY_CONSEQUENCE } from "../../shared/draftKinds";
 
@@ -93,6 +99,27 @@ describe("the powers registry", () => {
   it("says a power is unheld by saying nothing about a holder, never by a placeholder", () => {
     const read = powersForReading(new Map());
     expect(read.every((p) => p.heldBy === null)).toBe(true);
+  });
+
+  /*
+   * The ceremony routes and the admin holding route all refuse a
+   * non-transferable key with one written sentence, and that sentence names
+   * two reasons: a personal act, or plumbing. A key that is WIRED and still
+   * refused is a third thing, and answering it with either of the other two
+   * is a fallback inventing a fact. These two tests keep the third list exact
+   * in both directions, so a key that crosses takes its line out on the same
+   * day and a key that stops crossing gains one.
+   */
+  it("gives a reason to every wired power the map still refuses", () => {
+    const heldBack = POWERS.filter((p) => TRANSFERABLE[p.capability] !== true).map((p) => p.capability);
+    expect(Object.keys(WIRED_BUT_HELD_BACK).sort()).toEqual([...heldBack].sort());
+  });
+
+  it("never explains a power that can already move", () => {
+    for (const key of Object.keys(WIRED_BUT_HELD_BACK)) {
+      expect(TRANSFERABLE[key as Capability], key).not.toBe(true);
+      expect(WIRED_BUT_HELD_BACK[key].length, key).toBeGreaterThan(40);
+    }
   });
 
   it("describes every power a real deployment could hand over today", () => {
