@@ -196,14 +196,22 @@ describe("what an operator reads after they decline", () => {
     expect(seen.consequence).toBe(REFUSAL.consequence);
   });
 
-  it("drops the length it just invalidated", async () => {
+  it("drops the two headers it just invalidated", async () => {
+    // `server/index.ts` mounts `compression`, so content-encoding is a header
+    // a real 409 can arrive carrying, and the replacement body is not gzipped.
     const served = new Response(JSON.stringify({ ...REFUSAL, error: CURL_ERROR }), {
       status: 409,
-      headers: { "content-type": "application/json", "content-length": "999" },
+      headers: {
+        "content-type": "application/json",
+        "content-length": "999",
+        "content-encoding": "gzip",
+      },
     });
     expect(served.headers.get("content-length")).toBe("999");
+    expect(served.headers.get("content-encoding")).toBe("gzip");
     const declined = declinedRefusal(served, await served.clone().json(), readOverrideRefusal(409, REFUSAL)!);
     expect(declined.headers.get("content-length")).toBeNull();
+    expect(declined.headers.get("content-encoding")).toBeNull();
     expect(declined.headers.get("content-type")).toBe("application/json");
   });
 

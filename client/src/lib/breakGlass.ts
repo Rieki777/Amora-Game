@@ -165,8 +165,14 @@ export function declinedMessage(ask: BreakGlassAsk): string {
  * keys on `res.status`, or reads `requiresOverride`, or falls back to its own
  * sentence when the body has none, behaves exactly as it did before.
  *
- * `content-length` comes off because the body is a different length now, and
- * a stale one on a synthesised Response is a lie that costs somebody an hour.
+ * Two headers come off, both for the same reason: they described a body that
+ * no longer exists. `content-length` is the obvious one. `content-encoding`
+ * is the one worth writing down, because `server/index.ts` mounts
+ * `compression`, so a 409 large enough to be worth gzipping arrives carrying
+ * it. A constructed Response never decodes its own body, so leaving it would
+ * not break a caller today; it would sit there as a header saying "gzip" over
+ * plain JSON, waiting for the first person who believes it.
+ *
  * Pure and separate from the wrapper so it is testable without a browser,
  * which is what every client test in this repo is.
  */
@@ -177,6 +183,7 @@ export function declinedRefusal(res: Response, body: unknown, ask: BreakGlassAsk
       : {};
   const headers = new Headers(res.headers);
   headers.delete("content-length");
+  headers.delete("content-encoding");
   headers.set("content-type", "application/json");
   return new Response(JSON.stringify({ ...fields, error: declinedMessage(ask) }), {
     status: res.status,

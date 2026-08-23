@@ -80,7 +80,15 @@
  * list either. Neither of those is a hole discovered later; both are stated
  * up there, and this run is what turns the statement into a measurement.
  *
- * Usage: node scripts/check-save-honesty.mjs [--json] [path ...]
+ * ── AUDITING THE ONE BLIND SPOT THAT IS NOT A DESIGN CHOICE ───────────────
+ *
+ * `--unread` prints the calls whose method the syntax does not state, because
+ * a count says "there are seven" and only a list lets somebody check that
+ * none of the seven is a save. At this ref all seven either hold the Response
+ * in a variable or return it to a caller, and one of them is `gameFetch`
+ * itself, so the shape this gate hunts is not hiding in any of them.
+ *
+ * Usage: node scripts/check-save-honesty.mjs [--json] [--unread] [path ...]
  */
 import fs from "fs";
 import path from "path";
@@ -127,7 +135,9 @@ function methodOf(call) {
   const init = call.arguments[1];
   if (!init) return "GET";
   if (!ts.isObjectLiteralExpression(init)) return null;
+  let spread = false;
   for (const prop of init.properties) {
+    if (ts.isSpreadAssignment(prop)) { spread = true; continue; }
     if (!ts.isPropertyAssignment(prop)) continue;
     const key = prop.name && prop.name.getText().replace(/['"]/g, "");
     if (key !== "method") continue;
@@ -135,7 +145,11 @@ function methodOf(call) {
     if (ts.isStringLiteral(v) || ts.isNoSubstitutionTemplateLiteral(v)) return v.text.toUpperCase();
     return null;
   }
-  return "GET";
+  // `fetch(url, { ...opts, headers })` can carry `method` inside the spread,
+  // and calling that a GET would hide a mutating call behind a shape the
+  // script simply cannot see. Unread is the honest answer, and unread is
+  // printed on every run.
+  return spread ? null : "GET";
 }
 
 /**
@@ -243,6 +257,12 @@ function hasThen(top) {
 
 const args = process.argv.slice(2);
 const asJson = args.includes("--json");
+/**
+ * Print the calls whose method could not be read, so the blind spot can be
+ * audited instead of merely counted. A number says "there are seven"; only
+ * the list lets somebody check that none of the seven is a save.
+ */
+const showUnread = args.includes("--unread");
 const roots = args.filter((a) => !a.startsWith("--"));
 
 const files = [];
@@ -255,6 +275,7 @@ for (const r of (roots.length ? roots : SCAN_ROOTS)) {
 
 const findings = [];
 let waived = 0;
+const unreadSites = [];
 let unread = 0;
 let mutating = 0;
 
@@ -274,7 +295,12 @@ for (const file of files) {
     if (!ts.isIdentifier(node.expression) || !FETCHERS.has(node.expression.text)) return;
 
     const method = methodOf(node);
-    if (method === null) { unread++; return; }
+    if (method === null) {
+      unread++;
+      const at = sf.getLineAndCharacterOfPosition(node.getStart()).line;
+      unreadSites.push({ file: rel, line: at + 1, text: (lines[at] ?? "").trim().slice(0, 110) });
+      return;
+    }
     if (!MUTATING.has(method)) return;
     mutating++;
 
@@ -304,6 +330,12 @@ for (const file of files) {
 if (asJson) {
   console.log(JSON.stringify(findings, null, 0));
   process.exit(0);
+}
+
+if (showUnread) {
+  console.log(`Calls whose method this cannot read: ${unreadSites.length}`);
+  for (const u of unreadSites) console.log(`  ${u.file}:${u.line}  ${u.text}`);
+  console.log("");
 }
 
 const scanned = `${mutating} mutating call(s) across ${files.length} file(s)`;
