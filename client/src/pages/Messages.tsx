@@ -93,7 +93,7 @@ function Inbox() {
 
   // The card this component used to carry inline is the shared one now
   // (ModuleGate renders it too, for visitors who cannot even see the module).
-  if (!user) return <SignInToSee name="Messages" next="/messages" />;
+  if (!user) return <SignInToSee moduleId="messaging" name="Messages" next="/messages" />;
 
   return (
     <Layout>

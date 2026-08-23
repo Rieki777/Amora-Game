@@ -7,6 +7,7 @@
  */
 import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
+import { PAGE_GATE_LINES } from "@/components/modules/gateCopy";
 import PlaceGallery from "@/components/places/PlaceGallery";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { Link, useRoute } from "wouter";
@@ -18,7 +19,7 @@ export default function PlacePhotos() {
   const key = params?.key ? decodeURIComponent(params.key) : "";
 
   if (modules.loaded && !mapModule) {
-    return <ModuleGate moduleId="map" name="Places" />;
+    return <ModuleGate moduleId="map" name="Places" behind={PAGE_GATE_LINES.places} />;
   }
 
   return (

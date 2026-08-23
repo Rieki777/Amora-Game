@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
+import { PAGE_GATE_LINES } from "@/components/modules/gateCopy";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import PlaceCard, { type PlaceCardData } from "@/components/places/PlaceCard";
 import PhotoReportsPanel from "@/components/places/PhotoReportsPanel";
@@ -39,7 +40,7 @@ export default function Places() {
   const modules = useModules();
   const mapModule = useModule("map");
   if (modules.loaded && !mapModule) {
-    return <ModuleGate moduleId="map" name="Places" />;
+    return <ModuleGate moduleId="map" name="Places" behind={PAGE_GATE_LINES.places} />;
   }
   return <PlacesPage />;
 }

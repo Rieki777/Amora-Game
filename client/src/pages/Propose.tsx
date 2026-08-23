@@ -10,6 +10,7 @@ import { Link } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
+import { PAGE_GATE_LINES } from "@/components/modules/gateCopy";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import ProposalWizard from "@/components/governance/ProposalWizard";
@@ -19,7 +20,8 @@ export default function Propose() {
   const modules = useModules();
   const governance = useModule("governance");
 
-  if (modules.loaded && !governance) return <ModuleGate moduleId="governance" name="Start a proposal" />;
+  if (modules.loaded && !governance)
+    return <ModuleGate moduleId="governance" name="Start a proposal" behind={PAGE_GATE_LINES.propose} />;
 
   return (
     <Layout>
