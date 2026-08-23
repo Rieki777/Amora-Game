@@ -1,0 +1,299 @@
+/**
+ * THE PUBLIC DOOR, against the built server.
+ *
+ * `POST /api/work-with-us/attachment` takes a file from a stranger with no
+ * account and no session, and `/api/uploads/:filename` serves what it stored
+ * to anybody with the link. It used multer's diskStorage, so a photograph
+ * taken on the land arrived carrying the land's GPS position and left
+ * carrying it too.
+ *
+ * A unit test on `sanitiseForVolume` proves the function. This proves the
+ * PRODUCT: the bytes are fetched back through the running server's own
+ * serving route and off the volume it wrote them to, with no account
+ * anywhere in the exercise.
+ *
+ * The vault door is here for the same reason. It had no file filter at all,
+ * so an admin dropping a phone photo in beside the cap table published the
+ * same coordinates.
+ *
+ * Skips loudly without TEST_DATABASE_URL, like every DB-backed suite here.
+ */
+import fs from "fs";
+import os from "os";
+import path from "path";
+import sharp from "sharp";
+import { spawn, type ChildProcess } from "child_process";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { FIXTURE_CAMERA, buildGeotaggedJpeg, buildPdfEmbedding } from "./lib/exifFixture";
+import { exifBlockHasGps, pdfLocationMarkers } from "./lib/uploads";
+
+const DB_CONFIGURED = testDbConfigured();
+if (!DB_CONFIGURED) {
+  console.warn("[uploadStrip.routes] TEST_DATABASE_URL not set — DB-backed tests SKIPPED.");
+}
+
+const DIST = path.resolve(process.cwd(), "dist/index.js");
+// Its own port range: 12400-12799, clear of every other suite's band.
+const PORT = 12400 + (process.pid % 400);
+const BASE = `http://localhost:${PORT}`;
+const ADMIN = "strip-admin";
+
+let child: ChildProcess | undefined;
+let testDb: TestDb | undefined;
+let dataDir = "";
+let founderToken = "";
+
+async function call(method: string, route: string, body?: unknown, token = founderToken) {
+  const res = await fetch(BASE + route, { // module-review-ok: the test client dialling the built server on localhost, as every e2e suite does
+    method,
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json: any = null;
+  try { json = JSON.parse(text); } catch { /* non-JSON stays visible through text */ }
+  return { status: res.status, json, text };
+}
+
+/** Post a file with NO Authorization header at all. That is the point. */
+async function postAttachment(bytes: Buffer, name: string, type: string, token = "") {
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(bytes)], { type }), name);
+  const res = await fetch(`${BASE}/api/work-with-us/attachment`, { // module-review-ok: the test client dialling the built server on localhost
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const text = await res.text();
+  let json: any = null;
+  try { json = JSON.parse(text); } catch { /* keep text */ }
+  return { status: res.status, json, text };
+}
+
+async function postVaultDoc(bytes: Buffer, name: string, type: string) {
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(bytes)], { type }), name);
+  form.append("name", "A document");
+  const res = await fetch(`${BASE}/api/admin/investor-docs/upload`, { // module-review-ok: the test client dialling the built server on localhost
+    method: "POST",
+    headers: { Authorization: `Bearer ${founderToken}` },
+    body: form,
+  });
+  const text = await res.text();
+  let json: any = null;
+  try { json = JSON.parse(text); } catch { /* keep text */ }
+  return { status: res.status, json, text };
+}
+
+async function fetchUpload(filename: string): Promise<{ status: number; bytes: Buffer }> {
+  const res = await fetch(`${BASE}/api/uploads/${filename}`); // module-review-ok: the test client dialling the built server on localhost
+  return { status: res.status, bytes: Buffer.from(await res.arrayBuffer()) };
+}
+
+async function plainJpeg(w = 1200, h = 900): Promise<Buffer> {
+  return sharp({ create: { width: w, height: h, channels: 3, background: { r: 40, g: 100, b: 70 } } }).jpeg().toBuffer();
+}
+async function geotagged(w = 1200, h = 900): Promise<Buffer> {
+  return buildGeotaggedJpeg(await plainJpeg(w, h));
+}
+
+beforeAll(async () => {
+  if (!DB_CONFIGURED) return;
+  if (!fs.existsSync(DIST)) {
+    throw new Error(`${DIST} is missing. Run \`pnpm build\` before the upload strip test.`);
+  }
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-strip-"));
+  testDb = await provisionTestDb();
+
+  child = spawn(process.execPath, [DIST], {
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      PORT: String(PORT),
+      DATA_DIR: dataDir,
+      DATABASE_URL: testDb.url,
+      ADMIN_PASSWORD: ADMIN,
+      AUTH_TOKEN_SECRET: "strip-token-secret", // module-review-ok: a fixture signing secret for a throwaway server on a scratch schema, same as every e2e suite
+      RESEND_API_KEY: "",
+      ANTHROPIC_API_KEY: "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const logs: string[] = [];
+  child.stdout?.on("data", (d) => logs.push(String(d)));
+  child.stderr?.on("data", (d) => logs.push(String(d)));
+
+  const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
+  for (;;) {
+    if (Date.now() > deadline) throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s:\n${logs.join("")}`);
+    try {
+      if ((await fetch(`${BASE}/health`)).ok) break; // module-review-ok: the boot poll against the local test server
+    } catch { /* not up yet */ }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  const boot = await call("POST", "/api/admin/bootstrap", {
+    password: ADMIN, email: `founder-${PORT}@example.test`, name: "Strip Founder",
+  }, "");
+  const claim = decodeURIComponent(String(boot.json?.claimUrl ?? "").match(/token=([^&]+)/)?.[1] ?? "");
+  const setPw = await call("POST", "/api/auth/set-password", { token: claim, password: "StripTest123!" }, "");
+  founderToken = String(setPw.json?.token ?? "");
+  expect(founderToken, "founder must hold a session").toBeTruthy();
+});
+
+afterAll(async () => {
+  child?.kill();
+  await testDb?.drop();
+  try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch { /* gone */ }
+});
+
+describe.skipIf(!DB_CONFIGURED)("the public proposal attachment door", () => {
+  it("the fixture really is geotagged, or nothing below means anything", async () => {
+    const meta = await sharp(await geotagged()).metadata();
+    expect(meta.exif).toBeTruthy();
+    expect(exifBlockHasGps(meta.exif as Buffer)).toBe(true);
+  });
+
+  it("takes a photograph from a stranger with no account and stores it with no coordinates", async () => {
+    const up = await postAttachment(await geotagged(), "site-photo.jpg", "image/jpeg");
+    expect(up.status, up.text).toBe(200);
+    const filename = String(up.json?.filename ?? "");
+    expect(filename).toMatch(/^proposal-\d+-[a-z0-9]+\.jpg$/);
+
+    // Off the volume the server wrote it to.
+    const onDisk = fs.readFileSync(path.join(dataDir, "uploads", filename));
+    expect((await sharp(onDisk).metadata()).exif, "the stored file still carries EXIF").toBeFalsy();
+    expect(onDisk.includes(Buffer.from(FIXTURE_CAMERA)), "the stored file still names the camera").toBe(false);
+    expect(onDisk.includes(Buffer.from("Exif")), "the stored file still carries an EXIF container").toBe(false);
+
+    // And through the serving route, which is how a stranger would read it.
+    const served = await fetchUpload(filename);
+    expect(served.status).toBe(200);
+    expect((await sharp(served.bytes).metadata()).exif).toBeFalsy();
+    expect(served.bytes.includes(Buffer.from(FIXTURE_CAMERA))).toBe(false);
+  });
+
+  it("keeps the picture usable: same dimensions, same format", async () => {
+    const up = await postAttachment(await geotagged(1600, 1200), "wide.jpg", "image/jpeg");
+    expect(up.status, up.text).toBe(200);
+    const onDisk = fs.readFileSync(path.join(dataDir, "uploads", String(up.json.filename)));
+    const meta = await sharp(onDisk).metadata();
+    expect(meta.width, "a scan must come out the size it went in").toBe(1600);
+    expect(meta.height).toBe(1200);
+    expect(meta.format).toBe("jpeg");
+  });
+
+  it("refuses a PDF that hides a geotagged photograph inside it, and says why", async () => {
+    const pdf = buildPdfEmbedding(await geotagged(240, 180));
+    expect(pdfLocationMarkers(pdf).found, "the PDF fixture carries no GPS, so this proves nothing").toBe(true);
+    const up = await postAttachment(pdf, "proposal.pdf", "application/pdf");
+    expect(up.status, up.text).toBe(400);
+    expect(up.json.error).toContain("GPS coordinates");
+    // Refused BEFORE any write: nothing was left on the volume for the sweep.
+    const left = fs.readdirSync(path.join(dataDir, "uploads")).filter((f) => f.endsWith(".pdf"));
+    expect(left).toEqual([]);
+  });
+
+  it("takes an ordinary PDF through untouched, which is every CV", async () => {
+    const pdf = buildPdfEmbedding(await plainJpeg(240, 180));
+    const up = await postAttachment(pdf, "cv.pdf", "application/pdf");
+    expect(up.status, up.text).toBe(200);
+    const onDisk = fs.readFileSync(path.join(dataDir, "uploads", String(up.json.filename)));
+    expect(onDisk.equals(pdf), "an ordinary PDF must reach the volume byte for byte").toBe(true);
+  });
+
+  it("still refuses the file types it always refused", async () => {
+    const up = await postAttachment(Buffer.from("<html>nope</html>"), "x.html", "text/html");
+    expect(up.status).toBe(400);
+    expect(up.text).toContain("Only images or PDF");
+  });
+});
+
+/*
+ * ── A PRE-EXISTING BREAK THIS LANE FOUND AND IS NOT FIXING ───────────────
+ *
+ * `POST /api/admin/investor-docs/upload` builds an entry of
+ * `{id, name, filename, pageLink, uploadedAt}` and hands it to a repo whose
+ * columns are `{id, title, description, url, requiresRequest, order}` with
+ * `title` NOT NULL. So the insert has always thrown `Column 'title' cannot be
+ * null` and the vault has never accepted a document through the product. It is
+ * on `origin/main` at 4f32a00 in exactly this shape, so it predates this
+ * branch and predates the strip.
+ *
+ * `check-admin-reach` passes it because a caller exists in the browser. Nothing
+ * anywhere asks whether the route WORKS.
+ *
+ * Not fixed here, deliberately: deciding which column holds a document's name
+ * and its filename is a schema decision, and a sibling lane holds
+ * `client/src/pages/Admin.tsx`, which is the vault's only surface. Recorded
+ * instead, with a tripwire, so the next person meets it rather than inherits
+ * it.
+ *
+ * THE STRIP STILL LANDS, and that is what this lane owns: sanitising happens
+ * before the row write, so the bytes on the volume are clean whatever the
+ * database then does.
+ */
+describe.skipIf(!DB_CONFIGURED)("the investor vault door", () => {
+  it("strips a photograph an admin drops in beside the cap table", async () => {
+    const before = new Set(fs.readdirSync(path.join(dataDir, "uploads")));
+    await postVaultDoc(await geotagged(), "site-visit.jpg", "image/jpeg");
+    const written = fs.readdirSync(path.join(dataDir, "uploads")).filter((f) => !before.has(f));
+    expect(written.length, "the vault must have written its file before the row").toBe(1);
+    expect(written[0], "the vault keeps the document's own name in the file").toContain("site-visit");
+    const onDisk = fs.readFileSync(path.join(dataDir, "uploads", written[0]));
+    expect((await sharp(onDisk).metadata()).exif, "the stored vault file still carries EXIF").toBeFalsy();
+    expect(onDisk.includes(Buffer.from(FIXTURE_CAMERA))).toBe(false);
+  });
+
+  it("leaves a file that is not an image or a PDF exactly as it was", async () => {
+    // The vault takes any type on purpose. A spreadsheet has to survive.
+    const xlsx = Buffer.concat([Buffer.from("PK", "binary"), Buffer.alloc(256, 9)]);
+    const before = new Set(fs.readdirSync(path.join(dataDir, "uploads")));
+    await postVaultDoc(xlsx, "cap-table.xlsx", "application/vnd.ms-excel");
+    const written = fs.readdirSync(path.join(dataDir, "uploads")).filter((f) => !before.has(f));
+    expect(written.length).toBe(1);
+    expect(fs.readFileSync(path.join(dataDir, "uploads", written[0])).equals(xlsx)).toBe(true);
+  });
+
+  it("TRIPWIRE: the vault's row write is broken on main and this says so out loud", async () => {
+    const up = await postVaultDoc(await plainJpeg(40, 30), "tripwire.jpg", "image/jpeg");
+    expect(
+      up.status,
+      "The vault upload answered something other than the pre-existing 500. If somebody has " +
+        "fixed the entry/column mismatch (name and filename are not columns of investor_docs, " +
+        "and title is NOT NULL), that is good news: delete this test and assert the real " +
+        "behaviour instead. It is here so the break is met and not inherited.",
+    ).toBe(500);
+    // And the orphan it leaves: the file is written before the row throws, so
+    // nothing ever references it. Recorded for the same reason.
+    expect(fs.readdirSync(path.join(dataDir, "uploads")).some((f) => f.includes("tripwire"))).toBe(true);
+  });
+
+  it("is still admin-only, and still refuses before a byte is written", async () => {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(await geotagged(40, 30))], { type: "image/jpeg" }), "sneaky.jpg");
+    const res = await fetch(`${BASE}/api/admin/investor-docs/upload`, { method: "POST", body: form }); // module-review-ok: the test client dialling the built server on localhost
+    expect(res.status).toBe(401);
+    expect(fs.readdirSync(path.join(dataDir, "uploads")).some((f) => f.includes("sneaky"))).toBe(false);
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("the brand image door", () => {
+  it("strips, and now asserts it stripped", async () => {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(await geotagged())], { type: "image/jpeg" }), "hero.jpg");
+    const res = await fetch(`${BASE}/api/admin/brand/image`, { // module-review-ok: the test client dialling the built server on localhost
+      method: "POST",
+      headers: { Authorization: `Bearer ${founderToken}` },
+      body: form,
+    });
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    for (const address of [body.url, body.thumbUrl].filter(Boolean)) {
+      const onDisk = fs.readFileSync(path.join(dataDir, "uploads", path.basename(String(address))));
+      expect((await sharp(onDisk).metadata()).exif).toBeFalsy();
+      expect(onDisk.includes(Buffer.from(FIXTURE_CAMERA))).toBe(false);
+    }
+  });
+});

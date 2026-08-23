@@ -28,6 +28,7 @@ import sharp from "sharp";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { FIXTURE_CAMERA, buildGeotaggedJpeg } from "./lib/exifFixture";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -40,7 +41,6 @@ const PORT = 11900 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "places-admin";
 const PLACE = "community-kitchen";
-const CAMERA = "FieldProbeCam";
 
 let child: ChildProcess | undefined;
 let testDb: TestDb | undefined;
@@ -83,79 +83,13 @@ async function fetchUpload(address: string, token = ""): Promise<{ status: numbe
   return { status: res.status, bytes: buf };
 }
 
-/**
- * A JPEG with a real GPS IFD, built here so the fixture can be READ at review
- * time and so a fixture that stopped being geotagged could not make these
- * tests pass vacuously. The same builder as server/lib/placePhotos.test.ts,
- * which proves the fixture carries what it claims to.
- */
-function buildGeotaggedJpeg(base: Buffer, lat: number, lon: number): Buffer {
-  const rat = (n: number, d: number) => {
-    const b = Buffer.alloc(8);
-    b.writeUInt32LE(n, 0);
-    b.writeUInt32LE(d, 4);
-    return b;
-  };
-  const dms = (v: number) => {
-    const a = Math.abs(v);
-    const deg = Math.floor(a);
-    const min = Math.floor((a - deg) * 60);
-    const sec = Math.round(((a - deg) * 60 - min) * 6000);
-    return Buffer.concat([rat(deg, 1), rat(min, 1), rat(sec, 100)]);
-  };
-  const make = Buffer.from(`${CAMERA}\0`, "ascii");
-  const latB = dms(lat);
-  const lonB = dms(lon);
-  const IFD0 = 8;
-  const GPS = IFD0 + 30;
-  const DATA = GPS + 66;
-  const offMake = DATA;
-  const offLat = offMake + make.length;
-  const offLon = offLat + latB.length;
-  const t = Buffer.alloc(offLon + lonB.length);
-  t.write("II", 0, "ascii");
-  t.writeUInt16LE(42, 2);
-  t.writeUInt32LE(IFD0, 4);
-  let p = IFD0;
-  t.writeUInt16LE(2, p);
-  p += 2;
-  const entry = (tag: number, type: number, count: number, value: Buffer | number) => {
-    t.writeUInt16LE(tag, p);
-    t.writeUInt16LE(type, p + 2);
-    t.writeUInt32LE(count, p + 4);
-    if (Buffer.isBuffer(value)) value.copy(t, p + 8);
-    else t.writeUInt32LE(value, p + 8);
-    p += 12;
-  };
-  entry(0x010f, 2, make.length, offMake);
-  entry(0x8825, 4, 1, GPS);
-  t.writeUInt32LE(0, p);
-  p = GPS;
-  t.writeUInt16LE(5, p);
-  p += 2;
-  entry(0x0000, 1, 4, Buffer.from([2, 3, 0, 0]));
-  entry(0x0001, 2, 2, Buffer.from(`${lat >= 0 ? "N" : "S"}\0`, "ascii"));
-  entry(0x0002, 5, 3, offLat);
-  entry(0x0003, 2, 2, Buffer.from(`${lon >= 0 ? "E" : "W"}\0`, "ascii"));
-  entry(0x0004, 5, 3, offLon);
-  t.writeUInt32LE(0, p);
-  make.copy(t, offMake);
-  latB.copy(t, offLat);
-  lonB.copy(t, offLon);
-  const payload = Buffer.concat([Buffer.from("Exif\0\0", "binary"), t]);
-  const app1 = Buffer.alloc(4);
-  app1.writeUInt16BE(0xffe1, 0);
-  app1.writeUInt16BE(payload.length + 2, 2);
-  return Buffer.concat([base.subarray(0, 2), app1, payload, base.subarray(2)]);
-}
-
 async function geotagged(tint: number): Promise<Buffer> {
   const plain = await sharp({
     create: { width: 240, height: 180, channels: 3, background: { r: tint, g: 90, b: 60 } },
   })
     .jpeg()
     .toBuffer();
-  return buildGeotaggedJpeg(plain, 9.944, -84.1408);
+  return buildGeotaggedJpeg(plain);
 }
 
 async function upload(
@@ -318,7 +252,7 @@ describe.skipIf(!DB_CONFIGURED)("photographs of a place", () => {
       expect(meta.exif, `${name} still carries an EXIF blob`).toBeFalsy();
       // ...and the bytes themselves, which is where a chunk no parser knows
       // about would still be sitting.
-      expect(bytes.includes(Buffer.from(CAMERA)), `${name} still names the camera`).toBe(false);
+      expect(bytes.includes(Buffer.from(FIXTURE_CAMERA)), `${name} still names the camera`).toBe(false);
       expect(bytes.includes(Buffer.from("Exif")), `${name} still carries an EXIF container`).toBe(false);
       expect(bytes.includes(Buffer.from("GPS")), `${name} still carries a GPS marker`).toBe(false);
     }
