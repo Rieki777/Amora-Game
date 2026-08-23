@@ -1193,7 +1193,10 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
     setLoading(false);
   }, [sectionKey]);
 
-  useEffect(() => { load(); setSaved(false); }, [load]);
+  // `saveError` clears with the rest: a refusal is about the section that was
+  // on screen when it happened, and carrying it onto the next one would make
+  // this panel lie in the other direction.
+  useEffect(() => { load(); setSaved(false); setSaveError(""); }, [load]);
 
   const save = async () => {
     setParseError("");

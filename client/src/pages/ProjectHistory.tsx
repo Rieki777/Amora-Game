@@ -733,6 +733,13 @@ export default function ProjectHistory() {
    *
    * Returns whether it landed, so each caller does its own rollback and the
    * one at the top of the page says a single sentence about it.
+   *
+   * IT ONLY EVER SETS. Clearing on success looked right and was the same
+   * defect again: moving a card to "completed" and deciding a linked decision
+   * both fire two writes at once, so a checkbox refused with a 401 wrote its
+   * sentence and the kanban write that succeeded a moment later wiped it. The
+   * four handlers below clear the slot as they start, which is one clean slate
+   * per thing a person does, and a failure from either write survives.
    */
   const journeyWrite = async (path: string, body: unknown): Promise<boolean> => {
     try {
@@ -741,10 +748,7 @@ export default function ProjectHistory() {
         headers: journeyHeaders(),
         body: JSON.stringify(body),
       });
-      if (res.ok) {
-        setWriteNote("");
-        return true;
-      }
+      if (res.ok) return true;
       setWriteNote(
         res.status === 401
           ? "The tracker did not save that. Your journey password is no longer accepted, so reload the page and sign in again."
@@ -757,6 +761,7 @@ export default function ProjectHistory() {
   };
 
   const cycleCheckbox = async (d: Deliverable) => {
+    setWriteNote("");
     const current = getEffectiveState(d.id, d, serverState.checkboxes);
     const next: 0 | 1 | 2 = current === 0 ? 1 : current === 1 ? 2 : 0;
     // Optimistic update
@@ -787,6 +792,7 @@ export default function ProjectHistory() {
   };
 
   const saveNote = async (deliverableId: string) => {
+    setWriteNote("");
     const sectionId = `note-${deliverableId}`;
     const draft = noteDraft;
     const before = serverState.copy[sectionId];
@@ -808,6 +814,7 @@ export default function ProjectHistory() {
   };
 
   const updateKanban = async (id: string, column: KanbanColumn, assignee: string) => {
+    setWriteNote("");
     const before = serverState.kanban[id];
     // Optimistic update
     setServerState((prev) => ({
@@ -846,6 +853,7 @@ export default function ProjectHistory() {
   };
 
   const updateDecision = async (id: string, status: "open" | "decided", chosen: string, notes: string) => {
+    setWriteNote("");
     const before = serverState.decisions[id];
     setServerState((prev) => ({
       ...prev,
