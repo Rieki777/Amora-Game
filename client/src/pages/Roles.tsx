@@ -25,6 +25,8 @@ import { useEffect, useState } from "react";
 import InfoTip from "@/components/InfoTip";
 import SeatClaimCard from "@/components/SeatClaimCard";
 import { swatchFor } from "@/lib/swatch";
+import { gameFetch } from "@/lib/gameApi";
+import { PeopleLockNote, type PeopleTier } from "@/components/PeopleLock";
 
 type RoleStatus = "filled" | "open" | "forming" | "partial";
 
@@ -193,13 +195,20 @@ export default function Roles() {
   const [roles, setRoles] = useState<RoleEntry[] | null>(null);
   const [circles, setCircles] = useState<any[]>([]);
   const [failed, setFailed] = useState(false);
+  const [people, setPeople] = useState<PeopleTier | null>(null);
+  const [seatCounts, setSeatCounts] = useState({ seats: 0, held: 0 });
 
   // Seats are rows now (0049), not cards in a document. `state` arrives
   // DERIVED from live holdings against the seat count, so the page can no
   // longer show a seat marked filled with nobody in it, which the card-shaped
   // chart did for two seats at once.
+  //
+  // `gameFetch` carries the member's token; the bare `fetch` this replaces did
+  // not. `/api/org` tiers holder names behind `map.viewPeople` and reads the
+  // Authorization header alone, so this page asked as a stranger every time
+  // and the holders list was empty for every reader it ever had.
   useEffect(() => {
-    fetch("/api/org")
+    gameFetch("/api/org")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data) => {
         if (!data || !Array.isArray(data.roles)) throw new Error("bad shape");
@@ -207,6 +216,11 @@ export default function Roles() {
           (data.circles ?? []).map((c: any) => [c.id, c]),
         );
         setCircles(data.circles ?? []);
+        setPeople(data.people ?? null);
+        setSeatCounts({
+          seats: (data.roles as any[]).reduce((n, r: any) => n + Number(r.seats ?? 0), 0),
+          held: (data.roles as any[]).reduce((n, r: any) => n + Number(r.holderCount ?? 0), 0),
+        });
         setRoles(
           (data.roles as any[]).map((r: any, i: number) => ({
             id: String(r.id ?? `role-${i}`),
@@ -300,6 +314,14 @@ export default function Roles() {
               ))}
             </motion.div>
 
+            {/* Members-only people: every seat card below still carries its
+                aim, its domain and whether it is held. This says whose names
+                are missing and how to reach them. */}
+            {roles !== null && (
+              <div className="mb-12">
+                <PeopleLockNote people={people} seats={seatCounts.seats} held={seatCounts.held} />
+              </div>
+            )}
             {roles === null && !failed && (
               <div className="text-center text-muted-foreground py-16">Loading roles…</div>
             )}

@@ -676,6 +676,15 @@ variables and invariants are language-free by construction.
 - The public `/roles`, `/circles` and `/team` pages read `GET /api/org`. The
   Content card editors for those three sections no longer drive them; the
   editing surface is Admin, Org Chart.
+- New game variable, no migration: `org.public_people` (default `true`,
+  founder-held, category "The village's people"). On, a signed-out visitor
+  reads the first names of the people holding each seat on those three pages.
+  Off is Rye's "secret society" setting: the names become members-only and the
+  structure stays open. Deliberately outside the map module's `variableKeys`,
+  because those three pages have no module gate and `/api/org` answers with the
+  map module off. Three tiers on that route now: anyone (a first name and
+  nothing else), `map.viewPeople` (the holder rows, with focus and note), and
+  admin (seating ids and the recruitment pack).
 - Seed refresh: the `examples-refresh-featured-awards-and-members-product`
   runOnce reapplies the `badges` and `commerce` example rows. It exists
   because no example award carried `featured` (bylines render featured awards

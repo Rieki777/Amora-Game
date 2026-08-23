@@ -259,9 +259,20 @@ describe.skipIf(!DB_CONFIGURED)("your agent over HTTP", () => {
     const anaOrg = await call("GET", "/api/agent/v1/directory", undefined, vat.ana);
     const caraSeat = caraOrg.json.roles.find((r: any) => r.id === roleId);
     expect(caraSeat.holderCount, "the count is not hidden").toBe(1);
-    expect(caraSeat.holders, "cara's token never returns a holder").toEqual([]);
-    for (const r of caraOrg.json.roles ?? []) expect(r.holders).toEqual([]);
+    /*
+     * R57 moved the floor under this assertion. The village's people are
+     * public by default now, so cara's token returns a holder where it used
+     * to return none, and what the tier check has to prove is the SHAPE:
+     * a first name, and nothing that resolves to the person elsewhere. The
+     * seated founder is "Agent Founder", so only "Agent" may appear, and the
+     * user id must not.
+     */
+    expect(caraSeat.holders).toEqual([{ name: "Agent" }]);
+    for (const r of caraOrg.json.roles ?? []) {
+      for (const h of r.holders ?? []) expect(Object.keys(h)).toEqual(["name"]);
+    }
     expect(caraOrg.text).not.toContain("Agent Founder");
+    expect(caraOrg.text, "no user id rides out at the public tier").not.toContain(founderId);
     expect(JSON.stringify(anaOrg.json.roles.find((r: any) => r.id === roleId)?.holders ?? [])).toContain(founderId);
     // And each is still byte-identical to the web route AFTER the seating.
     expect(caraOrg.text).toBe((await call("GET", "/api/org", undefined, cara.token)).text);

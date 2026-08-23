@@ -953,6 +953,34 @@ export const VARIABLES: VariableDef[] = [
     ring: "founder",
   },
 
+  /*
+   * ── The village's people (R57) ─────────────────────────────────────────
+   *
+   * Deliberately NOT in the map module's `variableKeys`. The pages this
+   * governs are `/team`, `/roles` and `/circles`, which are plain routes with
+   * no module gate, and `/api/org` answers with the map module OFF (there is
+   * a test for exactly that). A dial hidden behind a module the village never
+   * enabled would be a dial they could not find.
+   *
+   * FOUNDER-HELD, unlike its sibling `map.public_structure`, which is Ring 2.
+   * That one publishes STRUCTURE and says in its own description that it
+   * never publishes names or faces. This one publishes the names of real
+   * people who did not vote on the question, which is the same reason EXIF
+   * stripping and a subject's right to remove their photo sit outside the
+   * village's dials. A founder can be asked; a proposal cannot be un-passed
+   * for the person it named.
+   */
+  {
+    key: "org.public_people",
+    category: "The village's people",
+    label: "Show who holds each seat to visitors",
+    description:
+      "On, anyone can read the first names of the people holding each seat on the Team, Roles and Circles pages. Off keeps those names for signed-in members whose role or badge grants map.viewPeople, and a visitor still sees every circle, every seat, and how many of them are filled. This is the secret society setting. It moves names only: the shape of the village stays public at both settings.",
+    type: "boolean",
+    default: "true",
+    ring: "founder",
+  },
+
   // ── Events (0059; visible in Admin only while the module is non-off) ─────
   //
   // Three knobs, and all three are READ. A registered variable nothing reads
