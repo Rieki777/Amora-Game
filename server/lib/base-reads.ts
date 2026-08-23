@@ -51,6 +51,65 @@ export function formatUnits(raw: string, decimals: number): string {
 const decimalsCache = new Map<string, number>();
 
 /**
+ * The read-through window every cached chain figure is served under. One
+ * constant, because `readOnchainBalance` (per member) and `villageFigure` (per
+ * village) answer the same question about the same paid endpoint, and two
+ * numbers claiming to be the same number drift.
+ */
+export const FRESH_WINDOW_MS = 60_000;
+
+/**
+ * Is a cached figure still inside its window? PURE, and it takes BOTH instants
+ * so the comparison can be exercised without a clock or a database.
+ *
+ * This exists because the comparison it replaces was wrong in a way nothing
+ * about the code looked wrong. `fetched_at` was written by `NOW()` and read
+ * back against `Date.now()`, which compares the DATABASE server's clock with
+ * this process's. `fetched_at` is a MySQL `timestamp`, so the server converts
+ * it out of UTC into the SESSION zone on the way out and mysql2 (`timezone:
+ * "Z"`) then reads those digits as UTC: the value comes back shifted by
+ * whatever the session's offset is. Measured on this machine's MariaDB, whose
+ * session zone is America/New_York, the two clocks were 711 ms apart and this
+ * subtraction reported 14,400,711 ms.
+ *
+ * Both directions are silent and both are bad, which is why the window is now
+ * CLOSED AT BOTH ENDS rather than only at the top:
+ *
+ *   - a BEHIND-UTC session inflates the age, the window never engages, and
+ *     every profile load dials an endpoint somebody pays per call for.
+ *   - an AHEAD-UTC session makes the age NEGATIVE, and a bare `age < window`
+ *     reads that as fresh for as long as the offset lasts. A member is shown
+ *     a balance that stopped being true hours ago and is told nothing.
+ *
+ * A row dated in the future is therefore not fresh. Under the fix it cannot
+ * normally happen — the writer stores its own `Date`, truncated to the second
+ * the column holds, so the stored instant is never after the writing process's
+ * now. It can still arrive from a second app instance whose clock runs ahead,
+ * and the honest answer there is to spend a call rather than to show a figure
+ * this process cannot date. The safe failure is the expensive one.
+ */
+export function withinFreshWindow(fetchedAtIso: string, nowMs: number, windowMs: number): boolean {
+  const at = Date.parse(fetchedAtIso);
+  if (!Number.isFinite(at)) return false;
+  const age = nowMs - at;
+  return age >= 0 && age < windowMs;
+}
+
+/**
+ * The instant a read happened, as this process saw it, truncated to the second
+ * the `timestamp` column holds.
+ *
+ * Truncating HERE and storing this exact value is what lets the same figure be
+ * returned and written without the first read of a balance reporting a
+ * different moment from every read after it. It also keeps the stored instant
+ * at or before the caller's `Date.now()`, which is the invariant
+ * `withinFreshWindow` leans on when it refuses a future date.
+ */
+export function readInstant(nowMs: number = Date.now()): Date {
+  return new Date(Math.floor(nowMs / 1000) * 1000);
+}
+
+/**
  * The RPC URL is an admin-typed game variable, and its validation rule
  * accepts any https URL with no range check at all — so without this guard
  * an admin (or anyone who reached that route) could point the village's
@@ -225,7 +284,9 @@ export async function readOnchainBalance(
   const cached = await readCache(pool, input.userId, input.tokenSlug).catch(() => null);
   // Read-through TTL: a value under a minute old is served as fresh without
   // touching the RPC — profile loads must not hammer a public endpoint.
-  if (cached && Date.now() - Date.parse(cached.fetchedAt) < 60_000) {
+  // Both instants come from THIS process (see `withinFreshWindow`): the stored
+  // one was written by the branch below out of `readInstant()`, never by NOW().
+  if (cached && withinFreshWindow(cached.fetchedAt, Date.now(), FRESH_WINDOW_MS)) {
     return { raw: cached.raw, decimals: cached.decimals, formatted: formatUnits(cached.raw, cached.decimals), fetchedAt: cached.fetchedAt, stale: false };
   }
   try {
@@ -243,12 +304,24 @@ export async function readOnchainBalance(
       address: contract, abi: erc20Abi, functionName: "balanceOf", args: [holder],
     })) as bigint;
     const rawStr = raw.toString();
+    /*
+     * ONE instant, from THIS process, stored and returned. Never `NOW()`.
+     *
+     * `NOW()` is the database server's wall clock in the database session's
+     * zone, and every freshness check downstream subtracts it from
+     * `Date.now()`. A bound `Date` renders and parses through mysql2 under one
+     * `timezone` setting in both directions, so it reads back as the same
+     * instant whatever the session is set to. `readInstant` truncates to the
+     * second the `timestamp` column holds, so the value returned to the caller
+     * is the value the next read will find.
+     */
+    const at = readInstant();
     await pool.query(
-      "INSERT INTO onchain_balances (id, user_id, token_slug, raw_balance, decimals, fetched_at) VALUES (?,?,?,?,?,NOW()) " +
-        "ON DUPLICATE KEY UPDATE raw_balance = VALUES(raw_balance), decimals = VALUES(decimals), fetched_at = NOW()",
-      [`${input.userId}:${input.tokenSlug}`.slice(0, 120), input.userId, input.tokenSlug, rawStr, decimals],
+      "INSERT INTO onchain_balances (id, user_id, token_slug, raw_balance, decimals, fetched_at) VALUES (?,?,?,?,?,?) " +
+        "ON DUPLICATE KEY UPDATE raw_balance = VALUES(raw_balance), decimals = VALUES(decimals), fetched_at = VALUES(fetched_at)",
+      [`${input.userId}:${input.tokenSlug}`.slice(0, 120), input.userId, input.tokenSlug, rawStr, decimals, at],
     );
-    return { raw: rawStr, decimals, formatted: formatUnits(rawStr, decimals), fetchedAt: new Date().toISOString(), stale: false };
+    return { raw: rawStr, decimals, formatted: formatUnits(rawStr, decimals), fetchedAt: at.toISOString(), stale: false };
   } catch (e) {
     // The rule, verbatim: null on RPC failure, NEVER zero. Last-known wins
     // when it exists, marked with when it was actually true.

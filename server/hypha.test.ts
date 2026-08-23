@@ -28,7 +28,15 @@ import mysql from "mysql2/promise";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
-import { formatUnits, readTokenIdentity, readVillageMetric } from "./lib/base-reads";
+import {
+  FRESH_WINDOW_MS,
+  formatUnits,
+  readInstant,
+  readOnchainBalance,
+  readTokenIdentity,
+  readVillageMetric,
+  withinFreshWindow,
+} from "./lib/base-reads";
 import { villageFigure } from "./lib/hypha/village";
 import { switchoverPreflight } from "./lib/hypha/switchover";
 import { loadVariables, setVariable } from "./lib/variables";
@@ -379,6 +387,141 @@ describe.skipIf(!configured)("the Hypha Bridge, driven against a chain", () => {
     expect(await repo.proposalExists(pool, "p-linked")).toBe(true);
     expect(await repo.proposalExists(pool, "p-missing")).toBe(false);
     await pool.query("DELETE FROM mechanics_proposals"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+  });
+
+  // ── The read-through window, against a database in another zone ────────────
+
+  /**
+   * The window has to hold on a database whose session zone is not UTC, and
+   * NOTHING about the code showed that it did not.
+   *
+   * `fetched_at` is a MySQL `timestamp`. The server converts one out of UTC
+   * into the SESSION zone on its way out, and mysql2 (`timezone: "Z"`) reads
+   * those digits back as UTC, so a row WRITTEN by `NOW()` returns shifted by
+   * the session's offset while a row written from a bound `Date` round-trips
+   * unchanged. The old code wrote `NOW()` and compared against `Date.now()`.
+   *
+   * These pools are the real mechanism and not a simulation of it: a second
+   * and third connection onto the SAME scratch schema, pinned four hours
+   * behind UTC and two hours ahead, in the production `on("connection")`
+   * shape. On a UTC runner they are the only thing that can reach the defect,
+   * which matters because CI's MySQL is UTC and this machine's MariaDB is
+   * America/New_York — a guard that leaned on the local clock would be green
+   * in exactly the place it needed to be red.
+   */
+  function zonedPool(url: string, offset: string): mysql.Pool {
+    const p = mysql.createPool({ uri: url, timezone: "Z", connectionLimit: 2 }); // module-review-ok: the S5 scratch-schema harness pool, the shape this file already uses
+    p.on("connection", (c) => {
+      c.query(`SET time_zone = '${offset}'`); // module-review-ok: the session pin is the thing under test, on the S5 scratch schema
+    });
+    return p;
+  }
+
+  const HOLDER = TREASURY_ADDR; // the fixture address the equity token actually credits
+  const MEMBER = "u-window";
+
+  it.each([
+    ["four hours BEHIND UTC", "-04:00"],
+    ["two hours AHEAD of UTC", "+02:00"],
+    ["UTC itself", "+00:00"],
+  ])("the member-balance window engages on a database %s", async (_label, offset) => {
+    const zoned = zonedPool(db.url, offset);
+    try {
+      await zoned.query("DELETE FROM onchain_balances"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      const args = {
+        userId: MEMBER,
+        walletAddress: HOLDER,
+        tokenSlug: EQUITY_SLUG,
+        contractAddress: EQUITY,
+      };
+
+      // A cold read reaches the chain and returns the real figure.
+      const before = chain.calls.length;
+      const cold = await readOnchainBalance(zoned, args);
+      expect(cold).toBeTruthy();
+      expect(cold!.formatted).toBe("250000");
+      expect(cold!.stale).toBe(false);
+      expect(chain.calls.length).toBeGreaterThan(before);
+
+      /*
+       * THE ASSERTION THE DEFECT FAILED. A second read inside the window must
+       * spend NOTHING. On a behind-UTC session the old code saw an age of four
+       * hours here and dialled the paid endpoint on every single page load.
+       */
+      const afterCold = chain.calls.length;
+      const warm = await readOnchainBalance(zoned, args);
+      expect(warm!.raw).toBe(cold!.raw);
+      expect(warm!.stale).toBe(false);
+      expect(warm!.fetchedAt).toBe(cold!.fetchedAt);
+      expect(chain.calls.length).toBe(afterCold);
+
+      /*
+       * THE OTHER DIRECTION, and the one that costs a member instead of the
+       * village. Age the row past the window by writing what the writer would
+       * have written a hundred seconds ago. On an ahead-UTC session the old
+       * code read this as a NEGATIVE age, which is less than sixty seconds, so
+       * a balance two hours out of date was served with `stale: false` and
+       * nobody was told. The window must engage and refetch.
+       */
+      const aged = readInstant(Date.now() - FRESH_WINDOW_MS - 40_000);
+      await zoned.query("UPDATE onchain_balances SET fetched_at = ? WHERE user_id = ?", [aged, MEMBER]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      const stale = await readOnchainBalance(zoned, args);
+      expect(chain.calls.length).toBeGreaterThan(afterCold);
+      expect(stale!.stale).toBe(false); // refetched, so it is fresh again
+      expect(Date.parse(stale!.fetchedAt)).toBeGreaterThan(aged.getTime());
+    } finally {
+      await zoned.end();
+    }
+  });
+
+  /**
+   * The mechanism itself, isolated, with the old write beside the new one.
+   *
+   * A `timestamp` is stored as a UTC epoch and converted BOTH ways against the
+   * session zone, so the property that holds is a round trip within one
+   * session and never agreement across sessions. That distinction is the whole
+   * bug: a bound `Date` is shifted on the way in and shifted back on the way
+   * out, so it survives; `NOW()` is generated by the server already in session
+   * wall time, is stored correctly, and is then shifted once on the way out
+   * with nothing to cancel it.
+   *
+   * The `NOW()` half is a live control. It fails on any engine this run is on,
+   * which is what stops the other half passing by comparing nothing.
+   */
+  it.each([
+    ["a session BEHIND UTC dates a NOW() row in the past", "-04:00", -1],
+    ["a session AHEAD of UTC dates a NOW() row in the future", "+02:00", 1],
+  ])("%s while a bound Date round-trips", async (_label, offset, sign) => {
+    const p = zonedPool(db.url, offset);
+    try {
+      await p.query("DELETE FROM onchain_balances"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      await p.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+        "INSERT INTO onchain_balances (id, user_id, token_slug, raw_balance, decimals, fetched_at) VALUES (?,?,?,?,?,?)",
+        ["row", MEMBER, EQUITY_SLUG, "1", 18, readInstant()],
+      );
+      const readBack = async () => {
+        const [rows] = await p.query<any[]>("SELECT fetched_at FROM onchain_balances WHERE user_id = ?", [MEMBER]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+        return new Date(rows[0].fetched_at).getTime();
+      };
+
+      // THE FIX'S WRITE. Out and back through a shifted session, unchanged.
+      const at = readInstant();
+      await p.query("UPDATE onchain_balances SET fetched_at = ? WHERE user_id = ?", [at, MEMBER]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      expect(await readBack()).toBe(at.getTime());
+
+      // THE OLD WRITE. Off by the session's whole offset, in the direction the
+      // session leans, and by hours against a window of sixty seconds.
+      await p.query("UPDATE onchain_balances SET fetched_at = NOW() WHERE user_id = ?", [MEMBER]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      const viaNow = await readBack();
+      const drift = viaNow - Date.now();
+      expect(Math.abs(drift)).toBeGreaterThan(FRESH_WINDOW_MS);
+      expect(Math.sign(drift)).toBe(sign);
+      // And the pair of readings this file's fix is about: what the old
+      // comparison would have concluded, spelled out.
+      expect(withinFreshWindow(new Date(viaNow).toISOString(), Date.now(), FRESH_WINDOW_MS)).toBe(false);
+    } finally {
+      await p.end();
+    }
   });
 
   // ── The rule the whole surface stands on. Last, because it kills the node. ──
