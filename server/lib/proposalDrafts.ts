@@ -50,6 +50,8 @@ export const WIZARD_TYPES = [
   "badge_grant",
   "quest_payout",
   "power_transfer",
+  "power_grant",
+  "power_return",
 ] as const;
 export type WizardType = (typeof WIZARD_TYPES)[number];
 
@@ -64,7 +66,12 @@ export type WizardType = (typeof WIZARD_TYPES)[number];
  * adds its own id here in the same commit that mounts its route, and nothing
  * else in the wizard changes.
  */
-export const CONDUCTABLE_TYPES: readonly WizardType[] = ["mechanics", "power_transfer"];
+export const CONDUCTABLE_TYPES: readonly WizardType[] = [
+  "mechanics",
+  "power_transfer",
+  "power_grant",
+  "power_return",
+];
 
 /**
  * WHICH CAPABILITY KEYS A PROPOSAL TYPE MAY NOT NAME, AND WHY.
@@ -112,6 +119,52 @@ export const TYPE_CAPABILITY_REFUSALS: Partial<
       "transfer, where the power is named and the whole electorate votes on where it lives.",
   },
   power_transfer: {
+    keys: [],
+    why: "",
+  },
+  /*
+   * THE RUNWAY REFUSES THE TWO KEYS THAT MAKE AN ELECTORATE.
+   *
+   * `power_grant` is the village voting to give a role a power it does not
+   * carry yet. It sits one step before `power_transfer` on purpose, and that
+   * position is exactly why it needs a refusal the transfer does not.
+   *
+   * A transfer names a POWER and moves it to a role that already carries it,
+   * so the electorate that votes is the electorate that lives with it. A
+   * grant WRITES a role's capability list, and a role is a set of PEOPLE
+   * through its seats. Granting `ballot.vote` to a role and then seating
+   * three people in it is the badge-grant capture path with one extra step:
+   * a small group choosing who else gets a say.
+   *
+   * R54 IS NOT BEING FENCED OFF HERE, and the difference matters. A village
+   * widening its own roll is the destination, and the way there is the roll's
+   * own dials: `progression.unlock.ballot.vote` is a mechanic, so a
+   * `mechanics` ballot moves the rung that decides who votes, and the whole
+   * electorate decides it in one act about a rule. What is refused is the
+   * other route to the same place, the one that goes through naming a
+   * container of people.
+   *
+   * TRANSFERABLE already excludes both of these keys today, so this map
+   * currently refuses what nothing could reach. It is written anyway, and
+   * that is the whole point of it: the day a lane converts the vote route to
+   * `mayAct` and flips `ballot.vote` to transferable, the runway would widen
+   * to include it silently, in a commit about something else. This is the
+   * line that does not move when that one does.
+   */
+  power_grant: {
+    keys: ["ballot.vote", "member.vouch"],
+    why:
+      "A role is a set of people, so voting this one onto a role and then seating people in it " +
+      "would be a few members choosing who else gets a say. Who votes here is a rule of the game, " +
+      "and the village changes it the way it changes any rule: open a rule change on the rung that " +
+      "decides who is on the roll, and the whole roll decides it.",
+  },
+  /*
+   * Giving a power back refuses nothing, and there is nothing to refuse: the
+   * only capability a return ballot can name is one this village is already
+   * holding, and every one of those passed `TRANSFERABLE` on the way in.
+   */
+  power_return: {
     keys: [],
     why: "",
   },

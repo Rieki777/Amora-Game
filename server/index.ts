@@ -21,6 +21,7 @@ import {
   STAGE_UNLOCKS,
   TRANSFERABLE,
   type Capability,
+  type CapabilityCtx,
 } from "../shared/capabilities";
 import {
   assertCapabilityHoldingInvariants,
@@ -6026,9 +6027,12 @@ async function startServer() {
       // Which evening of a recurring gathering (0085). Part of the echo, so
       // the yes is for one evening and the confirm token binds it.
       const occurrenceKey = typeof req.body?.occurrenceKey === "string" ? req.body.occurrenceKey.slice(0, 64) : null;
-      // The same read the web route makes: layers by who the holder is,
-      // drafts only for whoever may manage events.
-      const manages = await mayManageEvents(req);
+      // The same read the web route makes, including its admin short-circuit:
+      // layers by who the holder is, drafts only for whoever may manage
+      // events. The short-circuit was missing here and the two web routes had
+      // it, so an administrator got the member's view on this one route only.
+      const manages =
+        user.role === "admin" || user.role === "founder" || (await mayManageEvents(req));
       const g = await getCalendarItemFor(getPool(), eventId, { userId: user.id, isAdmin: manages }, { includeDrafts: manages });
       if (!g) return res.status(404).json({ error: "Not found" });
       const echo = { eventId: g.id, title: g.title, startsAt: g.startsAt, status: wanted, idempotencyKey, occurrenceKey };
@@ -10384,9 +10388,40 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     return `${summary.fresh} sent, ${summary.emailed} emailed, ${summary.agents} to agents, ${summary.optedOut} opted out`;
   });
 
-  /** Putting something on the village calendar: admin OR `event.manage`. */
+  /**
+   * WHETHER THIS VIEWER SEES WHAT AN ORGANISER SEES: drafts, and every layer.
+   *
+   * It is a VISIBILITY read and no longer a permission check. Every route
+   * that refused with this now asks `guardCapability` directly, so the three
+   * callers left are all deciding how much of a payload to build.
+   *
+   * ── WHY IT MUST NOT GO THROUGH `mayAct` ────────────────────────────────
+   *
+   * `mayAct` reads the break-glass off the request, and breaking the glass
+   * writes a PUBLIC event saying an administrator reached past a power this
+   * village holds, plus a notification to every holder. That is exactly right
+   * for an act and it is a false record for a read.
+   *
+   * The RSVP route is where that bit: it calls this to decide whether to
+   * include drafts, and its body is a member's own RSVP. An administrator
+   * saying they are coming to a gathering, with `override: true` anywhere in
+   * that body, would have put "acted on a power this village holds" on the
+   * village's public pulse and told the holders about it, for having looked
+   * at an event. A record of a thing that did not happen is worse than no
+   * record, because the village cannot tell it from the ones that did.
+   *
+   * So this asks the pure gate, with no override and no side effect. An
+   * administrator who is not seated where a village-held `event.manage` lives
+   * gets the member's view of the calendar, which is the honest answer: they
+   * are not the organiser here. The two web routes short-circuit on
+   * `viewer.isAdmin` before reaching this, and the RSVP route now does the
+   * same, so an administrator still sees drafts on a calendar the village has
+   * not taken on.
+   */
   async function mayManageEvents(req: any): Promise<boolean> {
-    return (await mayAct(req, "event.manage")).ok;
+    const user = await authedUser(req);
+    if (!user) return false;
+    return capabilityDecision("event.manage", await capabilityCtx(user)).allowed;
   }
 
   /**
@@ -11147,7 +11182,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
 
   /** Admin list: the only surface that sees drafts. */
   app.get("/api/admin/events", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const list = await listGatherings(getPool(), {
       includeDrafts: true,
       timezone: villageTimezone(),
@@ -11284,13 +11319,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * Registered above the `:id` routes so "month-names" is never read as an id.
    */
   app.get("/api/admin/events/month-names", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const settings = calendarSkyOptions();
     res.json({ monthNames: await listMonthNames(getPool()), hemisphere: settings.hemisphere, anchor: settings.anchor });
   });
 
   app.put("/api/admin/events/month-names/:index", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const index = Number(req.params.index);
     const name = typeof req.body?.name === "string" ? req.body.name : "";
     if (name.length > 80) return res.status(400).json({ error: "A month name is 80 characters at most" });
@@ -11310,7 +11345,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
 
   /** Who is coming, for whoever is catering. Names only, never emails. */
   app.get("/api/admin/events/:id/rsvps", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const occ = typeof req.query.occurrence === "string" ? req.query.occurrence : undefined;
     res.json({ rsvps: await listRsvps(getPool(), req.params.id, occ) });
   });
@@ -11322,7 +11357,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * route.
    */
   app.get("/api/admin/events/:id/slots", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const occ = typeof req.query.occurrence === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.occurrence)
       ? req.query.occurrence
       : "";
@@ -11330,7 +11365,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   app.post("/api/admin/events/:id/slots", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const g = await getGathering(getPool(), req.params.id);
     if (!g) return res.status(404).json({ error: "Not found" });
     if (!String(req.body?.label ?? "").trim()) return res.status(400).json({ error: "Name the slot: a dish, a ride, a task" });
@@ -11339,21 +11374,21 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   app.put("/api/admin/events/:id/slots/:slotId", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const changed = await updateSlot(getPool(), req.params.id, req.params.slotId, req.body ?? {});
     if (!changed) return res.status(404).json({ error: "Not found" });
     res.json({ success: true });
   });
 
   app.delete("/api/admin/events/:id/slots/:slotId", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const gone = await deleteSlot(getPool(), req.params.id, req.params.slotId);
     if (!gone) return res.status(404).json({ error: "Not found" });
     res.json({ success: true });
   });
 
   app.post("/api/admin/events", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const problem = validateGatheringBody(req.body, true);
     if (problem) return res.status(400).json({ error: problem });
     const actor = await authedUser(req);
@@ -11370,7 +11405,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   app.put("/api/admin/events/:id", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const problem = validateGatheringBody(req.body, false);
     if (problem) return res.status(400).json({ error: problem });
     const updated = await updateGathering(getPool(), req.params.id, req.body);
@@ -11379,7 +11414,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   app.delete("/api/admin/events/:id", async (req, res) => {
-    if (!(await mayManageEvents(req))) return res.status(401).json({ error: "auth_required" });
+    if (!(await guardCapability(req, res, "event.manage"))) return;
     const gone = await deleteGathering(getPool(), req.params.id);
     if (!gone) return res.status(404).json({ error: "Not found" });
     res.json({ success: true });
@@ -23731,6 +23766,211 @@ Send an empty drafts array when you are still listening. A role payload is {name
       });
       return out;
     },
+
+    /*
+     * ── THE RUNWAY (this lane) ──────────────────────────────────────────────
+     *
+     * The village votes to give a role a power it does not carry yet.
+     *
+     * WHY THIS EXISTS AT ALL. `moveCapabilityToVillage` refuses to hand a
+     * power to a role whose capability list does not include it, and that
+     * refusal is right: a holder that cannot act is not a holder. But the
+     * only writer of a role's capability list was
+     * `PUT /api/admin/roles/:id/capabilities`, behind `isAdmin`. So the
+     * ordering the handover was designed around, grant then watch then take,
+     * had an admin standing on its first step. Five of the eight movable
+     * powers have no seeded role carrying them at all
+     * (`intake.moderate`, `library.keep`, `story.tell`, `org.seat`,
+     * `dial.set`), so for those five the whole ceremony began with somebody
+     * asking the scaffolding for permission to begin.
+     *
+     * IT WRITES THROUGH `rolesRepo.replaceAll`, the same writer the admin
+     * route uses, for the same reason stated there: a raw UPDATE on a
+     * permission table is invisible to every running process until reboot.
+     *
+     * THE ESCALATION CHECKBOX IS NOT COPIED, AND ITS PURPOSE IS KEPT. The
+     * admin route makes a founder tick each power this role would be the
+     * first to carry, because a change to a permission table must never land
+     * silently. A ballot cannot land silently: the whole frozen roll was
+     * notified when it opened, the document names the consequence in the
+     * words `CAPABILITY_CONSEQUENCE` uses, and the roll voted. The
+     * confirmation is the vote.
+     *
+     * IDEMPOTENT, like every executor here. `closeBallot` guards on
+     * `status='open'` so a second close never reaches this, and the write
+     * itself is a set union, so a run that did reach here twice leaves one
+     * copy of the key.
+     */
+    power_grant: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const asked = parseTransferRef(b.subjectRef);
+      if (!asked) {
+        out.held = "the ballot does not name a power this build can read";
+        return out;
+      }
+      const cap = asked.capability as Capability;
+      const what = CAPABILITY_CONSEQUENCE[cap] ?? asked.capability;
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? `Too few of the village voted: ${b.title}`
+              : `The village did not carry this one: ${b.title}`,
+          body:
+            outcome === "no_quorum"
+              ? "Nothing has changed and nothing is lost. The ask can go to the village again whenever it is more gathered."
+              : `${outcomeNote}\n\nThe role carries what it carried before, and the village can ask again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          dedupeKey: `bal:${b.id}:grant-not-carried`,
+        });
+        return out;
+      }
+
+      /*
+       * READ THE ROLE AT CLOSE, NEVER AT OPEN. A role retired or renamed
+       * between the two is a real state, and a village whose vote carried is
+       * owed the reason instead of a silent nothing. It lands in `held`,
+       * which the decision page already renders.
+       */
+      const all = rolesRepo.all();
+      const idx = all.findIndex((r: any) => r.id === asked.roleId);
+      if (idx === -1) {
+        out.held = `The role "${asked.roleId}" is no longer one of this village's roles, so there was nobody to give it to.`;
+        await notifyAdmins("governance", `A carried power grant could not land: ${b.title}`, `bal:${b.id}:grant-held`);
+        return out;
+      }
+      const before = ((all[idx] as any).capabilities ?? []) as string[];
+      if (!before.includes(asked.capability)) {
+        all[idx] = { ...all[idx], capabilities: [...before, asked.capability] } as any;
+        await rolesRepo.replaceAll(all);
+      }
+
+      out.applied = [asked.capability];
+      out.proposerTold = b.openedBy;
+      const who = (all[idx] as any).name ?? asked.roleId;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village carried this: ${b.title}`,
+        body: `${who} can ${what} from today.`,
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:granted`,
+      });
+      /*
+       * ON THE PUBLIC PULSE, and phrased as a fact about what a role can now
+       * do. It deliberately says nothing about handovers, next steps or what
+       * the village might do with this later. A grant is one act that stands
+       * on its own: a village can decide the stewards should be able to work
+       * the queues and never decide to take the power off the admin panel.
+       */
+      await addActivity("governance", `${who} can ${what}, by a vote of the whole village.`, {
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: asked.roleId,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `role:capabilities-by-ballot:${asked.roleId}:+${asked.capability}:${b.id}`,
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: asked.roleId,
+        audience: "admin",
+      });
+      return out;
+    },
+
+    /*
+     * ── GIVING A POWER BACK (this lane) ─────────────────────────────────────
+     *
+     * R55: the handover is a journey, and a journey with no way back is a
+     * trap. Until this executor existed the only exit from holding something
+     * was `DELETE /api/admin/capabilities/:capability/holding`, so a village
+     * that had taken a power on and found it was not ready had to ask the
+     * scaffolding to take it back. A village that can only ever acquire is
+     * not governing, it is ratcheting.
+     *
+     * THE VOCABULARY IS THE DESIGN HERE. Returning a power is an ordinary
+     * act, and every sentence this executor writes says so: nothing about
+     * failing, nothing about not being ready enough, no encouragement to try
+     * again later, no celebration. A village returning something is being
+     * honest about its capacity, and the record should read the same way in
+     * five years as it did on the day.
+     *
+     * It calls the same helper the admin route calls, so there is one writer
+     * of that delete and one shape of the row disappearing.
+     */
+    power_return: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const cap = b.subjectRef as Capability;
+      if (!ALL_CAPABILITIES.includes(cap)) {
+        out.held = "the ballot does not name a power this build can read";
+        return out;
+      }
+      const what = CAPABILITY_CONSEQUENCE[cap] ?? b.subjectRef;
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? `Too few of the village voted: ${b.title}`
+              : `The village did not carry this one: ${b.title}`,
+          body:
+            outcome === "no_quorum"
+              ? "Nothing has changed. The ask can go to the village again whenever it is more gathered."
+              : `${outcomeNote}\n\nThe village keeps this one for now.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          dedupeKey: `bal:${b.id}:return-not-carried`,
+        });
+        return out;
+      }
+
+      const existed = await returnCapabilityToScaffolding(getPool(), b.subjectRef);
+      if (!existed) {
+        /*
+         * The holding went between open and close: an admin returned it, or a
+         * transfer moved it. The vote is not wrong and nothing is broken, so
+         * this is a plain statement of where things stand and never a failure.
+         */
+        out.held = "The village was no longer holding this one when the vote closed, so there was nothing to hand back.";
+        return out;
+      }
+
+      out.applied = [b.subjectRef];
+      out.proposerTold = b.openedBy;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village handed this back: ${b.title}`,
+        body: `The admin panel carries it again from today: ${what}.`,
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:returned`,
+      });
+      await addActivity("governance", `The village handed this back to the admin panel, by its own vote: ${what}.`, {
+        actorUserId: actorId,
+        entityType: "capability",
+        entityRef: b.subjectRef,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `capability:returned-by-ballot:${b.subjectRef}:${b.id}`,
+        actorUserId: actorId,
+        entityType: "capability",
+        entityRef: b.subjectRef,
+        audience: "admin",
+      });
+      return out;
+    },
   };
 
   /**
@@ -23798,7 +24038,62 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * and on the anniversary.
    */
   async function transferFactsOf(b: { id: string; subjectType: string; subjectRef: string }) {
-    if (b.subjectType !== "power_transfer") return null;
+    /*
+     * THREE CEREMONIES, ONE FACTS BLOCK, AND A `kind` THE CARD SWITCHES ON.
+     *
+     * The runway and the return ride the same card, and `kind` is what lets
+     * it say three different true things instead of one thing that is true
+     * once. The card has no default branch: a kind it does not know renders
+     * nothing, which is the same fail-safe direction as a ballot whose
+     * subject ref this build cannot parse.
+     *
+     * WHAT IS NOT HERE, and why. A grant leaves no durable pointer back to
+     * the ballot that made it: `roles.capabilities` is a list of keys and not
+     * a history, so there is no `grantedHere` to read the way `crossedHere`
+     * reads `capability_holding.moved_by_ballot_id`. Inventing one from
+     * "the ballot passed, so it must have landed" is the exact shape of the
+     * fallback that shipped a dial's vocabulary on a capability last round.
+     * So the payload states `roleCarriesIt`, read now, and the card says what
+     * that fact supports and no more.
+     */
+    const kind =
+      b.subjectType === "power_transfer"
+        ? "transfer"
+        : b.subjectType === "power_grant"
+          ? "grant"
+          : b.subjectType === "power_return"
+            ? "return"
+            : null;
+    if (!kind) return null;
+
+    if (kind === "return") {
+      const cap = b.subjectRef as Capability;
+      if (!ALL_CAPABILITIES.includes(cap)) return null;
+      const entry = POWERS.find((p) => p.capability === cap) ?? null;
+      const holdings = await capabilityHoldings(getPool());
+      const holding = holdings.find((h) => h.capability === b.subjectRef) ?? null;
+      return {
+        kind,
+        capability: b.subjectRef,
+        title: entry?.title ?? null,
+        surface: entry?.surface ?? null,
+        consequence: CAPABILITY_CONSEQUENCE[cap] ?? null,
+        movable: TRANSFERABLE[cap] === true,
+        toRoleId: null,
+        toRoleName: null,
+        roleCarriesIt: false,
+        heldNow: holding
+          ? {
+              roleId: holding.holderRoleId,
+              roleName: holding.holderRoleName,
+              byBallot: !!holding.movedByBallotId,
+              movedAt: holding.movedAt,
+            }
+          : null,
+        crossedHere: null,
+      };
+    }
+
     const asked = parseTransferRef(b.subjectRef);
     if (!asked) return null;
     const cap = asked.capability as Capability;
@@ -23807,6 +24102,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const holdings = await capabilityHoldings(getPool());
     const holding = holdings.find((h) => h.capability === asked.capability) ?? null;
     return {
+      kind,
       capability: asked.capability,
       /** The registry's own noun for it, or null when nothing names it. */
       title: entry?.title ?? null,
@@ -24588,17 +24884,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
     const ctx = await capabilityCtx(user);
-    // RULING 1. The question is "would this person hold proposal.open if they
-    // were not an admin", so it is asked that way.
-    const asMember = capabilityDecision("proposal.open", { ...ctx, isAdmin: false });
-    if (!asMember.allowed) {
-      return res.status(403).json({
-        error: hasCapability("proposal.open", ctx)
-          ? "A handover is the village's own act. Opening one takes somebody who holds proposal.open as a member of this village, and your only path to it today is your administrator account. If you want this to happen, open an advisory vote and let a member carry it."
-          : "Opening a vote for the whole village is for a proposal.open holder",
-        adminOnly: hasCapability("proposal.open", ctx),
-      });
-    }
+    // RULING 1, through the one helper all three ceremonies ask. It was
+    // written inline here first; two more routes needing the identical
+    // question is what made three copies a liability, because the lenient
+    // copy is the one somebody finds.
+    if (await refuseUnlessMemberMayOpen(req, res, ctx, "A handover")) return;
 
     const capability = String(req.body?.capability ?? "").trim();
     const roleId = String(req.body?.roleId ?? "").trim();
@@ -24776,6 +25066,398 @@ Send an empty drafts array when you are still listening. A role payload is {name
       type: "ballot_opened",
       title: `The village is asked to take a power on: ${entry.title}`,
       body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. If this carries, ${role.name ?? roleId} looks after it from that day.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /**
+   * ── RULING 1, FOR ALL THREE POWER CEREMONIES ────────────────────────────
+   *
+   * "Would this person hold `proposal.open` if they were not an admin."
+   *
+   * The transfer route asked this inline and this lane adds two more routes
+   * that must ask it identically, so it is one function. Three copies of a
+   * governance precondition is three chances for one of them to drift into
+   * being the lenient one, and the lenient one is the one somebody finds.
+   *
+   * The design test for this whole round is "does this move a power toward
+   * the village, or entrench the scaffolding", and it fails on its own
+   * instrument the moment the scaffolding can hand itself a ceremony. An
+   * admin opening a handover, an admin closing it, and an admin writing the
+   * outcome sentence is the admin panel awarding itself a medal for having a
+   * panel. It applies to the runway and to the return for the same reason:
+   * an admin who could vote a power onto a role could walk the whole runway
+   * alone, and an admin who could open a return could undo a village's
+   * handover by starting a vote the village never asked for.
+   *
+   * Asked by re-running the gate with `isAdmin: false`, which is the exact
+   * question rather than a proxy for it. An admin who ALSO holds the key by
+   * role, badge or stage passes, and passes as themselves.
+   */
+  async function refuseUnlessMemberMayOpen(
+    req: express.Request,
+    res: express.Response,
+    ctx: CapabilityCtx,
+    /** How the refusal names the act, so each ceremony keeps its own noun. */
+    act: string,
+  ): Promise<boolean> {
+    if (capabilityDecision("proposal.open", { ...ctx, isAdmin: false }).allowed) return false;
+    const adminOnly = hasCapability("proposal.open", ctx);
+    res.status(403).json({
+      error: adminOnly
+        ? `${act} is the village's own act. Opening one takes somebody who holds proposal.open as a member of this village, and your only path to it today is your administrator account. If you want this to happen, open an advisory vote and let a member carry it.`
+        : "Opening a vote for the whole village is for a proposal.open holder",
+      adminOnly,
+    });
+    return true;
+  }
+
+  /**
+   * ── THE RUNWAY: THE VILLAGE GIVES A ROLE A POWER (this lane) ────────────
+   *
+   * R54's ruling says these villages are meant to be taken over by the
+   * electorate. Lane G-B made a power able to move; lane G-C built the
+   * ceremony that moves it. Both of them stood on a step neither owned: the
+   * ceremony refuses to hand a power to a role that does not already carry
+   * it, and the only writer of a role's capability list was
+   * `PUT /api/admin/roles/:id/capabilities`, behind `isAdmin`.
+   *
+   * WHAT THAT COST, MEASURED RATHER THAN ASSERTED. Three of the eight movable
+   * powers are already reachable from a fresh boot, because `roles-seed.json`
+   * hands `event.manage` to the stewards, `exchange.manage` to the treasury
+   * and `forum.moderate` to the founders. The other five, `intake.moderate`,
+   * `library.keep`, `story.tell`, `org.seat` and `dial.set`, are carried by
+   * no seeded role at all, so the village could not begin on any of them
+   * without asking an admin to start. A handover a village can only begin
+   * when an admin starts it is scaffolding wearing a ceremony.
+   *
+   * ── WHY ITS OWN TYPE, AND NOT A WIDER `power_transfer` ──────────────────
+   *
+   * Folding the grant into the transfer would mean one ballot that both arms
+   * a role and hands it the power. That reads tidier and it destroys the one
+   * property the handover was designed around: grant, watch somebody use it,
+   * then take it on. Those are two different questions and a village can
+   * honestly answer yes to the first and no to the second. "Should the
+   * stewards be able to do this" is not "should the stewards own this
+   * instead of the admin panel", and a village that has never seen anyone
+   * work the queues has no business answering the second one yet.
+   *
+   * Being its own subject type also buys the machinery for free:
+   * `SUBJECT_CLOSERS` is the one home for what closing does, `ballotBinds`
+   * derives from it so `binding` on the wire cannot drift, and
+   * `TYPE_CAPABILITY_REFUSALS` is keyed by type so the refusal below is
+   * stated where every other type's refusals are stated.
+   *
+   * ── WHAT THIS ROUTE DELIBERATELY CANNOT DO ─────────────────────────────
+   *
+   *  - It adds ONE named power to ONE existing role. It cannot create a
+   *    role, cannot seat anybody, and cannot REMOVE a capability. A ballot
+   *    that could strip a capability is a ballot that can disarm the holder
+   *    of a power the village voted to hold, which is a second way to undo a
+   *    handover without the return ceremony that was built for it.
+   *  - It names only powers that are `TRANSFERABLE` and wired, so the runway
+   *    is exactly as wide as the ceremony it serves. Every key it can grant
+   *    is a key the village could go on to hold, and no key it can grant
+   *    enlarges the electorate. That width is DERIVED, so a future lane that
+   *    converts a route to `mayAct` widens the runway in the same commit
+   *    with no edit here.
+   *  - `ballot.vote` and `member.vouch` are refused by name in
+   *    `TYPE_CAPABILITY_REFUSALS`, which today refuses what `TRANSFERABLE`
+   *    already excludes. That is the point of writing it down: the day
+   *    `ballot.vote` becomes transferable, the derived width would otherwise
+   *    widen to include it silently, in a commit about something else.
+   */
+  app.post("/api/governance/power-grants", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    if (await refuseUnlessMemberMayOpen(req, res, ctx, "Giving a role a power")) return;
+
+    const capability = String(req.body?.capability ?? "").trim();
+    const roleId = String(req.body?.roleId ?? "").trim();
+    const reason = String(req.body?.reason ?? "").trim().slice(0, 20000);
+
+    if (!ALL_CAPABILITIES.includes(capability as Capability)) {
+      return res.status(400).json({ error: "Name a power this platform knows about." });
+    }
+    const cap = capability as Capability;
+    const refused = typeRefusesCapability("power_grant", capability);
+    if (refused) return res.status(409).json({ error: refused });
+    if (TRANSFERABLE[cap] !== true) {
+      return res.status(409).json({
+        error:
+          `"${capability}" is not a power the village can take on, so there is no reason to vote it onto a role. ` +
+          `It names something a member does for themselves, or plumbing the deployment has to keep reachable.`,
+      });
+    }
+    const entry = POWERS.find((p) => p.capability === cap);
+    if (!entry) {
+      return res.status(409).json({
+        error: `Nothing in the product asks for "${capability}" yet, so there is no power here to give anybody.`,
+      });
+    }
+
+    if (reason.length < 40) {
+      return res.status(400).json({
+        error: "Say why this role is the right one for it. The whole roll reads this before voting.",
+      });
+    }
+
+    const role = rolesRepo.all().find((x: any) => x.id === roleId) as any;
+    if (!role) return res.status(404).json({ error: "There is no role by that name." });
+    if (role.isExample) {
+      return res.status(409).json({ error: "That is one of the platform's example roles, not one of this village's. Declare a role of your own first." });
+    }
+    const grants: string[] = Array.isArray(role.capabilities) ? role.capabilities.map(String) : [];
+    if (grants.includes(capability)) {
+      return res.status(409).json({
+        error: `${role.name ?? roleId} already carries this one. There is nothing for the village to decide here.`,
+      });
+    }
+    if (capability.includes("@") || roleId.includes("@")) {
+      return res.status(400).json({ error: "A power and a role are both named without an @ in them." });
+    }
+    const subjectRef = `${capability}@${roleId}`;
+    if (subjectRef.length > 64) {
+      return res.status(409).json({ error: "That role's name is too long for the record to hold beside the power. Shorten the role id first." });
+    }
+
+    /*
+     * IS THIS THE FIRST ROLE IN THE VILLAGE TO CARRY IT. The admin route puts
+     * this behind a checkbox a founder has to tick, on the reasoning that a
+     * role introducing a power nothing else has is a governance change
+     * wearing a job title. That reasoning holds here and the remedy is
+     * different: this IS the governance change, held in the open, so the fact
+     * goes in the frozen document where the roll reads it before voting.
+     */
+    const firstHere = !rolesRepo
+      .all()
+      .some((r: any) => r.id !== roleId && ((r.capabilities ?? []) as string[]).includes(capability));
+
+    const villageMethod = villageBallotMethod(stringVar("governance.default_method"));
+    const method: BallotMethod = villageMethod === "hypha" ? "custom" : villageMethod;
+    const dials = dialsForMethod(method, {
+      unityPct: Math.max(0, numberVar("governance.unity_pct")),
+      quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
+    });
+    const snapshot = weightModeNow();
+    if (snapshot.mode === "token") {
+      const problem = weightTokenProblem(snapshot.token ?? "");
+      if (problem) return res.status(409).json({ error: problem });
+    }
+    const electorate = await buildElectorate();
+
+    const title = `${entry.title}: the village asks ${role.name ?? roleId} to look after this`;
+    const doc = [
+      `# ${title}`,
+      "",
+      `## The power`,
+      "",
+      `${entry.title}. ${entry.surface}.`,
+      "",
+      `A holder can ${CAPABILITY_CONSEQUENCE[cap]}.`,
+      "",
+      `## What changes if this carries`,
+      "",
+      `Anybody seated in ${role.name ?? roleId} can ${CAPABILITY_CONSEQUENCE[cap]}. Nothing moves off the admin panel: an administrator can still do this too, and this vote does not change that.`,
+      "",
+      firstHere
+        ? `${role.name ?? roleId} would be the first role in this village to carry this one. No other role grants it today.`
+        : "",
+      "",
+      `## What this is a step toward`,
+      "",
+      `A role has to already carry a power before the village can vote to hold it, because a holder that cannot act is not a holder. If this carries, the village can go on to ask to hold this one, and it can also leave it here. Both are whole answers.`,
+      "",
+      `## Why this role`,
+      "",
+      reason,
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "power_grant",
+      subjectRef,
+      title,
+      docMarkdown: doc,
+      method,
+      weightMode: snapshot.mode,
+      weightToken: snapshot.token,
+      unityPct: dials.unityPct,
+      quorumPct: dials.quorumPct,
+      durationDays: Math.max(
+        1,
+        numberVar(method === "consent" ? "governance.consent_window_days" : "governance.vote_days"),
+      ),
+      openedBy: user.id,
+      electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    await addActivity("governance", `The village is deciding whether ${role.name ?? roleId} looks after this: ${entry.title}.`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is asked whether ${role.name ?? roleId} looks after this: ${entry.title}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. If this carries, anybody seated there can ${CAPABILITY_CONSEQUENCE[cap]}.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /**
+   * ── THE WAY BACK: THE VILLAGE HANDS A POWER BACK (this lane) ────────────
+   *
+   * R55: the handover is a journey, and a journey with no way back is a trap
+   * rather than a path. A village could vote a power across and then had
+   * exactly one exit, `DELETE /api/admin/capabilities/:capability/holding`,
+   * behind `isAdmin`. So a village that took something on and found it was
+   * not ready had to ask the scaffolding to take it back, which is the one
+   * sentence the whole round exists to stop a village having to say.
+   *
+   * ── THE SUBJECT REF IS THE CAPABILITY ALONE ────────────────────────────
+   *
+   * A transfer and a grant both name a power AND a role, because both are
+   * deciding where something lands. A return names only what is being handed
+   * back: where it goes is not a choice the village is making, it goes back
+   * to the panel it came from. Storing a role here would be storing an answer
+   * to a question nobody asked, and the executor would have to decide what to
+   * do when the two disagreed.
+   *
+   * ── IT IS NOT A FAILURE, AND THE COPY CARRIES THAT ─────────────────────
+   *
+   * R55 again: no scorecard, nothing a young village could feel behind on.
+   * Returning a power is an ordinary act of a village being honest about its
+   * capacity. Every sentence on this route and in its executor is written to
+   * read that way, and none of them encourages the village to try again
+   * later. It is also deliberately NOT a celebration: the crossing claimed
+   * the one moment this surface rations, and a village handing something back
+   * does not need confetti about it either way.
+   */
+  app.post("/api/governance/power-returns", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    if (await refuseUnlessMemberMayOpen(req, res, ctx, "Handing a power back")) return;
+
+    const capability = String(req.body?.capability ?? "").trim();
+    const reason = String(req.body?.reason ?? "").trim().slice(0, 20000);
+
+    if (!ALL_CAPABILITIES.includes(capability as Capability)) {
+      return res.status(400).json({ error: "Name a power this platform knows about." });
+    }
+    const cap = capability as Capability;
+    const refused = typeRefusesCapability("power_return", capability);
+    if (refused) return res.status(409).json({ error: refused });
+
+    /*
+     * THE ONLY PRECONDITION THAT MATTERS. A return ballot may name exactly
+     * what this village is holding right now, read from the same table the
+     * gate reads. Everything else follows from that: a held row passed
+     * `TRANSFERABLE` on the way in, and every transferable key is in POWERS.
+     */
+    const holdings = await capabilityHoldings(getPool());
+    const holding = holdings.find((h) => h.capability === capability);
+    if (!holding) {
+      return res.status(409).json({
+        error: "This village is not holding that one, so there is nothing to hand back.",
+      });
+    }
+    const entry = POWERS.find((p) => p.capability === cap);
+    if (!entry) {
+      return res.status(409).json({ error: `Nothing in the product asks for "${capability}" any more.` });
+    }
+
+    if (reason.length < 40) {
+      return res.status(400).json({
+        error: "Say what the village is handing back and why now. The whole roll reads this before voting.",
+      });
+    }
+
+    const villageMethod = villageBallotMethod(stringVar("governance.default_method"));
+    const method: BallotMethod = villageMethod === "hypha" ? "custom" : villageMethod;
+    const dials = dialsForMethod(method, {
+      unityPct: Math.max(0, numberVar("governance.unity_pct")),
+      quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
+    });
+    const snapshot = weightModeNow();
+    if (snapshot.mode === "token") {
+      const problem = weightTokenProblem(snapshot.token ?? "");
+      if (problem) return res.status(409).json({ error: problem });
+    }
+    const electorate = await buildElectorate();
+
+    const who = holding.holderRoleName ?? holding.holderRoleId;
+    const title = `${entry.title}: the village asks to hand this back`;
+    const doc = [
+      `# ${title}`,
+      "",
+      `## The power`,
+      "",
+      `${entry.title}. ${entry.surface}.`,
+      "",
+      `A holder can ${CAPABILITY_CONSEQUENCE[cap]}.`,
+      "",
+      `## Where it is now`,
+      "",
+      `${who} looks after it, ${holding.movedByBallotId ? "by a vote of the village" : "handed over from the admin panel"}, since ${holding.movedAt.slice(0, 10)}.`,
+      "",
+      `## What changes if this carries`,
+      "",
+      `The admin panel carries this one again. An administrator passes this gate by being an administrator, and the village stops being told each time somebody acts on it. ${who} keeps the power itself, so anybody seated there can still do this; what ends is the village holding it.`,
+      "",
+      `The village can ask for it again whenever it wants to. Handing something back is one of the ordinary things a village does with a power, and this record says so.`,
+      "",
+      `## Why now`,
+      "",
+      reason,
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "power_return",
+      subjectRef: capability,
+      title,
+      docMarkdown: doc,
+      method,
+      weightMode: snapshot.mode,
+      weightToken: snapshot.token,
+      unityPct: dials.unityPct,
+      quorumPct: dials.quorumPct,
+      durationDays: Math.max(
+        1,
+        numberVar(method === "consent" ? "governance.consent_window_days" : "governance.vote_days"),
+      ),
+      openedBy: user.id,
+      electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    await addActivity("governance", `The village is deciding whether to hand a power back: ${entry.title}.`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is asked to hand a power back: ${entry.title}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. If this carries, the admin panel carries it again from that day.`,
       keySuffix: "open",
       except: [user.id],
       roll: electorate.map((e) => e.userId),
