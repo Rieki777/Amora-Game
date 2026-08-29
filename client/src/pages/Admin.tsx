@@ -10274,13 +10274,21 @@ function SettingsTab({ password }: { password: string }) {
    * would push somebody into inventing a precision they do not have.
    */
   const landFields: Array<{ key: string; label: string; valueHint: string; noteHint: string; where: string }> = [
-    { key: "acres", label: "Size of the land", valueHint: "e.g. 266", noteHint: "e.g. acres", where: "Master plan" },
-    { key: "appraisal", label: "Appraised value", valueHint: "e.g. $16M+", noteHint: "e.g. January 2026", where: "Master plan, investor page" },
-    { key: "appreciation", label: "Change in land value", valueHint: "e.g. +113%", noteHint: "e.g. in 16 months", where: "Investor page" },
-    { key: "projectedReturn", label: "Projected return", valueHint: "e.g. 19.6%", noteHint: "e.g. 15-year model", where: "Investor page" },
-    { key: "targetRaise", label: "Target raise", valueHint: "e.g. $5M", noteHint: "e.g. Phase 1", where: "Investor page" },
-    { key: "plannedHomes", label: "Planned homes", valueHint: "e.g. 150+", noteHint: "", where: "Master plan" },
-    { key: "guestRooms", label: "Guest rooms", valueHint: "e.g. 120-150", noteHint: "", where: "Master plan" },
+    /*
+     * THE PLACEHOLDERS ARE NOT ANOTHER VILLAGE'S REAL FIGURES.
+     *
+     * The first draft of this panel used the exact numbers it was written to
+     * remove, as "e.g." hints, and the fork test caught all three of them
+     * shipping inside Admin's own chunk. A placeholder is content: whatever it
+     * says is what the next person copies, and half of them will leave it.
+     */
+    { key: "acres", label: "Size of the land", valueHint: "how many", noteHint: "acres, hectares", where: "Master plan" },
+    { key: "appraisal", label: "Appraised value", valueHint: "what it came to", noteHint: "when it was made", where: "Master plan, investor page" },
+    { key: "appreciation", label: "Change in land value", valueHint: "up or down by", noteHint: "over what period", where: "Investor page" },
+    { key: "projectedReturn", label: "Projected return", valueHint: "what your model says", noteHint: "what the model assumes", where: "Investor page" },
+    { key: "targetRaise", label: "Target raise", valueHint: "how much", noteHint: "for which phase", where: "Investor page" },
+    { key: "plannedHomes", label: "Planned homes", valueHint: "how many", noteHint: "", where: "Master plan" },
+    { key: "guestRooms", label: "Guest rooms", valueHint: "how many", noteHint: "", where: "Master plan" },
   ];
   const preview = dues.amount ? `${dues.currency || "$"}${dues.amount} / ${dues.period || "month"}` : "Not shown until you set an amount";
 
