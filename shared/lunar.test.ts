@@ -89,9 +89,27 @@ describe("settleCycle", () => {
     ]);
   });
 
-  it("ignores entries from other cycles, including legacy month ids", () => {
-    const rows = settleCycle([entry("a", "b", 5, "2026-07"), entry("a", "b", 4, "lunar-000326")], "lunar-000327");
+  it("leaves out entries that belong to another lunation", () => {
+    const rows = settleCycle([entry("a", "b", 4, "lunar-000326")], "lunar-000327");
     expect(rows).toEqual([]);
+  });
+
+  /*
+   * THIS TEST USED TO ASSERT THE DEFECT.
+   *
+   * It read "ignores entries from other cycles, including legacy month ids"
+   * and passed a `2026-07` row alongside a `lunar-000326` one, expecting both
+   * to be silently absent from the totals. The two are not the same thing. A
+   * `lunar-000326` row belongs to a lunation this is not settling, which the
+   * test above still checks. A `2026-07` row belongs to a lunation nobody
+   * knows, and dropping it is how a real settlement lost 30 of 130 units with
+   * every total under them quietly wrong and no surface saying so.
+   *
+   * The test and the product agreed on something untrue, and the suite stayed
+   * green for it.
+   */
+  it("refuses an id it cannot read, out loud", () => {
+    expect(() => settleCycle([entry("a", "b", 5, "2026-07")], "lunar-000327")).toThrow(/2026-07/);
   });
 });
 
