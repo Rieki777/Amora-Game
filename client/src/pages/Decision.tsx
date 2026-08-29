@@ -314,11 +314,20 @@ export default function Decision() {
             than beside the outcome. `binding` comes from the close route's
             own subject table, so this cannot drift from what closing does. */}
         {!ballot.binding && (
+          /* AND IN THE TENSE THE BALLOT IS ACTUALLY IN. This banner sat in the
+             present over a settled vote, so a closed advisory read "the
+             village is being asked" directly above a badge saying it did not
+             carry: two elements on one page in different tenses about the
+             same ballot, and the live-sounding one on top. The fact that
+             settles it is already here. */
           <div className="mt-3 rounded-lg border border-stone-200 bg-cream px-4 py-3">
-            <p className="text-sm font-semibold text-stone-900">The village is being asked, and nothing more</p>
+            <p className="text-sm font-semibold text-stone-900">
+              {open ? "The village is being asked, and nothing more" : "The village was asked, and nothing more"}
+            </p>
             <p className="mt-0.5 text-sm text-stone-700 leading-relaxed">
-              This vote runs on the real engine, with the real roll and the real weights, and closing it changes
-              nothing on its own. What it produces is an answer the village can act on, or not.
+              {open
+                ? "This vote runs on the real engine, with the real roll and the real weights, and closing it changes nothing on its own. What it produces is an answer the village can act on, or not."
+                : "This vote ran on the real engine, with the real roll and the real weights, and closing it changed nothing on its own. What it produced is an answer the village can act on, or not."}
             </p>
           </div>
         )}

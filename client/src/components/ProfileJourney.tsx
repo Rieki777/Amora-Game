@@ -166,9 +166,18 @@ export default function ProfileJourney() {
                   <Users className="w-3 h-3" /> {prettySource(r)}
                 </span>
               ))}
+              {/* WHAT A MEMBER CAN DO, IN WORDS. These rendered the raw keys,
+                  in monospace, under a heading promising to say what somebody
+                  had unlocked: eleven chips reading `map.viewPeople` and
+                  `forum.post` at a person who has never seen a capability key
+                  and never should. `capabilityLabel` is the same function the
+                  stage-crossing line two blocks down already uses for exactly
+                  this, so the page held the answer and used it in one place
+                  out of two. The key stays as the title, for the one reader
+                  who wants it. */}
               {(prog.capabilities ?? []).map((c: string) => (
-                <span key={c} className="inline-flex items-center gap-1 text-xs bg-teal-deep/10 text-teal-deep px-2.5 py-1 rounded-full font-mono" title="A capability your stage or a role grants you">
-                  <ShieldCheck className="w-3 h-3" /> {c}
+                <span key={c} className="inline-flex items-center gap-1 text-xs bg-teal-deep/10 text-teal-deep px-2.5 py-1 rounded-full" title={c}>
+                  <ShieldCheck className="w-3 h-3" /> {capabilityLabel(c)}
                 </span>
               ))}
             </div>

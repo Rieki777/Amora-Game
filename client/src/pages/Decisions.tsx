@@ -388,7 +388,24 @@ function Chronicle({ ballots }: { ballots: BallotCard[] }) {
  * exactly this case.
  */
 function TurnoutCard({ ballots }: { ballots: BallotCard[] }) {
-  const decided = ballots.filter((b) => b.status !== "open");
+  /*
+   * A VOTE THE VILLAGE CALLED OFF IS NOT A TURNOUT OF ZERO.
+   *
+   * This counted every ballot that was not open, withdrawals included, and a
+   * withdrawn ballot is closed with whatever turnout it had reached at the
+   * moment somebody decided it should not have been opened. Usually that is
+   * nothing, so each one dropped a zero into the average and made a village
+   * look less willing to show up than it is. Under R55 a wrong number here is
+   * worse than a wrong sentence: it is a scorecard the village is failing on
+   * a technicality nobody chose.
+   *
+   * `no_quorum` STAYS, and that is the line between the two. Too few people
+   * answered is a real turnout, measured on a vote the village was genuinely
+   * asked, and leaving it out would flatter the number in the other
+   * direction. A withdrawal is the village saying the question should not
+   * have been put at all.
+   */
+  const decided = ballots.filter((b) => b.status !== "open" && b.status !== "withdrawn");
   if (decided.length === 0) return null;
   const average =
     decided.reduce((sum, b) => sum + quorumPctOf(b.tallies, b.totalWeight), 0) / decided.length;
