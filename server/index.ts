@@ -16323,7 +16323,52 @@ Send an empty drafts array when you are still listening. A role payload is {name
     let mine: any = null;
     if (viewer) {
       const awards = (await awardsFor(getPool(), viewer.id)).filter((a) => !a.expired);
-      mine = { awards, skills: await skillsFor(getPool(), viewer.id) };
+      /*
+       * WHO PUT THIS ON MY RECORD, AND WHEN.
+       *
+       * `awardsFor` hands back `awardedBy` as a user id and no date at all, so
+       * the member's own page could say a warning existed and nothing about
+       * where it came from. A warning is placed by a person, the route makes
+       * that person write a note because "the member deserves to know why",
+       * and then the answer to "who said this about me, and when" was a
+       * fourteen-character id the page never rendered. A record somebody
+       * cannot read is not a record.
+       *
+       * ONLY EVER THE VIEWER'S OWN AWARDS. This sits inside `if (viewer)` and
+       * keys on `viewer.id`, so the steward's name travels to the one member
+       * the note is about and to nobody else. The privacy line on warnings is
+       * unchanged: they are still absent from /api/badges/of/:userId, from
+       * /api/badges/match, and from every `holders` list.
+       *
+       * A LEFT JOIN, and a null name stays null. `awarded_by` is NULL when the
+       * earned engine granted the badge, and a member who has left takes their
+       * row with them. Inventing "a steward" for either would be a sentence
+       * the product made up. The page says the date and stays quiet about the
+       * person it cannot name.
+       *
+       * `created_at` is when it was placed and `updated_at` moves on a
+       * re-issue, so both travel: an award renewed by a second steward would
+       * otherwise pair a new name with the first date.
+       */
+      const [meta] = await getPool().query<any[]>(
+        "SELECT a.badge_id, a.created_at, a.updated_at, u.name AS awarded_by_name " +
+          "FROM badge_awards a LEFT JOIN users u ON u.id = a.awarded_by WHERE a.user_id = ?",
+        [viewer.id],
+      );
+      const iso = (v: any) => (v instanceof Date ? v.toISOString() : v ? String(v) : null);
+      const byBadge = new Map(meta.map((r) => [String(r.badge_id), r]));
+      mine = {
+        awards: awards.map((a) => {
+          const row = byBadge.get(a.badgeId);
+          return {
+            ...a,
+            awardedByName: row?.awarded_by_name ? firstName(String(row.awarded_by_name)) : null,
+            awardedAt: iso(row?.created_at),
+            lastChangedAt: iso(row?.updated_at),
+          };
+        }),
+        skills: await skillsFor(getPool(), viewer.id),
+      };
     }
     // Who holds each badge, and until when. Already public through
     // /api/badges/match and /api/badges/of/:userId, so the same privacy line
