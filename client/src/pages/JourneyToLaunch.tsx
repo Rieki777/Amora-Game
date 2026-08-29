@@ -240,6 +240,128 @@ function StatePill({ state, severity }: { state: string; severity: string }) {
   );
 }
 
+/** What `/api/admin/launch` says about the launch vote itself (R74). */
+interface LaunchVote {
+  /** How many people hold a voice today. Null when the roll could not be read. */
+  onTheRoll: number | null;
+  /** The roll is short of the floor, said as a fact. Null when it is not. */
+  tooFew: string | null;
+  unityPct: number | null;
+  quorumPct: number | null;
+  minElectorate: number | null;
+  why: string | null;
+  openBallot: { id: string; title: string; closesAt: string; electorateCount: number; voted: number } | null;
+  past: Array<{ id: string; status: string; closedAt: string | null; outcomeNote: string | null }>;
+}
+
+/**
+ * STARTING THE GAME (R74). The card that used to mark a village launched.
+ *
+ * Four states and one of them is new, so each gets its own words and nothing
+ * is inferred from a missing field:
+ *
+ *   a vote is running     what it is waiting for, and where to go and vote
+ *   the roll is short     how many hold a voice, and how many more
+ *   ready to ask          the ask, with what carrying it needs
+ *   items still open      how many, unchanged from before
+ *
+ * R55 and R56 govern every sentence here. A village that has not started is
+ * YOUNG. There is no countdown, nothing is late, no village is compared to
+ * another, and the one cautionary-looking line is a count of people, which is
+ * a thing the founder cannot otherwise see.
+ */
+function StartTheGame({
+  status,
+  vote,
+  isFounder,
+  busy,
+  onAsk,
+}: {
+  status: any;
+  vote: LaunchVote | null;
+  isFounder: boolean;
+  busy: boolean;
+  onAsk: () => void;
+}) {
+  const running = vote?.openBallot ?? null;
+  const shortOfPeople = !!vote?.tooFew;
+  const canAsk = !!status.readyToLaunch && !shortOfPeople && !running && isFounder;
+
+  return (
+    <section
+      className={`rounded-xl border p-5 ${
+        status.readyToLaunch && !shortOfPeople ? "bg-[#2D5A5A]/5 border-[#2D5A5A]/30" : "bg-white border-stone-200"
+      }`}
+    >
+      <div className="flex items-center gap-3 flex-wrap justify-between">
+        <div>
+          <p className="font-semibold text-stone-900 flex items-center gap-2">
+            <Rocket className="w-4 h-4 text-[#2D5A5A]" /> Start the Game
+          </p>
+          <p className="text-xs text-stone-500 mt-1 max-w-md">
+            {running
+              ? `The village is voting on this now. ${running.voted} of ${running.electorateCount} have answered, and it closes on ${new Date(running.closesAt).toLocaleDateString()}.`
+              : !status.readyToLaunch
+                ? `${status.blockingOpen} item(s) on the journey still block the vote. The button opens when they read done.`
+                : shortOfPeople
+                  ? vote?.tooFew
+                  : vote?.why ?? "This opens the village's vote on starting its Game."}
+          </p>
+          {!running && status.readyToLaunch && !shortOfPeople && vote?.unityPct != null && vote?.quorumPct != null && (
+            <p className="text-xs text-stone-500 mt-1 max-w-md">
+              It carries when {vote.quorumPct}% of the roll has answered and {vote.unityPct}% of those who take a side agree.
+              {vote.onTheRoll != null && ` ${vote.onTheRoll} people hold a voice today.`}
+            </p>
+          )}
+        </div>
+        {running ? (
+          <Link
+            href={`/decisions/${running.id}`}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-5 py-2.5 font-semibold"
+          >
+            Open the vote
+          </Link>
+        ) : (
+          <button
+            onClick={onAsk}
+            disabled={!canAsk || busy}
+            title={isFounder ? undefined : "Opening this vote is a founder's act"}
+            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-5 py-2.5 font-semibold disabled:opacity-40"
+          >
+            Ask the village
+          </button>
+        )}
+      </div>
+
+      {/*
+        * Every time this village has asked before. A vote that closed without
+        * starting the Game is part of the journey and belongs on the record,
+        * so nobody has to wonder whether the last one happened.
+        */}
+      {vote && vote.past.length > 0 && (
+        <ul className="mt-4 border-t border-stone-900/10 pt-3 space-y-1.5">
+          {vote.past.map((p) => (
+            <li key={p.id} className="text-xs text-stone-600">
+              <Link href={`/decisions/${p.id}`} className="font-medium text-[#2D5A5A] hover:underline">
+                {p.closedAt ? new Date(p.closedAt).toLocaleDateString() : "Closed"}
+              </Link>
+              {": "}
+              {p.status === "no_quorum"
+                ? "not everyone answered"
+                : p.status === "withdrawn"
+                  ? "called off"
+                  : p.status === "failed"
+                    ? "did not carry"
+                    : p.status}
+              {p.outcomeNote ? `. ${p.outcomeNote}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export default function JourneyToLaunch() {
   const { user, loading } = useAuth();
   const isAdmin = !!user && (user.role === "admin" || user.role === "founder");
@@ -267,10 +389,20 @@ export default function JourneyToLaunch() {
       .finally(() => setBusy(""));
   };
 
-  const launch = () => {
-    if (!window.confirm("Mark this village launched? This is one-way: the launch banner retires and this page becomes a checklist you have completed.")) return;
+  /**
+   * R74: this stopped marking and started asking. The founder opens the
+   * village's first ballot, and the village answers it.
+   */
+  const askTheVillage = () => {
+    if (
+      !window.confirm(
+        "Open the vote on starting the Game? Every member on the roll will be asked, and it needs all of them to answer and all of them to agree.",
+      )
+    ) {
+      return;
+    }
     setBusy("launch");
-    fetch("/api/admin/launch/launched", { method: "POST", headers: headers() })
+    fetch("/api/admin/launch/propose", { method: "POST", headers: headers() })
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.message ?? d.error ?? "Refused");
@@ -307,6 +439,7 @@ export default function JourneyToLaunch() {
   const done = items.filter((i) => i.state === "ok").length;
   const pct = items.length ? Math.round((done / items.length) * 100) : 0;
   const launched = !!status?.launchedAt;
+  const vote: LaunchVote | null = status?.vote ?? null;
 
   return (
     <Layout>
@@ -324,7 +457,7 @@ export default function JourneyToLaunch() {
           </h1>
           <p className="text-white text-sm max-w-2xl mb-6">
             {launched
-              ? `Marked launched ${new Date(status.launchedAt).toLocaleDateString()}. This checklist stays as the record of what that took.`
+              ? `The village voted to start its Game on ${new Date(status.launchedAt).toLocaleDateString()}. This checklist stays as the record of what that took.`
               : "Live status, not a to-do list someone forgot to update: every item below is either observed by the server right now, or confirmed by a named admin."}
           </p>
 
@@ -446,31 +579,8 @@ export default function JourneyToLaunch() {
                 );
               })}
 
-              {/* ── The act itself ── */}
-              {!launched && (
-                <section className={`rounded-xl border p-5 ${status.readyToLaunch ? "bg-[#2D5A5A]/5 border-[#2D5A5A]/30" : "bg-white border-stone-200"}`}>
-                  <div className="flex items-center gap-3 flex-wrap justify-between">
-                    <div>
-                      <p className="font-semibold text-stone-900 flex items-center gap-2">
-                        <Rocket className="w-4 h-4 text-[#2D5A5A]" /> Mark the village launched
-                      </p>
-                      <p className="text-xs text-stone-500 mt-1 max-w-md">
-                        {status.readyToLaunch
-                          ? "Every blocking item reads done. This is a founder's act, recorded and one-way. The admin banner retires with it."
-                          : `${status.blockingOpen} blocking item(s) still open. The button unlocks when they read done.`}
-                      </p>
-                    </div>
-                    <button
-                      onClick={launch}
-                      disabled={!status.readyToLaunch || user?.role !== "founder" || busy === "launch"}
-                      title={user?.role !== "founder" ? "Only a founder can mark the village launched" : undefined}
-                      className="text-sm bg-[#2D5A5A] text-white rounded-lg px-5 py-2.5 font-semibold disabled:opacity-40"
-                    >
-                      Launch
-                    </button>
-                  </div>
-                </section>
-              )}
+              {/* ── Starting the Game ── */}
+              {!launched && <StartTheGame status={status} vote={vote} isFounder={user?.role === "founder"} busy={busy === "launch"} onAsk={askTheVillage} />}
             </>
           )}
         </div>

@@ -14526,6 +14526,26 @@ Send an empty drafts array when you are still listening. A role payload is {name
       return res.status(403).json({ error: "Asking the village to start its Game is a founder's act" });
     }
 
+    /*
+     * CAN THIS VILLAGE HOLD A VOTE AT ALL, asked before anything else.
+     *
+     * The governance module ships OFF and is what mounts every voting route,
+     * so with it off a launch ballot would open, every member would get a 404
+     * trying to answer it, and the vote would sit unanswerable until somebody
+     * closed it. `ballot.vote` unlocks by STAGE and knows nothing about module
+     * lifecycles, so the electorate would look healthy the whole time.
+     *
+     * The rank test and not an off test, for the same reason `requireModule`
+     * uses one: at `preview` the voting routes answer admins and give every
+     * member the same 404, which is a ballot only the scaffolding can vote in.
+     */
+    if (LIFECYCLE_RANK[effectiveLifecycle("governance")] < LIFECYCLE_RANK.members) {
+      return res.status(409).json({
+        error:
+          "This village decides on Hypha today, so there is no vote to open here. Turn the governance module on for members first, and the village can hold this vote itself.",
+      });
+    }
+
     // The journey gates the QUESTION and never the answer: a village whose
     // exit policy is still a placeholder is not ready to be asked.
     const blocked = await launchVoteBlocked(getPool(), launchDeps);
