@@ -5296,7 +5296,9 @@ async function startServer() {
     // The signed token names the member, so the meter costs no database read.
     // `decodeToken` verifies the signature and the session window before it
     // returns anything, so this cannot be handed an id the deployment did not
-    // mint. `server/lib/modules.ts` states what it skips and why.
+    // mint. It does NOT check `token_version`, so it is not a session test on
+    // its own: `served()` in `server/lib/modules.ts` asks `isAuthed` before it
+    // writes a mark, which is the same answer `/api/profile` gives.
     meterUserId: (req) => {
       const header = (req as any).headers?.authorization;
       if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;

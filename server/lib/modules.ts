@@ -29,7 +29,7 @@ import {
 } from "../../shared/modules";
 import { recordEvent } from "./events";
 import { hasRealContent } from "./examples";
-import { markModuleUse } from "./moduleUsage";
+import { markModuleUse, usageMarkPending } from "./moduleUsage";
 import { secretValue } from "./secrets";
 import { stringVar } from "./variables";
 
@@ -290,13 +290,17 @@ export interface ModuleAuthDeps {
    * module route in the product costs nothing on a `public` module that
    * `isAuthed` would never have looked at.
    *
-   * The one thing it skips is session revocation, and the trade is deliberate.
-   * A revoked token still names a real member of this village, so the worst it
-   * can do is count somebody as present who has been logged out. It cannot
-   * invent a member, because the token is HMAC-signed by this deployment. On a
-   * `members` module the gate refuses the request anyway and the meter is never
-   * reached. Paying a database read per request to sharpen that would be the
-   * write amplification problem wearing a different hat.
+   * The one thing it skips is SESSION REVOCATION, and skipping it here is
+   * still right: paying a database read per request would be the write
+   * amplification problem wearing a different hat. What was wrong was skipping
+   * it altogether. A revoked token names a real member, so this cannot invent
+   * anybody, but a member who has been signed out or removed kept counting for
+   * the rest of the lunation, in numbers the pool is paid on.
+   *
+   * So `served()` below asks `isAuthed` before it writes a mark, and only when
+   * a mark would actually be written. The revocation check is paid once per
+   * member per module per cycle instead of once per request, and this function
+   * stays what its name says it is.
    */
   meterUserId(req: Request): string | null;
 }
@@ -370,8 +374,9 @@ function served(id: string, req: Request, res: Response, next: NextFunction): vo
   // otherwise walk straight past a case-sensitive test.
   if (req.originalUrl.toLowerCase().startsWith("/api/admin/")) return next();
 
-  const userId = authDeps?.meterUserId(req) ?? null;
-  if (!userId) return next();
+  const deps = authDeps;
+  const userId = deps?.meterUserId(req) ?? null;
+  if (!deps || !userId) return next();
 
   /*
    * THE MARK WAITS FOR THE RESPONSE, and this is the difference between
@@ -391,8 +396,35 @@ function served(id: string, req: Request, res: Response, next: NextFunction): vo
    * path that does not exist, a 403 from a capability check, and a 500 all
    * leave the count where it was.
    */
+  /*
+   * AND THE MARK ASKS WHETHER THE SESSION IS STILL ALIVE.
+   *
+   * `meterUserId` reads the id out of the signed token and stops there, which
+   * cannot be handed an id this deployment did not mint but also cannot tell a
+   * live session from one the member ended an hour ago. A village that signs
+   * somebody out, or removes them, was still counting them in
+   * `membersReached` and in the `activeMembers` denominator for the rest of
+   * the lunation, and both of those numbers are reported upstream to the pool.
+   * A revoked session that can still move the meter is a way to move money.
+   *
+   * `isAuthed` is the full auth path, `token_version` check included, so it is
+   * the same answer `/api/profile` gives the same token. It costs a row read,
+   * which is why it is asked HERE and not in `meterUserId`: `usageMarkPending`
+   * is false for every request after a member's first on a module this cycle,
+   * so the read is paid once per member per module per cycle, the same order
+   * as the insert it guards. A member who is signed out pays it per request,
+   * which is exactly what any authenticated route in the product pays.
+   *
+   * A failed read leaves the mark unwritten. The member keeps their page, and
+   * the number is short by one rather than carrying somebody nobody verified.
+   */
   res.on("finish", () => {
-    if (res.statusCode < 400) markModuleUse(id, userId);
+    if (res.statusCode >= 400) return;
+    if (!usageMarkPending(id, userId)) return;
+    void deps
+      .isAuthed(req)
+      .then((live) => { if (live) markModuleUse(id, userId); })
+      .catch((e) => console.error(`[modules] could not confirm the session behind a ${id} mark`, e));
   });
   next();
 }
