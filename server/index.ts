@@ -17715,7 +17715,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
       entityRef: target.id,
       audience: "admin",
     });
-    res.json({ success: true, toBalance: r.toBalance, minted: minted + amt, cap, remaining: cap - minted - amt });
+    // `waiting` is subtracted here too, or this number would tell an admin
+    // they have room the next grant will be refused for. The 409 above already
+    // counts it; a success body that did not would be the same claim made
+    // quietly.
+    res.json({
+      success: true,
+      toBalance: r.toBalance,
+      minted: minted + amt,
+      waiting,
+      cap,
+      remaining: Math.max(0, cap - minted - waiting - amt),
+    });
   });
 
   /**

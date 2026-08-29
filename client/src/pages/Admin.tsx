@@ -8718,7 +8718,10 @@ function TokensTab({ password }: { password: string }) {
   };
 
   const declineGrant = async (id: string) => {
-    const note = window.prompt("Why are you turning this down? The record keeps it.") ?? "";
+    // `?? ""` here would have made Cancel indistinguishable from an empty
+    // reason, so pressing Escape would have turned the grant down instead of
+    // walking away. Null is the cancel and it has to survive to the test.
+    const note = window.prompt("Why are you turning this down? The record keeps it.");
     if (note === null) return;
     try {
       const res = await fetch(`${API_BASE}/admin/mint-requests/${id}/decline`, {
