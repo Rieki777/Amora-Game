@@ -1231,7 +1231,24 @@ const roleHoldersRepo = dbCollection<RoleHolderRow>(getPool(), {
 // are never persisted, so forks keep inheriting future platform defaults.
 const contentRepo = dbDocument(getPool(), "content", {} as any);
 const faqsRepo = dbDocument(getPool(), "faqs", DEFAULT_FAQS as any);
-const journeyRepo = dbDocument(getPool(), "journey-state", { checkboxes: {}, copy: {}, kanban: {}, decisions: {} } as any);
+/*
+ * `resources` is the founding team's own list of working documents, and it
+ * ships EMPTY on purpose.
+ *
+ * It used to be a module constant in client/src/pages/ProjectHistory.tsx:
+ * three links to unlisted documents plus one project's own host, compiled
+ * into a lazy chunk whose filename sits in the entry bundle every anonymous
+ * visitor downloads. The page's admin gate decides who the app will draw the
+ * page for. It decides nothing about who can read the strings the page was
+ * built from, so those links were public from the day they landed.
+ *
+ * Same rule as `landFacts` in DEFAULT_SETTINGS: blank means the surface shows
+ * nothing rather than somebody else's address, a fresh village inherits no
+ * link it did not write, and the founder's own references live behind the
+ * admin gate on /api/journey/*, which is where the rest of this document
+ * already lives.
+ */
+const journeyRepo = dbDocument(getPool(), "journey-state", { checkboxes: {}, copy: {}, kanban: {}, decisions: {}, resources: [] } as any);
 const emailConfigRepo = dbDocument(getPool(), "email-config", DEFAULT_EMAIL_CONFIG as any);
 const settingsRepo = dbDocument(getPool(), "settings", DEFAULT_SETTINGS as any);
 const brandRepo = dbDocument(getPool(), "brand", DEFAULT_BRAND as any);
@@ -18508,6 +18525,47 @@ Send an empty drafts array when you are still listening. A role payload is {name
     journey.decisions[id] = { status, chosen: chosen ?? "", notes: notes ?? "" };
     await journeyRepo.put(journey);
     res.json({ success: true });
+  });
+
+  /**
+   * Journey State: the founding team's own working documents.
+   * POST /api/journey/resources  { resources: [{ label, url }] }
+   *
+   * Behind `isJourney`, which is `isAdmin`, the same gate the rest of this
+   * document reads and writes through. That matters more than it looks: the
+   * whole point of moving these links out of the client bundle is that a
+   * route guard now decides who sees them, so serving them from anything
+   * weaker than the page's own gate would move the problem rather than fix it.
+   *
+   * The list replaces wholesale, the way the admin screens edit the other
+   * config documents. Only http and https survive: a `javascript:` href in an
+   * anchor this page renders would run in the next admin's browser.
+   */
+  app.post("/api/journey/resources", async (req, res) => {
+    if (!(await isJourney(req))) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    const incoming = req.body?.resources;
+    if (!Array.isArray(incoming)) {
+      return res.status(400).json({ error: "Send a resources array" });
+    }
+    if (incoming.length > 40) {
+      return res.status(400).json({ error: "That is more than 40 links. Trim the list first" });
+    }
+    const cleaned: Array<{ label: string; url: string }> = [];
+    for (const raw of incoming) {
+      const label = String(raw?.label ?? "").trim().slice(0, 120);
+      const url = String(raw?.url ?? "").trim().slice(0, 2000);
+      if (!label && !url) continue;
+      if (!/^https?:\/\/\S/i.test(url)) {
+        return res.status(400).json({ error: `"${label || url}" needs a web address starting http:// or https://` });
+      }
+      cleaned.push({ label: label || url, url });
+    }
+    const journey = journeyRepo.get();
+    journey.resources = cleaned;
+    await journeyRepo.put(journey);
+    res.json({ success: true, resources: cleaned });
   });
 
   // â”€â”€ Email Config (Resend) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─

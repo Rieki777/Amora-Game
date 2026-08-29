@@ -11,10 +11,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ChevronDown,
-  FileSpreadsheet,
   FileText,
-  Globe,
-  BookOpen,
   Calendar,
   TreePine,
   Lock,
@@ -28,32 +25,29 @@ import {
 
 // ─── External Resource Links ─────────────────────────────────────────────────
 
-const RESOURCES = [
-  {
-    label: "Dev Site",
-    href: "https://amora.regencivics.earth",
-    icon: Globe,
-    color: "bg-teal text-white",
-  },
-  {
-    label: "Variables Sheet",
-    href: "https://docs.google.com/spreadsheets/d/1TRbaOTqGSEc_sLWLb2mDSb00HWgLRgNe/edit",
-    icon: FileSpreadsheet,
-    color: "bg-emerald-600 text-white",
-  },
-  {
-    label: "Decision Log",
-    href: "https://docs.google.com/document/d/1HySZYDf-QDRg_Srp_hUbUyI6TKHNIlLc/edit",
-    icon: FileText,
-    color: "bg-blue-600 text-white",
-  },
-  {
-    label: "Game.Amora Doc",
-    href: "https://docs.google.com/document/d/1uETHRx4UD8YAk3kr0ojOr0MTsm5EkF3ycG0j7STdoJU/edit?tab=t.0",
-    icon: BookOpen,
-    color: "bg-purple-600 text-white",
-  },
-];
+/**
+ * WHAT THIS LIST USED TO BE, and why it is now empty in the code.
+ *
+ * Four links lived here as a module constant: three unlisted working
+ * documents and one project's own host. This page is admin-gated, so they
+ * read as private. They were not.
+ *
+ * A route guard decides who the app will DRAW a page for. It decides nothing
+ * about who can download the JavaScript that page was compiled from. This
+ * page is a lazy chunk, its filename sits inside the entry bundle every
+ * anonymous visitor downloads, and the assets directory answers anyone who
+ * asks. Three requests and no account stood between a stranger and those
+ * links, for as long as they were here.
+ *
+ * They are not deleted. They moved to `journey.resources`, which a founder
+ * edits below and which is served only through the same admin gate the rest
+ * of this page's state already passes. It ships EMPTY, so a village that
+ * clones this platform inherits no link that belongs to somebody else.
+ */
+interface ResourceLink {
+  label: string;
+  url: string;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -116,7 +110,7 @@ const WEEKS: Week[] = [
       { id: "am-7", text: "Add Hypha page link to How We Create and Co-Creators Guide", status: "pending" },
       { id: "am-8", text: "Launch all Hypha tools - governance platform live and linked from site", status: "pending" },
       { id: "w4-12", text: "Finalize Role descriptions and Season structure for publication", status: "collab" },
-      { id: "am-2", text: "Complete the investor memo for Lawrence - terms, vision, and deal structure written and ready to share", status: "collab" },
+      { id: "am-2", text: "Complete the investor memo for the landholder - terms, vision, and deal structure written and ready to share", status: "collab" },
       { id: "am-3", text: "Establish the ministry - 508(c)(1)(a) structure formalised and membership framework confirmed", status: "collab" },
     ],
   },
@@ -145,7 +139,7 @@ const WEEKS: Week[] = [
       { id: "w3-6", text: "Confirm ARI tiers and Voice allocations for Prosperity journey", status: "collab" },
       { id: "w3-7", text: "Confirm Investor Pack structure and financial projections", status: "collab" },
       { id: "am-1", text: "Complete token design - name, function, and economic rules for the community contribution token (currently 'Gratitude') finalised", status: "collab" },
-      { id: "am-4", text: "Secure the land + clear agreement with Lawrence - ownership or access terms signed and confirmed", status: "collab" },
+      { id: "am-4", text: "Secure the land + clear agreement with the landholder - ownership or access terms signed and confirmed", status: "collab" },
       { id: "am-5", text: "Regen Development Fund path clear - funding vehicle, terms, and first close strategy confirmed", status: "collab" },
       { id: "am-6", text: "Business plan clear and complete - full plan covering operations, revenue model, and development phases ready to share", status: "collab" },
       { id: "w2-19", text: "Deliver Investor Pack content (terms, structure, documents)", status: "collab" },
@@ -255,13 +249,20 @@ const DECISIONS: DecisionDef[] = [
   {
     id: "dec-investor-memo",
     title: "Investor memo structure and terms",
-    description: "Finalize the investor memo for Lawrence: investment structure, debt vs equity ratios, interest rates, IRR projections, and Phase 1 raise target.",
+    description: "Finalize the investor memo for the landholder: investment structure, debt vs equity ratios, interest rates, IRR projections, and Phase 1 raise target.",
     linkedItem: "am-2",
   },
+  /*
+   * This entry's id changed. It used to be the landholder's first name, which
+   * put a private counterparty into every downloaded copy of this page's
+   * chunk. Anything already recorded under the old id is NOT lost: the
+   * Decisions view below renders any stored entry whose id this list no
+   * longer ships, under "Carried over", with whatever was written in it.
+   */
   {
-    id: "dec-lawrence",
-    title: "Lawrence land agreement",
-    description: "Confirm the ownership or access terms with Lawrence, including conditions, timelines, and contingencies that affect the development plan.",
+    id: "dec-land-agreement",
+    title: "Land agreement with the landholder",
+    description: "Confirm the ownership or access terms with the landholder, including conditions, timelines, and contingencies that affect the development plan.",
     linkedItem: "am-4",
   },
   {
@@ -328,6 +329,8 @@ interface JourneyState {
   copy: Record<string, string>;
   kanban: Record<string, KanbanEntry>;
   decisions: Record<string, DecisionEntry>;
+  /** The founding team's own working documents, written here, never shipped. */
+  resources: ResourceLink[];
 }
 
 function getDefaultCheckboxState(d: Deliverable): 0 | 1 | 2 {
@@ -662,7 +665,7 @@ export default function ProjectHistory() {
     ...extra,
   });
   const [activeView, setActiveView] = useState<ViewId>("timeline");
-  const [serverState, setServerState] = useState<JourneyState>({ checkboxes: {}, copy: {}, kanban: {}, decisions: {} });
+  const [serverState, setServerState] = useState<JourneyState>({ checkboxes: {}, copy: {}, kanban: {}, decisions: {}, resources: [] });
   /** What the last journey write actually did. Empty while everything lands. */
   const [writeNote, setWriteNote] = useState("");
   const [loadingState, setLoadingState] = useState(true);
@@ -671,6 +674,8 @@ export default function ProjectHistory() {
   const [noteDraft, setNoteDraft] = useState("");
   const [editingDecision, setEditingDecision] = useState<string | null>(null);
   const [decisionDraft, setDecisionDraft] = useState<{ chosen: string; notes: string }>({ chosen: "", notes: "" });
+  const [editingResources, setEditingResources] = useState(false);
+  const [resourceDraft, setResourceDraft] = useState<ResourceLink[]>([]);
 
   // Command Centre additions: status overrides and discussion topics (localStorage)
   const [statusOverrides, setStatusOverrides] = useState<Record<string, DeliveryStatus>>({});
@@ -734,6 +739,9 @@ export default function ProjectHistory() {
           copy: data.copy ?? {},
           kanban: data.kanban ?? {},
           decisions: data.decisions ?? {},
+          // A village that has written no links has none, rather than
+          // inheriting the ones this page used to carry in its own code.
+          resources: Array.isArray(data.resources) ? data.resources : [],
         });
         setLoadingState(false);
       })
@@ -920,6 +928,31 @@ export default function ProjectHistory() {
     });
   };
 
+  /**
+   * The working documents this team keeps outside the site.
+   *
+   * Written here and stored behind the same admin gate as everything else on
+   * this page, because they used to be compiled into the page's own chunk and
+   * a chunk is public whatever the route guard says. The editor rolls back on
+   * a refusal and keeps the rows on screen, the same shape the note editor
+   * uses: a save the server declined never costs somebody what they typed.
+   */
+  const saveResources = async () => {
+    setWriteNote("");
+    const cleaned = resourceDraft
+      .map((r) => ({ label: r.label.trim(), url: r.url.trim() }))
+      .filter((r) => r.label || r.url);
+    const before = serverState.resources;
+    setServerState((prev) => ({ ...prev, resources: cleaned }));
+    if (await journeyWrite("/api/journey/resources", { resources: cleaned })) {
+      setEditingResources(false);
+      return;
+    }
+    setServerState((prev) => ({ ...prev, resources: before }));
+    setResourceDraft(cleaned);
+    setEditingResources(true);
+  };
+
   // Known assignees for auto-suggest
   const knownAssignees = Array.from(
     new Set(
@@ -965,21 +998,108 @@ export default function ProjectHistory() {
             <Link href="/journey-to-launch" className="text-amber-on-band underline">Journey to Launch</Link>.
           </p>
 
-          {/* Resource Links */}
-          <div className="flex flex-wrap gap-3 mb-6">
-            {RESOURCES.map((r) => (
-              <a
-                key={r.label}
-                href={r.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${r.color} hover:opacity-90 transition-opacity`}
-              >
-                <r.icon className="w-4 h-4" />
-                {r.label}
-                <ExternalLink className="w-3 h-3 opacity-70" />
-              </a>
-            ))}
+          {/* Working documents, written by an admin and stored behind the
+              admin gate. Empty until somebody adds one, so a fresh village
+              inherits nobody else's links. */}
+          <div className="mb-6">
+            {editingResources ? (
+              <div className="bg-white rounded-xl p-4 max-w-2xl">
+                <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
+                  Working documents
+                </p>
+                <p className="text-xs text-stone-500 mb-3">
+                  Sheets, docs and boards this team works from. They are stored with the rest of
+                  this tracker and shown only to signed-in admins. Nothing here is built into the
+                  site, so a village that clones this platform starts with an empty list.
+                </p>
+                <div className="space-y-2">
+                  {resourceDraft.map((r, i) => (
+                    <div key={`resource-row-${i}`} className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={r.label}
+                        placeholder="What it is"
+                        onChange={(e) =>
+                          setResourceDraft((prev) =>
+                            prev.map((row, j) => (j === i ? { ...row, label: e.target.value } : row)),
+                          )
+                        }
+                        className="sm:w-48 shrink-0 text-sm px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-teal-deep"
+                      />
+                      <input
+                        type="url"
+                        value={r.url}
+                        placeholder="https://"
+                        onChange={(e) =>
+                          setResourceDraft((prev) =>
+                            prev.map((row, j) => (j === i ? { ...row, url: e.target.value } : row)),
+                          )
+                        }
+                        className="flex-1 text-sm px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-teal-deep"
+                      />
+                      <button
+                        onClick={() => setResourceDraft((prev) => prev.filter((_, j) => j !== i))}
+                        className="shrink-0 px-3 py-2 text-xs rounded-lg bg-stone-100 text-stone-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+                        aria-label={`Remove ${r.label || "this link"}`}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <button
+                    onClick={() => setResourceDraft((prev) => [...prev, { label: "", url: "" }])}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors"
+                  >
+                    Add a link
+                  </button>
+                  <button
+                    onClick={saveResources}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-teal-deep text-white hover:bg-teal transition-colors"
+                  >
+                    <Save className="w-3 h-3" />
+                    Save links
+                  </button>
+                  <button
+                    onClick={() => setEditingResources(false)}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-stone-200 text-stone-600 hover:bg-stone-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                {serverState.resources.map((r, i) => (
+                  <a
+                    key={`resource-${i}-${r.url}`}
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white/15 text-white hover:bg-white/25 transition-colors"
+                  >
+                    <FileText className="w-4 h-4" />
+                    {r.label}
+                    <ExternalLink className="w-3 h-3 opacity-70" />
+                  </a>
+                ))}
+                <button
+                  onClick={() => {
+                    setResourceDraft(
+                      serverState.resources.length > 0
+                        ? serverState.resources.map((r) => ({ ...r }))
+                        : [{ label: "", url: "" }],
+                    );
+                    setEditingResources(true);
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-white/40 text-white hover:bg-white/15 transition-colors"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  {serverState.resources.length > 0 ? "Edit links" : "Add the documents this team works from"}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Progress Bar - weighted: delivered=50%, confirmed=100% */}
@@ -1669,6 +1789,49 @@ export default function ProjectHistory() {
                       );
                     })}
                   </div>
+
+                  {/* Anything recorded against a decision this page no longer
+                      ships. One id changed when a counterparty's name came out
+                      of the code, and a founder's written decision must not
+                      disappear because a key was renamed underneath it. */}
+                  {(() => {
+                    const known = new Set(DECISIONS.map((dec) => dec.id));
+                    const carried = Object.entries(serverState.decisions).filter(
+                      ([id, entry]) => !known.has(id) && (entry?.chosen || entry?.notes),
+                    );
+                    if (carried.length === 0) return null;
+                    return (
+                      <div className="mt-6 bg-white border border-stone-200 rounded-xl p-5">
+                        <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-1">
+                          Carried over
+                        </h3>
+                        <p className="text-xs text-stone-400 mb-3">
+                          Written against a decision that has since been renamed. Kept here so
+                          nothing anyone recorded is lost.
+                        </p>
+                        <div className="space-y-3">
+                          {carried.map(([id, entry]) => (
+                            <div key={`carried-${id}`} className="border-t border-stone-100 pt-3 first:border-0 first:pt-0">
+                              <p className="text-sm text-stone-700 font-medium">
+                                {entry.chosen || "No decision text recorded"}
+                              </p>
+                              {entry.notes && (
+                                <p className="text-xs text-stone-500 mt-1 whitespace-pre-wrap">{entry.notes}</p>
+                              )}
+                              <p className="text-xs text-stone-400 mt-1">
+                                Recorded as {entry.status === "decided" ? "decided" : "open"}
+                                {" · "}
+                                {/* The stored key, which is data rather than
+                                    code: it reaches this screen through the
+                                    admin gate and never through the bundle. */}
+                                <span className="font-mono">{id}</span>
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
