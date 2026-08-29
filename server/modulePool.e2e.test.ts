@@ -28,6 +28,8 @@ import mysql from "mysql2/promise";
 import { E2E_BOOT_DEADLINE_MS, provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
 import { sealCycle } from "./repos/moduleUsage";
 import { cycleIdFor } from "./lib/gratitude-cycles";
+import { verifyDocument } from "./lib/villageExport";
+import { moduleUsageReportProblems, MODULE_USAGE_PROTOCOL } from "../shared/moduleProvenance";
 
 const DB_CONFIGURED = testDbConfigured();
 const DIST = path.resolve(__dirname, "../dist/index.js");
@@ -170,8 +172,12 @@ describe.skipIf(!DB_CONFIGURED)("the builders' pool, driven", () => {
     expect(reach.get("tools").reach).toBe(0.75);
     expect(reach.get("events").reach).toBe(0.25);
 
-    // Nothing that left this deployment names a person.
-    expect(JSON.stringify(report)).not.toMatch(/user_id|userId|@example\.test/);
+    // Nothing that left this deployment names a person. `proof` is stripped
+    // first: its signature is random base64url that changes every run, so
+    // matching against it would make this assertion flaky about the one thing
+    // it must never be flaky about.
+    const { proof: _proof, ...body } = report;
+    expect(JSON.stringify(body)).not.toMatch(/user_id|userId|@example\.test/);
   });
 
   it("refuses to be claimed by knocking on a module's door", async () => {
@@ -269,6 +275,87 @@ describe.skipIf(!DB_CONFIGURED)("the builders' pool, driven", () => {
       [cycle],
     );
     expect(Number(marks[0].n)).toBe(0);
+
+    /*
+     * The sealed report is what a counter settles against, so it has to say
+     * WHEN these numbers stopped moving. A settlement made from a cycle with no
+     * date on it is a payment nobody can place afterwards.
+     */
+    const sealed = (await call("GET", `/api/platform/module-usage?cycle=${cycle}`)).json;
+    expect(sealed.sealed).toBe(true);
+    expect(typeof sealed.sealedAt).toBe("string");
+    expect(Number.isNaN(Date.parse(sealed.sealedAt))).toBe(false);
+    expect(moduleUsageReportProblems(sealed)).toEqual([]);
+    const { proof: _sealedProof, ...sealedBody } = sealed;
+    expect(JSON.stringify(sealedBody)).not.toMatch(/user_id|userId|@example\.test/);
+
+    /*
+     * A sealed cycle cannot change again, so it signs at its own seal time and
+     * two fetches are byte identical. That is what lets a counter cache one,
+     * compare two copies, and settle from a document whose integrity survived
+     * leaving this server. An open cycle signs at now, because it is a reading.
+     */
+    const again = (await call("GET", `/api/platform/module-usage?cycle=${cycle}`)).json;
+    expect(again.proof.signedAt).toBe(sealed.proof.signedAt);
+    expect(again.proof.signature).toBe(sealed.proof.signature);
+    expect(sealed.proof.signedAt).toBe(sealed.sealedAt);
+  });
+
+  it("carries who built each module, so a counter needs no list of its own", async () => {
+    /*
+     * R72's third clause. A counter that has never heard of this deployment
+     * must be able to learn the credits from the report itself, because a fork
+     * cannot inherit a hand-maintained list it is not on.
+     *
+     * The registry ships with no third-party module, so every line here reads
+     * platform built and recycled. That is the state the platform ships in and
+     * not a gap in the drive: what is being proved is that the credit TRAVELS,
+     * and a line that carries "nobody built this outside the platform" is
+     * carrying it.
+     */
+    const report = (await call("GET", "/api/platform/module-usage")).json;
+    expect(report.protocol).toBe(MODULE_USAGE_PROTOCOL);
+    expect(report.instanceId).toBeTruthy();
+
+    // The check a counter runs before settling anything against a report it
+    // did not build, run here against a report a real server actually served.
+    expect(moduleUsageReportProblems(report)).toEqual([]);
+
+    const forum = report.modules.find((m: any) => m.moduleId === "forum");
+    expect(forum).toMatchObject({
+      moduleId: "forum",
+      membersReached: 4,
+      activeMembers: 4,
+      reach: 1,
+      builtBy: null,
+      builderHandle: null,
+      builderNamespace: null,
+      platformBuilt: true,
+      // R59 made visible on the wire: the platform's share goes back in.
+      disposition: "recycled",
+    });
+  });
+
+  it("announces the meter in discovery and signs what it serves", async () => {
+    /*
+     * The two halves of "reportable to whoever is counting". Discovery is how a
+     * counter that has never heard of this fork FINDS the report, and the
+     * signature is what makes a copy of that report worth anything once it has
+     * been cached, relayed or handed to an agent, where TLS to the origin has
+     * evaporated.
+     */
+    const wk = (await call("GET", "/.well-known/village.json")).json;
+    expect(wk.supports).toContain(MODULE_USAGE_PROTOCOL);
+    expect(wk.links.moduleUsage).toBe("/api/platform/module-usage");
+
+    const report = (await call("GET", wk.links.moduleUsage)).json;
+    const pem = wk.publicKey.publicKeyPem;
+    expect(verifyDocument(report, pem)).toBe(true);
+
+    // A signature nobody can break is ceremony. Move one number and it fails.
+    const cooked = JSON.parse(JSON.stringify(report));
+    cooked.modules[0].membersReached += 1;
+    expect(verifyDocument(cooked, pem)).toBe(false);
   });
 
   it("still holds the ledger invariants after all of it", async () => {
