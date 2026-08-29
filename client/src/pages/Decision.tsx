@@ -99,6 +99,29 @@ const WEIGHT_MODE_TIP: Record<Ballot["weightMode"], string> = {
 const UNKNOWN_WEIGHT_TIP =
   "Weight on this ballot was decided by a mode this page has not been taught to explain. It was frozen when the ballot opened, and the weight record shows what each member carried.";
 
+/**
+ * WHICH ANSWER ABOUT WHAT CHANGED THIS PAGE SHOWS.
+ *
+ * Two sources, and they are not interchangeable. The close response is the
+ * ACT's own answer and it exists for one browser session; the ledger is the
+ * permanent record and it is all a reader has on any later visit. Before this
+ * the card had only the first, so a carried decision knew what it changed for
+ * about a minute and then forgot, on exactly the decisions worth returning to.
+ *
+ * The close wins where it exists, INCLUDING when its answer is that nothing
+ * moved: a pass that applied nothing and said why in `held` must not have an
+ * empty list quietly replaced by a ledger read from a different moment. Absent
+ * on both sides returns undefined, which renders no section at all rather than
+ * an empty "What changed" heading over nothing.
+ */
+export function appliedToShow(
+  justClosed: { applied: string[] } | null,
+  chronicle: { appliedKeys: string[] } | null,
+): string[] | undefined {
+  if (justClosed) return justClosed.applied;
+  return chronicle?.appliedKeys;
+}
+
 export const DECISION_METHOD_TIPS = METHOD_TIP;
 export const DECISION_WEIGHT_TIPS = WEIGHT_MODE_TIP;
 
@@ -345,7 +368,7 @@ export default function Decision() {
                    ballot's own id. The close response still wins where it
                    exists, because it is the act's own answer, including when
                    that answer is that nothing moved. */
-                applied={ballot.transfer ? undefined : (justClosed?.applied ?? chronicle?.appliedKeys)}
+                applied={ballot.transfer ? undefined : appliedToShow(justClosed, chronicle)}
                 held={ballot.transfer ? null : justClosed?.held}
                 /* ONE MOMENT PER PAGE. A power handover that carried plays its
                    own celebration inside TransferCeremony, on the crossing

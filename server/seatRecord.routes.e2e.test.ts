@@ -1,0 +1,493 @@
+/**
+ * THE RECORD AND THE SEAT, DRIVEN AGAINST THE BUILT SERVER.
+ *
+ * Four things this suite exists for, and every one of them was a fact the
+ * database already held that no surface and no test ever asked for.
+ *
+ *  1. THE TERM THE SEATING ROUTE NEVER WROTE. `seatHolder` has taken
+ *     `termEndsAt` and inserted the column since 0049, and
+ *     `POST /api/admin/org/roles/:id/holders`, which is the only route in the
+ *     tree that seats anybody, never passed it. So `term_ends_at` was NULL on
+ *     every seating on every deployment and FOUR readers were dark. This file
+ *     drives each of the four rather than asserting that they exist: the term
+ *     on the map payload, the seat's own lapse, the calendar's `seat-term`
+ *     entries, and the row `term-watch` reads. A test that only checked the
+ *     column would have passed against a fix that lit nothing up.
+ *
+ *  2. THE SEAT'S HISTORY IS FOR MEMBERS. `GET /api/org/roles/:id/history` sits
+ *     behind `map.viewPeople`, which unlocks at `guest`, so an ordinary
+ *     account with no admin password reads who has held a seat. That is the
+ *     harm metric, so it is driven with a member token and never the founder's.
+ *
+ *  3. WHAT A DECISION CHANGED, ON A COLD LOAD. The outcome card read `applied`
+ *     off the close response, so it knew what a decision changed only inside
+ *     the browser session that closed it. The read below happens in a session
+ *     that did not close the ballot, with a token that is not the closer's,
+ *     which is the case that was broken.
+ *
+ *  4. THE RECORD DOES NOT END AT A HUNDRED ROWS. The list route served a bare
+ *     `LIMIT 100` with no way to ask for row 101, so a village four years in
+ *     lost its founding decisions off the end of its own record, silently.
+ *
+ * Boots the BUILT `dist/index.js` against a throwaway schema, so run
+ * `pnpm build` first or you are testing stale code. Skips loudly without
+ * TEST_DATABASE_URL. The cases run IN ORDER.
+ */
+import fs from "fs";
+import os from "os";
+import path from "path";
+import mysql from "mysql2/promise";
+import { spawn, type ChildProcess } from "child_process";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+
+const DB_CONFIGURED = testDbConfigured();
+if (!DB_CONFIGURED) {
+  console.warn("[seatRecord.routes] TEST_DATABASE_URL not set - DB-backed tests SKIPPED.");
+}
+
+const DIST = path.resolve(process.cwd(), "dist/index.js");
+// Its own band: 15500-15899, clear of every other suite that boots a server.
+const PORT = 15500 + (process.pid % 400);
+const BASE = `http://localhost:${PORT}`;
+const ADMIN = "seat-record-admin";
+const PASSWORD = "SeatRecord123!";
+
+let child: ChildProcess | undefined;
+let testDb: TestDb | undefined;
+let dataDir = "";
+let pool: mysql.Pool;
+const logs: string[] = [];
+
+let founderToken = "";
+/** An ordinary account. No admin password, no stage bump, no role. */
+let memberToken = "";
+let memberId = "";
+let secondMemberId = "";
+
+interface Answer { status: number; json: any }
+
+async function call(
+  method: string,
+  route: string,
+  opts: { body?: unknown; token?: string | null } = {},
+): Promise<Answer> {
+  const token = opts.token === undefined ? founderToken : opts.token;
+  const res = await fetch(BASE + route, { // module-review-ok: the test client dialling the built server on localhost, as every e2e suite does
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+  });
+  return { status: res.status, json: await res.json().catch(() => null) };
+}
+
+const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const isoIn = (days: number): string => new Date(Date.now() + days * 86400000).toISOString();
+
+/** The column itself, read from the table the route writes. */
+async function termOnRow(assignmentId: string): Promise<Date | null> {
+  const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    "SELECT term_ends_at FROM org_role_assignments WHERE id = ?",
+    [assignmentId],
+  );
+  return rows[0]?.term_ends_at ?? null;
+}
+
+async function newestSeating(roleId: string): Promise<string> {
+  const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    "SELECT id FROM org_role_assignments WHERE org_role_id = ? ORDER BY started_at DESC, id DESC LIMIT 1",
+    [roleId],
+  );
+  return String(rows[0]?.id ?? "");
+}
+
+async function register(name: string, email: string): Promise<{ token: string; id: string }> {
+  const r = await call("POST", "/api/auth/register", {
+    body: { name, email, password: PASSWORD, paths: ["resident"] },
+    token: null,
+  });
+  expect(r.status, `${name} must register`).toBe(200);
+  return { token: String(r.json?.token ?? ""), id: String(r.json?.user?.id ?? "") };
+}
+
+beforeAll(async () => {
+  if (!DB_CONFIGURED) return;
+  if (!fs.existsSync(DIST)) {
+    throw new Error(`${DIST} is missing. Run \`pnpm build\` before the seat record test.`);
+  }
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-seat-record-"));
+  testDb = await provisionTestDb();
+  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the e2e harness against the scratch schema, as every e2e suite holds
+
+  child = spawn(process.execPath, [DIST], {
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      PORT: String(PORT),
+      DATA_DIR: dataDir,
+      DATABASE_URL: testDb.url,
+      ADMIN_PASSWORD: ADMIN,
+      AUTH_TOKEN_SECRET: "seat-record-secret",
+      RESEND_API_KEY: "",
+      ANTHROPIC_API_KEY: "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout?.on("data", (d) => logs.push(String(d)));
+  child.stderr?.on("data", (d) => logs.push(String(d)));
+
+  const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
+  for (;;) {
+    if (Date.now() > deadline) {
+      throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s. Output:\n${logs.join("")}`);
+    }
+    try {
+      const res = await fetch(`${BASE}/health`); // module-review-ok: the boot poll against the local test server
+      if (res.ok) break;
+    } catch { /* not up yet */ }
+    await settle(400);
+  }
+
+  const boot = await call("POST", "/api/admin/bootstrap", {
+    body: { password: ADMIN, email: `founder-${PORT}@example.test`, name: "Seat Founder" },
+    token: null,
+  });
+  const claim = decodeURIComponent(String(boot.json?.claimUrl ?? "").match(/token=([^&]+)/)?.[1] ?? "");
+  expect(claim, "bootstrap must return a claim link").toBeTruthy();
+  const setPw = await call("POST", "/api/auth/set-password", {
+    body: { token: claim, password: PASSWORD },
+    token: null,
+  });
+  founderToken = String(setPw.json?.token ?? "");
+  expect(founderToken, "founder must hold a session").toBeTruthy();
+
+  const member = await register("Wren Ash", `wren-${PORT}@example.test`);
+  memberToken = member.token;
+  memberId = member.id;
+  secondMemberId = (await register("Tomas Reed", `tomas-${PORT}@example.test`)).id;
+});
+
+afterAll(async () => {
+  child?.kill();
+  await pool?.end();
+  if (dataDir && fs.existsSync(dataDir)) fs.rmSync(dataDir, { recursive: true, force: true });
+  await testDb?.drop();
+});
+
+describe.skipIf(!DB_CONFIGURED)("the term a seating never carried", () => {
+  const PAST_SEAT = "record-water-keeper";
+  const SOON_SEAT = "record-hearth-keeper";
+  let pastSeating = "";
+  let soonSeating = "";
+
+  it("still seats somebody with no term, which is every seating that exists today", async () => {
+    expect((await call("POST", "/api/admin/org/roles", { body: { id: PAST_SEAT, name: "Water keeper", seats: 2 } })).status).toBe(200);
+    const seated = await call("POST", `/api/admin/org/roles/${PAST_SEAT}/holders`, {
+      body: { displayName: "Ada Brook", focus: "the spring line" },
+    });
+    expect(seated.status, JSON.stringify(seated.json)).toBe(200);
+    // The route's old behaviour, unbroken: leaving it out leaves it null.
+    expect(await termOnRow(await newestSeating(PAST_SEAT))).toBeNull();
+  });
+
+  it("refuses a date it cannot read, rather than writing a quiet null", async () => {
+    const bad = await call("POST", `/api/admin/org/roles/${PAST_SEAT}/holders`, {
+      body: { displayName: "Nobody", termEndsAt: "next Thursday-ish" },
+    });
+    expect(bad.status).toBe(400);
+    expect(String(bad.json?.error)).toContain("could not be read");
+    // And nothing was seated by the refusal.
+    const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT COUNT(*) AS n FROM org_role_assignments WHERE display_name = 'Nobody'",
+    );
+    expect(Number(rows[0]?.n)).toBe(0);
+  });
+
+  it("NOW WRITES THE TERM, which is the one line four dead features were waiting on", async () => {
+    const seated = await call("POST", `/api/admin/org/roles/${PAST_SEAT}/holders`, {
+      body: { userId: memberId, focus: "the well", termEndsAt: isoIn(-2) },
+    });
+    expect(seated.status, JSON.stringify(seated.json)).toBe(200);
+    pastSeating = await newestSeating(PAST_SEAT);
+    const stored = await termOnRow(pastSeating);
+    expect(stored, "term_ends_at is on the row").not.toBeNull();
+    expect(new Date(stored as Date).getTime()).toBeLessThan(Date.now());
+
+    expect((await call("POST", "/api/admin/org/roles", { body: { id: SOON_SEAT, name: "Hearth keeper", seats: 1 } })).status).toBe(200);
+    expect((await call("POST", `/api/admin/org/roles/${SOON_SEAT}/holders`, {
+      body: { userId: secondMemberId, focus: "the fire", termEndsAt: isoIn(9) },
+    })).status).toBe(200);
+    soonSeating = await newestSeating(SOON_SEAT);
+    expect(await termOnRow(soonSeating)).not.toBeNull();
+  });
+
+  it("FEATURE 1, the map's term: /api/org carries the date the amber arc is drawn from", async () => {
+    const org = await call("GET", "/api/org", { token: memberToken });
+    expect(org.status).toBe(200);
+    const soon = (org.json?.roles ?? []).find((r: any) => r.id === SOON_SEAT);
+    expect(soon, "the hearth seat is on the map").toBeTruthy();
+    // `termEnds` is the seat's earliest live term and is what TermArc reads.
+    // It was null on every seat of every village before this.
+    expect(soon.termEnds, "the seat carries its term").toBeTruthy();
+    const holder = (soon.holders ?? [])[0];
+    expect(holder?.termEndsAt, "the holder carries their own term").toBeTruthy();
+  });
+
+  it("FEATURE 2, the seat's own lapse: isLapsed's term branch reaches the map", async () => {
+    const org = await call("GET", "/api/org", { token: memberToken });
+    const past = (org.json?.roles ?? []).find((r: any) => r.id === PAST_SEAT);
+    const wren = (past?.holders ?? []).find((h: any) => h.userId === memberId);
+    expect(wren, "the member holds the water seat").toBeTruthy();
+    // The term branch of isLapsed, which no seating could ever reach before.
+    expect(wren.lapsed, "a term that reached its date reads as lapsed").toBe(true);
+    // And nothing was revoked to say it. The holder is still on the seat.
+    expect((past?.holders ?? []).some((h: any) => h.userId === memberId)).toBe(true);
+  });
+
+  it("FEATURE 3, the calendar: the seat-term source finally has something to put on a day", async () => {
+    const cal = await call("GET", "/api/calendar?days=60", { token: memberToken });
+    expect(cal.status, JSON.stringify(cal.json)).toBe(200);
+    const body = JSON.stringify(cal.json ?? {});
+    expect(body, "a term inside the window reaches the calendar").toContain("Hearth keeper");
+  });
+
+  it("FEATURE 4, term-watch's input: the expiring list reports the term, and says the reason is the term", async () => {
+    // The job itself runs on a 24h timer and notifies once per assignment per
+    // event, so what is driven here is the row it reads. `expiringSeatings`
+    // is term-watch's only input, and its term branch could not fire at all
+    // while every seating carried a null.
+    const expiring = await call("GET", "/api/admin/org/expiring?days=30");
+    expect(expiring.status).toBe(200);
+    const rows = expiring.json ?? [];
+    const past = rows.find((r: any) => r.assignmentId === pastSeating);
+    expect(past, "the passed term is on the list").toBeTruthy();
+    expect(past.reason, "and it is there because of its TERM, not a season turn").toBe("term");
+    expect(past.termEndsAt).toBeTruthy();
+    const soon = rows.find((r: any) => r.assignmentId === soonSeating);
+    expect(soon, "and so is the one still running").toBeTruthy();
+    expect(soon.daysLeft, "with the number term-watch words its notice with").toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("the seat's own succession, read by a member", () => {
+  const SEAT = "record-gate-keeper";
+  let firstSeating = "";
+
+  it("keeps every holding, ended ones included, and hands them to an ordinary account", async () => {
+    expect((await call("POST", "/api/admin/org/roles", { body: { id: SEAT, name: "Gate keeper", seats: 1 } })).status).toBe(200);
+    expect((await call("POST", `/api/admin/org/roles/${SEAT}/holders`, {
+      body: { displayName: "Ada Brook", focus: "the north gate" },
+    })).status).toBe(200);
+    firstSeating = await newestSeating(SEAT);
+
+    expect((await call("DELETE", `/api/admin/org/seatings/${firstSeating}`, {
+      body: { reason: "stepped down at the season turn" },
+    })).status).toBe(200);
+    expect((await call("POST", `/api/admin/org/roles/${SEAT}/holders`, {
+      body: { userId: memberId, focus: "the north gate" },
+    })).status).toBe(200);
+
+    // THE HARM METRIC. A member, with no admin password, reading who has held
+    // this seat and when it passed between them.
+    const history = await call("GET", `/api/org/roles/${SEAT}/history`, { token: memberToken });
+    expect(history.status, JSON.stringify(history.json)).toBe(200);
+    const rows = history.json ?? [];
+    expect(rows.length, "both holdings are on the record").toBe(2);
+
+    const ended = rows.find((r: any) => r.id === firstSeating);
+    expect(ended.name).toBe("Ada Brook");
+    expect(ended.focus, "the focus is a fact about the seat and survives").toBe("the north gate");
+    expect(ended.endedAt, "an ended holding is ended, never deleted").toBeTruthy();
+    expect(ended.endedReason).toContain("stepped down");
+
+    const live = rows.find((r: any) => r.id !== firstSeating);
+    expect(live.name).toBe("Wren");
+    expect(live.endedAt).toBeNull();
+    // An ended_at followed by a started_at is the handover the card renders.
+    expect(new Date(live.startedAt).getTime()).toBeGreaterThanOrEqual(new Date(ended.endedAt).getTime());
+  });
+
+  it("refuses a stranger, because an empty answer would read as an empty seat", async () => {
+    const anon = await call("GET", `/api/org/roles/${SEAT}/history`, { token: null });
+    expect(anon.status).toBe(401);
+    expect(anon.json?.error).toBe("auth_required");
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("what a decision changed, read cold by somebody who did not close it", () => {
+  let proposalId = "";
+  let firstBallot = "";
+  let secondBallot = "";
+
+  it("turns the governance module on and puts a real dial to a real vote", async () => {
+    expect((await call("PUT", "/api/admin/modules/governance/lifecycle", {
+      body: { lifecycle: "members", examples: false },
+    })).status).toBe(200);
+    // A quorum one voter can meet, so the vote carries and the dial applies.
+    expect((await call("PUT", "/api/admin/variables/governance.quorum_pct", { body: { value: "1" } })).status).toBe(200);
+    expect((await call("PUT", "/api/admin/variables/governance.unity_pct", { body: { value: "50" } })).status).toBe(200);
+
+    const made = await call("POST", "/api/game/mechanics/proposals", {
+      body: {
+        title: "Give a ballot a fortnight instead of a week",
+        rationale: "People are on the land most of the week and a seven day window asks them to answer between jobs.",
+        changes: [{ key: "governance.vote_days", to: "14" }],
+      },
+    });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    proposalId = String(made.json?.id ?? "");
+
+    const opened = await call("POST", `/api/governance/mechanics/${proposalId}/open-ballot`);
+    expect(opened.status, JSON.stringify(opened.json)).toBe(200);
+    firstBallot = String(opened.json?.ballot?.id ?? "");
+    expect(firstBallot).toBeTruthy();
+
+    // A first vote on a subject has no history, and the page shows no strip.
+    const fresh = await call("GET", `/api/governance/ballots/${firstBallot}`, { token: memberToken });
+    expect(fresh.json?.priorAttempts).toEqual([]);
+    expect(fresh.json?.appliedKeys).toEqual([]);
+  });
+
+  it("CARRIES, and the ledger keeps what it changed after the session that closed it is gone", async () => {
+    expect((await call("POST", `/api/governance/ballots/${firstBallot}/vote`, { body: { choice: "yes" } })).status).toBe(200);
+    const closed = await call("POST", `/api/governance/ballots/${firstBallot}/close`, {
+      body: { outcomeNote: "The village gave itself a fortnight to answer." },
+    });
+    expect(closed.status, JSON.stringify(closed.json)).toBe(200);
+    expect(closed.json?.outcome).toBe("passed");
+    // The close's own answer, which is what the card used to depend on.
+    expect(closed.json?.applied).toContain("governance.vote_days");
+
+    // THE COLD READ. A different token, a fresh request, nothing carried over
+    // from the session that closed it. This is where the card used to have
+    // nothing to say about the most interesting kind of decision there is.
+    const cold = await call("GET", `/api/governance/ballots/${firstBallot}`, { token: memberToken });
+    expect(cold.status).toBe(200);
+    expect(cold.json?.status).toBe("passed");
+    expect(cold.json?.appliedKeys, "the amendment ledger still knows").toContain("governance.vote_days");
+
+    // And a signed-out reader gets the same fact, because the record is the
+    // record. Read here rather than assumed: the route takes an optional
+    // viewer and a change to that would silence the whole strip.
+    const anon = await call("GET", `/api/governance/ballots/${firstBallot}`, { token: null });
+    expect(anon.json?.appliedKeys).toContain("governance.vote_days");
+  });
+
+  it("reports only what the LEDGER holds, never what the proposal asked for", async () => {
+    const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT config_key, proposal_ref FROM mechanics_changes WHERE source = 'governance'",
+    );
+    expect(rows.length).toBe(1);
+    expect(String(rows[0].config_key)).toBe("governance.vote_days");
+    expect(String(rows[0].proposal_ref)).toContain(`bal:${firstBallot}`);
+    // A ballot that decided nothing carries an empty list rather than a guess
+    // at what a proposal of that name might have contained.
+    const advisory = await call("POST", "/api/governance/advisory", {
+      body: { question: "Would we want a second work morning each moon?" },
+    });
+    expect(advisory.status, JSON.stringify(advisory.json)).toBe(200);
+    const advisoryId = String(advisory.json?.ballot?.id ?? "");
+    const read = await call("GET", `/api/governance/ballots/${advisoryId}`, { token: memberToken });
+    expect(read.json?.appliedKeys).toEqual([]);
+  });
+
+  it("THE VILLAGE HAS DECIDED THIS BEFORE: the second ballot on a subject carries the first", async () => {
+    // The proposal applied, so a second run needs its own subject. A fresh
+    // proposal on the same dial, taken to a vote twice, is the shape a member
+    // actually meets: a question the village comes back to.
+    const made = await call("POST", "/api/game/mechanics/proposals", {
+      body: {
+        title: "Back to ten days for a ballot",
+        rationale: "A fortnight turned out to be long enough that people forgot a vote was running at all.",
+        changes: [{ key: "governance.vote_days", to: "10" }],
+      },
+    });
+    expect(made.status).toBe(200);
+    const second = String(made.json?.id ?? "");
+
+    const first = await call("POST", `/api/governance/mechanics/${second}/open-ballot`);
+    expect(first.status, JSON.stringify(first.json)).toBe(200);
+    const firstId = String(first.json?.ballot?.id ?? "");
+    expect((await call("POST", `/api/governance/ballots/${firstId}/withdraw`, {
+      body: { reason: "Opened against the wrong number. Reopening with ten." },
+    })).status).toBe(200);
+
+    const again = await call("POST", `/api/governance/mechanics/${second}/open-ballot`);
+    expect(again.status, JSON.stringify(again.json)).toBe(200);
+    secondBallot = String(again.json?.ballot?.id ?? "");
+
+    const read = await call("GET", `/api/governance/ballots/${secondBallot}`, { token: memberToken });
+    expect(read.status).toBe(200);
+    const priors = read.json?.priorAttempts ?? [];
+    expect(priors.length, "the earlier attempt is on the record").toBe(1);
+    expect(priors[0].id).toBe(firstId);
+    expect(priors[0].status).toBe("withdrawn");
+    expect(String(priors[0].outcomeNote)).toContain("wrong number");
+    // And it never lists itself.
+    expect(priors.some((p: any) => p.id === secondBallot)).toBe(false);
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("a village does not lose its oldest decisions", () => {
+  const MADE = 105;
+
+  it("keeps every decision reachable past the hundredth row", async () => {
+    // 105 closed ballots straight into the table. The route's page size is a
+    // hundred, so this is the exact shape a village four years in has, and it
+    // is the shape under which its founding decisions used to be absent from
+    // its own record with nothing saying so.
+    const values: any[] = [];
+    const rows: string[] = [];
+    for (let i = 0; i < MADE; i += 1) {
+      const id = `bal-old-${String(i).padStart(3, "0")}`;
+      // Oldest first: index 0 is the founding decision, and it is the one the
+      // old route dropped.
+      const created = new Date(Date.UTC(2022, 0, 1) + i * 86400000);
+      rows.push("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+      values.push(
+        id, "archive", `arch-${i}`, `archive:arch-${i}`, `An old decision, number ${i}`,
+        "The document this village voted on.", "majority", "equal", "50.00", "20.00",
+        "10.0000", 10, "seed", created, created, "passed",
+        `The village settled this on day ${i}.`, created, created,
+      );
+    }
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO ballots (id, subject_type, subject_ref, open_key, title, doc_markdown, method, " +
+        "weight_mode, unity_pct, quorum_pct, total_weight, electorate_count, opened_by, opens_at, " +
+        "closes_at, status, outcome_note, closed_at, created_at) VALUES " + rows.join(","),
+      values,
+    );
+
+    const first = await call("GET", "/api/governance/ballots?limit=100", { token: memberToken });
+    expect(first.status).toBe(200);
+    expect(first.json.length).toBe(100);
+    const firstIds = new Set(first.json.map((b: any) => b.id));
+    // The founding decision is NOT on page one. That is the whole bug: before
+    // this it was nowhere at all.
+    expect(firstIds.has("bal-old-000")).toBe(false);
+
+    const rest = await call("GET", "/api/governance/ballots?limit=100&offset=100", { token: memberToken });
+    expect(rest.status).toBe(200);
+    expect(rest.json.length).toBeGreaterThan(0);
+    const everything = new Set([...firstIds, ...rest.json.map((b: any) => b.id)]);
+    for (let i = 0; i < MADE; i += 1) {
+      const id = `bal-old-${String(i).padStart(3, "0")}`;
+      expect(everything.has(id), `${id} fell off the end of the record`).toBe(true);
+    }
+    // And the oldest one still carries the sentence it closed with, which is
+    // the thing a member came back for.
+    const founding = rest.json.find((b: any) => b.id === "bal-old-000");
+    expect(String(founding.outcomeNote)).toContain("day 0");
+    expect(founding.closedAt, "and the year the chronicle groups it under").toBeTruthy();
+  });
+
+  it("asking for nothing still answers with the same hundred it always did", async () => {
+    const plain = await call("GET", "/api/governance/ballots", { token: memberToken });
+    expect(plain.status).toBe(200);
+    expect(plain.json.length).toBe(100);
+  });
+});
