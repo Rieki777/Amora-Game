@@ -106,7 +106,7 @@ describe.skipIf(!configured)("objection lineage (MySQL)", () => {
     await db?.drop();
   });
 
-  it("0102 applied: ballot_objections carries a nullable led_to_ballot_id", async () => {
+  it("0102 applied: the objections table carries a nullable led_to_ballot_id", async () => {
     const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL reading the scratch schema's own shape
       "SELECT COLUMN_NAME, IS_NULLABLE, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS " +
         "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ballot_objections' AND COLUMN_NAME = 'led_to_ballot_id'",

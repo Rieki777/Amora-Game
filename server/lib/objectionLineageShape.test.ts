@@ -65,17 +65,18 @@ const stripComments = (src: string) =>
   src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 
 /**
- * Every `.query(...)` call in a file, taken whole by balancing parentheses.
+ * Every `.query(...)` call in a file, as a span, taken whole by balancing
+ * parentheses.
  *
  * The type argument has to be stepped over, and it is the whole reason the
  * first draft of this reader was wrong: most of the calls in this codebase are
  * `pool.query<RowDataPacket[]>(...)`, so a reader looking for the literal
- * `.query(` found two of the six queries in ballots.ts and reported a clean
- * scan of everything it had failed to open. The unplaced-mentions test above
- * is what caught it, which is the only reason it is safe to trust this now.
+ * `.query(` opened two of the six queries in ballots.ts and reported a clean
+ * scan of the four it never read. The unplaced-mentions test below is what
+ * caught it, which is the only reason it is safe to trust this now.
  */
-function queryCalls(src: string): string[] {
-  const out: string[] = [];
+function queryCalls(src: string): Array<{ start: number; end: number; text: string }> {
+  const out: Array<{ start: number; end: number; text: string }> = [];
   const marker = ".query";
   let at = src.indexOf(marker);
   while (at !== -1) {
@@ -107,7 +108,7 @@ function queryCalls(src: string): string[] {
         if (depth === 0) break;
       }
     }
-    out.push(src.slice(at, i + 1));
+    out.push({ start: at, end: i + 1, text: src.slice(at, i + 1) });
     at = src.indexOf(marker, i + 1);
   }
   return out;
@@ -118,18 +119,45 @@ const clientFiles = walk(path.join(ROOT, "client", "src"), /\.tsx?$/);
 
 /** Every query in server/** that touches the objections table, with its file. */
 const objectionQueries: Array<{ file: string; sql: string }> = [];
-/** Mentions of the table this scan could not place inside a query call. */
-const unplaced: Array<{ file: string; count: number }> = [];
+/**
+ * Every mention of the table this scan could not place inside a query call.
+ *
+ * THE RULE IS STRICT ON PURPOSE, AND IT COST SOMETHING TO KEEP IT THAT WAY.
+ * Its first full-suite run failed on a test NAME in objectionLineage.test.ts
+ * that happened to contain the table's name: prose, in a string literal,
+ * which can never be a query. The loose fix was to require SQL-looking words
+ * near the mention before counting it. That was tried and it is worse: the
+ * nearest query in that file sits about a hundred characters away, so the
+ * window either swallowed it or had to be tuned until it did not, and a
+ * tuned window is a number nobody can defend later.
+ *
+ * So the rule stays: in `server/**`, name this table in a COMMENT or inside a
+ * query, and nowhere else. It is a small thing to ask, the failure below says
+ * exactly where and what, and it buys the one property that makes the rest of
+ * this file worth anything, which is that a query the reader fails to open
+ * can never pass as a clean scan. That is not hypothetical. The reader missed
+ * four queries in ballots.ts on its first draft and this is what caught it.
+ */
+const unplaced: Array<{ file: string; near: string }> = [];
 
 for (const full of serverFiles) {
   if (rel(full) === SELF) continue;
   const clean = stripComments(readFileSync(full, "utf8"));
   if (!clean.includes(TABLE)) continue;
-  const calls = queryCalls(clean).filter((c) => c.includes(TABLE));
-  for (const sql of calls) objectionQueries.push({ file: rel(full), sql });
-  const inCalls = calls.join("\n").split(TABLE).length - 1;
-  const inFile = clean.split(TABLE).length - 1;
-  if (inFile > inCalls) unplaced.push({ file: rel(full), count: inFile - inCalls });
+  const calls = queryCalls(clean);
+  for (const call of calls) {
+    if (call.text.includes(TABLE)) objectionQueries.push({ file: rel(full), sql: call.text });
+  }
+  let at = clean.indexOf(TABLE);
+  while (at !== -1) {
+    if (!calls.some((c) => at >= c.start && at < c.end)) {
+      unplaced.push({
+        file: rel(full),
+        near: clean.slice(Math.max(0, at - 90), at + 90).replace(/\s+/g, " "),
+      });
+    }
+    at = clean.indexOf(TABLE, at + TABLE.length);
+  }
 }
 
 describe("the scan can see what it claims to police", () => {
