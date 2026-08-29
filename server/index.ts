@@ -1019,6 +1019,34 @@ const DEFAULT_SETTINGS = {
     currency: "$",
     note: "Village Dues cover utilities, maintenance, and community services. Contributions are recognised in Gratitude, and the value tokens the community pool distributes across Gratitude can help offset dues.",
   },
+  /*
+   * THE LAND AND MONEY FIGURES, and why every one of them ships blank.
+   *
+   * The investor page and the master plan used to state four things as module
+   * constants: a land appreciation percentage, an appraisal with its month, a
+   * projected internal rate of return, and a target raise. A fork inherited all
+   * four and published them about its own land, on day one, with no screen
+   * anywhere that could change them. That is a financial representation a fork
+   * cannot stand behind, and a misstatement of the real figures at the same
+   * time.
+   *
+   * Same rule as villageDues directly above, which is already the pattern here:
+   * blank means the site shows nothing rather than a figure somebody else
+   * earned. Each `value` is free text so a village can write "$16M+" or
+   * "1.2M EUR" or "under valuation", and each `note` is the small line under it
+   * that carries the date, the basis or the place.
+   *
+   * Anything a village types here is its own claim about its own land.
+   */
+  landFacts: {
+    acres: { value: "", note: "" },
+    appraisal: { value: "", note: "" },
+    appreciation: { value: "", note: "" },
+    projectedReturn: { value: "", note: "" },
+    targetRaise: { value: "", note: "" },
+    plannedHomes: { value: "", note: "" },
+    guestRooms: { value: "", note: "" },
+  },
 };
 
 const DEFAULT_TRAINING_MODULES = [
@@ -7168,8 +7196,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * This route is unauthenticated and has no module gate, and the `roles`
    * section is the CARD-SHAPED org chart that 0049 replaced with rows. The
    * cards kept their `holders` array and `holderNote`, so this endpoint has
-   * been answering anonymous callers with "Via", "Jessica", "Ky (interim)" and
-   * notes like "Away and inactive" for as long as the section has existed.
+   * been answering anonymous callers with real first names, some of them
+   * qualified with "(interim)", and notes about a person's availability for as
+   * long as the section has existed.
    * `/api/org` tiers exactly those fields behind `map.viewPeople`; this was the
    * side door.
    *

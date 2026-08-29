@@ -4,7 +4,7 @@
       {
         "id": "inv-1",
         "question": "What is the legal structure?",
-        "answer": "Amora uses a Horizontal Condominium under Costa Rican law, combined with a 508(c)(1)(a) community organization. Individual lot ownership with shared commons management."
+        "answer": "Individual ownership of a home site, with the commons held and managed together. The exact legal form depends on where the village sits, so write yours here."
       },
       {
         "id": "inv-2",
@@ -24,7 +24,7 @@
       {
         "id": "inv-5",
         "question": "What if the project doesn't complete?",
-        "answer": "Investors hold debt secured against the land. In the unlikely event of project failure, debt holders have first claim on the 266-acre property which was appraised at $16M+ in January 2026."
+        "answer": "Investors hold debt secured against the land. If the project fails, debt holders have first claim on the property. Put your own acreage and your own appraisal here once you have them."
       },
       {
         "id": "inv-6",
@@ -68,7 +68,7 @@
       {
         "id": "res-1",
         "question": "What internet is available?",
-        "answer": "Dominicalito has reliable fiber internet. The village will have dedicated high-speed connection for residents and home offices."
+        "answer": "Say what connection the land has today and what the village plans for residents and home offices."
       },
       {
         "id": "res-2",
@@ -103,20 +103,20 @@
     {
       "id": "land-acquired",
       "phase": "Phase 0",
-      "title": "Land Acquired",
-      "description": "266 acres in Dominicalito, Costa Rica secured.",
-      "status": "complete",
-      "completedDate": "2024-06",
+      "title": "Land Secured",
+      "description": "The land this village will grow on is secured. Say how much and where.",
+      "status": "upcoming",
+      "completedDate": null,
       "updateNote": "",
       "order": 1
     },
     {
-      "id": "appraisal-2026",
+      "id": "land-valued",
       "phase": "Phase 0",
-      "title": "January 2026 Appraisal",
-      "description": "Independent appraisal values property at $16M+.",
-      "status": "complete",
-      "completedDate": "2026-01",
+      "title": "Land Valued",
+      "description": "An independent appraisal of the property. Put your own figure and date here.",
+      "status": "upcoming",
+      "completedDate": null,
       "updateNote": "",
       "order": 2
     },
@@ -124,10 +124,10 @@
       "id": "founding-team",
       "phase": "Phase 1",
       "title": "Founding Team Assembled",
-      "description": "Core co-creators circle forming and active.",
-      "status": "in-progress",
+      "description": "The founding circle is formed and meeting.",
+      "status": "upcoming",
       "completedDate": null,
-      "updateNote": "Core circle forming, still welcoming co-creators.",
+      "updateNote": "",
       "order": 3
     },
     {
@@ -135,16 +135,16 @@
       "phase": "Phase 1",
       "title": "Site Planning & Design",
       "description": "Master plan, infrastructure layout, and first home designs.",
-      "status": "in-progress",
+      "status": "upcoming",
       "completedDate": null,
-      "updateNote": "Master plan review underway.",
+      "updateNote": "",
       "order": 4
     },
     {
       "id": "retreat-center",
       "phase": "Phase 2",
       "title": "Retreat Center",
-      "description": "120-150 key eco-resort and retreat facility.",
+      "description": "A place for guests to stay. Say how many rooms once you know.",
       "status": "upcoming",
       "completedDate": null,
       "updateNote": "",
@@ -153,8 +153,8 @@
     {
       "id": "show-homes",
       "phase": "Phase 2",
-      "title": "First 10 Show Homes",
-      "description": "First residential structures built and move-in ready.",
+      "title": "First Homes",
+      "description": "The first residential structures, built and ready to move into.",
       "status": "upcoming",
       "completedDate": null,
       "updateNote": "",
@@ -173,8 +173,8 @@
     {
       "id": "full-village",
       "phase": "Phase 4",
-      "title": "Full Village (150+ homes)",
-      "description": "Complete residential buildout with all shared infrastructure.",
+      "title": "Full Village",
+      "description": "The whole build finished, with the shared infrastructure in place.",
       "status": "future",
       "completedDate": null,
       "updateNote": "",
@@ -199,9 +199,9 @@
         "id": "land-tour",
         "title": "Land Tour Visit",
         "duration": "1-3 days",
-        "format": "In Person, Dominicalito CR",
+        "format": "In Person",
         "cost": "Details TBD",
-        "description": "Walk the 266 acres with a founding team member. See the infrastructure underway. Stay nearby or camp on the land. Meals with the community included.",
+        "description": "Walk the land with a founding team member. See the infrastructure underway. Stay nearby or camp on the land. Meals with the community included.",
         "cta_label": "Request a Visit",
         "cta_url": "",
         "order": 2
@@ -210,7 +210,7 @@
         "id": "immersion",
         "title": "Village Weaving Immersion",
         "duration": "2-4 weeks",
-        "format": "In Person, Dominicalito CR",
+        "format": "In Person",
         "cost": "Details TBD",
         "description": "Live and work alongside the founding community. Shadow circle meetings, contribute to active projects, and discover where your gifts are most needed. This is the deepest way to know before you commit.",
         "cta_label": "Apply for Immersion",
@@ -219,9 +219,9 @@
       }
     ],
     "logistics": {
-      "getting_there": "Dominicalito is on Costa Rica's Pacific coast. Nearest airport: Quepos (45 min) or San Jose (3.5 hours). Charter flights available to Quepos from the US west coast.",
+      "getting_there": "Say where the land is, which airport people fly into, and how long the drive takes.",
       "accommodation": "Accommodation details will be provided when you book. Options range from nearby guesthouses to on-land camping.",
-      "what_to_bring": "Comfortable outdoor clothes, sun protection, rain gear. The dry season runs December to April; green season May to November brings afternoon rain.",
+      "what_to_bring": "Comfortable outdoor clothes, sun protection, rain gear. Add what your own seasons ask for.",
       "contact_note": "Ready to visit? Fill in the form below or email the team directly."
     }
   },
@@ -245,16 +245,16 @@
       },
       {
         "id": "projected-irr",
-        "label": "Projected IRR",
-        "value": "19.6%",
-        "note": "15-year model based on phased development. Past performance and projections are not guarantees of future results.",
+        "label": "Projected Return",
+        "value": "To be confirmed",
+        "note": "Put your own model's figure here. Past performance and projections are not guarantees of future results.",
         "icon": "trending-up"
       },
       {
         "id": "interest-rate",
         "label": "Interest Rate",
         "value": "To be confirmed",
-        "note": "Exploring a 1% regenerative development loan. Rates for early investors will be detailed in the Investor Pack.",
+        "note": "Rates for early investors will be detailed in the Investor Pack.",
         "icon": "percent"
       },
       {

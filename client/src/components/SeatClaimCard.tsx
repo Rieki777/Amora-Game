@@ -1,5 +1,5 @@
 /**
- * "Jessica holds Visionary Lead. Is this you?"
+ * "Somebody by your name holds Visionary Lead. Is this you?"
  *
  * The org chart arrived carrying holders as free-text NAME STRINGS, because
  * that is all the document it replaced could hold. Twenty-five seats and a

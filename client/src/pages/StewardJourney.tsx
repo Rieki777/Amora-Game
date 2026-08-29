@@ -21,7 +21,6 @@ import {
   ExternalLink
 } from "lucide-react";
 
-const STEWARD_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/Planting-Trees.jpg";
 
 const journeySteps = [
   {
@@ -187,7 +186,7 @@ export default function StewardJourney() {
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <motion.img
-            src={brand.stewardHero || STEWARD_IMAGE}
+            src={brand.stewardHero}
             alt={altOr(brand.stewardHeroAlt, "Stewards meeting in a circle")}
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}

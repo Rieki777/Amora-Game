@@ -139,6 +139,70 @@ export function useBrandImages(): BrandImages {
   return images;
 }
 
+/**
+ * A figure this village has stated about its own land or its own offer.
+ *
+ * `value` empty means the village has not stated it, and a page that has
+ * nothing to state says nothing rather than showing a figure. That is the
+ * whole point of the type: these numbers used to be module constants, so a
+ * fork published one specific project's appraisal and projected return as its
+ * own the first time anybody opened /investor.
+ */
+export interface LandFact {
+  value?: string;
+  note?: string;
+}
+
+export interface VillageSettings {
+  villageDues?: { amount?: string; period?: string; currency?: string; note?: string };
+  landFacts?: Record<string, LandFact>;
+}
+
+let _settingsCache: Promise<VillageSettings | null> | null = null;
+export function fetchSettingsCached(): Promise<VillageSettings | null> {
+  if (!_settingsCache) {
+    _settingsCache = fetch("/api/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+  }
+  return _settingsCache;
+}
+
+/**
+ * The village's own figures, null until loaded.
+ *
+ * Callers must treat null as "not loaded yet" and an empty `value` as "this
+ * village has not said", and must render neither as a number. `statedFacts`
+ * below does that filtering once so no page has to remember to.
+ */
+export function useVillageSettings(): VillageSettings | null {
+  const [settings, setSettings] = useState<VillageSettings | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchSettingsCached().then((s) => { if (alive && s) setSettings(s); });
+    return () => { alive = false; };
+  }, []);
+  return settings;
+}
+
+/**
+ * Keep only the figures this village actually stated, in the order asked for.
+ *
+ * A page passes the keys it can draw and gets back the ones that have a value.
+ * An unstated figure is dropped rather than rendered blank or defaulted, so a
+ * tile row shrinks to what is true instead of showing an empty box or, worse,
+ * somebody else's number.
+ */
+export function statedFacts<T extends { key: string }>(
+  settings: VillageSettings | null,
+  wanted: T[],
+): Array<T & { value: string; note: string }> {
+  const facts = settings?.landFacts ?? {};
+  return wanted
+    .map((w) => ({ ...w, value: String(facts[w.key]?.value ?? "").trim(), note: String(facts[w.key]?.note ?? "").trim() }))
+    .filter((w) => w.value.length > 0);
+}
+
 /** The one source every season-driven surface reads, so a banner, a page header
  *  and the pulse can never disagree about what season it is. */
 let _seasonCache: Promise<SeasonState | null> | null = null;

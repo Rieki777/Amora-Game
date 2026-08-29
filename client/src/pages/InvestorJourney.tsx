@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { altOr, useBrandImages } from "@/lib/gameApi";
+import { altOr, statedFacts, useBrandImages, useVillageSettings } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import InvestorSummary from "@/components/InvestorSummary";
@@ -35,7 +35,6 @@ import {
 } from "@/components/ui/dialog";
 
 // New investor-focused image showing sustainable luxury development
-const INVESTOR_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/Shared-Governance-1024x683.jpg";
 
 const journeySteps = [
   {
@@ -111,39 +110,27 @@ const developmentPhases = [
   { phase: "Residential Lots", units: "150+ lots", status: "Future", progress: 5 },
 ];
 
-const financialMetrics = [
-  {
-    title: "Land Value",
-    value: "+113%",
-    subtext: "in 16 months",
-    detail: "266 acres in Dominicalito, Costa Rica",
-    icon: TrendingUp,
-    color: "bg-teal-deep/10 text-teal-deep"
-  },
-  {
-    title: "Appraisal",
-    value: "$16M+",
-    subtext: "January 2026",
-    detail: "Current property valuation",
-    icon: Building,
-    color: "bg-gold/10 text-gold"
-  },
-  {
-    title: "Projected IRR",
-    value: "19.6%",
-    subtext: "15-year model",
-    detail: "Based on phased development",
-    icon: BarChart3,
-    color: "bg-coral/10 text-coral"
-  },
-  {
-    title: "Target Raise",
-    value: "$5M",
-    subtext: "Phase 1",
-    detail: "Infrastructure & retreat center",
-    icon: Zap,
-    color: "bg-sage/10 text-sage"
-  }
+/*
+ * KEY NUMBERS ARE THE VILLAGE'S OWN, OR THERE ARE NONE.
+ *
+ * These four tiles used to be literals in this file: a land appreciation
+ * percentage, an appraisal with its month, a projected internal rate of return,
+ * and a target raise, all about one specific property in one specific country.
+ * Any village that pulled this platform published every one of them as its own
+ * the first time somebody opened this page, and no screen anywhere could change
+ * them.
+ *
+ * What stays here is the SHAPE of the tile: its heading, its icon, its colour,
+ * and the sentence explaining what the figure means. What a figure IS comes
+ * from the village, through Admin, Settings. A village that has stated none of
+ * them gets the honest sentence below rather than an empty grid, and never a
+ * default: a number nobody typed is a claim nobody made.
+ */
+const metricShapes = [
+  { key: "appreciation", title: "Land Value", detail: "Change in the value of this village's land.", icon: TrendingUp, color: "bg-teal-deep/10 text-teal-deep" },
+  { key: "appraisal", title: "Appraisal", detail: "Current property valuation.", icon: Building, color: "bg-gold/10 text-gold" },
+  { key: "projectedReturn", title: "Projected Return", detail: "Based on phased development.", icon: BarChart3, color: "bg-coral/10 text-coral" },
+  { key: "targetRaise", title: "Target Raise", detail: "What this phase is raising.", icon: Zap, color: "bg-sage/10 text-sage" },
 ];
 
 const buyerPersonas = [
@@ -188,6 +175,8 @@ const buyerPersonas = [
 
 export default function InvestorJourney() {
   const brand = useBrandImages();
+  const settings = useVillageSettings();
+  const financialMetrics = statedFacts(settings, metricShapes);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("discover");
   const [showPackForm, setShowPackForm] = useState(false);
@@ -277,7 +266,7 @@ export default function InvestorJourney() {
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <motion.img
-            src={brand.investorHero || INVESTOR_IMAGE}
+            src={brand.investorHero}
             alt={altOr(brand.investorHeroAlt, "The land and the buildings on it")}
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}
@@ -366,13 +355,18 @@ export default function InvestorJourney() {
               Key Numbers
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-6">
-              Strong fundamentals: documented land appreciation and a full 15-year financial model.
+              {financialMetrics.length
+                ? "The figures this village has stated about its own land and its own raise."
+                : "This village has not published any figures yet."}
             </p>
-            <p className="text-xs text-muted-foreground italic max-w-2xl mx-auto">
-              Past performance and projections are not guarantees of future results.
-            </p>
+            {financialMetrics.length ? (
+              <p className="text-xs text-muted-foreground italic max-w-2xl mx-auto">
+                Past performance and projections are not guarantees of future results.
+              </p>
+            ) : null}
           </motion.div>
 
+          {financialMetrics.length ? (
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             {financialMetrics.map((metric, index) => (
               <motion.div
@@ -395,7 +389,7 @@ export default function InvestorJourney() {
                     {metric.value}
                   </div>
                   <div className="text-xs text-muted-foreground font-medium mt-1">
-                    {metric.subtext}
+                    {metric.note}
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
@@ -404,6 +398,14 @@ export default function InvestorJourney() {
               </motion.div>
             ))}
           </div>
+          ) : (
+            /* R56: state what is true and get out of the way. A village with no
+               figures yet is early, and saying so beats an empty grid. */
+            <p className="text-center text-muted-foreground max-w-xl mx-auto">
+              Land value, appraisal, projected return and the raise appear here once the
+              village fills them in under Admin, Settings.
+            </p>
+          )}
         </div>
       </section>
 

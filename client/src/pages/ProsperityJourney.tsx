@@ -25,7 +25,6 @@ import {
   Users
 } from "lucide-react";
 
-const PROSPERITY_IMAGE = "https://amora.cr/wp-content/uploads/2026/02/Holistic-Wellbeing-1024x1024.jpg";
 
 const journeySteps = [
   {
@@ -176,7 +175,7 @@ export default function ProsperityJourney() {
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <motion.img
-            src={brand.prosperityHero || PROSPERITY_IMAGE}
+            src={brand.prosperityHero}
             alt={altOr(brand.prosperityHeroAlt, "People at work on a village business")}
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}

@@ -29,7 +29,6 @@ import {
   Flame
 } from "lucide-react";
 
-const RESIDENT_IMAGE = "https://amora.cr/wp-content/uploads/2026/02/Land-Tour-3-1024x724.jpg";
 
 const journeySteps = [
   {
@@ -240,7 +239,7 @@ export default function ResidentJourney() {
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <motion.img
-            src={brand.residentHero || RESIDENT_IMAGE}
+            src={brand.residentHero}
             alt={altOr(brand.residentHeroAlt, "A home in the village")}
             className="w-full h-full object-cover"
             initial={{ scale: 1.1 }}

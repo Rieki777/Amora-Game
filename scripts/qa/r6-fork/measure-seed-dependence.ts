@@ -7,7 +7,7 @@
  * Two runs against ONE schema, so run B is literally the state run A left:
  *
  *   A  empty schema  -> boot -> read the signed-out surfaces. This is the fork.
- *   B  same schema, THE SEED FILES MOVED ASIDE -> boot again -> read the same
+ *   B  same schema, ALL THREE ORG SEED FILES MOVED ASIDE -> boot again -> read the same
  *      surfaces. This is a village that was seeded once and has since been
  *      running, which is exactly Amora. If B still serves the chart, live does
  *      not depend on the files and they are example content.
@@ -24,7 +24,15 @@ const DIST = path.resolve(process.cwd(), "dist/index.js");
 const PORT = 6710;
 const BASE = `http://localhost:${PORT}`;
 const SEEDS = path.resolve(process.cwd(), "server/seeds");
-const MOVED = ["org-chart-2026-08.json", "org-chart-corrections-2026-08.json"];
+/*
+ * The seed files whose absence run B tests. `org-chart-2026-08.json` and
+ * `org-chart-corrections-2026-08.json` were removed from the repository by the
+ * fix this script measured for, so the list tolerates a file that is not
+ * there: the question it answers is "does a configured village still serve its
+ * chart when these are gone", and a deleted file is that question's strongest
+ * form rather than a reason to fail.
+ */
+const MOVED = ["org-chart-2026-08.json", "org-chart-corrections-2026-08.json", "content-seed.json"];
 
 async function boot(url: string, dataDir: string): Promise<{ child: ChildProcess; logs: string[] }> {
   const logs: string[] = [];
@@ -98,7 +106,10 @@ async function main() {
     await new Promise((r) => setTimeout(r, 1500));
 
     // ── B: the configured village. Same schema, seed files gone. ──
-    for (const f of MOVED) fs.renameSync(path.join(SEEDS, f), path.join(SEEDS, f + ".moved"));
+    for (const f of MOVED) {
+      const at = path.join(SEEDS, f);
+      if (fs.existsSync(at)) fs.renameSync(at, at + ".moved");
+    }
     try {
       ({ child } = await boot(db.url, dataDir));
       results.push(await readSurfaces("B_same_schema_seed_files_absent"));
