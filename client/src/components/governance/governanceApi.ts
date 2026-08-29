@@ -39,6 +39,32 @@ export interface BallotObjection {
   createdAt: string;
 }
 
+/**
+ * WHERE AN OBJECTION LED (0102).
+ *
+ * An objection that changed a proposal should say so on its own page. This is
+ * the forward edge that says it: the vote the amended version ran as, named by
+ * the proposer when they opened it.
+ *
+ * It is fetched beside the ballot instead of arriving inside it. The column is
+ * NULL on nearly every objection that will ever exist, because objections are
+ * consent-only and "this village's own dials" is the default method, so almost
+ * every decision page would carry an empty field. And the facts here belong to
+ * a DIFFERENT ballot, which is a second read either way.
+ *
+ * NOTHING IN THIS SHAPE NAMES A PERSON, and nothing may be added that does.
+ * Lineage sits on the artifact. A count of objections per member is the
+ * scoreboard this whole idea was reframed to avoid.
+ */
+export interface ObjectionLineage {
+  objectionId: string;
+  /** The vote the amended proposal ran as. */
+  ballotId: string;
+  title: string;
+  status: string;
+  closedAt: string | null;
+}
+
 export interface Ballot {
   id: string;
   subjectType: string;
@@ -306,6 +332,32 @@ export const fetchBallots = (page?: { limit?: number; offset?: number }) => {
 export const fetchBallot = (id: string) =>
   call<DecisionRecord>(`/api/governance/ballots/${encodeURIComponent(id)}`);
 export const fetchStanding = () => call<Standing>("/api/governance/standing");
+
+/**
+ * Lineage for the objections a panel is already holding, asked for by their
+ * own ids. Objections with no successor come back absent, which is what is
+ * true about them.
+ *
+ * ASKED IN BATCHES BECAUSE THE ROUTE CAPS ITS BATCH, and a village can reach
+ * that cap. A `no` vote in consent mode files an objection on its own, so a
+ * village of sixty where fifty-five vote no has fifty-five objections on one
+ * decision. Sending all of them and taking the first fifty back would leave
+ * the tail of that page quietly missing a sentence the record holds, and a
+ * page that goes quiet at scale is the kind of gap nobody finds.
+ */
+const LINEAGE_BATCH = 50;
+export async function fetchObjectionLineage(objectionIds: string[]): Promise<Answer<ObjectionLineage[]>> {
+  const rows: ObjectionLineage[] = [];
+  for (let at = 0; at < objectionIds.length; at += LINEAGE_BATCH) {
+    const batch = objectionIds.slice(at, at + LINEAGE_BATCH);
+    const answer = await call<ObjectionLineage[]>(
+      `/api/governance/objections/lineage?ids=${encodeURIComponent(batch.join(","))}`,
+    );
+    if (!answer.ok) return answer;
+    rows.push(...answer.data);
+  }
+  return { ok: true, data: rows };
+}
 export const fetchWizardFacts = () => call<WizardFacts>("/api/governance/wizard");
 
 export const castVote = (id: string, choice: VoteChoice, reason?: string) =>
