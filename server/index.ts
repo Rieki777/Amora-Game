@@ -19989,6 +19989,17 @@ ${inner}
 
   function vaultLinkProblem(value: unknown): string | null {
     if (value == null) return null;
+    // A list of links is checked link by link. My own first draft called
+    // String() on the whole array, so ["/somewhere", "/api/uploads/cap-table"]
+    // read as one string starting with "/somewhere" and sailed through, which
+    // is the shape a guard that only ever saw the happy input would keep.
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const problem = vaultLinkProblem(item);
+        if (problem) return problem;
+      }
+      return null;
+    }
     const raw = String(value).trim();
     if (!raw || !UPLOADS_PATH.test(linkPath(raw))) return null;
     return (

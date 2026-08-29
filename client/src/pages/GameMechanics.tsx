@@ -705,15 +705,21 @@ export default function GameMechanics() {
       `/api/governance/mechanics/${p.id}/open-ballot`,
       answers ? { answersObjectionId: answers } : undefined,
     );
+    /*
+     * ASK THE RECORD AGAIN EITHER WAY. Self-audit after this was green: the
+     * refresh sat inside the success branch, so the one case that most needs
+     * it kept a stale list. A proposer who names an objection somebody else's
+     * proposal claimed first meets "already points at", and the picker would
+     * then still be offering the objection that refusal is about, so trying
+     * again gets the same answer. The list is the server's to state.
+     */
+    loadAnswerable();
     if (d) {
       setAnswersFor((s) => {
         const next = { ...s };
         delete next[p.id];
         return next;
       });
-      // The objection just took its one successor, so it is no longer on offer
-      // to anybody else. Ask again instead of guessing what the record says.
-      loadAnswerable();
       setFeedback({
         ok: true,
         text: answers

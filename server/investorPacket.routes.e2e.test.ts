@@ -293,6 +293,20 @@ describe.skipIf(!DB_CONFIGURED)("a vault link cannot be published as a call to a
     expect(res.status, res.text).toBe(400);
   });
 
+  it("checks a list of links link by link, which my first draft did not", async () => {
+    // Self-audit after everything was green. The walk called String() on the
+    // whole value, so an array whose FIRST entry is innocent read as one
+    // string beginning with that entry and passed. A guard that only ever
+    // meets the input the current form sends is a guard for the current form.
+    const url = await vaultUrl();
+    const before = await call("GET", "/api/admin/investor-summary");
+    const res = await call("PUT", "/api/admin/investor-summary", {
+      ...before.json,
+      cta_url: ["https://example.org/talk-to-us", url],
+    });
+    expect(res.status, res.text).toBe(400);
+  });
+
   it("still takes an ordinary call to action, so this is a validation and not a gate", async () => {
     const before = await call("GET", "/api/admin/investor-summary");
     const res = await call("PUT", "/api/admin/investor-summary", {
