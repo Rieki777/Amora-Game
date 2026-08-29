@@ -1,0 +1,32 @@
+[
+  {
+    "inv": 3,
+    "attack": "call the manual mint route as an ordinary member",
+    "outcome": "HELD",
+    "detail": "POST /api/admin/tokens/gratitude/mint with a member token -> 401 {\"error\":\"auth_required\"}"
+  },
+  {
+    "inv": 1,
+    "attack": "a lone admin mints tokens to their OWN account",
+    "outcome": "BROKE",
+    "detail": "POST /api/admin/tokens/gratitude/mint {toUserId: <the caller's own id>, amount: 25} returned 200 and moved the caller's own gratitude ledger 20 -> 45. No second signature was asked for, and the route does not compare toUserId with the acting admin. Ledger row: [{\"from_account\":\"sys:mint\",\"to_account\":\"mem:user-1788029300098-jskqu\",\"token_type\":\"gratitude\",\"amount\":25,\"source\":\"admin_mint\",\"source_ref\":\"user-1788029300098-jskqu\",\"description\":\"paying myself\"},{\"from_account\":\"sys:gratitude-pool\",\"to_account\":\"mem:user-1788029300098-jskqu\",\"token_type\":\"gratitude\",\"amount\":10,\"source\":\"gratitude_received\",\"source_ref\":\"grat-1788029771989-hu98\",\"description\":\"Gratitude from Alice\"},{\"from_account\":\"sys:gratitude-pool\",\"to_account\":\"mem:user-1788029300098-jskqu\",\"token_type\":\"gratitude\",\"amount\":10,\"source\":\"gratitude_received\",\"source_ref\":\"grat-1788029771671-8qx8\",\"description\":\"Gratitude from Alice\"}]"
+  },
+  {
+    "inv": 1,
+    "attack": "a lone admin mints 101 in one call (the stated co-sign threshold is 100)",
+    "outcome": "BROKE",
+    "detail": "single call of 101 returned 200 and credited 101. The only ceiling that fired is the per-cycle aggregate ledger.admin_mint_cycle_cap = 10000; no second-steward requirement exists on this path at any amount."
+  },
+  {
+    "inv": 1,
+    "attack": "exceed ledger.admin_mint_cycle_cap by repeated calls",
+    "outcome": "HELD",
+    "detail": "the aggregate cap held at 2131 of 10000 and refused the next call with 200 {\"success\":true,\"toBalance\":2020,\"minted\":2131,\"cap\":10000,\"remaining\":7869}"
+  },
+  {
+    "inv": 1,
+    "attack": "the per-cycle mint cap is PER TOKEN, so a self-grant repeats per slug",
+    "outcome": "BROKE",
+    "detail": "after gratitude hit its cap, 2000 more units were minted to the caller's own account across 4 other platform token(s) in the same cycle"
+  }
+]

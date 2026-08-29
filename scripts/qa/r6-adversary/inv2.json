@@ -1,0 +1,50 @@
+[
+  {
+    "inv": 2,
+    "attack": "mint 5000 of the weight token to a voter while the ballot is open",
+    "outcome": "HELD",
+    "detail": "her live balance moved to 10040 and the frozen roll did not move: [-jskqu:540.0000 -u2118:5040.0000 -cusvn:40.0000 -9at9l:40.0000 -52aka:40.0000]"
+  },
+  {
+    "inv": 2,
+    "attack": "drop quorum_pct and unity_pct to 1 while the ballot is open",
+    "outcome": "HELD",
+    "detail": "the village dials read 1/75 and the ballot still carries 50.00/50.00"
+  },
+  {
+    "inv": 2,
+    "attack": "switch weight_mode and set a custom weight of 9999 while the ballot is open",
+    "outcome": "HELD",
+    "detail": "the ballot keeps weight_mode=token and roll [-jskqu:540.0000 -u2118:5040.0000 -cusvn:40.0000 -9at9l:40.0000 -52aka:40.0000]"
+  },
+  {
+    "inv": 2,
+    "attack": "join the village after the open, then vote",
+    "outcome": "HELD",
+    "detail": "vote refused 409 {\"error\":\"You are outside this ballot's electorate. Who may vote froze when it opened\"} and the roll did not grow"
+  },
+  {
+    "inv": 2,
+    "attack": "cast two votes on one ballot",
+    "outcome": "HELD",
+    "detail": "one row only: [{\"choice\":\"no\"}] (second call 200)"
+  },
+  {
+    "inv": 2,
+    "attack": "a vote cast after a mid-ballot mint counts at the NEW weight",
+    "outcome": "HELD",
+    "detail": "the tally reads the frozen electorate weight 5040 (her live token_balances row is 5010); ballot_votes carries no weight column at all, so the frozen roll is the only source"
+  },
+  {
+    "inv": 2,
+    "attack": "vote after the ballot is closed",
+    "outcome": "HELD",
+    "detail": "409 {\"error\":\"This ballot is failed. Voting ended when it closed\"}"
+  },
+  {
+    "inv": 2,
+    "attack": "close a closed ballot again, or withdraw it after the close",
+    "outcome": "HELD",
+    "detail": "re-close 409 and withdraw 409; the ballot stays failed"
+  }
+]
