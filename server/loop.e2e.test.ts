@@ -5265,9 +5265,27 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const outsider = await api("POST", "/api/auth/register", {
       email: `outsider-gov-${PORT}@example.test`, password: "LoopTest123!", name: "Arrived After", paths: ["resident"],
     });
+    /*
+     * AND THE REFUSAL NAMES THE RIGHT REASON, which this case used to get
+     * wrong about itself. The account above is a fresh guest, and
+     * `ballot.vote` unlocks at the member rung, so the thing keeping them out
+     * is their own standing and not the clock. It was told "who may vote
+     * froze when it opened" and this line asserted that word, so the test
+     * agreed with the product about a cause neither of them had checked.
+     *
+     * Both halves are driven now. The guest hears about the account; the same
+     * person, once they reach the member rung, is off THIS roll for the one
+     * reason the freeze describes, and hears about the freeze.
+     */
     const refused = await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "yes" }, outsider.json.token);
     expect(refused.status).toBe(409);
-    expect(String(refused.json.error)).toContain("froze");
+    expect(String(refused.json.error)).toContain("Voting is not open to your account at the moment");
+    expect(String(refused.json.error)).not.toContain("froze");
+
+    await api("PUT", `/api/admin/players/${outsider.json.user.id}/stage`, { stageId: "member" }, founderToken);
+    const late = await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "yes" }, outsider.json.token);
+    expect(late.status).toBe(409);
+    expect(String(late.json.error)).toContain("froze");
 
     // THE SNAPSHOT LAW, at route level: the village raises both dials
     // mid-ballot to values that would sink this vote if anything read live.

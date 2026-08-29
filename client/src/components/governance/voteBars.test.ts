@@ -77,6 +77,31 @@ describe("marks and readings", () => {
     expect(quorumBar(nothing, 100, 20).reading).toContain("Nobody has voted");
   });
 
+  it("A VOTE EVERYBODY SAID NO TO IS NOT AN EMPTY VOTE", () => {
+    /*
+     * The defect this replaces, measured by the member's-eyes pass. A member
+     * was the only person to answer an advisory ballot, voted no, and the
+     * village closed it on that no. The summary strip read "Agreement 0% of
+     * 80%" and the panel forty pixels below read "Agreement, none yet", over
+     * a caption that said "0 yes, 1 no" in the same breath.
+     *
+     * The cause was one line: the mark was `none` for ANY value of zero, so
+     * the strongest disagreement the engine can measure was drawn as an
+     * absence. Whether anybody took a side is a different question from where
+     * the number sits, and this bar has always known the answer to the first.
+     */
+    const everyoneSaidNo = { yesW: 0, noW: 1, abstainW: 0 };
+    const bar = unityBar(everyoneSaidNo, 80, "custom");
+    expect(bar.mark, "somebody took a side, so this is a reading and not an absence").toBe("short");
+    expect(bar.valuePct).toBe(0);
+    expect(bar.reading).toContain("below the 80%");
+    expect(bar.reading).not.toContain("Nobody");
+    // And the same for the method whose comparison is strict.
+    expect(unityBar(everyoneSaidNo, 50, "majority").mark).toBe("short");
+    // The empty ballot it used to be confused with still reads as empty.
+    expect(unityBar({ yesW: 0, noW: 0, abstainW: 0 }, 80, "custom").mark).toBe("none");
+  });
+
   it("every bar carries a sentence, so colour is never the only signal", () => {
     const cases = [
       unityBar({ yesW: 9, noW: 1, abstainW: 0 }, 80, "custom"),

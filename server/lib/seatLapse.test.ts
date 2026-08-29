@@ -8,7 +8,7 @@
  *  - NOTHING IS REVOKED. A lapsed holding is still a holding. Villages miss
  *    re-selections during a harvest or a build push, and a seat going dark on
  *    a Tuesday for reasons nobody chose is worse than one saying out loud
- *    that it is overdue.
+ *    that it is ready to be re-chosen.
  *  - It is DERIVED on every read. A season turn writes nothing, so the state
  *    cannot drift from the calendar the way a stored status column does.
  */

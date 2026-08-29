@@ -13,6 +13,7 @@ import { ExternalLink, Hand, Mail } from "lucide-react";
 import { useHypha } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
 import { ExampleChip } from "@/components/ExamplesBanner";
+import SeatHistory from "./SeatHistory";
 import type { PowerCircle, PowerData, PowerHolder, PowerSeat } from "./types";
 import { daysUntil } from "./types";
 
@@ -21,10 +22,27 @@ const headers = (): Record<string, string> => {
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
+/**
+ * WHAT A TERM'S DATE SAYS ONCE IT HAS PASSED.
+ *
+ * Two words used to live here and on the holder chip further down: one that
+ * put a term in the past tense as a thing that had failed, and one that
+ * called the person holding the seat late. They were the only public deficit
+ * language in the whole succession model, they sat on a shared surface with a
+ * named person attached, and they described something the code does not do.
+ * `isLapsed` revokes nothing and writes nothing, by design, and its own note
+ * in `server/lib/orgChart.ts` says so: a lapsed holding is still a holding.
+ *
+ * A term reaching its date is the village's own agreement asking to be made
+ * again. The seat has not slipped and its holder has taken nothing away from
+ * anyone. The date arrived, which is what dates do.
+ *
+ * `seatLapse.test.ts` and `succession.copy.test.ts` hold the words to this.
+ */
 function termWords(iso: string | null | undefined): string | null {
   const d = daysUntil(iso);
   if (d === null) return null;
-  if (d < 0) return "term ran out";
+  if (d < 0) return "ready to be re-chosen";
   if (d === 0) return "term ends today";
   if (d <= 30) return `term ends in ${d} day${d === 1 ? "" : "s"}`;
   return `term ends ${new Date(iso!).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
@@ -164,7 +182,12 @@ export default function HolderCard({
               )}
               {h.name}
               {h.focus && <span className="text-muted-foreground">· {h.focus}</span>}
-              {h.lapsed && <span className="text-amber-700">· overdue</span>}
+              {/* `lapsed` covers a term that reached its date AND a seating
+                  made in a season that has since turned. One word has to be
+                  true of both, and nothing has been taken from this person in
+                  either case, so the word says what the seat is waiting for
+                  rather than what its holder failed to do. */}
+              {h.lapsed && <span className="text-amber-700">· ready to be re-chosen</span>}
             </button>
           ))}
         </div>
@@ -241,6 +264,16 @@ export default function HolderCard({
       ) : null}
 
       {status && <p className="text-xs text-teal-deep mt-3">{status}</p>}
+
+      {/* THE SEAT OUTLIVES ITS HOLDER, and until now nothing said so. The
+          card above is the seat right now; this is every person who has
+          carried it. An example seat's history is seeded demo rows, so it is
+          left off rather than presented as a village's own record. */}
+      {!seat.isExample && (
+        <div className="mt-4 border-t border-border pt-3">
+          <SeatHistory roleId={seat.id} canSeePeople={data.viewer.viewPeople} />
+        </div>
+      )}
     </div>
   );
 }

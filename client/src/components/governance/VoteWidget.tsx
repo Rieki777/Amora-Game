@@ -13,8 +13,9 @@
  *
  * The states, in order of how a member meets them:
  *
- *   OUTSIDE     not in the frozen electorate. Says so plainly, with why:
- *               who may vote froze when the ballot opened.
+ *   OUTSIDE     not on the frozen roll. Says so plainly, and says only what
+ *               this card can know: how a roll is set. WHY THIS READER is off
+ *               it belongs to "Your weight" in the rail, which reads the gate.
  *   OPEN        three buttons. Consent mode opens a reason box on `no`,
  *               because a no there is an objection and an objection carries
  *               its reasoning.
@@ -74,10 +75,18 @@ export default function VoteWidget({
   if (outside) {
     return (
       <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
-        <p className="text-sm font-semibold text-stone-800">You are not in this electorate</p>
+        <p className="text-sm font-semibold text-stone-800">You are not on this ballot's roll</p>
+        {/* WHAT THIS CARD KNOWS, AND NOTHING MORE. It used to say the roll
+            froze when the vote opened and leave the reader to read that as
+            the reason. It is the reason for a member who joined afterwards
+            and it is false for a member a warning badge is holding back, who
+            would have been left off a roll built at any hour of any day. All
+            this card holds is a null weight, so it states the rule and stops.
+            "Your weight", in the rail beside it, is where the reader's own
+            standing is named. */}
         <p className="mt-1 text-sm text-stone-600 leading-relaxed">
-          Who may vote on this froze the moment it opened, and you were not on that roll. The roll is below, so you can
-          see exactly who the village is waiting on.
+          A roll is set when a vote opens, from everyone who could vote at that moment, and you were not on this one.
+          The roll is below, so you can see exactly who the village is waiting on.
         </p>
       </div>
     );

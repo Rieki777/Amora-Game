@@ -204,6 +204,7 @@ import { checkSpace, matchOutcome, readInboundOutcome } from "./lib/hypha/outcom
 import { switchoverPreflight } from "./lib/hypha/switchover";
 import { villageFigure } from "./lib/hypha/village";
 import {
+  amendedKeysFor,
   awaitingVote,
   ballotById,
   ballotsFor,
@@ -22840,6 +22841,46 @@ ${inner}
    * unlocked. Revision 2, step 4 (profiles) reads this, and it is what makes
    * "you advanced and something opened" visible rather than mysterious.
    */
+  /**
+   * THE FIRST TIME SOMEBODY DID EACH OF THESE, DERIVED AND NEVER STORED.
+   *
+   * A member's stage crossings are recorded and shown; the three moments
+   * below are the ones the engine has always been able to answer and nobody
+   * ever asked it. `cast_at` defaults to CURRENT_TIMESTAMP and `updated_at`
+   * is the separate ON UPDATE column, so changing a vote does NOT move
+   * `cast_at`: the earliest one is exactly the first time this person voted,
+   * not an approximation of it. Same shape for a first objection and a first
+   * seat.
+   *
+   * WHAT IS DELIBERATELY NOT HERE:
+   *
+   *  - A first proposal of any kind. Only mechanics has a proposal table, the
+   *    other wizard types have no shared home, and `proposal_drafts` is
+   *    deleted on publish. There is no honest way to answer it, so it is not
+   *    answered rather than answered from the one type that happens to keep
+   *    rows.
+   *  - Anything in `EARNED_METRICS`. A badge is a public artefact and a first
+   *    vote is a private milestone, and putting one through the other would
+   *    manufacture the cross-member comparison R55 forbids.
+   *  - A count, of anything. This says WHEN, three times, for one person, and
+   *    a member who has done none of them gets three nulls and a page that
+   *    renders nothing rather than three zeroes (R55).
+   *
+   * Example rows are left out of the seat: a seating on a demonstration seat
+   * is the seeded chart talking, and dating a member's own first seat from it
+   * would be the product telling them about something they did not do.
+   */
+  async function firstTimesFor(userId: string): Promise<{ vote: string | null; objection: string | null; seat: string | null }> {
+    const [[row]] = await getPool().query<any[]>(
+      "SELECT (SELECT MIN(cast_at) FROM ballot_votes WHERE user_id = ?) AS first_vote, " +
+        "(SELECT MIN(created_at) FROM ballot_objections WHERE user_id = ?) AS first_objection, " +
+        "(SELECT MIN(started_at) FROM org_role_assignments WHERE user_id = ? AND holder_kind = 'member' AND is_example = 0) AS first_seat",
+      [userId, userId, userId],
+    );
+    const iso = (v: any): string | null => (v instanceof Date ? v.toISOString() : v ? String(v) : null);
+    return { vote: iso(row?.first_vote), objection: iso(row?.first_objection), seat: iso(row?.first_seat) };
+  }
+
   app.get("/api/game/progression", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
@@ -22857,6 +22898,7 @@ ${inner}
         .filter((e) => e.userId === user.id)
         .sort((a, b) => String(b.at).localeCompare(String(a.at)))
         .map((e) => ({ fromStage: e.fromStage, toStage: e.toStage, unlocked: e.unlocked, reason: e.reason, at: e.at })),
+      firsts: await firstTimesFor(user.id),
     });
   });
 
@@ -25331,7 +25373,21 @@ ${inner}
     };
   }
 
-  /** The record: every ballot, newest first, filterable by subject. */
+  /**
+   * The record: every ballot, newest first, filterable by subject.
+   *
+   * THE RECORD USED TO END AT A HUNDRED ROWS AND SAY NOTHING ABOUT IT. The
+   * query was a bare `LIMIT 100` with no way to ask for row 101, so a village
+   * four years in would open its own record and find its founding decisions
+   * simply gone: not archived, not behind a control, absent, with the page
+   * reading exactly as it does for a village that has held ninety.
+   *
+   * `limit` and `offset` make the rest reachable without making every load
+   * pay for it. The default is the same hundred it always served, because
+   * each card costs its own tallies read and a village should not buy its
+   * whole history to look at this week's vote. Asking for the next page is
+   * the member's act, on the page, when they want it.
+   */
   app.get("/api/governance/ballots", async (req, res) => {
     const viewer = await authedUser(req);
     const subjectType = String(req.query.subjectType ?? "").trim();
@@ -25340,27 +25396,91 @@ ${inner}
       const list = await ballotsFor(getPool(), subjectType, subjectRef);
       return res.json(await Promise.all(list.map((b) => serveBallotCard(b, viewer?.id))));
     }
-    const [rows] = await getPool().query<any[]>("SELECT * FROM ballots ORDER BY created_at DESC, id DESC LIMIT 100");
+    const limit = Math.max(1, Math.min(200, Math.trunc(Number(req.query.limit)) || 100));
+    const offset = Math.max(0, Math.trunc(Number(req.query.offset)) || 0);
+    const [rows] = await getPool().query<any[]>(
+      "SELECT * FROM ballots ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+      [limit, offset],
+    );
     res.json(await Promise.all(rows.map((r) => serveBallotCard(rowToBallot(r), viewer?.id))));
   });
 
+  /**
+   * ONE DECISION, AND THE TWO THINGS A COLD READ OF ONE WAS MISSING.
+   *
+   * `serveBallot` answers everything about the ballot itself. Both additions
+   * here are about the ballot's place in the village's story, and both were
+   * already in the database with nothing reading them:
+   *
+   *  - `appliedKeys` is WHAT THIS DECISION CHANGED, read from the amendment
+   *    ledger. The outcome card has always been able to say it, and only in
+   *    the browser session that closed the vote: `applied` came back on the
+   *    close response and was never fetched again. Open a carried decision
+   *    tomorrow and the most interesting thing about it had evaporated. The
+   *    ledger row is permanent and carries the ballot's own id, so the same
+   *    sentence is true on the day and on the anniversary.
+   *
+   *  - `priorAttempts` is every earlier time the village decided this same
+   *    subject. `ballotsFor` has returned the chain since 0089 and no surface
+   *    has ever called it.
+   *
+   * Neither invents anything when there is nothing: a first vote on a subject
+   * carries an empty list, and a decision that changed no dial carries an
+   * empty list, and the page renders neither rather than a zero.
+   */
   app.get("/api/governance/ballots/:id", async (req, res) => {
     const b = await ballotById(getPool(), req.params.id);
     if (!b) return res.status(404).json({ error: "Not found" });
     const viewer = await authedUser(req);
-    res.json(await serveBallot(b, viewer?.id));
+    const [payload, appliedKeys, chain] = await Promise.all([
+      serveBallot(b, viewer?.id),
+      amendedKeysFor(getPool(), b.id),
+      ballotsFor(getPool(), b.subjectType, b.subjectRef),
+    ]);
+    res.json({
+      ...payload,
+      appliedKeys,
+      priorAttempts: chain
+        .filter((p) => p.id !== b.id)
+        .map((p) => ({
+          id: p.id,
+          title: p.title,
+          status: p.status,
+          outcomeNote: p.outcomeNote,
+          opensAt: p.opensAt,
+          closedAt: p.closedAt,
+        })),
+    });
   });
 
-  /** Cast or change a vote. The electorate froze at open; so did the weights. */
+  /**
+   * Cast or change a vote. The electorate froze at open; so did the weights.
+   *
+   * THE GATE IS READ HERE SO THE REFUSAL CAN SAY WHY. Somebody who is not on
+   * the roll used to be told, always, that "who may vote froze when it
+   * opened". That is true of the member who joined after the vote started and
+   * false of the member a warning badge is holding back: `buildElectorate`
+   * runs the one gate at open and `capabilityDecision` refuses a warning's
+   * deny before it looks at any grant, so she is left off every roll built
+   * afterwards, and the product named the freeze and hid the cause. The
+   * sentence itself lives with the rule, in `offRollSentence`.
+   *
+   * A LOOK AND NEVER AN ACT (R53): `capabilityCtx` is the pure gate with no
+   * break-glass in it, exactly as `/api/governance/standing` reads it. Asking
+   * the gate why somebody is off a roll must not write "acted on a power this
+   * village holds" to a feed the village reads.
+   */
   app.post("/api/governance/ballots/:id/vote", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to vote" });
+    const voteGate = capabilityDecision("ballot.vote", await capabilityCtx(user));
     const result = await castVote(
       getPool(),
       req.params.id,
       user.id,
       String(req.body?.choice ?? ""),
       req.body?.reason === undefined ? undefined : String(req.body.reason),
+      { mayVoteNow: voteGate.allowed, deniedByWarning: voteGate.source === "denied by warning badge" },
     );
     if (!result.ok) return res.status(409).json({ error: result.error });
     const b = await ballotById(getPool(), req.params.id);
@@ -26621,7 +26741,21 @@ ${inner}
     if (!user) return res.status(401).json({ error: "auth_required" });
     const snapshot = weightModeNow();
     const ctx = await capabilityCtx(user);
-    const eligible = hasCapability("ballot.vote", ctx);
+    /*
+     * WHY, AND NOT ONLY WHETHER. This read the yes-or-no face of the gate and
+     * served a bare `eligible: false`, so the card underneath had to name
+     * BOTH of the two things that could be refusing a member and let them
+     * guess which was theirs. A member a warning badge is holding back is
+     * entitled to know that is the reason.
+     *
+     * ONE named fact rather than the source string. `CapabilitySource` is the
+     * gate's internal vocabulary, and shipping it would invite a client map
+     * from every one of its seven values to a sentence, which is the
+     * hand-kept-mirror class exactly. One boolean answers the one question a
+     * member is owed an answer to.
+     */
+    const voteGate = capabilityDecision("ballot.vote", ctx);
+    const eligible = voteGate.allowed;
     const weights = await weightsFor(getPool(), [String(user.id)], snapshot);
     const weight = weights.get(String(user.id)) ?? 0;
     const tokenName = snapshot.token ? tokenDef(snapshot.token)?.name ?? snapshot.token : null;
@@ -26636,6 +26770,8 @@ ${inner}
       token: snapshot.token,
       tokenName,
       eligible,
+      /** Set only when a warning badge is the thing refusing the vote. */
+      deniedByWarning: voteGate.source === "denied by warning badge",
       weight,
       why,
       // Whether this member facilitates: rules objections, closes early. The
@@ -27816,12 +27952,41 @@ ${inner}
     if (!role) return res.status(404).json({ error: "Seat not found" });
     if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const actor = await authedUser(req);
+    /*
+     * THE TERM, WHICH THIS ROUTE HAS NEVER SENT.
+     *
+     * `seatHolder` has taken `termEndsAt` and written the column since 0049,
+     * and this is the only route in the tree that seats anybody, so
+     * `term_ends_at` has been NULL on every seating every village has ever
+     * made. FOUR readers were dark the whole time: the amber term arc on the
+     * power map, the `seat-term` calendar source, the term branch of the
+     * `term-watch` job, and the term branch of `isLapsed`. One argument.
+     *
+     * Read rather than passed through. A date this route cannot parse is a
+     * refusal with the sentence saying so, never a quiet null: a village that
+     * believes it wrote an end date onto a seat, over a row that holds none,
+     * is the shape where the product says something that did not happen.
+     * Left out stays left out, which is a seat held with no end date and is
+     * exactly what every seating on every deployment is today.
+     */
+    const askedTerm = req.body?.termEndsAt;
+    let termEndsAt: Date | null = null;
+    if (askedTerm !== undefined && askedTerm !== null && String(askedTerm).trim() !== "") {
+      const parsed = new Date(String(askedTerm));
+      if (Number.isNaN(parsed.getTime())) {
+        return res.status(400).json({
+          error: "That term end date could not be read. Send a date like 2027-03-01, or leave it out for a seat with no end date",
+        });
+      }
+      termEndsAt = parsed;
+    }
     const r = await seatHolder(getPool(), req.params.id, {
       userId: req.body?.userId ?? null,
       displayName: req.body?.displayName ?? null,
       focus: req.body?.focus ?? null,
       note: req.body?.note ?? null,
       seasonId: seasonState().current?.id ?? null,
+      termEndsAt,
       grantedBy: actor?.id ?? null,
     });
     if (!r.ok) return res.status(409).json({ error: r.reason });

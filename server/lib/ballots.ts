@@ -115,6 +115,42 @@ export async function ballotsFor(pool: Pool, subjectType: string, subjectRef: st
   return rows.map(rowToBallot);
 }
 
+/**
+ * WHICH DIALS A BALLOT ACTUALLY MOVED, READ BACK OUT OF THE LEDGER.
+ *
+ * The apply path stamps every amendment row with `gm:<proposal> bal:<ballot>`
+ * (`applyMechanicsProposal`, server/index.ts), so the ballot that decided a
+ * change is already written next to the change. Nothing has ever read it in
+ * that direction. The outcome card's "What changed" came off the close
+ * response instead, which means it existed only in the browser session that
+ * closed the vote and was gone by the next morning, on exactly the decisions
+ * worth coming back to.
+ *
+ * This is the permanent answer to the same question. It reports what the
+ * ledger holds and never what a proposal asked for: a change the apply pass
+ * refused is absent here, correctly, because it did not happen.
+ *
+ * `LIKE` because the reference is a composite of up to three parts and the
+ * ballot marker sits at the end of it. The id is escaped for LIKE's own
+ * wildcards before it goes in, so an id is matched as characters and not as
+ * a pattern, whatever future ids turn out to contain.
+ *
+ * A LEADING WILDCARD SCANS, and that is the right trade here rather than an
+ * oversight. `mechanics_changes` holds one row per dial a village has ever
+ * moved, so it is hundreds of rows on an old village and a handful on a young
+ * one, and this runs once when somebody opens one decision. The alternative
+ * is a column duplicating a fact the reference already carries, which is a
+ * second copy of one truth waiting to disagree with the first.
+ */
+export async function amendedKeysFor(pool: Pool, ballotId: string): Promise<string[]> {
+  const escaped = ballotId.replace(/([\\%_])/g, "\\$1");
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT DISTINCT config_key FROM mechanics_changes WHERE source = 'governance' AND proposal_ref LIKE ? ORDER BY config_key",
+    [`%bal:${escaped}%`],
+  );
+  return rows.map((r) => String(r.config_key));
+}
+
 export interface OpenBallotInput {
   subjectType: string;
   subjectRef: string;
@@ -280,6 +316,61 @@ export async function standingObjectionCount(pool: Pool, ballotId: string): Prom
 export type VoteResult = { ok: true; choice: VoteChoice } | { ok: false; error: string };
 
 /**
+ * WHY SOMEBODY IS OFF A ROLL, worked out by the caller and handed in.
+ *
+ * This file holds no capability context on purpose: variables, capabilities
+ * and subject-table flips live with the routes, which is what lets the unit
+ * tests prove the snapshot law without a registry in sight. So the route
+ * reads the gate and passes the two facts down, and the sentence a member
+ * reads stays here beside the rule it explains.
+ */
+export interface VoterStanding {
+  /** Does this member hold `ballot.vote` at this moment? */
+  mayVoteNow: boolean;
+  /** Is a warning badge the thing refusing it? */
+  deniedByWarning: boolean;
+}
+
+/**
+ * WHAT TO TELL SOMEBODY WHO IS NOT ON A ROLL, AND WHY THIS TAKES FOUR CASES.
+ *
+ * This used to be one sentence for every one of them: "Who may vote froze
+ * when it opened." That is true of exactly one of the four, and for the
+ * others it names TIMING as the cause of something timing did not cause.
+ *
+ * `buildElectorate` runs the one gate over every member at open, and
+ * `capabilityDecision` refuses a warning badge's deny before it looks at any
+ * grant. So a member carrying a warning that denies `ballot.vote` is left off
+ * every roll built afterwards, opens the vote, is told the roll froze, and
+ * has no way at all to learn from the product that a warning is the reason.
+ * The freeze was named and the cause was hidden. That is the same shape as an
+ * outcome card telling a village a decision it carried did not carry: a
+ * sentence that is true of one situation, served for a different one.
+ *
+ * R56 is the other half. State what is true, then get out of the way: a
+ * warning being the reason is a fact somebody is owed, and it is said once,
+ * flatly, with nothing in it about what they should have done differently.
+ *
+ * The last case is the one where the caller could not work anything out, and
+ * it is the ONLY sentence here that is not for a member: nothing in the
+ * product reaches it, because the vote route always reads the gate. It says
+ * what this file knows for certain and names no cause at all, which is the
+ * fail-safe direction for any later caller that cannot read the gate. It is
+ * also the first half of the sentence all four of these replace, word for
+ * word, because that half was never the part that lied.
+ */
+export function offRollSentence(standing?: VoterStanding): string {
+  if (!standing) return "You are outside this ballot's electorate, so this vote is not open to you";
+  if (standing.deniedByWarning) {
+    return "A warning on your account is holding voting back at the moment, so you were not on the roll when this vote opened";
+  }
+  if (!standing.mayVoteNow) {
+    return "You are not on this ballot's roll. Voting is not open to your account at the moment, so you were not on the roll when this vote opened";
+  }
+  return "You are not on this ballot's roll. It froze when this vote opened and you were not on it then. A vote opened from now on takes the roll as it stands at that moment";
+}
+
+/**
  * Cast or change a vote: a PK upsert, allowed while the ballot is `open` and
  * the clock has not passed `closes_at`. Only frozen electorate members vote,
  * and their weight is read at tally time from the frozen row — never here.
@@ -292,6 +383,8 @@ export async function castVote(
   userId: string,
   choiceRaw: string,
   reason?: string,
+  /** The gate's answer about this member, read by the route. See below. */
+  standing?: VoterStanding,
 ): Promise<VoteResult> {
   const choice = String(choiceRaw) as VoteChoice;
   if (!VOTE_CHOICES.includes(choice)) {
@@ -312,9 +405,7 @@ export async function castVote(
     "SELECT weight FROM ballot_electorate WHERE ballot_id = ? AND user_id = ?",
     [ballotId, userId],
   );
-  if (!inRoll[0]) {
-    return { ok: false, error: "You are outside this ballot's electorate. Who may vote froze when it opened" };
-  }
+  if (!inRoll[0]) return { ok: false, error: offRollSentence(standing) };
   const cleanReason = String(reason ?? "").trim().slice(0, 2000);
   if (ballot.method === "consent" && choice === "no" && !cleanReason) {
     return { ok: false, error: "A no in consent mode is an objection, and an objection carries its reasoning. Say why" };

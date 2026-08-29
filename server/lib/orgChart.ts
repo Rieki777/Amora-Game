@@ -293,7 +293,8 @@ export async function orgRoleHistory(pool: Pool, orgRoleId: string): Promise<Org
  *
  * NOTHING IS REVOKED. A village misses a re-selection during a harvest or a
  * build push, and taking the keys away on a Tuesday for reasons nobody chose
- * is worse than the seat reading as overdue. So a lapsed holding is still a
+ * is worse than the seat saying out loud that it is ready to be re-chosen,
+ * which is the word the map now uses for it. So a lapsed holding is still a
  * holding: the person keeps acting, and the seat says out loud that it is
  * waiting to be reassigned.
  *

@@ -55,12 +55,30 @@ import {
 } from "@/components/governance/governanceApi";
 import { quorumPctOf } from "@shared/governanceEngine";
 
+/**
+ * How much of the record one read buys. The route's own default, stated here
+ * because this page is the thing that decides when to ask for more of it.
+ */
+const RECORD_PAGE = 100;
+
 export default function Decisions() {
   const { user } = useAuth();
   const modules = useModules();
   const governance = useModule("governance");
 
   const [ballots, setBallots] = useState<BallotCard[] | null>(null);
+  /**
+   * HOW FAR INTO THE RECORD THIS PAGE HAS READ.
+   *
+   * The list route answered a bare hundred rows and said nothing about there
+   * being more, so a village four years in opened its own record and found
+   * its founding decisions absent, on a page that looked exactly like the
+   * page of a village that has held ninety. `more` is the honest version of
+   * that fact: a full page came back, so there is at least one more row.
+   */
+  const [read, setRead] = useState(0);
+  const [more, setMore] = useState(false);
+  const [readingMore, setReadingMore] = useState(false);
   const [standing, setStanding] = useState<Standing | null>(null);
   // The village-wide trail. Member-readable by design, so it rides the same
   // load as the rest of the rail instead of hiding behind an admin door.
@@ -71,10 +89,17 @@ export default function Decisions() {
     if (!governance || !user) return;
     let alive = true;
     (async () => {
-      const [b, s, w] = await Promise.all([fetchBallots(), fetchStanding(), fetchWeightRecord()]);
+      const [b, s, w] = await Promise.all([
+        fetchBallots({ limit: RECORD_PAGE }),
+        fetchStanding(),
+        fetchWeightRecord(),
+      ]);
       if (!alive) return;
-      if (b.ok) setBallots(b.data);
-      else setProblem(b.error);
+      if (b.ok) {
+        setBallots(b.data);
+        setRead(b.data.length);
+        setMore(b.data.length === RECORD_PAGE);
+      } else setProblem(b.error);
       if (s.ok) setStanding(s.data);
       if (w.ok) setRecord(w.data);
     })();
@@ -82,6 +107,29 @@ export default function Decisions() {
       alive = false;
     };
   }, [governance, user]);
+
+  /**
+   * The next page of the record, when a member asks for it.
+   *
+   * Merged by id rather than appended. Offset paging over a list that grows
+   * at the head can hand back a row this page already holds, and a village
+   * seeing one of its own decisions twice would be the page inventing a vote.
+   */
+  const readMore = async () => {
+    if (readingMore) return;
+    setReadingMore(true);
+    const next = await fetchBallots({ limit: RECORD_PAGE, offset: read });
+    if (next.ok) {
+      setBallots((prev) => {
+        const byId = new Map((prev ?? []).map((b) => [b.id, b]));
+        for (const b of next.data) byId.set(b.id, b);
+        return Array.from(byId.values());
+      });
+      setRead((n) => n + next.data.length);
+      setMore(next.data.length === RECORD_PAGE);
+    } else setProblem(next.error);
+    setReadingMore(false);
+  };
 
   const groups = useMemo(() => {
     const all = ballots ?? [];
@@ -180,11 +228,26 @@ export default function Decisions() {
                 ballots={groups.awaitingClose}
               />
               <Group title="Being decided" blurb="Open, and still taking votes." ballots={groups.running} />
-              <Group
-                title="What the village has decided"
-                blurb="The record. Each one carries the sentence it closed with."
-                ballots={groups.decided}
-              />
+              <Chronicle ballots={groups.decided} />
+
+              {/* The rest of the record, when somebody wants it. No count, no
+                  total and no sense of a page left unfinished: a village's
+                  history is not a task with a remainder (R55). */}
+              {more && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => void readMore()}
+                    disabled={readingMore}
+                    className="min-h-[44px] rounded-lg border border-stone-300 px-5 text-sm font-semibold text-stone-700 hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep focus-visible:ring-offset-2 disabled:opacity-60"
+                  >
+                    {readingMore ? "Reading earlier decisions…" : "Show earlier decisions"}
+                  </button>
+                  <p className="mt-1.5 text-sm text-stone-600 leading-relaxed">
+                    The record goes back as far as the village does.
+                  </p>
+                </div>
+              )}
             </div>
 
             <aside className="mt-10 space-y-6 lg:mt-0">
@@ -252,6 +315,65 @@ function Group({
 }
 
 /**
+ * THE RECORD AS A CHRONICLE, NOT A TABLE.
+ *
+ * A flat list newest-first is the right shape for a queue and the wrong one
+ * for a history: it says what happened last and nothing at all about when a
+ * village was busy, when it was quiet, and what it went through in between.
+ * Grouped by the year each decision was settled, the same rows tell a village
+ * its own story, and a village reading its founding year is reading the part
+ * a flat list buries.
+ *
+ * TIME IS THE ONLY GROUPING ALLOWED HERE (R55). Not by outcome, which sorts a
+ * village's decisions into wins and losses. Not by how many, which turns a
+ * quiet year into a shortfall. There is no count on a year, no busiest year,
+ * no comparison between years and no cadence anybody is behind on. A year
+ * with one decision and a year with forty get the same heading in the same
+ * size, and the year is a fact about when, never a score.
+ */
+function Chronicle({ ballots }: { ballots: BallotCard[] }) {
+  const years = useMemo(() => {
+    const by = new Map<string, BallotCard[]>();
+    for (const b of ballots) {
+      /*
+       * The day the village settled it. Every route that leaves `open` writes
+       * `closed_at`, the withdrawal included, so the fallback is for a row
+       * some later state produces rather than for anything shipping today,
+       * and it names the year the vote OPENED instead of guessing at one.
+       */
+      const when = b.closedAt ?? b.closesAt;
+      const t = Date.parse(when);
+      const year = Number.isNaN(t) ? "Undated" : String(new Date(t).getFullYear());
+      const list = by.get(year);
+      if (list) list.push(b);
+      else by.set(year, [b]);
+    }
+    return Array.from(by.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [ballots]);
+
+  if (ballots.length === 0) return null;
+
+  return (
+    <section>
+      <h2 className="font-display text-xl font-bold text-stone-900">What the village has decided</h2>
+      <p className="mt-0.5 text-sm text-stone-600 leading-relaxed">
+        The record, by the year the village settled each one. Each carries the sentence it closed with.
+      </p>
+      {years.map(([year, list]) => (
+        <div key={year} className="mt-5">
+          <h3 className="border-b border-stone-200 pb-1 font-display text-lg font-bold text-stone-800">{year}</h3>
+          <div className="mt-3 space-y-3">
+            {list.map((b) => (
+              <DecisionCard key={b.id} ballot={b} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/**
  * How much of the village has been showing up, drawn as the field.
  *
  * THIS USED TO BE A MOON, and that was wrong the moment the founder's design
@@ -266,7 +388,24 @@ function Group({
  * exactly this case.
  */
 function TurnoutCard({ ballots }: { ballots: BallotCard[] }) {
-  const decided = ballots.filter((b) => b.status !== "open");
+  /*
+   * A VOTE THE VILLAGE CALLED OFF IS NOT A TURNOUT OF ZERO.
+   *
+   * This counted every ballot that was not open, withdrawals included, and a
+   * withdrawn ballot is closed with whatever turnout it had reached at the
+   * moment somebody decided it should not have been opened. Usually that is
+   * nothing, so each one dropped a zero into the average and made a village
+   * look less willing to show up than it is. Under R55 a wrong number here is
+   * worse than a wrong sentence: it is a scorecard the village is failing on
+   * a technicality nobody chose.
+   *
+   * `no_quorum` STAYS, and that is the line between the two. Too few people
+   * answered is a real turnout, measured on a vote the village was genuinely
+   * asked, and leaving it out would flatter the number in the other
+   * direction. A withdrawal is the village saying the question should not
+   * have been put at all.
+   */
+  const decided = ballots.filter((b) => b.status !== "open" && b.status !== "withdrawn");
   if (decided.length === 0) return null;
   const average =
     decided.reduce((sum, b) => sum + quorumPctOf(b.tallies, b.totalWeight), 0) / decided.length;

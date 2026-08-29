@@ -65,7 +65,7 @@ export default function Powers() {
             What this village looks after
           </h1>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Every power here has somebody behind it. Some of them sit with the admin
+            Every power here has a place it lives. Some of them sit with the admin
             panel, which is how a village starts. Some of them the village has taken
             on. This page says which is which, and who to ask.
           </p>
