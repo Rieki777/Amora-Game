@@ -11,6 +11,15 @@ import ModuleGate from "@/components/modules/ModuleGate";
 import { useEffect, useState } from "react";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
+/**
+ * The doughnut's outer-label geometry lives outside this page so it can be
+ * checked without a browser. Three of the five labels were being painted
+ * outside the old `0 0 720 720` viewBox and read "ed", "He" and "0 t" on
+ * screen while the DOM held the full names, so every text assertion in the
+ * repository passed on them. `doughnutLayout.test.ts` puts the real metric
+ * names through the same arithmetic and fails on the old viewBox.
+ */
+import { DOUGHNUT, DOUGHNUT_VIEWBOX, TAU, outerLabelPlacement } from "@/lib/doughnutLayout";
 import { SNAPSHOT_METRICS } from "@shared/healthMetrics";
 import { Activity, CheckCircle2, Circle, Leaf, Moon, Sprout, Users } from "lucide-react";
 import { ExampleChip, ExamplesBanner } from "@/components/ExamplesBanner";
@@ -30,6 +39,14 @@ const headers = (): Record<string, string> => {
 const SNAPSHOT_LABELS: Record<string, string> = Object.fromEntries(
   SNAPSHOT_METRICS.map((m) => [m.key, m.label]),
 );
+
+/**
+ * "1 seat" / "12 seats". This page is read by members, and "0 decision(s)
+ * opened by 0 member(s)" is a form field talking, not a village. The count
+ * is already known when the sentence is built, so there is nothing to hedge.
+ */
+const count = (n: number, one: string, many: string = `${one}s`): string =>
+  `${n} ${n === 1 ? one : many}`;
 
 export default function VillageHealth() {
   const modules = useModules();
@@ -83,7 +100,7 @@ export default function VillageHealth() {
                   {season.current.name}
                   {season.current.theme ? <span className="text-muted-foreground font-normal">: {season.current.theme}</span> : null}
                 </p>
-                <span className="text-xs text-muted-foreground">{season.daysLeft} day(s) left</span>
+                <span className="text-xs text-muted-foreground">{count(season.daysLeft, "day")} left</span>
               </div>
               {goals.length > 0 ? (
                 <div className="space-y-1.5">
@@ -196,8 +213,8 @@ export default function VillageHealth() {
               <p className="font-semibold text-foreground text-sm">Governance health</p>
             </div>
             <p className="text-sm text-foreground">
-              {data?.governance?.decisionsAllTime ?? 0} decision(s) opened by{" "}
-              {data?.governance?.distinctAuthors ?? 0} member(s)
+              {count(data?.governance?.decisionsAllTime ?? 0, "decision")} opened by{" "}
+              {count(data?.governance?.distinctAuthors ?? 0, "member")}
               {data?.governance?.authorshipConcentration != null && (
                 <>, and the most frequent author opened {Math.round(data.governance.authorshipConcentration * 100)}%</>
               )}
@@ -221,8 +238,8 @@ export default function VillageHealth() {
                 <p className="font-semibold text-foreground text-sm">What the village depends on</p>
               </div>
               <p className="text-sm text-foreground">
-                {data.structure.soleHeldSeats} of {data.structure.seatingsLive} filled seat(s) have no
-                second holder
+                {data.structure.soleHeldSeats} of {count(data.structure.seatingsLive, "filled seat")}{" "}
+                {data.structure.soleHeldSeats === 1 ? "has" : "have"} no second holder
                 {data.structure.soleHeldCritical > 0 && (
                   <>, {data.structure.soleHeldCritical} of them marked critical</>
                 )}
@@ -230,7 +247,11 @@ export default function VillageHealth() {
                   <>, and {data.structure.soleHeldWithCover} of them have somebody named to carry it</>
                 )}
                 {data.structure.unheldSeats > 0 && (
-                  <>, and {data.structure.unheldSeats} seat(s) have nobody on them at all</>
+                  <>
+                    , and {count(data.structure.unheldSeats, "seat")}{" "}
+                    {data.structure.unheldSeats === 1 ? "has" : "have"} nobody on{" "}
+                    {data.structure.unheldSeats === 1 ? "it" : "them"} at all
+                  </>
                 )}
                 .
               </p>
@@ -279,8 +300,6 @@ export default function VillageHealth() {
 // that meter extraction can wire true ceilings later; a CO2 wedge with no
 // data source would be decoration wearing the costume of measurement.
 
-const TAU = Math.PI * 2;
-
 /** An annular sector path between radii r0..r1 across [a0..a1] (radians). */
 function ring(cx: number, cy: number, r0: number, r1: number, a0: number, a1: number): string {
   const p = (r: number, a: number) => `${cx + r * Math.cos(a)} ${cy + r * Math.sin(a)}`;
@@ -295,13 +314,13 @@ function ring(cx: number, cy: number, r0: number, r1: number, a0: number, a1: nu
 }
 
 function DoughnutCard({ doughnut }: { doughnut: any }) {
-  const C = 360;
+  const C = DOUGHNUT.C;
   const F_OUT = 188;   // foundation wedges grow inward from here
   const F_DEPTH = 96;  // a full share reaches this far in
   const RING_F = [188, 210] as const;
   const SAFE = [210, 248] as const;
-  const RING_R = [248, 270] as const;
-  const R_GROW = 70;   // a best-lunation regen wedge reaches this far out
+  const RING_R = [248, DOUGHNUT.RING_R_OUT] as const;
+  const R_GROW = DOUGHNUT.R_GROW;   // a best-lunation regen wedge reaches this far out
 
   const foundation: any[] = doughnut.foundation ?? [];
   const regen: any[] = doughnut.regen ?? [];
@@ -329,7 +348,13 @@ function DoughnutCard({ doughnut }: { doughnut: any }) {
         matters, never at a person.
       </p>
 
-      <svg viewBox="0 0 720 720" className="w-full max-h-[76vh]" role="group" aria-label="The village doughnut">
+      {/* The viewBox carries the label band as well as the rings. It used to
+          be `0 0 720 720`, which stopped exactly at the centre plus 360 while
+          the outer labels are anchored at 362 and then run outward, so the
+          left, right and bottom names were painted outside the picture and
+          clipped by the svg's default overflow. The numbers are derived in
+          `@/lib/doughnutLayout` and checked there. */}
+      <svg viewBox={DOUGHNUT_VIEWBOX} className="w-full max-h-[76vh]" role="group" aria-label="The village doughnut">
         <defs>
           <path id="ring-f-label" d={`M ${C - RING_F[0] - 11} ${C} A ${RING_F[0] + 11} ${RING_F[0] + 11} 0 1 1 ${C + RING_F[0] + 11} ${C}`} />
           <path id="ring-r-label" d={`M ${C - RING_R[0] - 11} ${C} A ${RING_R[0] + 11} ${RING_R[0] + 11} 0 1 1 ${C + RING_R[0] + 11} ${C}`} />
@@ -410,9 +435,11 @@ function DoughnutCard({ doughnut }: { doughnut: any }) {
           const [a0, a1] = rSeg(i);
           const track = ring(C, C, RING_R[1], RING_R[1] + R_GROW, a0, a1);
           const grow = ring(C, C, RING_R[1], RING_R[1] + Math.max(0.02, w.fill) * R_GROW, a0, a1);
-          const lx = C + (RING_R[1] + R_GROW + 22) * Math.cos(mid(rSeg(i)));
-          const ly = C + (RING_R[1] + R_GROW + 22) * Math.sin(mid(rSeg(i)));
-          const side = Math.cos(mid(rSeg(i)));
+          // One source for where a label sits, shared with the check that
+          // proves it lands inside the viewBox.
+          const place = outerLabelPlacement(regen.length, i);
+          const lx = place.x;
+          const ly = place.y;
           return (
             <g key={w.key}>
               <path d={track} style={{ fill: "var(--color-teal)", fillOpacity: 0.06 }} />
@@ -421,7 +448,7 @@ function DoughnutCard({ doughnut }: { doughnut: any }) {
               </path>
               <text
                 x={lx} y={ly}
-                textAnchor={Math.abs(side) < 0.35 ? "middle" : side > 0 ? "start" : "end"}
+                textAnchor={place.anchor}
                 className="fill-foreground"
                 style={{ fontSize: 11.5, fontWeight: 500 }}
               >
@@ -429,7 +456,7 @@ function DoughnutCard({ doughnut }: { doughnut: any }) {
               </text>
               <text
                 x={lx} y={ly + 13}
-                textAnchor={Math.abs(side) < 0.35 ? "middle" : side > 0 ? "start" : "end"}
+                textAnchor={place.anchor}
                 className="fill-muted-foreground"
                 style={{ fontSize: 10.5 }}
               >
