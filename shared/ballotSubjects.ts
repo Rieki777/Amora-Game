@@ -97,6 +97,23 @@ export interface SubjectThresholds {
  */
 export const VILLAGE_LAUNCH = "village_launch";
 
+/**
+ * THE ONE `subject_ref` A LAUNCH BALLOT EVER CARRIES, and it is a constant
+ * because that is what makes the vote RE-RUNNABLE without any machinery.
+ *
+ * `ballots.open_key` is `${subject_type}:${subject_ref}` and it is UNIQUE, so
+ * while a launch vote is running no second one can open, race-free, on the
+ * index instead of on an application check. Closing rewrites the key to carry
+ * the ballot's own id, which frees it immediately. A launch vote that missed
+ * its participation can therefore be closed and asked again the same hour, and
+ * the ballot that missed stays closed and immutable with its own frozen roll.
+ *
+ * The constant is also the query. `ballotsFor(VILLAGE_LAUNCH, LAUNCH_SUBJECT_REF)`
+ * is every time a village has ever asked itself this question, in order, with
+ * no join and no extra column.
+ */
+export const LAUNCH_SUBJECT_REF = "start";
+
 export const SUBJECT_THRESHOLDS: Readonly<Record<string, SubjectThresholds>> = {
   [VILLAGE_LAUNCH]: {
     minUnityPct: 100,

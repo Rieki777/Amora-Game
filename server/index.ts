@@ -215,10 +215,12 @@ import {
   fileObjection,
   objectionsFor,
   openBallot,
+  openBallotFor,
   rowToBallot,
   ruleObjection,
   standingObjectionCount,
   talliesFor,
+  voteCount,
   voteOf,
   votesFor,
   withdrawBallot,
@@ -255,6 +257,14 @@ import {
   type BallotMethod,
   type BallotOutcome,
 } from "../shared/governanceEngine";
+import {
+  dialsForSubject,
+  electorateFloorProblem,
+  methodForSubject,
+  thresholdsForSubject,
+  LAUNCH_SUBJECT_REF,
+  VILLAGE_LAUNCH,
+} from "../shared/ballotSubjects";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
@@ -584,7 +594,14 @@ import {
   secretValue,
   type SecretKey,
 } from "./lib/secrets";
-import { confirmManual, launchStatus, markLaunched, type LaunchDeps } from "./lib/launch";
+import {
+  confirmManual,
+  launchStatus,
+  launchVoteBlocked,
+  recordLaunchCarried,
+  type LaunchDeps,
+} from "./lib/launch";
+import { readGameStart, recordGameStart } from "./lib/gameStart";
 import {
   assertModuleGraph,
   attachModuleReadiness,
@@ -12949,9 +12966,67 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     },
   };
 
+  /**
+   * THE LAUNCH VOTE'S OWN FACTS, beside the checklist that gates it (R74).
+   *
+   * Everything here is measured now and nothing is remembered, because all
+   * three answers move: members arrive, a vote opens, a vote closes. The page
+   * states them and offers the button when they allow it, which is the whole
+   * of R56 on this surface: a count is a fact, and a village of two reading
+   * "one more member" has been told something it could not otherwise see.
+   *
+   * `onTheRoll` is the ELECTORATE and not the member list, because that is
+   * what a 100% quorum is measured against and what R67's floor of three has
+   * to mean. A village of five where two people hold a voice would otherwise
+   * be told it could start.
+   */
+  async function launchVoteFacts() {
+    const threshold = thresholdsForSubject(VILLAGE_LAUNCH);
+    const openNow = await openBallotFor(getPool(), VILLAGE_LAUNCH, LAUNCH_SUBJECT_REF);
+    let onTheRoll: number | null = null;
+    let tooFew: string | null = null;
+    try {
+      const roll = await buildElectorate();
+      onTheRoll = roll.length;
+      tooFew = electorateFloorProblem(VILLAGE_LAUNCH, roll.length);
+    } catch (e: any) {
+      // Building the roll reads the weight mode, which can refuse (a weight
+      // token the engine may not conduct). That is a real answer about this
+      // village's settings and it belongs on the page, never as a count of
+      // zero that reads like an empty village.
+      tooFew = `The roll could not be read: ${String(e?.message ?? e).slice(0, 160)}`;
+    }
+    return {
+      onTheRoll,
+      tooFew,
+      unityPct: threshold?.minUnityPct ?? null,
+      quorumPct: threshold?.minQuorumPct ?? null,
+      minElectorate: threshold?.minElectorate ?? null,
+      why: threshold?.why ?? null,
+      openBallot: openNow
+        ? {
+            id: openNow.id,
+            title: openNow.title,
+            closesAt: openNow.closesAt,
+            electorateCount: openNow.electorateCount,
+            voted: await voteCount(getPool(), openNow.id),
+          }
+        : null,
+      /*
+       * Every launch vote this village has ever held, newest first. A vote
+       * that missed its participation is part of the journey and the page
+       * says so, so nobody has to wonder whether the last attempt happened.
+       */
+      past: (await ballotsFor(getPool(), VILLAGE_LAUNCH, LAUNCH_SUBJECT_REF))
+        .filter((b) => b.status !== "open")
+        .map((b) => ({ id: b.id, status: b.status, closedAt: b.closedAt, outcomeNote: b.outcomeNote })),
+    };
+  }
+
   app.get("/api/admin/launch", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    res.json(await launchStatus(getPool(), launchDeps));
+    const status = await launchStatus(getPool(), launchDeps);
+    res.json({ ...status, gameStart: await readGameStart(getPool()), vote: await launchVoteFacts() });
   });
 
   /** Confirm a manual (real-world) item, attributed to the admin who did it. */
@@ -12965,7 +13040,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       kind: "audit", text: `launch:confirm:${req.body?.id}:${req.body?.done !== false ? "done" : "retracted"}`,
       actorUserId: actor, entityType: "launch", entityRef: String(req.body?.id ?? ""), audience: "admin",
     });
-    res.json({ success: true, status: await launchStatus(getPool(), launchDeps) });
+    const fresh = await launchStatus(getPool(), launchDeps);
+    res.json({ success: true, status: { ...fresh, gameStart: await readGameStart(getPool()), vote: await launchVoteFacts() } });
   });
 
   /**
@@ -14421,19 +14497,132 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json({ success: true });
   });
 
-  /** The one-way founder act. Blocking items must all read ok. */
-  app.post("/api/admin/launch/launched", async (req, res) => {
+  /**
+   * ── THE BUTTON STOPS MARKING AND STARTS PROPOSING (R74, lane GAMESTART) ──
+   *
+   * This route used to write a flag. The founder ruled that it should open the
+   * village's first ballot instead: "the 'mark the village launched' button
+   * actually generates the first proposal that requires 100% unity and 100%
+   * quorum to launch and a minimum of 3 people."
+   *
+   * R54's test is the whole reason it is worth the change. Marking a village
+   * launched was the scaffolding declaring the village open. Opening a vote is
+   * the scaffolding asking, and the village answering. Setup stays solitary,
+   * which is R67; starting is collective.
+   *
+   * THE FOUNDER STILL OPENS IT, and that is not the scaffolding keeping a
+   * power. A founder builds the whole Game alone by design, so a founder is
+   * the one who knows it is built. What they get is the right to ask. The
+   * answer belongs to everybody, and there is no number of admins that can
+   * carry it without the rest of the village.
+   *
+   * The thresholds and the floor come from `shared/ballotSubjects.ts` and are
+   * not written here, so the next subject that needs its own numbers does not
+   * copy this route's judgment.
+   */
+  app.post("/api/admin/launch/propose", async (req, res) => {
     const user = await authedUser(req);
     if (!user || user.role !== "founder") {
-      return res.status(403).json({ error: "Marking the village launched is a founder's act" });
+      return res.status(403).json({ error: "Asking the village to start its Game is a founder's act" });
     }
-    const r = await markLaunched(getPool(), launchDeps, user.id);
-    if (!r.ok) return res.status(409).json({ error: r.error, open: (r as any).open });
-    void recordEvent(getPool(), {
-      kind: "audit", text: "launch:launched", actorUserId: user.id,
-      entityType: "launch", entityRef: "launched", audience: "admin",
+
+    // The journey gates the QUESTION and never the answer: a village whose
+    // exit policy is still a placeholder is not ready to be asked.
+    const blocked = await launchVoteBlocked(getPool(), launchDeps);
+    if (blocked) return res.status(409).json({ error: blocked.error, open: blocked.open });
+
+    const running = await openBallotFor(getPool(), VILLAGE_LAUNCH, LAUNCH_SUBJECT_REF);
+    if (running) {
+      return res.status(409).json({
+        error: "The village is already voting on this.",
+        ballotId: running.id,
+      });
+    }
+
+    const snapshot = weightModeNow();
+    if (snapshot.mode === "token") {
+      const problem = weightTokenProblem(snapshot.token ?? "");
+      if (problem) return res.status(409).json({ error: problem });
+    }
+    const electorate = await buildElectorate();
+
+    // R67's floor of three, asked of the ELECTORATE and not the member list. A
+    // village of five where two people hold a voice would otherwise carry a
+    // 100% ballot with two, which is not a Game with three people in it.
+    const tooFew = electorateFloorProblem(VILLAGE_LAUNCH, electorate.length);
+    if (tooFew) return res.status(409).json({ error: tooFew, onTheRoll: electorate.length });
+
+    const villageMethod = villageBallotMethod(stringVar("governance.default_method"));
+    const conducts = methodForSubject(VILLAGE_LAUNCH, villageMethod);
+    // The subject fixes this one, so `hypha` is unreachable here. The branch
+    // stays because the type says it can happen, and a cast would be a claim
+    // about a registry this route does not own.
+    if (conducts === "hypha") {
+      return res.status(409).json({ error: "This village decides on Hypha, and there is no chain leg for a village starting its own Game" });
+    }
+    const method: BallotMethod = conducts;
+    const dials = dialsForSubject(VILLAGE_LAUNCH, method, {
+      unityPct: Math.max(0, numberVar("governance.unity_pct")),
+      quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
     });
-    res.json({ success: true });
+
+    const villageName = mergedConfig().project.name;
+    const doc = [
+      `# Start the Game`,
+      "",
+      `${villageName} is built. This vote is what starts it.`,
+      "",
+      "## What changes when this carries",
+      "",
+      "Token issuance turns on. Until then this village can be set up in every other way, and nothing can be issued to anybody.",
+      "",
+      "## What this vote asks",
+      "",
+      `Everyone on the roll votes, and everyone who takes a side agrees: ${dials.quorumPct}% participation and ${dials.unityPct}% agreement. ${electorate.length} people hold a voice today, and this vote is frozen to those ${electorate.length}.`,
+      "",
+      "An abstention counts toward participation and takes no side on the agreement.",
+      "",
+      `Every item on the journey to launch read done when ${firstName(user.name)} opened this, on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ].join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: VILLAGE_LAUNCH,
+      subjectRef: LAUNCH_SUBJECT_REF,
+      title: `Start the Game in ${villageName}`,
+      docMarkdown: doc,
+      method,
+      weightMode: snapshot.mode,
+      weightToken: snapshot.token,
+      unityPct: dials.unityPct,
+      quorumPct: dials.quorumPct,
+      durationDays: Math.max(1, numberVar("governance.vote_days")),
+      openedBy: user.id,
+      electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    // A fact on the public pulse, with nothing in it about being late or
+    // early. A village of two weeks and a village of two years open this same
+    // vote and the line reads the same for both (R55).
+    await addActivity("governance", `The village is deciding whether to start its Game: ${result.ballot.title}`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `launch:proposed:${result.ballot.id}`, actorUserId: user.id,
+      entityType: "launch", entityRef: result.ballot.id, audience: "admin",
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is deciding whether to start its Game`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. This one asks everyone on the roll, so it needs your answer to reach its participation.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
   });
 
   // â”€â”€ S53-S55: the automation pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -24186,6 +24375,17 @@ ${inner}
         core: !!m.core,
       })),
       governance: mechanicsGovernanceFacts(),
+      /*
+       * HAS THIS VILLAGE'S GAME STARTED (R67), where the rest of the product
+       * can read it. Every other consumer of this fact was admin-gated, so a
+       * member had no way to learn why nothing had ever been issued to them.
+       *
+       * This route already answers "what are the rules of this village's Game",
+       * and whether it has begun is the first of those. Anonymous like the rest
+       * of the payload, and it names no person: the ballot id points at a
+       * decision every member on the roll was already asked to vote in.
+       */
+      gameStart: await readGameStart(getPool()),
     });
   });
 
@@ -25518,6 +25718,116 @@ ${inner}
         actorUserId: actorId,
         entityType: "capability",
         entityRef: b.subjectRef,
+        audience: "admin",
+      });
+      return out;
+    },
+
+    /*
+     * ── THE GAME STARTS (lane GAMESTART, R67 and R74) ───────────────────────
+     *
+     * The rarest close a village will ever run, and the only one that turns a
+     * power on for everybody at once. What it does is small on purpose: it
+     * records two facts and issues nothing itself.
+     *
+     *   `recordGameStart`      token issuance opens (server/lib/gameStart.ts)
+     *   `recordLaunchCarried`  the launch journey has its answer, and the
+     *                          ballot that gave it
+     *
+     * TWO WRITES AND NOT ONE, and the reason is the deployment that already
+     * exists. Going forwards they are the same event, and this executor is the
+     * only thing that ever writes both. Looking back they are not: every
+     * village running today has been issuing for months without ever holding
+     * this vote, and migration 0112 records only the issuance half for them,
+     * with no ballot behind it. One flag for both would have had to either
+     * turn a live village dark or claim a vote nobody held.
+     *
+     * IDEMPOTENT TWICE OVER, like every executor here. `closeBallot` is a
+     * guarded `UPDATE ... WHERE status='open'`, so a second close returns
+     * `alreadyClosed` and never reaches this; and both writes are INSERT
+     * IGNORE or a read-then-skip on a row that already stands, so a run that
+     * did reach here twice leaves the first instant and the first ballot.
+     *
+     * A FAILURE TO REACH EVERYONE IS NOT A NO. At 100% participation, a
+     * village where one person never voted closes as `no_quorum`, and that
+     * branch says exactly that and leaves everything where it was. The vote
+     * can be asked again the same hour: `closeBallot` frees the open key, so a
+     * new ballot opens with a NEW freeze, and the one that missed stays closed
+     * and immutable with its own roll.
+     */
+    [VILLAGE_LAUNCH]: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? "Not everyone answered, so the Game has not started yet"
+              : "The village did not start its Game",
+          body:
+            outcome === "no_quorum"
+              ? "This vote asks for everyone on the roll. Nothing has changed and nothing is lost, and it can be asked again whenever the village is more gathered."
+              : `${outcomeNote}\n\nEverything stays as it was, and the village can be asked again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          // Keyed on the BALLOT: the same village can ask more than once, and
+          // whoever asked has to hear about each answer.
+          dedupeKey: `bal:${b.id}:launch-not-started`,
+        });
+        return out;
+      }
+
+      const started = await recordGameStart(getPool(), {
+        ballotId: b.id,
+        startedBy: actorId,
+        note: "The village voted to start its Game.",
+      });
+      const carried = await recordLaunchCarried(getPool(), { ballotId: b.id, closedBy: actorId });
+      if (!started.started) {
+        /*
+         * A refusal is held, never swallowed. Nothing today can reach this,
+         * because `recordGameStart` writes the row and reads it straight back
+         * in the same call, so the only way here is the write failing silently.
+         * A village whose vote carried is owed the reason instead of a page
+         * that says a Game started while nothing can be issued.
+         */
+        out.held = "The vote carried and this build could not record the Game as started. Report this.";
+        await notifyAdmins("governance", `A carried launch vote could not land: ${b.title}`, `bal:${b.id}:launch-held`);
+        return out;
+      }
+
+      // `applied` is what a close CHANGED, and this close changed exactly one
+      // thing about the world. The decision page renders it beside the outcome.
+      out.applied = carried.alreadyRecorded ? [] : ["game.started"];
+      out.proposerTold = b.openedBy;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village started its Game: ${b.title}`,
+        body: "Token issuance is open from today, by a vote every member on the roll took part in.",
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:launch-carried`,
+      });
+      /*
+       * ON THE PUBLIC PULSE, and phrased as a fact about the village and not
+       * about whoever closed the vote. This is the one line in the feed that a
+       * village will still be reading in five years.
+       */
+      await addActivity("governance", `The village started its Game, by a vote of everyone on the roll.`, {
+        actorUserId: actorId,
+        entityType: "ballot",
+        entityRef: b.id,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `launch:started-by-ballot:${b.id}`,
+        actorUserId: actorId,
+        entityType: "launch",
+        entityRef: b.id,
         audience: "admin",
       });
       return out;
