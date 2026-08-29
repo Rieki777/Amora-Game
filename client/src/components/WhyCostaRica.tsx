@@ -36,7 +36,7 @@ const POINTS = [
     icon: MapPin,
     title: "Southern Zone Location",
     body:
-      "Dominicalito sits between Dominical and Uvita, 3.5 hours from San Jose, 20 min from Uvita airport (charter), 45 min from Quepos. Surf, national parks, and international infrastructure within reach.",
+      "Say where the land sits, what it sits between, and how long the drive is from the nearest airports. Surf, national parks, and international infrastructure within reach.",
   },
   {
     icon: TrendingUp,
