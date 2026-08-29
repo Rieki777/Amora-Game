@@ -8570,19 +8570,26 @@ function TokensTab({ password }: { password: string }) {
   const [form, setForm] = useState({ slug: "", name: "", kind: "credit", transferable: false });
   const [mint, setMint] = useState({ slug: "", toUserId: "", amount: "", reason: "" });
   const [renaming, setRenaming] = useState<{ slug: string; name: string } | null>(null);
+  /** 0106: grants waiting for a second steward, and the ones already decided. */
+  const [grants, setGrants] = useState<any[]>([]);
+  const [cosignOver, setCosignOver] = useState<number>(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [tRes, pRes] = await Promise.all([
+      const [tRes, pRes, gRes] = await Promise.all([
         fetch(`${API_BASE}/admin/tokens`, { headers: authHeaders(password) }),
         fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/admin/mint-requests`, { headers: authHeaders(password) }),
       ]);
       const t = await tRes.json();
       const p = await pRes.json();
+      const g = await gRes.json();
       setTokens(Array.isArray(t.tokens) ? t.tokens : []);
       setMintCap(Number(t.mintCapPerCycle) || 0);
       setPlayers(Array.isArray(p) ? p : []);
+      setGrants(Array.isArray(g.requests) ? g.requests : []);
+      setCosignOver(Number(g.cosignOver) || 0);
     } catch { setTokens([]); }
     setLoading(false);
   }, [password]);
@@ -8682,10 +8689,48 @@ function TokensTab({ password }: { password: string }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(refusal(data, "failed"));
-      toast.success(`Minted: ${data.remaining} left under this cycle's cap`);
+      /*
+       * 0106: a grant over `ledger.admin_mint_cosign_over` answers 202 and
+       * moves nothing. Saying "Minted" here would be the product telling a
+       * steward something that did not happen, which is the one thing a
+       * message may never do.
+       */
+      if (data.pending) toast.success(data.message || "Recorded. Awaiting a second steward's sign-off");
+      else toast.success(`Minted: ${data.remaining} left under this cycle's cap`);
       setMint({ slug: "", toUserId: "", amount: "", reason: "" });
       load();
     } catch (e: any) { toast.error(e?.message || "Mint failed"); }
+  };
+
+  /** The SECOND steward agrees. The amount and token come from the record. */
+  const signGrant = async (id: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/mint-requests/${id}/approve`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(refusal(data, "failed"));
+      toast.success("Signed. The grant is credited");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Could not sign that grant"); }
+  };
+
+  const declineGrant = async (id: string) => {
+    const note = window.prompt("Why are you turning this down? The record keeps it.") ?? "";
+    if (note === null) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/mint-requests/${id}/decline`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ reason: note }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(refusal(data, "failed"));
+      toast.success("Turned down. The cap has its room back");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Could not turn that grant down"); }
   };
 
   // Minting into an example token is refused, and no ledger row exists for
@@ -8864,6 +8909,13 @@ function TokensTab({ password }: { password: string }) {
               Issues from the dedicated mint faucet, with a reason, audited. All admins
               together can mint at most {mintCap.toLocaleString()} per token per lunar
               cycle (ledger.admin_mint_cycle_cap).
+              {/* State what is true, then get out of the way (R56). Both of
+                  these are facts about what the route will do, and neither
+                  argues with the village about its own dials. */}
+              {" "}Minting to your own account is refused.
+              {cosignOver > 0
+                ? ` A grant over ${cosignOver.toLocaleString()} waits for a second steward to agree before anything moves (ledger.admin_mint_cosign_over).`
+                : " A second steward is not asked for at any amount (ledger.admin_mint_cosign_over is 0)."}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <select value={mint.slug} onChange={(e) => setMint({ ...mint, slug: e.target.value })}
@@ -8886,6 +8938,55 @@ function TokensTab({ password }: { password: string }) {
               </button>
             </div>
           </div>
+
+          {/*
+            0106: THE GRANTS RECORD.
+            Every admin sees the same list, waiting first. A queue only its
+            author can read is a drawer, and the point of a second signature is
+            that somebody else saw it. The decided rows stay because who agreed
+            to what, and when, is the record itself.
+          */}
+          {grants.length > 0 && (
+            <div className="border border-gray-200 rounded-xl p-5">
+              <h3 className="font-semibold text-gray-900 mb-1">Grants and their signatures</h3>
+              <p className="text-xs text-gray-500 mb-3">
+                A grant over the threshold moves nothing until a second steward agrees.
+                Whoever asked for it cannot be the one who signs it.
+              </p>
+              <div className="space-y-2">
+                {grants.map((g) => (
+                  <div key={g.id} className="flex flex-wrap items-center gap-3 border border-gray-100 rounded-lg px-3 py-2.5">
+                    <div className="flex-1 min-w-64">
+                      <p className="text-sm text-gray-900">
+                        <strong>{Number(g.amount).toLocaleString()} {g.tokenName}</strong>
+                        {" to "}{g.toName ?? g.toUserId}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {g.reason}
+                        {" · asked for by "}{g.requestedByName ?? g.requestedBy}
+                        {g.status === "pending"
+                          ? " · waiting for a second steward"
+                          : ` · ${g.status} by ${g.decidedByName ?? g.decidedBy}${g.decidedAt ? ` on ${new Date(g.decidedAt).toLocaleDateString()}` : ""}`}
+                        {g.decisionNote ? ` · "${g.decisionNote}"` : ""}
+                      </p>
+                    </div>
+                    {g.status === "pending" && (
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => signGrant(g.id)}
+                          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-2 font-medium">
+                          Sign it
+                        </button>
+                        <button onClick={() => declineGrant(g.id)}
+                          className="text-sm border border-gray-200 text-gray-700 rounded-lg px-3 py-2 font-medium">
+                          Turn it down
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

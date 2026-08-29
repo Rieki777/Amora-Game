@@ -145,6 +145,18 @@ export const VARIABLES: VariableDef[] = [
     max: 10000000,
     unit: "tokens",
   },
+  {
+    key: "ledger.admin_mint_cosign_over",
+    category: "Ledger",
+    label: "Second steward needed above",
+    description:
+      "A hand-mint larger than this waits for a SECOND steward to agree before any tokens move. The record keeps who asked, who agreed, when, and the exact amount and token, so nobody can change what was signed for afterwards. 0 turns the second signature off. Minting to your own account is refused at any amount and this dial does not reach that rule.",
+    type: "integer",
+    default: "100",
+    min: 0,
+    max: 10000000,
+    unit: "tokens",
+  },
   // ── The economy engine's own dials ────────────────────────────────────────
   //
   // These are separate from `gratitude.base_budget` and
