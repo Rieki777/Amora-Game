@@ -3459,9 +3459,34 @@ function QuestsTab({ password }: { password: string }) {
                     simply does not render. */}
                 <details className="mt-3 rounded-lg border border-gray-100 bg-gray-50/50 px-3 py-2">
                   <summary className="text-xs font-semibold text-gray-600 cursor-pointer select-none">
-                    Story, steps, and poster
+                    Story, effort, steps, and poster
                   </summary>
                   <div className="grid sm:grid-cols-2 gap-2 mt-3">
+                    {/* Difficulty, duration and impact were in the save payload
+                        and in the dirty check from the day the story layer
+                        shipped, with no field bound to any of them. The server
+                        took all three and a founder had no door to reach them,
+                        so every admin-posted quest kept whatever the seed left
+                        behind. Difficulty is the load-bearing one: ringFor
+                        reads it to place the quest on the board. */}
+                    <label className="text-xs text-gray-500">Difficulty
+                      {/* A select, not a free text box. The three words are a
+                          vocabulary the board reads: QuestCard colours by them,
+                          the Quests filter chips match on them exactly, and
+                          ringFor compares against "Beginner" character for
+                          character. A typed "beginner" would drop the colour
+                          and move the quest out of Start here with nothing
+                          said. */}
+                      <select value={d.difficulty ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, difficulty: e.target.value } })} className={`${inputCls} w-full mt-1`}>
+                        <option value="">Not set</option>
+                        <option value="Beginner">Beginner</option>
+                        <option value="Intermediate">Intermediate</option>
+                        <option value="Advanced">Advanced</option>
+                      </select>
+                    </label>
+                    <label className="text-xs text-gray-500">Time it takes
+                      <input value={d.duration ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, duration: e.target.value } })} placeholder="90 minutes, Two mornings, Flexible" className={`${inputCls} w-full mt-1`} />
+                    </label>
                     <label className="text-xs text-gray-500">Subtitle
                       <input value={d.subtitle ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, subtitle: e.target.value } })} className={`${inputCls} w-full mt-1`} />
                     </label>
@@ -3470,6 +3495,12 @@ function QuestsTab({ password }: { password: string }) {
                     </label>
                     <label className="text-xs text-gray-500 sm:col-span-2">Why it matters
                       <textarea value={d.story ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, story: e.target.value } })} rows={3} className={`${inputCls} w-full mt-1 resize-y`} />
+                    </label>
+                    {/* A textarea rather than a one-line input: the quest page
+                        prints this as a pull quote under Why it matters, and
+                        the seeded ones run to two full sentences. */}
+                    <label className="text-xs text-gray-500 sm:col-span-2">What changes because of it
+                      <textarea value={d.impact ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, impact: e.target.value } })} rows={2} className={`${inputCls} w-full mt-1 resize-y`} />
                     </label>
                     <label className="text-xs text-gray-500">Steps, one per line
                       <textarea value={d.stepsText ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, stepsText: e.target.value } })} rows={4} className={`${inputCls} w-full mt-1 resize-y`} />
@@ -3484,6 +3515,9 @@ function QuestsTab({ password }: { password: string }) {
                       <input value={d.imageUrl ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, imageUrl: e.target.value } })} placeholder="/api/uploads/quest-01.webp" className={`${inputCls} w-full mt-1`} />
                     </label>
                   </div>
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    Beginner places this quest in the board's Start here ring. Any other setting, and an empty one, place it under The village. A stage floor or a role requirement moves it to Further in whatever you pick.
+                  </p>
                   <p className="text-[11px] text-gray-400 mt-2">
                     A poster comes through the village's own upload, so its path starts with /api/uploads/. Leave it empty and the card paints a scene from the quest's circle.
                   </p>
