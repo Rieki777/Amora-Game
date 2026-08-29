@@ -1143,6 +1143,10 @@ const investorDocsRepo = dbCollection(getPool(), {
     { js: "description", db: "description" },
     { js: "url", db: "url" },
     { js: "requiresRequest", db: "requires_request", kind: "bool" },
+    // 0104. The per-document packet choice. `kind: "bool"` matters: an absent
+    // key writes 0 rather than NULL, so a row can never arrive with the
+    // question unanswered.
+    { js: "inPacket", db: "in_packet", kind: "bool" },
     { js: "order", db: "sort_order", kind: "int" },
     // 0099. The upload route collected both of these and had nowhere to put
     // them, which is half of why its insert threw on every press.
@@ -18629,6 +18633,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
       description: null,
       url: `/api/uploads/${filename}`,
       requiresRequest: false,
+      // 0104. A newly uploaded document is NOT in the packet. Putting it there
+      // is a separate press, made by a person who meant it. Uploading the cap
+      // table must never be the same gesture as emailing it to strangers.
+      inPacket: false,
       order: investorDocsRepo.all().length + 1,
       pageLink,
       uploadedAt: new Date().toISOString(),
@@ -18648,6 +18656,40 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json(entry);
   });
 
+  /*
+   * ── THE PACKET CHOICE, MADE BY A PERSON, ONE DOCUMENT AT A TIME ─────────
+   *
+   * `POST /api/investor-docs/request` is public and unauthenticated, and it
+   * used to read the WHOLE vault and email every row as a download link to
+   * whatever address a stranger typed. The vault holds the cap table.
+   *
+   * This is the press that puts one document in the packet, and it is the only
+   * way a document ever gets there. A column no screen can set is a gate
+   * nobody can open, so the Investor Vault tab in Admin drives this route.
+   */
+  app.patch("/api/admin/investor-docs/:id", async (req, res) => {
+    if (!(await isAdmin(req))) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    // Only a real boolean. An absent or fuzzy value must not be read as a
+    // decision to publish somebody's financials.
+    const inPacket = req.body?.inPacket;
+    if (typeof inPacket !== "boolean") {
+      return res.status(400).json({ error: "inPacket must be true or false" });
+    }
+    const docs: any[] = investorDocsRepo.all();
+    const target = docs.find((d) => d.id === req.params.id);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    // `replaceAll` is the only write this repo offers besides `insert`, and the
+    // delete route beside this one already uses it. A whole-table rewrite can
+    // race a concurrent writer; on a vault an admin edits by hand, a few rows
+    // at a time, that is the trade the available primitive forces.
+    await investorDocsRepo.replaceAll(
+      docs.map((d) => (d.id === req.params.id ? { ...d, inPacket } : d)),
+    );
+    res.json({ id: target.id, title: target.title, inPacket });
+  });
+
   app.delete("/api/admin/investor-docs/:id", async (req, res) => {
     if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "auth_required" });
@@ -18662,13 +18704,42 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // has a file to remove; an imported row pointing at an external address
     // must not have anything unlinked on its behalf.
     const url = String(target.url ?? "");
+    /*
+     * SAY SO WHEN THE FILE OUTLIVES THE ROW.
+     *
+     * `/api/uploads/:filename` has no authentication, so the file IS the
+     * secret: anyone holding the link can still fetch it after the row is
+     * gone, and there is no second revocation path for a vault document.
+     * A swallowed unlink error under a flat `{success: true}` told the founder
+     * the cap table was withdrawn while it was still being served. Removing
+     * the row is what makes the link unfindable; removing the file is what
+     * makes it dead. When only the first happened, the answer has to say so.
+     */
+    let fileRemoved: boolean | null = null;
     if (url.startsWith("/api/uploads/")) {
       const filePath = path.join(UPLOADS_DIR, path.basename(url));
       if (fs.existsSync(filePath)) {
-        try { fs.unlinkSync(filePath); } catch (err) { console.error("[VAULT] Failed to delete file", err); }
+        try {
+          fs.unlinkSync(filePath);
+          fileRemoved = true;
+        } catch (err) {
+          console.error("[VAULT] Failed to delete file", err);
+          fileRemoved = false;
+        }
+      } else {
+        fileRemoved = true; // nothing there to serve
       }
     }
-    res.json({ success: true });
+    res.json({
+      success: true,
+      fileRemoved,
+      ...(fileRemoved === false
+        ? {
+            warning:
+              "The document was removed from the vault, but its file is still on the server and anyone holding the old link can still open it. Please tell your administrator.",
+          }
+        : {}),
+    });
   });
 
   /*
@@ -18876,6 +18947,36 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!name || !email || typeof accredited !== "boolean") {
       return res.status(400).json({ error: "Missing required fields" });
     }
+    /*
+     * ── ONLY WHAT A PERSON CHOSE ───────────────────────────────────────────
+     *
+     * This read `investorDocsRepo.all()` and turned EVERY row into a download
+     * link in an email sent to whatever address a stranger typed. There was no
+     * per-document gate anywhere in the path, and this is the vault a founder
+     * keeps the cap table in. `/api/uploads/<file>` has no authentication of
+     * its own, so each link is a bearer credential that never expires and can
+     * be forwarded to anyone.
+     *
+     * `inPacket` (0104) is the explicit choice an admin makes, one document at
+     * a time, through `PATCH /api/admin/investor-docs/:id`. It defaults to
+     * false, so a document is private until somebody says otherwise, and the
+     * strict `=== true` means a row that somehow arrived without an answer is
+     * treated as private rather than published.
+     *
+     * Computed BEFORE the lead is written, so the lead can record what went.
+     */
+    const packet: any[] = investorDocsRepo.all().filter((d) => d.inPacket === true);
+
+    /*
+     * Whether a mailer is configured at all is a DEPLOYMENT fact, and it is a
+     * different question from which documents this requester was released.
+     * `sendResendEmail` already refuses and logs when there is no key. Keeping
+     * the two apart is what lets the lead record and the answer below both be
+     * true on both axes at once.
+     */
+    const cfg = getEmailConfig();
+    const emailConfigured = Boolean(cfg.resend_api_key);
+
     // Save lead — one INSERT, not snapshot→push→replaceAll (the whole-table
     // rewrite raced concurrent writers and dropped rows).
     const entry = {
@@ -18889,12 +18990,33 @@ Send an empty drafts array when you are still listening. A role payload is {name
       // other two submission writers set both; this one was the outlier.
       status: "new",
       rewarded: false,
-      data: { name, email, accredited: accredited ? "yes" : "no" },
+      data: {
+        name,
+        email,
+        accredited: accredited ? "yes" : "no",
+        /*
+         * WHAT THIS PERSON WAS ACTUALLY SENT, kept with the lead.
+         *
+         * A founder asked "what did this person receive" a year later and the
+         * honest answer was a shrug. Titles and ids, never the URLs: the lead
+         * table is read by the admin list, the CSV export and the notification
+         * email, and copying a bearer link into all three would spread the
+         * thing this fix exists to contain.
+         */
+        documentsSent: packet.map((d) => ({ id: String(d.id), title: String(d.title ?? "Document") })),
+        /*
+         * And whether an email was dispatched at all, because the list above
+         * is the packet and this is the postage. `sendResendEmail` refuses and
+         * logs when the village has no key configured, so without this a lead
+         * reading "Cap Table 2026" would suggest a person received a document
+         * that never left the building.
+         */
+        emailed: emailConfigured,
+      },
       submittedAt: new Date().toISOString(),
     };
     await submissionsRepo.insert(entry);
 
-    const docs: any[] = investorDocsRepo.all();
     /*
      * The origin comes from OUR configuration, never from the request.
      *
@@ -18908,8 +19030,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const origin = notifyDeps.origin();
 
     // Email the investor with download links
-    const cfg = getEmailConfig();
-    if (cfg.resend_api_key && email) {
+    if (email) {
       /*
        * READ THE COLUMNS THE TABLE ACTUALLY HAS, for the same reason the
        * upload route now writes them. This addressed `d.filename` and `d.name`,
@@ -18919,7 +19040,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
        * of the break had nothing to show it on.
        */
       const absolute = (link: string) => (/^https?:\/\//i.test(link) ? link : `${origin}${link}`);
-      const links = docs
+      const links = packet
         .map((d) => {
           const href = absolute(String(d.url ?? ""));
           const label = String(d.title ?? "Document");
@@ -18929,34 +19050,88 @@ Send an empty drafts array when you are still listening. A role payload is {name
           return `<li style="margin:8px 0"><a href="${escapeHtml(href)}" style="color:#2D5A5A;font-weight:600">${escapeHtml(label)}</a>${onSite}</li>`;
         })
         .join("");
-      const html = `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">
+      const shell = (heading: string, inner: string) => `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">
 <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
-  <div style="background:#2D5A5A;color:#fff;padding:24px"><div style="font-size:22px;font-weight:700">Your Amora Investor Packet</div></div>
+  <div style="background:#2D5A5A;color:#fff;padding:24px"><div style="font-size:22px;font-weight:700">${escapeHtml(heading)}</div></div>
   <div style="padding:24px">
     <p>Hi ${escapeHtml(name)},</p>
-    <p>Thank you for your interest in investing in Amora. Below are the documents in our current investor packet:</p>
-    <ul style="padding-left:18px">${links || "<li>No documents available yet. Our team will follow up shortly.</li>"}</ul>
-    <p style="margin-top:20px">A team member will be in touch within 48 hours to answer your questions.</p>
-    <p style="color:#6b7280;font-size:13px;margin-top:24px">The Amora Team</p>
+${inner}
+    <p style="color:#6b7280;font-size:13px;margin-top:24px">The ${escapeHtml(notifyDeps.projectName())} Team</p>
   </div>
 </div></body></html>`;
+
+      /*
+       * A "HERE IS YOUR PACKET" EMAIL WITH NO PACKET IN IT IS A CLAIM.
+       *
+       * The old copy always announced "Your Amora Investor Packet" and, when
+       * the list came out empty, filled the bullet with "No documents
+       * available yet". That is a heading promising a thing the body then
+       * takes back, and it is the same defect as a decision that CARRIED
+       * reading "Did not carry" because a fallback invented the answer.
+       *
+       * So there are two different emails, and which one is sent comes from
+       * what actually happened. Nobody is told a packet is attached unless
+       * documents really went with it.
+       */
+      const html = packet.length
+        ? shell(`Your ${notifyDeps.projectName()} Investor Packet`, `    <p>Thank you for your interest in investing in ${escapeHtml(notifyDeps.projectName())}. Below are the documents in our current investor packet:</p>
+    <ul style="padding-left:18px">${links}</ul>
+    <p style="margin-top:20px">A team member will be in touch within 48 hours to answer your questions.</p>`)
+        : shell(`Thank you for your interest in ${notifyDeps.projectName()}`, `    <p>Thank you for your interest in investing in ${escapeHtml(notifyDeps.projectName())}. We have your request and a member of our team will be in touch within 48 hours to talk it through with you.</p>`);
       await sendResendEmail({
         to: [email],
-        subject: `Your ${notifyDeps.projectName()} Investor Packet`,
+        subject: packet.length
+          ? `Your ${notifyDeps.projectName()} Investor Packet`
+          : `Thank you for your interest in ${notifyDeps.projectName()}`,
         html,
       });
-      // Also notify the investor team
+      // Also notify the investor team. The admins are told what the requester
+      // was actually sent, so an empty packet reaches a person who can act on
+      // it rather than sitting silently in a table.
       const investorTeam = recipientsForType("investor-doc-request");
       if (investorTeam.length) {
         await sendResendEmail({
           to: investorTeam,
-          subject: `[${notifyDeps.projectName()}] New investor doc request from ${name}`,
-          html: buildSubmissionEmailHtml("investor-doc-request", { name, email, accredited }, `${origin}/admin`),
+          subject: packet.length
+            ? `[${notifyDeps.projectName()}] New investor doc request from ${name}`
+            : `[${notifyDeps.projectName()}] Investor doc request from ${name}, no documents in the packet`,
+          html: buildSubmissionEmailHtml(
+            "investor-doc-request",
+            {
+              name,
+              email,
+              accredited,
+              "documents sent": packet.length
+                ? packet.map((d) => String(d.title ?? "Document")).join(", ")
+                : "none, the packet is empty. Nobody will receive documents until a document is put in the packet in Admin.",
+            },
+            `${origin}/admin`,
+          ),
         });
       }
     }
 
-    res.json({ success: true, message: "Check your email for the documents." });
+    /*
+     * SAY WHAT HAPPENED, NOT WHAT USUALLY HAPPENS.
+     *
+     * This answered "Check your email for the documents." every single time,
+     * including when the vault was empty, when nothing had been chosen, and
+     * when no Resend key was configured so no email could go at all. A
+     * sentence the product says has to come from what happened.
+     *
+     * `documentsSent` counts the documents released into this requester's
+     * packet, which is the number the lead record keeps and the number that
+     * bounds the leak. The message is separate, because a person is only told
+     * to go and look in their inbox when something can actually arrive there.
+     */
+    const followUp = "Thank you. We have your request and a member of our team will be in touch within 48 hours.";
+    res.json({
+      success: true,
+      documentsSent: packet.length,
+      message: emailConfigured && packet.length
+        ? "Your packet is on its way. Please check your email."
+        : followUp,
+    });
   });
 
   // â”€â”€ Training Modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

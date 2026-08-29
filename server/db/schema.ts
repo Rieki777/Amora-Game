@@ -208,8 +208,26 @@ export const investorDocs = mysqlTable("investor_docs", {
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   url: varchar("url", { length: 1000 }),
-  /** Doc vault gating, if the record carries it. */
+  /**
+   * Written as a literal `false` by the upload route and READ BY NOTHING. It
+   * has never gated anything. The comment here used to say "Doc vault gating,
+   * if the record carries it", which described a gate that was never built.
+   *
+   * The packet choice lives on `in_packet` below rather than here, because
+   * this name has two honest readings and a gate cannot afford either one:
+   * `requires_request = false` reads equally well as "no request needed, so
+   * send it freely" and as "never send it". Kept rather than dropped so a
+   * rollback to the previous release can still insert a row, since
+   * `dbCollection` names every spec'd column on every insert.
+   */
   requiresRequest: boolean("requires_request").default(false).notNull(),
+  /**
+   * 0104. The explicit, per-document choice a human makes: is this document
+   * part of the investor packet that `POST /api/investor-docs/request` emails?
+   * Default false, so nothing is in the packet until somebody says so, and no
+   * row that already existed was opted in.
+   */
+  inPacket: boolean("in_packet").default(false).notNull(),
   sortOrder: int("sort_order").default(0).notNull(),
   /** 0099. The "view on site" link the admin form has always collected. */
   pageLink: varchar("page_link", { length: 1000 }),

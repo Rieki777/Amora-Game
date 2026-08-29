@@ -1792,6 +1792,11 @@ interface InvestorDoc {
   url: string;
   pageLink: string | null;
   uploadedAt: string | null;
+  /**
+   * 0104. Is this document part of the packet the public request form emails?
+   * False for everything until a person says otherwise.
+   */
+  inPacket: boolean;
 }
 
 function InvestorVaultTab({ password }: { password: string }) {
@@ -1845,6 +1850,33 @@ function InvestorVaultTab({ password }: { password: string }) {
     setUploading(false);
   };
 
+  /**
+   * The one press that puts a document in the investor packet, or takes it out.
+   *
+   * The public request form emails the packet to anyone who asks, so this is
+   * the press that decides what a stranger can receive. The server's answer is
+   * read before the screen changes: a toggle that flips itself and then finds
+   * out is how an admin ends up believing the cap table is private.
+   */
+  const setInPacket = async (id: string, next: boolean) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/investor-docs/${id}`, {
+        method: "PATCH",
+        headers: { ...authHeaders(password), "Content-Type": "application/json" },
+        body: JSON.stringify({ inPacket: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). Nothing changed.`));
+        return;
+      }
+      toast.success(next ? "Added to the investor packet" : "Removed from the investor packet");
+      load();
+    } catch {
+      toast.error("That did not reach the server. Nothing changed.");
+    }
+  };
+
   const remove = async (id: string) => {
     if (!confirm("Delete this document permanently?")) return;
     try {
@@ -1854,7 +1886,19 @@ function InvestorVaultTab({ password }: { password: string }) {
         toast.error(refusal(body, `The server refused that (${res.status}). The document is still here.`));
         return;
       }
-      toast.success("Deleted");
+      /*
+       * The row going away is not proof the file went away. `/api/uploads/`
+       * has no authentication, so anyone still holding the old link can open
+       * the document until the file itself is gone. The server now says which
+       * of the two happened, and a half-delete has to reach the person who
+       * pressed the button.
+       */
+      const body = await res.json().catch(() => null);
+      if (body?.fileRemoved === false) {
+        toast.error(String(body.warning ?? "The record is gone, and its file is still on the server."), { duration: 12000 });
+      } else {
+        toast.success("Deleted");
+      }
       load();
     } catch {
       toast.error("That did not reach the server. The document is still here.");
@@ -1866,9 +1910,21 @@ function InvestorVaultTab({ password }: { password: string }) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Investor Vault</h2>
+          {/*
+            State what is true and then get out of the way. The old line said
+            "Documents shared with investors after they request the packet",
+            and every document really was shared with anyone who filled in the
+            public form. A count is a fact the founder can act on.
+          */}
           <p className="text-sm text-gray-500 mt-1">
-            Documents shared with investors after they request the packet.
+            Everything you upload stays private. The public request form emails
+            only the documents you tick as in the packet.
           </p>
+          {!loading && (
+            <p className="text-sm text-gray-500 mt-1">
+              {docs.filter((d) => d.inPacket).length} of {docs.length} in the packet.
+            </p>
+          )}
         </div>
       </div>
 
@@ -1950,6 +2006,17 @@ function InvestorVaultTab({ password }: { password: string }) {
                   {d.uploadedAt ? ` · ${new Date(d.uploadedAt).toLocaleDateString()}` : ""}
                 </div>
               </div>
+              <label className="flex items-center gap-2 mr-3 shrink-0 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={d.inPacket}
+                  onChange={(e) => setInPacket(d.id, e.target.checked)}
+                  className="w-4 h-4 accent-[#2D5A5A] cursor-pointer"
+                />
+                <span className={`text-xs font-medium ${d.inPacket ? "text-[#2D5A5A]" : "text-gray-400"}`}>
+                  {d.inPacket ? "In the packet" : "Private"}
+                </span>
+              </label>
               <button
                 onClick={() => remove(d.id)}
                 className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
