@@ -19979,12 +19979,29 @@ ${inner}
    */
   const UPLOADS_PATH = /^\/api\/uploads\//i;
 
-  /** The path out of whatever link shape was pasted, or the input unchanged. */
+  /**
+   * The path a browser would actually ask the server for.
+   *
+   * Parsed rather than pattern-matched, and that is the second version. The
+   * first stripped an optional scheme and authority by hand, which read the
+   * three shapes an admin pastes (a bare path, a protocol-relative link, the
+   * absolute one an address bar hands over) and NOT the normalizing a browser
+   * does before it sends: `/api/./uploads/cap-table.pdf` and
+   * `/api/x/../uploads/cap-table.pdf` both arrive at the file and both slipped
+   * straight past a prefix test. A guard has to read the same path the server
+   * will be asked for, so it uses the same parser.
+   *
+   * A LINK ON SOMEBODY ELSE'S HOST WHOSE PATH IS ALSO /api/uploads/ IS
+   * REFUSED TOO, and that is the direction to be wrong in. It costs a founder
+   * one readable sentence on a link almost nobody has, and the alternative
+   * trusts a hostname comparison to decide whether to publish a cap table.
+   */
   function linkPath(raw: string): string {
-    const scheme = /^[a-z][a-z0-9+.-]*:\/\/(.*)$/i.exec(raw);
-    if (scheme) return scheme[1].replace(/^[^/]*/, "");
-    if (raw.startsWith("//")) return raw.slice(2).replace(/^[^/]*/, "");
-    return raw;
+    try {
+      return new URL(raw, "http://village.invalid").pathname;
+    } catch {
+      return raw;
+    }
   }
 
   function vaultLinkProblem(value: unknown): string | null {

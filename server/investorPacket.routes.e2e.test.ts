@@ -293,6 +293,19 @@ describe.skipIf(!DB_CONFIGURED)("a vault link cannot be published as a call to a
     expect(res.status, res.text).toBe(400);
   });
 
+  it("reads the path a browser would ask for, dots and all", async () => {
+    // Self-audit, second finding. A browser normalizes `/api/./uploads/x` and
+    // `/api/x/../uploads/y` before it sends them, so both reach the file while
+    // a plain prefix test on the pasted text sees neither.
+    const url = await vaultUrl();
+    const file = url.slice("/api/uploads/".length);
+    const before = await call("GET", "/api/admin/investor-summary");
+    for (const dodge of [`/api/./uploads/${file}`, `/api/elsewhere/../uploads/${file}`]) {
+      const res = await call("PUT", "/api/admin/investor-summary", { ...before.json, cta_url: dodge });
+      expect(res.status, `${dodge}: ${res.text}`).toBe(400);
+    }
+  });
+
   it("checks a list of links link by link, which my first draft did not", async () => {
     // Self-audit after everything was green. The walk called String() on the
     // whole value, so an array whose FIRST entry is innocent read as one
