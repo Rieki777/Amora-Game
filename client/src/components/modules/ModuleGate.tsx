@@ -16,8 +16,10 @@
  * NotFound, so a shared link to a module the village had not enabled read as
  * a page that never existed. Rye's ruling: [this land project hasn't enabled
  * this module. reach out to the admin team or make a proposal to initiate
- * this module in your village(s).] - so the card says that, with the
- * project's configured name, never a hardcoded one.
+ * this module in your village(s).] The card carries the project's configured
+ * name, never a hardcoded one, and it still says who to ask. What it no
+ * longer says is "make a proposal", because nothing in this product turns a
+ * module on by proposal; the note over `ModuleOff` below has the working.
  *
  * ── WHAT THE SIGN-IN CARD OWES A VISITOR ─────────────────────────────────
  *
@@ -210,14 +212,33 @@ export function SignInToSee({
 }
 
 /**
- * The module-off card, in the founder's ruled words. Rendered for a module
- * the caller knows exists (it named it) but the manifest does not serve:
- * off, or preview a visitor cannot see. The page keeps the site shell so a
- * shared link lands somewhere with a menu, never on a dead end.
+ * The module-off card. Rendered for a module the caller knows exists (it
+ * named it) but the manifest does not serve: off, or preview a visitor
+ * cannot see. The page keeps the site shell so a shared link lands somewhere
+ * with a menu, never on a dead end.
  *
- * The ruled paragraph and its home button are untouched. What is added under
- * them is a separate fact about what this reader CAN reach, which argues with
- * nothing and leaves the ruling the only sentence on the subject.
+ * ── THE SECOND DOOR CAME OUT, AND HERE IS WHY ────────────────────────────
+ *
+ * The ruled sentence used to end "…or make a proposal to initiate it in your
+ * village", and this card is mounted on 22 pages, so that was the product's
+ * most-rendered instruction. It named an act the product cannot perform.
+ * A module's lifecycle is written in exactly one place, `setModuleLifecycle`
+ * in server/lib/modules.ts, reached by exactly one route,
+ * `PUT /api/admin/modules/:id/lifecycle`, which refuses anyone who is not an
+ * admin. The proposal wizard publishes eight kinds (role_application,
+ * mechanics, agreement, badge_grant, quest_payout, power_transfer,
+ * power_grant, power_return) and not one of them touches a lifecycle. So no
+ * proposal any member can write turns a module on.
+ *
+ * It was worst on `/propose` itself, where governance being off is the very
+ * reason this card is showing: the page told the reader to go and do the
+ * thing they were standing in front of, refused. Two QA passes found that
+ * independently.
+ *
+ * R56 says state what is true and then get out of the way, so the sentence
+ * now says who can turn it on, which is true on every one of the 22 pages
+ * and true for a signed-out reader who has no account to propose with. The
+ * fact about what this reader CAN still reach stays underneath it.
  */
 export function ModuleOff({ name }: { name: string }) {
   const cfg = useGameConfig();
@@ -226,8 +247,8 @@ export function ModuleOff({ name }: { name: string }) {
   return (
     <GateShell name={name}>
       <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-        {project} hasn't enabled this module. Reach out to the admin team,
-        or make a proposal to initiate it in your village.
+        {project} hasn't enabled this module. Only the team running the village can
+        turn it on, so ask them if you would like it open.
       </p>
       <Link href="/" className={`${DOOR_PRIMARY} mb-6`}>
         Back to the village

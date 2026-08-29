@@ -280,7 +280,17 @@ export default function Feed() {
           })}
           {data && data.items.length === 0 && older.length === 0 && (
             <p className="text-center text-sm text-muted-foreground py-12">
-              {kind || tag ? "Nothing matches that filter." : "Quiet so far. Share the first moment."}
+              {/* "Share the first moment" is an instruction, and the composer
+                  it points at renders on `user` alone (above). A signed-out
+                  reader was being told to use a control that is not on their
+                  page. The fact is true for everybody; the instruction is
+                  only offered to the reader who has the box to type in. This
+                  is the shape Network.tsx already uses for its peers list. */}
+              {kind || tag
+                ? "Nothing matches that filter."
+                : user
+                  ? "Quiet so far. Share the first moment."
+                  : "Quiet so far. Nothing has been posted here yet."}
             </p>
           )}
           {more && (

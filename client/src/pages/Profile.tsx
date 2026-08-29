@@ -25,7 +25,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 
 const PATH_INFO: Record<
   string,
@@ -429,7 +429,25 @@ export default function Profile() {
                     Your Contributions
                   </h2>
                   {recentContributions.length === 0 ? (
-                    <p className="text-gray-600">No contributions yet. Start your village journey!</p>
+                    /*
+                      It used to read "No contributions yet. Start your village
+                      journey!", which is an instruction with nowhere to go: the
+                      reader is signed in, already on their journey, and the page
+                      names no door. There is exactly one door, and the page
+                      knows it. A row lands here from `POST /api/profile/contribution`,
+                      which no client calls, or from an admin accepting a Work
+                      With Us proposal. So the card says the second one and links
+                      it, rather than telling somebody to start something they
+                      have already started.
+                    */
+                    <p className="text-gray-600">
+                      Nothing here yet. A contribution is recorded when the village
+                      accepts an offer you made through{" "}
+                      <Link href="/work-with-us" className="text-teal-deep font-medium hover:underline">
+                        Work With Us
+                      </Link>
+                      .
+                    </p>
                   ) : (
                     <div className="space-y-4">
                       <AnimatePresence>
