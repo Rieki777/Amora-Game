@@ -208,29 +208,40 @@ describe.skipIf(!DB_CONFIGURED)("the term a seating never carried", () => {
   });
 
   it("NOW WRITES THE TERM, which is the one line four dead features were waiting on", async () => {
+    // BOTH seats first, then the assertions. A seat created after an
+    // assertion that can throw is a seat the later cases cannot find, and the
+    // cascade then reports a missing seat where the real answer is a missing
+    // term. A falsification that names the wrong thing is worth very little.
     const seated = await call("POST", `/api/admin/org/roles/${PAST_SEAT}/holders`, {
       body: { userId: memberId, focus: "the well", termEndsAt: isoIn(-2) },
     });
     expect(seated.status, JSON.stringify(seated.json)).toBe(200);
     pastSeating = await newestSeating(PAST_SEAT);
-    const stored = await termOnRow(pastSeating);
-    expect(stored, "term_ends_at is on the row").not.toBeNull();
-    expect(new Date(stored as Date).getTime()).toBeLessThan(Date.now());
 
     expect((await call("POST", "/api/admin/org/roles", { body: { id: SOON_SEAT, name: "Hearth keeper", seats: 1 } })).status).toBe(200);
     expect((await call("POST", `/api/admin/org/roles/${SOON_SEAT}/holders`, {
       body: { userId: secondMemberId, focus: "the fire", termEndsAt: isoIn(9) },
     })).status).toBe(200);
     soonSeating = await newestSeating(SOON_SEAT);
-    expect(await termOnRow(soonSeating)).not.toBeNull();
+
+    const stored = await termOnRow(pastSeating);
+    expect(stored, "term_ends_at is on the row").not.toBeNull();
+    expect(new Date(stored as Date).getTime()).toBeLessThan(Date.now());
+    expect(await termOnRow(soonSeating), "and on the one still running").not.toBeNull();
   });
 
-  it("FEATURE 1, the map's term: /api/org carries the date the amber arc is drawn from", async () => {
-    const org = await call("GET", "/api/org", { token: memberToken });
-    expect(org.status).toBe(200);
-    const soon = (org.json?.roles ?? []).find((r: any) => r.id === SOON_SEAT);
+  it("FEATURE 1, the amber arc: /api/map carries the date TermArc is drawn from", async () => {
+    // The power map is a module and every optional module ships off, which is
+    // the fork-safe default. The arc lives here rather than on /api/org.
+    expect((await call("PUT", "/api/admin/modules/map/lifecycle", {
+      body: { lifecycle: "members", examples: false },
+    })).status).toBe(200);
+
+    const map = await call("GET", "/api/map", { token: memberToken });
+    expect(map.status, JSON.stringify(map.json)).toBe(200);
+    const soon = (map.json?.roles ?? []).find((r: any) => r.id === SOON_SEAT);
     expect(soon, "the hearth seat is on the map").toBeTruthy();
-    // `termEnds` is the seat's earliest live term and is what TermArc reads.
+    // The seat's earliest live term, which is what TermArc sweeps against.
     // It was null on every seat of every village before this.
     expect(soon.termEnds, "the seat carries its term").toBeTruthy();
     const holder = (soon.holders ?? [])[0];
@@ -244,15 +255,28 @@ describe.skipIf(!DB_CONFIGURED)("the term a seating never carried", () => {
     expect(wren, "the member holds the water seat").toBeTruthy();
     // The term branch of isLapsed, which no seating could ever reach before.
     expect(wren.lapsed, "a term that reached its date reads as lapsed").toBe(true);
+    expect(wren.lapsedReason, "and it lapsed on its TERM, not on a season turn").toBe("term");
     // And nothing was revoked to say it. The holder is still on the seat.
     expect((past?.holders ?? []).some((h: any) => h.userId === memberId)).toBe(true);
   });
 
-  it("FEATURE 3, the calendar: the seat-term source finally has something to put on a day", async () => {
-    const cal = await call("GET", "/api/calendar?days=60", { token: memberToken });
-    expect(cal.status, JSON.stringify(cal.json)).toBe(200);
-    const body = JSON.stringify(cal.json ?? {});
-    expect(body, "a term inside the window reaches the calendar").toContain("Hearth keeper");
+  it("FEATURE 3, the calendar: the seat-term source finally has a row to find", async () => {
+    /*
+     * The mirror runs on an hourly job, so what is checked here is the exact
+     * predicate the `seat-term` source selects on, run against the schema the
+     * route just wrote into. What the provider DOES with such a row is
+     * already pinned by `server/lib/calendarProviders.test.ts`, which builds
+     * one by hand: that suite has been green since it shipped over rows no
+     * route could produce. This is the half that was missing.
+     */
+    const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT a.id, r.name AS role_name FROM org_role_assignments a " +
+        "LEFT JOIN org_roles r ON r.id = a.org_role_id " +
+        "WHERE a.ended_at IS NULL AND a.term_ends_at IS NOT NULL",
+    );
+    const names = rows.map((r) => String(r.role_name));
+    expect(names, "a live seating with a term is what the seat-term source looks for").toContain("Hearth keeper");
+    expect(names).toContain("Water keeper");
   });
 
   it("FEATURE 4, term-watch's input: the expiring list reports the term, and says the reason is the term", async () => {
@@ -370,11 +394,19 @@ describe.skipIf(!DB_CONFIGURED)("what a decision changed, read cold by somebody 
     expect(cold.json?.status).toBe("passed");
     expect(cold.json?.appliedKeys, "the amendment ledger still knows").toContain("governance.vote_days");
 
-    // And a signed-out reader gets the same fact, because the record is the
-    // record. Read here rather than assumed: the route takes an optional
-    // viewer and a change to that would silence the whole strip.
+    // Read TWICE, because the whole failure was a value that existed once. A
+    // second cold request is the anniversary in miniature.
+    const later = await call("GET", `/api/governance/ballots/${firstBallot}`, { token: memberToken });
+    expect(later.json?.appliedKeys).toContain("governance.vote_days");
+
+    // How far the record reaches is the MODULE's decision and not this
+    // change's. Governance runs at `members` in this village, so a stranger
+    // is asked to sign in and never handed a decision with its consequence
+    // quietly stripped out. Asserted rather than assumed: a route that
+    // started answering a stranger here would be a real change in who reads
+    // a village's decisions, and it should never happen as a side effect.
     const anon = await call("GET", `/api/governance/ballots/${firstBallot}`, { token: null });
-    expect(anon.json?.appliedKeys).toContain("governance.vote_days");
+    expect(anon.status).toBe(401);
   });
 
   it("reports only what the LEDGER holds, never what the proposal asked for", async () => {
