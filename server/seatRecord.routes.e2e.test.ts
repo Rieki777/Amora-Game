@@ -609,11 +609,14 @@ describe.skipIf(!DB_CONFIGURED)("nobody can take away a voice that was earned", 
     // Straight into the column, past every check the product has. This is the
     // row a village could be carrying from before the ruling, and the row an
     // admin with database access could still write tomorrow.
-    await pool.query("UPDATE badges SET denies = ? WHERE id = ?", [
-      JSON.stringify(["forum.post", "ballot.vote"]),
-      badgeId,
-    ]);
-    const [stored] = await pool.query<any[]>("SELECT denies FROM badges WHERE id = ?", [badgeId]);
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, and going past the repo IS the case under test
+      "UPDATE badges SET denies = ? WHERE id = ?",
+      [JSON.stringify(["forum.post", "ballot.vote"]), badgeId],
+    );
+    const [stored] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT denies FROM badges WHERE id = ?",
+      [badgeId],
+    );
     expect(JSON.stringify(stored[0]?.denies), "the deny really is in the column").toContain("ballot.vote");
   });
 
