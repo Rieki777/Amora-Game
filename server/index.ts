@@ -2702,17 +2702,23 @@ function addActivity(
 }
 
 /**
- * The cycle every acknowledgment is stamped with. LUNAR now, not calendar
- * month: budgets and per-recipient caps reset at each new moon, matching
- * regen-civics (revision 2, decision 1). Legacy "YYYY-MM" ids in old rows
- * simply never match a lunar id again, which is the correct behaviour: one
- * clean reset at changeover instead of double-counting a partial month.
+ * The cycle every acknowledgment is stamped with. Lunar: budgets and
+ * per-recipient caps reset at each new moon, matching regen-civics
+ * (revision 2, decision 1). Legacy "YYYY-MM" ids in old rows simply never
+ * match a lunar id again, which is the correct behaviour: one clean reset at
+ * changeover instead of double-counting a partial month.
+ *
+ * THERE USED TO BE A CHOICE HERE AND IT IS GONE ON PURPOSE. A
+ * `gratitude.cycle_mode` dial offered a founder "calendar month", and this
+ * function was the only code in the tree that read it. Nothing else changed
+ * when it was flipped: not the settlement, not the budgets, not the allowance
+ * windows. So the panel offered a rhythm the engine could not keep.
+ *
+ * Rye retired it rather than wiring it, 2026-08-29: "let's just stick with
+ * lunar months all around, it's good to be on our own rhythm." The moon is
+ * the clock, everywhere, and `server/lunarRhythm.test.ts` holds that shut.
  */
 function currentCycleId(): string {
-  // The rhythm is a village choice (Admin > Gratitude > Cycle rhythm).
-  if (stringVar("gratitude.cycle_mode") === "month") {
-    return new Date().toISOString().slice(0, 7);
-  }
   return cycleIdFor(new Date());
 }
 
@@ -27633,7 +27639,6 @@ ${inner}
         baseBudget: numberVar("gratitude.base_budget"),
         maxPerRecipientPerCycle: numberVar("gratitude.max_per_recipient_per_cycle"),
         requireMessage: boolVar("gratitude.require_message"),
-        cycleMode: stringVar("gratitude.cycle_mode"),
         // The ReGen pool model: the community can always see how big the pool
         // is and what it pays — but a member's SHARE is unknowable before
         // close, and that indeterminacy is the design, not a gap.
