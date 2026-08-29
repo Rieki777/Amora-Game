@@ -222,8 +222,19 @@ describe.skipIf(!DB_CONFIGURED)("a member can read a warning that is about her",
     }, "");
     const theirs = await call("GET", "/api/badges", undefined, String(other.json?.token ?? ""));
     expect(theirs.status, theirs.text).toBe(200);
-    expect(catalogEntry(theirs.json, "shed-care")?.holders ?? []).toEqual([]);
+    /*
+     * PROVE THE NEGATIVE AGAINST A PRESENT CONTROL, IN THE SAME BLOCK. My own
+     * first draft read `catalogEntry(...)?.holders ?? []` and `herAward(...)
+     * ?? null`, both of which pass just as happily when the whole payload is
+     * missing. An empty answer and a correct answer looked identical.
+     */
+    const theirWarning = catalogEntry(theirs.json, "shed-care");
+    expect(theirWarning, "the warning definition is public, so his page has the card").toBeTruthy();
+    expect(theirWarning.holders, "and it names nobody").toEqual([]);
+    expect(Array.isArray(theirs.json?.mine?.awards), "he holds an awards list").toBe(true);
+    expect(catalogEntry(theirs.json, "water-keeper"), "the control card is on his page too").toBeTruthy();
     expect(herAward(theirs.json, "shed-care"), "somebody else's page must not carry her award").toBeNull();
+    expect(herAward(theirs.json, "water-keeper"), "nor her honour").toBeNull();
   });
 
   it("never names the steward to anybody but the member the warning is about", async () => {
