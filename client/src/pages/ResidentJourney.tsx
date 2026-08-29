@@ -238,14 +238,24 @@ export default function ResidentJourney() {
       {/* Hero Section */}
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
-          <motion.img
-            src={brand.residentHero}
-            alt={altOr(brand.residentHeroAlt, "A home in the village")}
-            className="w-full h-full object-cover"
-            initial={{ scale: 1.1 }}
-            animate={{ scale: 1 }}
-            transition={{ duration: 1.5 }}
-          />
+          {/* THE HERO RENDERS ONLY WHEN THERE IS ONE.
+              This was a bare <img> whose src came from the brand overlay with a
+              hardcoded fallback behind it, so it always had a URL. The fallback
+              pointed at one village's WordPress site and every one of those URLs
+              now 404s, which is why the live page renders a torn image. With the
+              fallback gone the src would simply be empty, and an <img src=""> is
+              a broken image too. No picture is the honest state, and the gradient
+              below carries the section on its own. */}
+          {brand.residentHero ? (
+            <motion.img
+              src={brand.residentHero}
+              alt={altOr(brand.residentHeroAlt, "A home in the village")}
+              className="w-full h-full object-cover"
+              initial={{ scale: 1.1 }}
+              animate={{ scale: 1 }}
+              transition={{ duration: 1.5 }}
+            />
+          ) : null}
           <div className="absolute inset-0 bg-gradient-to-r from-background via-background/90 to-background/60" />
         </div>
 

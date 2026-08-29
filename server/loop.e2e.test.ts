@@ -2769,7 +2769,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // every fork then published as its own history. Nothing ships complete any
     // more, so a test about "completed milestones never nag" has to complete
     // one itself, which is also the honest shape for it.
-    await testDb.conn.query(
+    await testDb.conn.query( // module-review-ok: no API can backdate or pre-complete a milestone, which is the point
       "UPDATE milestones SET status = 'complete', updated_at = (NOW() - INTERVAL 40 DAY) WHERE id = 'land-acquired'",
     );
     const withStale = await api("GET", "/api/admin/command-centre", undefined, founderToken);

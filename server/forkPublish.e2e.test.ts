@@ -64,7 +64,18 @@ const ADMIN = "fork-publish-admin";
  * The four financial claims, exactly as a fork rendered them. Each is a
  * statement about one specific piece of land in one specific country.
  */
-const FOREIGN_NUMBERS = ["+113%", "$16M+", "19.6%", "266 acres in Dominicalito"]; // brand-ok: the regression list this file asserts the ABSENCE of
+const FOREIGN_NUMBERS = [
+  // "113%" without the plus, deliberately. The first version of this list
+  // wrote "+113%" and passed while the same figure went on rendering on the
+  // very page it was written about, from a different file, as "appreciated
+  // 113% in 16 months". A regression list that matches only the exact spelling
+  // it first met is a list with a hole in it.
+  "113%", // brand-ok: the regression list this file asserts the ABSENCE of
+  "$16M+",
+  "19.6%",
+  "266 acres", // brand-ok: same
+  "Dominicalito", // brand-ok: same
+];
 
 /**
  * People who agreed to appear on one project's website. Surnames included:
@@ -107,13 +118,27 @@ let testDb: TestDb | undefined;
 let dataDir = "";
 let founderToken = "";
 
+/**
+ * THE ONLY PLACE THIS FILE CALLS `fetch`.
+ *
+ * `scripts/contribution-scan.mjs` treats a raw fetch under `server/` as a
+ * finding, and it is right to: a module's outbound call belongs in
+ * `guardedFetchJson` so it carries a correlation id. A test that drives the
+ * server over HTTP is the case that rule was not written for, and every fetch
+ * here is inbound to a server this file started on localhost. One waived site
+ * rather than seven keeps the exception small enough to read.
+ */
+async function http(route: string, init?: RequestInit): Promise<Response> {
+  return fetch(BASE + route, init); // module-review-ok: inbound HTTP to a server this file starts
+}
+
 async function call(
   method: string,
   route: string,
   body?: unknown,
   token = founderToken,
 ): Promise<{ status: number; json: any }> {
-  const res = await fetch(BASE + route, {
+  const res = await http(route, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -128,7 +153,7 @@ async function call(
 async function anonymousBodies(): Promise<Array<[string, string]>> {
   const out: Array<[string, string]> = [];
   for (const r of PUBLIC_ROUTES) {
-    const res = await fetch(BASE + r);
+    const res = await http(r);
     out.push([r, await res.text()]);
   }
   return out;
@@ -150,7 +175,7 @@ beforeAll(async () => {
       DATA_DIR: dataDir,
       DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,
-      AUTH_TOKEN_SECRET: "fork-publish-token-secret",
+      AUTH_TOKEN_SECRET: "fork-publish-token-secret", // module-review-ok: throwaway, for a server this file starts and kills
       RESEND_API_KEY: "",
       ANTHROPIC_API_KEY: "",
     },
@@ -167,7 +192,7 @@ beforeAll(async () => {
       throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s. Output:\n${logs.join("")}`);
     }
     try {
-      const res = await fetch(`${BASE}/health`);
+      const res = await http("/health");
       if (res.ok) break;
     } catch {
       /* not up yet */
@@ -212,7 +237,7 @@ describe.skipIf(!DB_CONFIGURED)("the fresh fork publishes nobody else's people",
   });
 
   it("publishes no team card, rather than another project's team card", async () => {
-    const res = await fetch(`${BASE}/api/content/team`);
+    const res = await http("/api/content/team");
     if (res.status === 404) return; // the section does not exist yet: correct.
     const body = await res.json();
     expect(Array.isArray(body) ? body : [], "the team page starts empty").toEqual([]);
@@ -257,7 +282,7 @@ describe.skipIf(!DB_CONFIGURED)("the fresh fork publishes nobody else's numbers"
     expect(chunks.length, "there must be chunks to check").toBeGreaterThan(5);
     const offenders: string[] = [];
     for (const chunk of chunks) {
-      const res = await fetch(`${BASE}/assets/${chunk}`);
+      const res = await http(`/assets/${chunk}`);
       expect(res.ok, `${chunk} must be served to an anonymous caller`).toBe(true);
       const text = await res.text();
       for (const claim of FOREIGN_NUMBERS) {
@@ -321,7 +346,7 @@ describe.skipIf(!DB_CONFIGURED)("a village with its own people still publishes t
   });
 
   it("still keeps that person's internal note and focus off the public tier", async () => {
-    const raw = await fetch(`${BASE}/api/org`).then((r) => r.text());
+    const raw = await http("/api/org").then((r) => r.text());
     expect(raw, "the note written about a person stays inside").not.toContain("dry season");
     expect(raw, "the focus written about a person stays inside").not.toContain("upper spring");
     expect(raw, "a surname is not the public tier's business").not.toContain("Ashfield");
@@ -337,7 +362,7 @@ describe.skipIf(!DB_CONFIGURED)("a village with its own people still publishes t
       },
     ]);
     expect(put.status, "the village may write its own team page").toBe(200);
-    const anon = await fetch(`${BASE}/api/content/team`).then((r) => r.json());
+    const anon = await http("/api/content/team").then((r) => r.json());
     expect(
       (anon ?? []).map((c: any) => c.name),
       "a village that wrote a team page publishes it",

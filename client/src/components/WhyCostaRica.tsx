@@ -24,7 +24,7 @@ const POINTS = [
     icon: Scale,
     title: "Tax Environment",
     body:
-      "No capital gains tax on real estate appreciation. No inheritance tax. Foreign income is not taxed in Costa Rica. Land appreciation has averaged double digits over the past decade in the Southern Zone.",
+      "No capital gains tax on real estate appreciation. No inheritance tax. Foreign income is not taxed in Costa Rica.",
   },
   {
     icon: Landmark,
@@ -42,7 +42,12 @@ const POINTS = [
     icon: TrendingUp,
     title: "Why Now",
     body:
-      "Property values in the Southern Zone have appreciated 113% in 16 months. Phase 1 infrastructure investment is underway. Founding member pricing won't last, each development phase resets the entry point.",
+      // The appreciation figure came out. It was a claim about one specific
+      // market over one specific window, stated as this village's own on every
+      // fork of this platform, and it is one of the four numbers the fork test
+      // holds the line on. What a village's own land has done belongs in Admin,
+      // Settings, where the investor page reads it from.
+      "Phase 1 infrastructure investment is underway. Founding member pricing won't last, each development phase resets the entry point.",
   },
 ];
 
