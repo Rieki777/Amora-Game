@@ -738,6 +738,7 @@ import {
   settleCycle,
   formatCycleId,
   parseCycleId,
+  unreadableCycleProblem,
   type CycleRecord,
   type DistributionRecord,
 } from "./lib/gratitude-cycles";
@@ -22360,12 +22361,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
     const cycles: CycleRecord[] = await cyclesRepo.all();
     const entries: any[] = await gratitudeRepo.all();
+    /*
+     * Read this BEFORE any total is computed, and hand it to the desk rather
+     * than throwing: `settleCycle` and `dueCycles` now refuse an id they cannot
+     * read, and the admin who has to fix it should meet a sentence here, on the
+     * page that exists to be read before pressing, instead of a 500.
+     *
+     * Empty `due` when it fires is the honest answer. There is no partial
+     * settlement to preview: a preview that quietly left the unreadable rows
+     * out would be the same lie the close used to tell.
+     */
+    const unreadable = unreadableCycleProblem(entries);
     const dists: DistributionRecord[] = await distributionsRepo.all();
     const allMembers = await members.all();
     const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
     const eligible = await eligibleSenderIds();
 
-    const due = dueCycles(cycles, entries, new Date()).map((cycle) => {
+    const due = (unreadable ? [] : dueCycles(cycles, entries, new Date())).map((cycle) => {
       const persisted = dists.filter((d) => d.cycleId === cycle.id);
       const totals = settleCycle(entries, cycle.id, eligible);
       const totalEligible = totals.reduce((n, t) => n + t.receivedEligible, 0);
@@ -22410,6 +22422,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
         tokenName: tokenDef(poolToken)?.name ?? poolToken,
         problem: cyclePoolProblem(poolSize, poolToken),
       },
+      // Null when every row's cycle is readable, which is the ordinary case.
+      // A sentence when it is not, and the close below refuses on the same one.
+      unreadableCycles: unreadable,
       due,
     });
   });
@@ -22448,6 +22463,20 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
     const cycles: CycleRecord[] = await cyclesRepo.all();
     const entries: any[] = await gratitudeRepo.all();
+    /*
+     * Fail loud on a cycle id nothing can read, in the same place and for the
+     * same reason the pool problem above fails loud: before anything settles.
+     *
+     * This used to be a quiet skip. `settleCycle` filtered on an exact id and
+     * `dueCycles` dropped whatever `parseCycleId` could not read, so 30 of 130
+     * units left the totals without a word, every recipient under them was told
+     * a smaller number than they had earned, and their share of the pool was
+     * computed from it. A number that is wrong and says so can be fixed in an
+     * hour. A number that is wrong and looks right is wrong forever.
+     */
+    const unreadable = unreadableCycleProblem(entries);
+    if (unreadable) return res.status(400).json({ error: unreadable });
+
     const due = dueCycles(cycles, entries, new Date());
 
     const closed: CycleRecord[] = [];

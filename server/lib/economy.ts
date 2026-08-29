@@ -47,6 +47,7 @@
  */
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { cycleBoundsFor } from "../../shared/lunar";
+import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { numberVar } from "./variables";
 import {
   memberAccount,
@@ -178,6 +179,16 @@ export const keys = {
   questCompleted: (v: string, questId: string, claimId: string, userId: string) =>
     `quest.completed:${v}:${questId}:${claimId}:${userId}`,
   gratitudeGiven: (v: string, noteId: string) => `gratitude.given:${v}:${noteId}`,
+  /**
+   * `cycleKey` is the canonical cycle id, and CHANGING ITS SPELLING PAYS
+   * EVERY SEAT AGAIN. This key is what tells the ledger a seat has already
+   * been thanked for this lunation; the settlement job asks hourly and relies
+   * on the duplicate. When this file stopped writing `moon-329` and started
+   * writing `lunar-000329`, every already-paid seat in the open lunation
+   * would have looked unpaid, so `drizzle/0105_one_cycle_one_name.sql`
+   * renames the historical keys in the same change. A future edit to this
+   * format needs the same treatment or it mints value out of a rename.
+   */
   roleCycle: (v: string, cycleKey: string, seatId: string, userId: string) =>
     `role.cycle:${v}:${cycleKey}:${seatId}:${userId}`,
   journeyStage: (v: string, journeyId: string, stage: string, userId: string) =>
@@ -191,14 +202,29 @@ export const keys = {
 
 // ── The cycle ───────────────────────────────────────────────────────────────
 
-/** The lunation a moment falls in. The site owns this, and the map reads it. */
+/**
+ * The lunation a moment falls in. The site owns this, and the map reads it.
+ *
+ * THIS FILE NO LONGER FORMATS A CYCLE ID. It used to, as `moon-329`, while
+ * `server/lib/gratitude-cycles.ts` wrote `lunar-000329` for the same lunation
+ * into the same `gratitude_log.cycle_id` column. Neither knew about the other,
+ * so `give` below wrote one spelling, the acknowledgement flow's budget read
+ * the other, and one member moved 130 in a moon whose two allowances were 100
+ * and 30. The settlement, which only matches `lunar-`, then read 100 of those
+ * 130 and told nobody about the rest.
+ *
+ * One function makes this string now, and it lives with the settlement that
+ * has to read it back. Adding a second one here is the whole defect, so
+ * `server/cycleId.test.ts` fails the moment `cycleWindow().key` and
+ * `cycleIdFor()` stop being the same string.
+ */
 export function cycleKeyFor(at: Date = new Date()): string {
-  return `moon-${cycleBoundsFor(at).cycleNumber}`;
+  return cycleIdFor(at);
 }
 
 export function cycleWindow(at: Date = new Date()): { startsAt: Date; endsAt: Date; key: string } {
   const b = cycleBoundsFor(at);
-  return { startsAt: b.startsAt, endsAt: b.endsAt, key: `moon-${b.cycleNumber}` };
+  return { startsAt: b.startsAt, endsAt: b.endsAt, key: cycleIdFor(at) };
 }
 
 // ── The epoch ───────────────────────────────────────────────────────────────
@@ -636,8 +662,8 @@ export async function give(
       await conn.query(
         "INSERT INTO `gratitude_log` " +
           "(`id`, `village_id`, `from_id`, `to_id`, `amount`, `message`, `cycle_id`, " +
-          " `tag`, `structure_key`, `quiet`, `client_nonce`) " +
-          "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+          " `cycle_number`, `tag`, `structure_key`, `quiet`, `client_nonce`) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         [
           noteId,
           villageId(),
@@ -646,6 +672,13 @@ export async function give(
           amount,
           input.note ?? "",
           key,
+          // The integer twin 0010 added, and this write never filled it: every
+          // row this route has ever written carries cycle_number NULL. 0010's
+          // own header says the number exists because "settlement math wants a
+          // number, and parsing 'lunar-000328' in every query is how
+          // off-by-one formatting bugs become settlement bugs", which is
+          // exactly the class of bug that then happened here.
+          parseCycleId(key),
           input.tag ?? null,
           input.structureKey ?? null,
           input.quiet ? 1 : 0,

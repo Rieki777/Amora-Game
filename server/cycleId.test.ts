@@ -17,7 +17,7 @@ import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import mysql from "mysql2/promise";
 import { cycleWindow, ensureVoiceToken, give, villageId } from "./lib/economy";
 import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
-import { cycleIdFor } from "./lib/gratitude-cycles";
+import { cycleIdFor, dueCycles, settleCycle } from "./lib/gratitude-cycles";
 import { loadTokenRegistry, memberAccount } from "./lib/ledger";
 import { loadVariables } from "./lib/variables";
 import { seedEconomy } from "./lib/economySeed";
@@ -107,7 +107,7 @@ describe.skipIf(!configured)("one cycle, one name", () => {
   it("counts a member's spending once, whichever door they came through", async () => {
     const giver = await makeMember("cyc-giver");
     const people = [];
-    for (let i = 0; i < 7; i++) people.push(await makeMember(`cyc-friend-${i}`));
+    for (let i = 0; i < 8; i++) people.push(await makeMember(`cyc-friend-${i}`));
 
     // Door one: the Hearts economy. 30 a moon, at most 10 to any one person.
     for (let i = 0; i < 3; i++) {
@@ -122,23 +122,69 @@ describe.skipIf(!configured)("one cycle, one name", () => {
     expect(budget.spent).toBe(30);
     expect(budget.remaining).toBe(70);
 
-    // And it must stop at its own total rather than at its own half of the table.
-    let accepted = 0;
-    for (let i = 3; i < 7; i++) {
-      const out = await sendGratitude(depsOver(pool), {
-        fromUser: { id: giver, name: giver },
-        toId: people[i],
-        amount: 25,
-        message: "thank you",
-      });
-      if (out.ok) accepted += 25;
-    }
-    expect(accepted).toBe(70);
+    // And it must stop at its own total rather than at its own half of the
+    // table. Two acknowledgements of 25 fit inside the 70 that is left. The
+    // third does not, and this is the sentence a member now meets that they
+    // did not meet yesterday.
+    const ack = (to: string, amount: number) =>
+      sendGratitude(depsOver(pool), { fromUser: { id: giver, name: giver }, toId: to, amount, message: "thank you" });
+    expect((await ack(people[3], 25)).ok).toBe(true);
+    expect((await ack(people[4], 25)).ok).toBe(true);
+    const refused = await ack(people[5], 25);
+    expect(refused.ok).toBe(false);
+    expect(refused.ok === false && refused.error).toBe("Only 20 left in your budget this cycle");
+    expect((await ack(people[6], 20)).ok).toBe(true);
 
     const byFormat = await spentByFormat(giver);
     // One name for one lunation. Nothing under any other key.
     expect(Object.keys(byFormat)).toEqual([cycleIdFor()]);
+    // 30 through one door and 70 through the other, against a budget of 100.
+    // At b5bed01 this same sequence moved 130.
     expect(Object.values(byFormat).reduce((a, b) => a + b, 0)).toBe(100);
+
+    // Nothing at all is left to give, through either door.
+    expect((await ack(people[2], 1)).ok).toBe(false);
+    const noMoreHearts = await give(pool, { fromUserId: giver, toUserId: people[7], amount: 1, clientNonce: "n-last" });
+    expect(noMoreHearts.ok).toBe(false);
+  });
+
+  /**
+   * QA2-02, held shut. The settlement runs over the rows the previous test
+   * wrote, which came through both doors. It has to see all of them.
+   *
+   * At `b5bed01` this same shape lost 30 of 130 units: `settleCycle` matches a
+   * row's own `cycleId` against the cycle being settled, which is always
+   * `lunar-`, so every row the Hearts economy wrote was simply absent from the
+   * totals, and `dueCycles` never listed a Hearts-only lunation as due for
+   * closing at all.
+   */
+  it("a settlement over rows from both doors counts every unit", async () => {
+    const entries = await gratitudeLogRepo(pool).all();
+    const [[row]] = await pool.query<any[]>("SELECT COALESCE(SUM(`amount`),0) AS s FROM `gratitude_log`");
+    const inTheTable = Number(row.s);
+    expect(inTheTable).toBe(100);
+
+    const totals = settleCycle(entries as any, cycleIdFor());
+    const settled = totals.reduce((n, t) => n + t.received, 0);
+    // The number this test exists to state: nothing invisible.
+    expect(inTheTable - settled).toBe(0);
+    expect(settled).toBe(100);
+
+    // And the lunation is offered for closing once it has ended.
+    const fortyDaysOn = new Date(Date.now() + 40 * 24 * 60 * 60 * 1000);
+    expect(dueCycles([], entries as any, fortyDaysOn).map((c) => c.id)).toEqual([cycleIdFor()]);
+  });
+
+  /**
+   * The write path fills the integer twin 0010 added for exactly this reason.
+   * Every row the Hearts economy has ever written carried NULL here.
+   */
+  it("every row carries the number as well as the name", async () => {
+    const [[row]] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n, COUNT(`cycle_number`) AS numbered FROM `gratitude_log`",
+    );
+    expect(Number(row.numbered)).toBe(Number(row.n));
+    expect(Number(row.n)).toBeGreaterThan(0);
   });
 
   /** The engine's own window key is the same string the log carries. */

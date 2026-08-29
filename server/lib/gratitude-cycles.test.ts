@@ -5,7 +5,13 @@
  * loop test alone.
  */
 import { describe, expect, it } from "vitest";
-import { settleCycle, type GratitudeEntryLike } from "./gratitude-cycles";
+import {
+  dueCycles,
+  settleCycle,
+  unreadableCycleIds,
+  unreadableCycleProblem,
+  type GratitudeEntryLike,
+} from "./gratitude-cycles";
 
 const entry = (over: Partial<GratitudeEntryLike>): GratitudeEntryLike => ({
   id: `g-${Math.abs(JSON.stringify(over).split("").reduce((a, c) => a + c.charCodeAt(0), 0))}`,
@@ -79,5 +85,46 @@ describe("settleCycle", () => {
       "lunar-000100",
     );
     expect(totals[0].distinctSenders).toBe(2);
+  });
+});
+
+/**
+ * The half of this that used to be silent.
+ *
+ * A row whose cycle id nothing can parse is not a row belonging to some other
+ * lunation. It is a row nobody knows the lunation of, and the settlement used
+ * to leave it out without a word: 30 of 130 units vanished from a real
+ * settlement, every recipient under them was told a smaller number than they
+ * had earned, and their share of the pool was computed from it.
+ */
+describe("an id it cannot read", () => {
+  it("stops the settlement rather than being left out of it", () => {
+    const rows = [entry({ fromId: "a", amount: 5 }), entry({ fromId: "b", amount: 3, cycleId: "moon-100" })];
+    expect(() => settleCycle(rows, "lunar-000100")).toThrow(/moon-100/);
+  });
+
+  it("stops the due list too, so a lunation cannot go unclosed in silence", () => {
+    const rows = [entry({ cycleId: "2026-07" })];
+    expect(() => dueCycles([], rows, new Date())).toThrow(/2026-07/);
+  });
+
+  it("names every unreadable id once, in plain words", () => {
+    const rows = [
+      entry({ cycleId: "moon-100" }),
+      entry({ cycleId: "moon-100", fromId: "b" }),
+      entry({ cycleId: "" }),
+    ];
+    expect(unreadableCycleIds(rows)).toEqual(["", "moon-100"]);
+    const problem = unreadableCycleProblem(rows);
+    expect(problem).toContain("3 recognition row(s)");
+    expect(problem).toContain("(empty)");
+    expect(problem).toContain("moon-100");
+  });
+
+  it("says nothing at all when every id is readable", () => {
+    const rows = [entry({ fromId: "a" }), entry({ fromId: "b", cycleId: "lunar-000101" })];
+    expect(unreadableCycleIds(rows)).toEqual([]);
+    expect(unreadableCycleProblem(rows)).toBeNull();
+    expect(() => settleCycle(rows, "lunar-000100")).not.toThrow();
   });
 });
