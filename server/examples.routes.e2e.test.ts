@@ -117,10 +117,12 @@ beforeAll(async () => {
   child.stdout?.on("data", (d) => logs.push(String(d)));
   child.stderr?.on("data", (d) => logs.push(String(d)));
 
-  const deadline = Date.now() + 60_000;
+  // 120s, for the same reason as loop.e2e: boot is a few hundred queries
+  // against a hosted MySQL, and 60s fired on a server making normal progress.
+  const deadline = Date.now() + 120_000;
   for (;;) {
     if (Date.now() > deadline) {
-      throw new Error(`server did not start in 60s. Output:\n${logs.join("")}`);
+      throw new Error(`server did not start in 120s. Output:\n${logs.join("")}`);
     }
     try {
       const res = await fetch(`${BASE}/health`);

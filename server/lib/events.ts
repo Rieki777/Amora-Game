@@ -11,10 +11,19 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 
+/**
+ * WHAT KIND of actor did this (S74). Assistant paths pass 'agent', so the first
+ * time a village dislikes something an agent did, someone can name which
+ * integration it was and revoke exactly that one. Defaults to 'human', which is
+ * what every existing call site correctly means.
+ */
+export type ActorKind = "human" | "agent" | "system" | "peer";
+
 export interface EventInput {
   kind: string;
   text: string;
   actorUserId?: string | null;
+  actorKind?: ActorKind;
   entityType?: string | null;
   entityRef?: string | null;
   audience?: "public" | "admin";
@@ -34,12 +43,14 @@ export interface EventRow {
 export async function recordEvent(pool: Pool, e: EventInput): Promise<void> {
   try {
     await pool.query(
-      "INSERT INTO health_events (id, kind, text, actor_user_id, entity_type, entity_ref, audience) VALUES (?,?,?,?,?,?,?)",
+      "INSERT INTO health_events (id, kind, text, actor_user_id, actor_kind, entity_type, entity_ref, audience) " +
+        "VALUES (?,?,?,?,?,?,?,?)",
       [
         `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         e.kind,
         e.text,
         e.actorUserId ?? null,
+        e.actorKind ?? "human",
         e.entityType ?? null,
         e.entityRef ?? null,
         e.audience ?? "public",

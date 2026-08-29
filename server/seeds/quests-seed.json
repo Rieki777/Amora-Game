@@ -3,8 +3,23 @@
     "id": "q-welcome-ambassador",
     "order": 1,
     "title": "Welcome Ambassador",
+    "subtitle": "Be the first hello a newcomer remembers.",
     "description": "Be the first warm face new visitors and guests encounter. Orient newcomers at community events, answer questions, and help them feel at home in the village.",
     "impact": "Every visitor who feels welcomed is a potential member of the Amora Family for life.",
+    "story": "Most people decide how they feel about a place within their first hour on the land. Ambassadors shape that hour. You turn a nervous arrival into someone who knows three names, where the kitchen is, and what happens next. Years later, people still tell the story of who welcomed them.",
+    "firstStep": "At the next gathering, introduce yourself to one person you have never met and walk them to wherever they are headed.",
+    "steps": [
+      "Pick an upcoming event from the calendar and plan to arrive early.",
+      "Greet newcomers as they arrive: learn their names, offer water, show them the essentials.",
+      "Answer their questions honestly, and note the ones you could not answer.",
+      "Before you leave, introduce each newcomer to a member who shares one of their interests."
+    ],
+    "deliverable": "A few lines on who you welcomed and one thing that would make the next arrival smoother.",
+    "tips": [
+      "Name tags feel small until you watch someone relax because they can read the room.",
+      "The question under most questions is: where do I fit here? Answer that one."
+    ],
+    "imageUrl": "/api/uploads/quest-01-welcome-ambassador.webp",
     "gratitude": "50-100",
     "duration": "Per event (3-6 hrs)",
     "difficulty": "Beginner",
@@ -21,8 +36,23 @@
     "id": "q-food-forest-tender",
     "order": 2,
     "title": "Food Forest Tender",
+    "subtitle": "Learn the land by feeding it.",
     "description": "Assist with planting, pruning, weeding, and harvesting in our food forests and community gardens. Learn regenerative growing practices hands-on.",
     "impact": "Directly grows the food that feeds the village and builds our ARI score.",
+    "story": "The food forests are the village pantry and its longest promise: a tree planted this season feeds people who have not arrived yet. Tending them puts your hands in the daily work of regeneration, with growers beside you who love to teach. Nobody leaves a session without learning at least one new plant.",
+    "firstStep": "Walk a food forest path and photograph three plants you cannot name yet. Bring the photos to your first session.",
+    "steps": [
+      "Check the board or ask the agriculture circle when the next tending session runs.",
+      "Show up with water, sun cover, and closed shoes. Tools live on site.",
+      "Work alongside the session lead: planting, pruning, weeding, or harvesting, whatever the season asks.",
+      "Log what you worked on so the next tender knows where things stand."
+    ],
+    "deliverable": "Photos from your session and a note on what you planted, pruned, or harvested.",
+    "tips": [
+      "Morning sessions beat the heat.",
+      "Ask why before you cut. Every pruning choice is a small design decision."
+    ],
+    "imageUrl": "/api/uploads/quest-02-food-forest-tender.webp",
     "gratitude": "40-80",
     "duration": "4-6 hours",
     "difficulty": "Beginner",
@@ -39,8 +69,24 @@
     "id": "q-potluck-celebration-organizer",
     "order": 3,
     "title": "Potluck & Celebration Organizer",
+    "subtitle": "Feed fifty people and watch a village happen.",
     "description": "Plan, coordinate, and host monthly community potlucks and seasonal celebrations. Handle logistics, theme-setting, and the little touches that make gatherings memorable.",
     "impact": "Community bonds form strongest over shared meals and joy.",
+    "story": "Shared meals are where the village becomes real: friendships start, plans take shape, and the week's tensions dissolve over someone's grandmother's recipe. Hosting one well is logistics in service of joy. You set the table, and the community does the rest.",
+    "firstStep": "Pick a date with the events calendar and write one sentence describing the gathering's theme.",
+    "steps": [
+      "Choose the date, place, and theme with the community development circle.",
+      "Invite widely: the board, the feed, and personal asks each reach different people.",
+      "Coordinate who brings what, plus setup and cleanup crews.",
+      "Host the evening: welcome people, open the meal, and let the theme do its work.",
+      "Close the loop: thank the helpers and note what to repeat or drop next time."
+    ],
+    "deliverable": "A short recap with photos: who came, what was shared, what you would repeat.",
+    "tips": [
+      "A visible welcome table saves every late arrival.",
+      "Plan the cleanup crew before the event, never during."
+    ],
+    "imageUrl": "/api/uploads/quest-03-potluck-celebration-organizer.webp",
     "gratitude": "100-200",
     "duration": "Per event",
     "difficulty": "Intermediate",
@@ -57,8 +103,23 @@
     "id": "q-trail-builder-maintainer",
     "order": 4,
     "title": "Trail Builder & Maintainer",
+    "subtitle": "Open the paths that stitch the land together.",
     "description": "Help create, mark, and maintain the walking trails connecting all areas of the 67-acre property. Includes clearing, signage, and stewardship.",
     "impact": "Connects the land and makes it accessible for all beings.",
+    "story": "Sixty seven acres only feel like one place when you can walk them. Trails decide what people see, where they linger, and which corners of the land get loved. Building them is honest outdoor work with a result you can walk on the same day.",
+    "firstStep": "Walk an existing trail end to end and note the two spots that most need attention.",
+    "steps": [
+      "Meet the land stewardship circle to pick your section and the season's priorities.",
+      "Clear, grade, and mark the route as agreed, with care for what grows beside the path.",
+      "Add or repair signage so a first-time walker never has to guess.",
+      "Report the finished section with photos so the map stays true."
+    ],
+    "deliverable": "Before and after photos of your section and a note on any signage added.",
+    "tips": [
+      "Water always wins. Route around drainage from the start.",
+      "Wear gloves you trust."
+    ],
+    "imageUrl": "/api/uploads/quest-04-trail-builder-maintainer.webp",
     "gratitude": "60-120",
     "duration": "Full day",
     "difficulty": "Intermediate",
@@ -75,8 +136,23 @@
     "id": "q-circle-scribe",
     "order": 5,
     "title": "Circle Scribe",
+    "subtitle": "Keep the village's memory.",
     "description": "Document circle meetings, proposals, decisions, and community knowledge. Maintain the living record of how Amora governs and creates together.",
     "impact": "Institutional memory is what makes governance last across generations.",
+    "story": "Decisions fade, notes last. The scribe turns an evening of discussion into a record the whole village can trust: what was decided, who carries it, and why. Governance outlives any single founder only when someone writes things down well.",
+    "firstStep": "Read the last two published circle notes and list what a newcomer would still not understand.",
+    "steps": [
+      "Join the circle meeting and capture proposals, decisions, and owners as they land.",
+      "Write the notes the same day, while the nuance is fresh.",
+      "Publish them where the circle keeps its records, and link any proposals they reference.",
+      "Flag open questions clearly so the next meeting starts where this one ended."
+    ],
+    "deliverable": "A published set of meeting notes: decisions, owners, and open questions.",
+    "tips": [
+      "Record decisions and reasons, never the play by play.",
+      "Put a name next to every action. Unowned actions dissolve."
+    ],
+    "imageUrl": "/api/uploads/quest-05-circle-scribe.webp",
     "gratitude": "40-80",
     "duration": "Per meeting (2-3 hrs)",
     "difficulty": "Beginner",
@@ -94,8 +170,23 @@
     "id": "q-retreat-center-host",
     "order": 6,
     "title": "Retreat Center Host",
+    "subtitle": "Hold the space guests remember.",
     "description": "Welcome and support guests at the Amora retreat center. Coordinate check-ins, facilitate space, and create a smooth guest experience that embodies Amora's values.",
     "impact": "Every retreat guest is a potential community member-or ambassador.",
+    "story": "Retreat guests meet the village before the village meets them: the welcome, the room, the small kindnesses. Hosts carry that first impression. Do it well and a stranger leaves as an ambassador, already planning their return.",
+    "firstStep": "Shadow one guest check-in from arrival to settled, and write down every question the guest asked.",
+    "steps": [
+      "Take the arrival schedule for your retreat and prepare rooms and welcome notes.",
+      "Meet guests as they land: orientation, house rhythms, and who to find for what.",
+      "Stay reachable through the retreat and solve small problems before they grow.",
+      "Close out: gather feedback, reset the spaces, and hand your notes to the next host."
+    ],
+    "deliverable": "Your host notes: what guests asked, what ran smoothly, what needs fixing before the next retreat.",
+    "tips": [
+      "The first ten minutes decide the whole stay.",
+      "A handwritten welcome note costs two minutes and gets mentioned for years."
+    ],
+    "imageUrl": "/api/uploads/quest-06-retreat-center-host.webp",
     "gratitude": "80-150",
     "duration": "Per retreat",
     "difficulty": "Intermediate",
@@ -113,8 +204,24 @@
     "id": "q-village-photographer-storyteller",
     "order": 7,
     "title": "Village Photographer & Storyteller",
+    "subtitle": "Show the world what daily life here looks like.",
     "description": "Document life at Amora through photos, short videos, and written stories. Capture the real, daily magic of regenerative village life for the community archive and outreach.",
     "impact": "Authentic stories are how Amora attracts aligned souls worldwide.",
+    "story": "The people meant to find this village will find it through honest pictures of real days: muddy boots, full tables, work in progress. Documentation is also a gift to the future, because the village will want to remember what year two looked like. Your eye becomes part of the archive.",
+    "firstStep": "Spend twenty minutes photographing one everyday scene, then pick the single frame that tells it best.",
+    "steps": [
+      "Choose a rhythm: an event, a work day, or a week of small moments.",
+      "Shoot what actually happens. Real beats staged every time.",
+      "Ask before photographing people up close, always.",
+      "Edit a small set: five strong images beat fifty loose ones.",
+      "File your set in the archive and share one to the village feed."
+    ],
+    "deliverable": "A small edited set in the archive and one image or story shared to the feed.",
+    "tips": [
+      "Golden hour flatters the land.",
+      "Caption with a sentence of context. Future you will be grateful."
+    ],
+    "imageUrl": "/api/uploads/quest-07-village-photographer-storyteller.webp",
     "gratitude": "60-120",
     "duration": "Flexible / ongoing",
     "difficulty": "Intermediate",
@@ -131,8 +238,23 @@
     "id": "q-children-s-play-day-facilitator",
     "order": 8,
     "title": "Children's Play Day Facilitator",
+    "subtitle": "Give the kids a wild morning.",
     "description": "Co-design and run monthly Children's Play Days-wild games, nature crafts, story circles, and the kind of unstructured magic kids rarely get. A core ritual of village life.",
     "impact": "Children who grow up here will tend this land for generations.",
+    "story": "Play Days are a village ritual: nature crafts, story circles, mud, and the kind of open time childhood runs on. The children who grow up loving this land will be the ones tending it decades from now. A morning of play is land stewardship wearing a silly hat.",
+    "firstStep": "Ask two village kids what they would do with a whole free morning outdoors, and write down their answers.",
+    "steps": [
+      "Co-design the morning with another facilitator: one anchor activity, lots of open space.",
+      "Gather materials the day before and walk the play area for hazards.",
+      "Run the morning with more listening than directing. Follow what catches on.",
+      "Wrap with a story circle, and send families home with one photo or keepsake."
+    ],
+    "deliverable": "A short recap of the morning: what you ran, what the kids invented, and a photo if families agreed.",
+    "tips": [
+      "Plan half of what you think fits. Play fills the rest.",
+      "A snack table prevents most meltdowns."
+    ],
+    "imageUrl": "/api/uploads/quest-08-children-s-play-day-facilitator.webp",
     "gratitude": "70-130",
     "duration": "Half day (monthly)",
     "difficulty": "Beginner",
@@ -149,8 +271,23 @@
     "id": "q-tech-platform-steward",
     "order": 9,
     "title": "Tech & Platform Steward",
+    "subtitle": "Keep the digital village standing.",
     "description": "Help maintain and improve the Amora digital ecosystem-website, game platform, forms, community tools. Bug reports, UX improvements, documentation, and light development.",
     "impact": "Scales the village's reach to people who haven't found us yet.",
+    "story": "The platform is village infrastructure the same way the water system is: invisible when it works, everyone's problem when it breaks. Stewarding it means bug reports that name the actual problem, small fixes that ship, and documentation the next person can follow. Quiet work, long reach.",
+    "firstStep": "Use the site for ten minutes as a newcomer would and file the first paper cut you hit, with steps to reproduce.",
+    "steps": [
+      "Pick up an open issue from the tech circle, or file the ones you find.",
+      "Reproduce before you fix: a bug you can trigger twice is half solved.",
+      "Ship the smallest change that solves it, and write down what you changed.",
+      "Leave the docs better than you found them."
+    ],
+    "deliverable": "A link to what you shipped or filed: the fix, the report, or the docs.",
+    "tips": [
+      "Small changes get reviewed. Big ones get postponed.",
+      "Screenshots turn a vague report into a fixable one."
+    ],
+    "imageUrl": "/api/uploads/quest-09-tech-platform-steward.webp",
     "gratitude": "80-200",
     "duration": "Flexible / project-based",
     "difficulty": "Advanced",
@@ -167,8 +304,23 @@
     "id": "q-healing-arts-practitioner",
     "order": 10,
     "title": "Healing Arts Practitioner",
+    "subtitle": "Offer your practice.",
     "description": "Offer wellness sessions to community members-yoga, meditation, somatic practices, plant medicine ceremonies, massage, or other healing modalities you're trained in.",
     "impact": "Wellbeing is regenerative. When people are well, the village thrives.",
+    "story": "A village that works hard needs places to be worked on. Sessions from trained hands, whether yoga, somatics, massage, or ceremony, keep the people well who keep everything else going. Offering your modality here turns your training into village wellbeing.",
+    "firstStep": "Write a three sentence description of the session you want to offer: what it is, who it serves, what to bring.",
+    "steps": [
+      "Confirm your offering and any space or equipment needs with the wellness circle.",
+      "Schedule the session and post it where members look for gatherings.",
+      "Hold the session with clear consent and comfort agreements up front.",
+      "Gather a word of feedback after, and log the session for the circle."
+    ],
+    "deliverable": "A note on the session you held: attendance, how it went, whether it should recur.",
+    "tips": [
+      "Small and recurring beats big and once.",
+      "Clear agreements up front make deeper work possible."
+    ],
+    "imageUrl": "/api/uploads/quest-10-healing-arts-practitioner.webp",
     "gratitude": "50-150",
     "duration": "Per session",
     "difficulty": "Intermediate",
@@ -186,8 +338,23 @@
     "id": "q-infrastructure-builder",
     "order": 11,
     "title": "Infrastructure Builder",
+    "subtitle": "Build the bones of the village.",
     "description": "Support construction, repair, and improvement of shared village infrastructure: composting systems, water catchment, communal kitchen, raised beds, fencing, and more.",
     "impact": "Built systems are the skeleton the village lives inside.",
+    "story": "Compost systems, water catchment, raised beds, fencing: built systems are the skeleton everything else hangs on. This work rewards people who like problems you can touch. What you build this month gets used every day for years.",
+    "firstStep": "Visit the current build site and ask the lead what the next blocked task is waiting on.",
+    "steps": [
+      "Join a build day through the land stewardship circle and get briefed on the project.",
+      "Work the task with the crew: measure twice, lift with friends.",
+      "Photograph what got built and note any materials running low.",
+      "Flag anything unsafe or unfinished before you leave the site."
+    ],
+    "deliverable": "Photos of the day's progress and a note on materials or blockers for the next crew.",
+    "tips": [
+      "The person who tidies the tool shed is everyone's favorite builder.",
+      "Ask about load paths before improvising a fix."
+    ],
+    "imageUrl": "/api/uploads/quest-11-infrastructure-builder.webp",
     "gratitude": "80-160",
     "duration": "Full day",
     "difficulty": "Advanced",
@@ -204,8 +371,23 @@
     "id": "q-arts-mural-maker",
     "order": 12,
     "title": "Arts & Mural Maker",
+    "subtitle": "Paint what words miss.",
     "description": "Create art that lives in the village-murals, sculptures, fiber works, installations. Bring beauty to shared spaces and express Amora's soul through your medium.",
     "impact": "Beauty communicates what words can't. This is how the village speaks.",
+    "story": "Beauty is how a place speaks. Murals, sculpture, fiber, and installations turn shared walls into shared meaning, and they outlast every meeting about how the village should feel. Bring your medium. The village brings the walls.",
+    "firstStep": "Walk the shared spaces and photograph the one surface that most wants art. Write a sentence on what belongs there.",
+    "steps": [
+      "Pitch your piece to the arts circle: sketch, surface, materials, timeline.",
+      "Gather materials and prep the surface properly. Prep decides how long it lasts.",
+      "Create, and let people watch. Working in public is half the gift.",
+      "Seal or weatherproof the finished piece and photograph it for the archive."
+    ],
+    "deliverable": "The finished piece on the land, photographed for the archive with a title and a line about it.",
+    "tips": [
+      "Sketch approval first saves repainting later.",
+      "Kids will ask to help. Let them do a corner."
+    ],
+    "imageUrl": "/api/uploads/quest-12-arts-mural-maker.webp",
     "gratitude": "100-300",
     "duration": "Project-based",
     "difficulty": "Intermediate",
@@ -222,8 +404,23 @@
     "id": "q-community-music-circle-host",
     "order": 13,
     "title": "Community Music Circle Host",
+    "subtitle": "Start the rhythm.",
     "description": "Lead or organize regular music circles, drum jams, singing circles, or informal concerts. Music is how the village celebrates, grieves, and stays alive.",
     "impact": "Rhythm holds community together in ways nothing else can.",
+    "story": "Music is how the village celebrates, grieves, and remembers itself. A circle needs no stage and no skill floor: a few instruments, a fire, and someone willing to hold the container. That someone is you.",
+    "firstStep": "Pick a date and invite three people directly. A circle of four is already a circle.",
+    "steps": [
+      "Set the time and place, and post the invitation to the feed.",
+      "Bring or arrange a few shared instruments so nobody needs to own one.",
+      "Open simply: a rhythm, a known song, or a round anyone can join.",
+      "Read the room and close while the energy is still warm."
+    ],
+    "deliverable": "A note or short clip from the circle: who gathered, what was sung or played.",
+    "tips": [
+      "Percussion is the doorway for shy joiners.",
+      "Ending on time is what makes people come back."
+    ],
+    "imageUrl": "/api/uploads/quest-13-community-music-circle-host.webp",
     "gratitude": "50-100",
     "duration": "Per session",
     "difficulty": "Beginner",
@@ -240,8 +437,23 @@
     "id": "q-security-night-watch",
     "order": 14,
     "title": "Security & Night Watch",
+    "subtitle": "Watch over the night.",
     "description": "Participate in the village safety rotation-nighttime presence, gate awareness, and care for the boundary between Amora and the wider world.",
     "impact": "Collective safety is how all other contributions stay protected.",
+    "story": "Every open-hearted place needs people who mind the edges. Night watch is quiet, real responsibility: presence at the gate, eyes on the boundary, care for everyone sleeping inside it. The village rests because someone is awake.",
+    "firstStep": "Walk the property boundary once in daylight with a current watch member and learn the checkpoints.",
+    "steps": [
+      "Take a rotation slot through the governance circle and get the handover briefing.",
+      "Walk the rounds on schedule: gate, common spaces, boundary points.",
+      "Log anything unusual, and wake the right person for anything urgent.",
+      "Hand over clearly at the end of your shift, with notes for the next watch."
+    ],
+    "deliverable": "Your completed shift log with any observations passed to the next watch.",
+    "tips": [
+      "A good flashlight and warm layers turn the shift from endurance into ease.",
+      "Most of the job is being visibly, calmly there."
+    ],
+    "imageUrl": "/api/uploads/quest-14-security-night-watch.webp",
     "gratitude": "60-100",
     "duration": "Night shift (6-8 hrs)",
     "difficulty": "Intermediate",

@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Village Map: design directions</title>
+<style>
+:root{
+  --teal-deep:#157f7d; --teal:#7fb8ac; --teal-mid:#3a9896; --aqua-light:#c6dde0;
+  --cream:#efe8d7; --cream-dark:#e5dcc6; --amber:#ecb163; --amber-light:#fdf1de;
+  --gold:#a06b1c; --coral:#9b4030; --sage:#3d6e4a; --sage-light:#dcebe0;
+  --bg:#f7f5ef; --card:#ffffff; --ink:#12312f; --muted:#5f7472; --line:#e3ded1;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;line-height:1.2;letter-spacing:-.015em;font-weight:700}
+p{margin:0 0 .8em}
+a{color:var(--teal-deep)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* ── chrome ─────────────────────────────────────────── */
+header.hero{background:linear-gradient(160deg,#0f5f5d 0%,#157f7d 55%,#2b8f80 100%);color:#fff;padding:54px 0 46px}
+header.hero .kicker{font-size:12px;letter-spacing:.16em;text-transform:uppercase;opacity:.72;margin-bottom:14px}
+header.hero h1{font-size:clamp(30px,4.4vw,46px);max-width:22ch}
+header.hero p{margin-top:16px;max-width:62ch;opacity:.9;font-size:17px}
+nav.tabs{position:sticky;top:0;z-index:40;background:rgba(247,245,239,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav.tabs .wrap{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+nav.tabs .wrap::-webkit-scrollbar{display:none}
+nav.tabs a{padding:15px 14px;font-size:13.5px;font-weight:600;color:var(--muted);text-decoration:none;
+  border-bottom:2.5px solid transparent;white-space:nowrap}
+nav.tabs a:hover{color:var(--ink)}
+nav.tabs a.on{color:var(--teal-deep);border-bottom-color:var(--teal-deep)}
+
+section{padding:56px 0;border-bottom:1px solid var(--line);scroll-margin-top:56px}
+.eyebrow{font-size:11.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--teal-deep);font-weight:700;margin-bottom:10px}
+section h2{font-size:clamp(24px,3vw,33px);max-width:26ch}
+section > .wrap > p.lede{max-width:70ch;color:var(--muted);font-size:16.5px;margin-top:12px}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px}
+.pad{padding:22px}
+.grid{display:grid;gap:18px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(255px,1fr))}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.tiny{font-size:11.5px}
+
+/* ── diagnosis ──────────────────────────────────────── */
+.diag{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));margin-top:30px}
+.diag .card{padding:20px 22px;border-left:3px solid var(--coral)}
+.diag h4{font-size:15.5px;margin-bottom:7px}
+.diag .n{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--coral);margin-bottom:8px}
+
+/* ── seat specimens ─────────────────────────────────── */
+.specs{display:grid;gap:20px;grid-template-columns:repeat(auto-fit,minmax(288px,1fr));margin-top:34px}
+.spec{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;display:flex;flex-direction:column}
+.spec .stage{background:linear-gradient(180deg,#fbfaf6,#f2efe6);padding:20px 10px 14px;display:flex;justify-content:center;align-items:center;min-height:230px;border-bottom:1px solid var(--line)}
+.spec .body{padding:16px 18px 18px}
+.spec h4{font-size:15.5px;display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.spec .tag{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 7px;border-radius:99px;background:var(--sage-light);color:var(--sage)}
+.spec .tag.pick{background:var(--amber-light);color:var(--gold)}
+.spec p{font-size:13.2px;color:var(--muted);margin:0}
+.spec .verdict{margin-top:10px;font-size:12.2px;padding-top:10px;border-top:1px dashed var(--line)}
+.spec .verdict b{color:var(--ink)}
+
+/* ── view switcher ──────────────────────────────────── */
+.switch{display:flex;gap:8px;flex-wrap:wrap;margin:28px 0 20px}
+.switch button{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:99px;
+  padding:9px 16px;font-size:13.2px;font-weight:600;cursor:pointer;font-family:inherit;transition:.15s}
+.switch button:hover{border-color:var(--teal);color:var(--ink)}
+.switch button.on{background:var(--teal-deep);border-color:var(--teal-deep);color:#fff}
+.viewpane{display:none}
+.viewpane.on{display:block}
+.viewnote{background:var(--amber-light);border:1px solid #f0dfc0;border-radius:14px;padding:15px 18px;margin-bottom:20px;font-size:13.6px}
+.viewnote b{display:block;margin-bottom:3px;font-size:14px}
+
+.split{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start}
+@media(max-width:900px){.split{grid-template-columns:1fr}}
+.canvas{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:8px;overflow:hidden}
+.canvas svg{display:block;width:100%;height:auto}
+
+/* detail panel */
+.panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;position:sticky;top:74px}
+.panel h3{font-size:17px;margin-bottom:2px}
+.panel .sub{font-size:12.5px;color:var(--teal-deep);font-weight:600;margin-bottom:10px}
+.panel .purpose{font-size:13.4px;color:var(--muted);margin-bottom:14px}
+.rolerow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:#faf9f5;margin-bottom:6px}
+.rolerow .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:none;background:var(--sage-light);color:var(--sage)}
+.rolerow .ic.open{background:var(--amber-light);color:var(--gold);border:1.5px dashed #d9b071}
+.rolerow .ic.forming{background:#f0eee7;color:#9a9689;border:1.5px dashed #cfcabb}
+.rolerow .nm{flex:1;min-width:0;font-size:13.2px;font-weight:600}
+.rolerow .who{font-size:11.5px;color:var(--muted);font-weight:400;display:block}
+.chip{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 7px;border-radius:99px;white-space:nowrap}
+.chip.open{background:var(--amber);color:#4a2f08}
+.chip.filled{background:var(--sage-light);color:var(--sage)}
+.chip.forming{background:#efece4;color:#7d7869}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:14px;font-size:12.3px;color:var(--muted);align-items:center}
+.legend .k{display:flex;align-items:center;gap:7px}
+.legend .sw{width:15px;height:15px;border-radius:50%;flex:none}
+
+/* ── layer spine (view B) ───────────────────────────── */
+.spine{display:flex;flex-direction:column;gap:12px}
+.band{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px;position:relative}
+.band.dim{background:#fbfaf6;border-style:dashed}
+.band .bandhead{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .bandhead h4{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--teal-deep)}
+.band .bandhead span{font-size:12px;color:var(--muted)}
+.bandrow{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(195px,1fr))}
+.bandrow.solo{grid-template-columns:minmax(0,340px)}
+.spinelink{width:2px;height:12px;background:linear-gradient(#dcd6c6,#dcd6c6);margin:0 auto;border-radius:2px}
+.spine{gap:0}
+.spine .band{margin:0}
+.node{border:1.5px solid var(--line);border-radius:14px;padding:13px 14px;cursor:pointer;background:#fff;transition:.15s;text-align:left;font-family:inherit}
+.node:hover{border-color:var(--teal);box-shadow:0 5px 18px -10px rgba(21,127,125,.5);transform:translateY(-1px)}
+.node.sel{border-color:var(--teal-deep);box-shadow:0 0 0 3px rgba(21,127,125,.14)}
+.node .top{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.node .badge{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none;color:#fff}
+.node .nm{font-size:13.6px;font-weight:700;line-height:1.25}
+.node .st{font-size:11.5px;color:var(--muted);margin-bottom:9px}
+.node.ghost{background:#fbfaf6;border-style:dashed;opacity:.92}
+.node.ghost .badge{background:#e8e4d9!important;color:#8d887a}
+
+/* seat strip used in cards */
+.seats{display:flex;gap:3px;align-items:center;flex-wrap:wrap}
+.seat{width:14px;height:14px;border-radius:4px;flex:none}
+.seat.f{background:var(--teal-deep)}
+.seat.p{background:linear-gradient(90deg,var(--teal-deep) 50%,#fff 50%);border:1.5px solid var(--teal-deep)}
+.seat.o{background:#fff;border:1.5px dashed var(--amber);box-shadow:0 0 0 1px #fdf1de inset}
+.seat.g{background:#f0eee7;border:1.5px dashed #d5d0c2}
+.seatlabel{font-size:11px;color:var(--muted);margin-left:5px}
+
+/* ── circle wall (view C) ───────────────────────────── */
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;align-items:center}
+.filters button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:7px 13px;font-size:12.5px;
+  font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit}
+.filters button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.wall{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(238px,1fr))}
+.wcard{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px;cursor:pointer;transition:.15s;text-align:left;font-family:inherit}
+.wcard:hover{border-color:var(--teal);transform:translateY(-2px);box-shadow:0 10px 26px -18px rgba(18,49,47,.55)}
+.wcard.ghost{background:#fbfaf6;border-style:dashed}
+.wcard .whead{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px}
+.wcard .badge{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;flex:none;color:#fff}
+.wcard h4{font-size:14.5px;line-height:1.25}
+.wcard .sub{font-size:11.6px;color:var(--muted)}
+.meter{height:6px;border-radius:99px;background:#efece3;overflow:hidden;display:flex;margin:10px 0 7px}
+.meter i{display:block;height:100%}
+.avatars{display:flex;gap:-6px;margin-top:9px}
+.av{width:24px;height:24px;border-radius:50%;background:var(--teal-deep);color:#fff;font-size:10.5px;font-weight:700;
+  display:grid;place-items:center;border:2px solid #fff;margin-right:-7px}
+.av.open{background:#fff;color:var(--gold);border:1.5px dashed var(--amber)}
+.av.wait{background:#f0eee7;border:1.5px dashed #d5d0c2}
+
+/* ── recommendation ─────────────────────────────────── */
+.steps{counter-reset:s;display:grid;gap:14px;margin-top:26px}
+.step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px 18px 60px;position:relative}
+.step:before{counter-increment:s;content:counter(s);position:absolute;left:18px;top:17px;width:28px;height:28px;border-radius:50%;
+  background:var(--teal-deep);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+.step h4{font-size:15.5px;margin-bottom:5px}
+.step p{font-size:13.6px;color:var(--muted);margin:0}
+.step code{background:#f0eee7;padding:1px 5px;border-radius:4px;font-size:12.2px}
+footer{padding:38px 0 60px;color:var(--muted);font-size:13px}
+svg .lbl{font-weight:700;fill:var(--ink)}
+svg text{font-family:inherit}
+.hint{font-size:12.3px;color:var(--muted);margin-top:10px;text-align:center}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">Amora / village map</div>
+    <h1>The map should answer three questions in three seconds</h1>
+    <p>Who runs what, what is actually alive today, and where the empty chairs are. Here is a diagnosis of the current map, six ways to draw a seat that is not a dot, and four layouts you can pick from. Everything below is interactive and built on the real Amora circle and role data.</p>
+  </div>
+</header>
+
+<nav class="tabs"><div class="wrap">
+  <a href="#diagnosis" class="on">What is broken</a>
+  <a href="#seats">Seat treatments</a>
+  <a href="#layouts">Layout directions</a>
+  <a href="#build">What to build</a>
+</div></nav>
+
+<!-- ═══ DIAGNOSIS ═══ -->
+<section id="diagnosis">
+  <div class="wrap">
+    <div class="eyebrow">Diagnosis</div>
+    <h2>Five things the current map does to itself</h2>
+    <p class="lede">The metaphor is right. Sociocracy really is circles inside circles, and spatial memory of "permaculture lives at two o'clock" is worth protecting. The execution is what hurts.</p>
+    <div class="diag">
+      <div class="card"><div class="n">Problem 01</div><h4>Seats orbit through the label</h4>
+        <p class="small muted">Role dots are laid on a full 360° ring starting at 12 o'clock, and the circle's name is drawn at 12 o'clock too. Seat one lands on the first letter of every name, every time. It is a guaranteed collision, not bad luck.</p></div>
+      <div class="card"><div class="n">Problem 02</div><h4>A dot carries no information</h4>
+        <p class="small muted">Filled or open is the only bit a dot encodes, and it does that with a 2px dash you cannot see at map zoom. Which role, who holds it, how senior, how urgent: all invisible until you click.</p></div>
+      <div class="card"><div class="n">Problem 03</div><h4>Size means nothing legible</h4>
+        <p class="small muted">Radius is driven by headcount and role count, so Development Circle dominates the centre and reads as the most important thing in the village. It is simply the one with the most rows.</p></div>
+      <div class="card"><div class="n">Problem 04</div><h4>Live and forming look the same</h4>
+        <p class="small muted">Eight councils that do not exist yet get the same visual weight as five circles doing the work today, separated only by 50% opacity. Two thirds of the map is future, and it looks like present.</p></div>
+      <div class="card"><div class="n">Problem 05</div><h4>No legend, no entry point</h4>
+        <p class="small muted">Nothing on the canvas says what a ring, a dot, a colour or a small amber dot means. A first-time visitor gets a beautiful diagram with no key to it.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SEATS ═══ -->
+<section id="seats">
+  <div class="wrap">
+    <div class="eyebrow">Question 1</div>
+    <h2>Six ways to draw a seat that is not a floating dot</h2>
+    <p class="lede">All six are rendered on the same circle: Outreach &amp; Growth, one seat filled and three open. Every one of them keeps the middle of the circle clear, so a name can never be covered again.</p>
+    <div class="specs" id="specs"></div>
+  </div>
+</section>
+
+<!-- ═══ LAYOUTS ═══ -->
+<section id="layouts">
+  <div class="wrap">
+    <div class="eyebrow">Question 3</div>
+    <h2>Four ways to show the whole organisation at a glance</h2>
+    <p class="lede">Same data in each. Click any circle to open it. Switch between them and notice how much faster some questions get answered.</p>
+    <div class="switch" id="viewswitch"></div>
+
+    <div class="viewpane on" id="view-nested">
+      <div class="viewnote"><b>A. Nested circles, debugged</b>Keeps the sociocracy picture. Three changes carry it: the centre now means something (the linking circle sits there, not whichever circle has the most rows), every name gets a reserved crown no seat may enter, and the eight forming councils become a named outer band instead of eight competing blobs.</div>
+      <div class="split">
+        <div class="canvas" id="cv-nested"></div>
+        <div id="pn-nested"></div>
+      </div>
+      <div class="legend" id="lg-nested"></div>
+    </div>
+
+    <div class="viewpane" id="view-spine">
+      <div class="viewnote"><b>B. The governance spine</b>Authority runs top to bottom, so the shape of the organisation is readable in one pass. Best view for a newcomer, an investor, or anyone asking "who decides what". Costs the circular metaphor.</div>
+      <div class="split">
+        <div id="cv-spine"></div>
+        <div id="pn-spine"></div>
+      </div>
+    </div>
+
+    <div class="viewpane" id="view-wall">
+      <div class="viewnote"><b>C. The circle wall</b>Every circle as a card, filterable and sortable. Wins on the job the map is really hired for: find me somewhere to help. Scales to fifty circles without redrawing anything.</div>
+      <div class="filters" id="wallfilters"></div>
+      <div class="split">
+        <div id="cv-wall"></div>
+        <div id="pn-wall"></div>
+      </div>
+    </div>
+
+    <div class="viewpane" id="view-wheel">
+      <div class="viewnote"><b>D. The governance wheel</b>One sunburst: village at the centre, circles as sectors, individual seats as the outer teeth. Densest of the four and the only one that shows every single seat in the village at once. Ceremonial enough for the wall of a community hall.</div>
+      <div class="split">
+        <div class="canvas" id="cv-wheel"></div>
+        <div id="pn-wheel"></div>
+      </div>
+      <div class="legend" id="lg-wheel"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ BUILD ═══ -->
+<section id="build">
+  <div class="wrap">
+    <div class="eyebrow">Recommendation</div>
+    <h2>Ship A and C together, in that order</h2>
+    <p class="lede">A is the hero picture and the thing people screenshot. C is the one that actually gets seats filled. They share a data shape and a detail panel, so the second one is cheap once the first is done. B is a strong third if you want a "how we govern" page. D is a poster.</p>
+    <div class="steps">
+      <div class="step"><h4>Reserve a label crown in the layout function</h4>
+        <p>In <code>shared/mapLayout.ts</code> the role ring runs a full 2π from -π/2. Start it at +40° and stop at +320°, so the top 80° of every circle belongs to text alone. One constant, and problem 01 is gone forever. The layout stays pure and deterministic, so the existing tests keep their meaning.</p></div>
+      <div class="step"><h4>Turn seats into a capacity arc on the circle's own stroke</h4>
+        <p>Seats stop being free-floating objects and become segments of the border. Nothing can overlap a label because nothing lives inside the circle any more. Filled segments draw solid in brand teal, open segments draw hollow with the amber dash and keep the existing pulse for open calls.</p></div>
+      <div class="step"><h4>Give the centre a meaning</h4>
+        <p>Place the linking circle at the centre and rank the ring by governance layer, not by radius maths. Size stops shouting. A one-line ordering rule in the layout beats any amount of colour work.</p></div>
+      <div class="step"><h4>Separate live from forming, hard</h4>
+        <p>Opacity 0.5 is not a status. Forming circles get a dashed stroke, a hatched fill and a small "forming" pill, and the eight councils move to a named outer band so they read as a horizon rather than as thirteen equal blobs.</p></div>
+      <div class="step"><h4>Use the icons you already store</h4>
+        <p>Every circle row already carries an <code>icon</code> and a <code>color</code>, and the seed files fill both in. Nothing renders them today. Drawing the glyph inside each circle adds recognition at zero data cost and makes small circles readable when the name has to shrink.</p></div>
+      <div class="step"><h4>Add a legend and an open-seats counter</h4>
+        <p>A four-item key under the canvas, and a single line at the top: "5 circles at work, 8 forming, 11 seats open". That sentence is the whole map for most visitors, and it gives the concierge bar something to answer.</p></div>
+      <div class="step"><h4>Then build the wall as the second tab</h4>
+        <p>Same payload, same detail panel, no new endpoint. It becomes the mobile view too, which retires the current accordion and gives phones a real map instead of a list.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer><div class="wrap">Prototype built on the live <code>/api/map</code> shape: circles, roles, seats, holders, quests. Colours are the Amora tokens from <code>index.css</code>.</div></footer>
+
+<script>
+/* Shared data + icon set for the Village Map design directions prototype. */
+const ICONS = {
+  star: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>',
+  users2: '<path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>',
+  building2: '<path d="M10 12h4"/><path d="M10 8h4"/><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/>',
+  handshake: '<path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/>',
+  briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+  leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+  bookopen: '<path d="M12 5v16"/><path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"/>',
+  palette: '<path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/>',
+  stethoscope: '<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
+  building: '<path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/>',
+  dollarsign: '<line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  lightbulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  compass: '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/>',
+  zap: '<path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+  scale: '<path d="M12 3v18"/><path d="m19 8 3 8a5 5 0 0 1-6 0zV7"/><path d="M3 7h1a17 17 0 0 0 8-2 17 17 0 0 0 8 2h1"/><path d="m5 8 3 8a5 5 0 0 1-6 0zV7"/><path d="M7 21h10"/>',
+  home: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+  message: '<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/>',
+  circledot: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/>',
+  treepine: '<path d="m17 14 3 3.3a1 1 0 0 1-.7 1.7H4.7a1 1 0 0 1-.7-1.7L7 14h-.3a1 1 0 0 1-.7-1.7L9 9h-.2A1 1 0 0 1 8 7.3L12 3l4 4.3a1 1 0 0 1-.8 1.7H15l3 3.3a1 1 0 0 1-.7 1.7H17Z"/><path d="M12 22v-3"/>',
+  sprout: '<path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3"/><path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4"/><path d="M5 21h14"/>',
+};
+
+/* stage: live | forming.  layer: coord | lead | operating | advisory | council */
+const CIRCLES = [
+  {
+    id: 'general-circle', name: 'General Coordinating Circle', short: 'General Coordinating',
+    subtitle: 'Where the circles meet', icon: 'users2', tone: 'teal', stage: 'live', layer: 'coord',
+    purpose: 'The linking circle. Every operating circle sends a voice here, and the whole picture gets assembled in one room.',
+    roles: [
+      { name: 'Website & Backend / AI', icon: 'globe', status: 'filled', holders: ['Eric', 'Rick'] },
+      { name: 'Operations Steward', icon: 'zap', status: 'open', holders: [] },
+      { name: 'Chief of Staff', icon: 'clipboard', status: 'open', holders: [] },
+    ],
+  },
+  {
+    id: 'leadership-circle', name: 'Leadership Circle', short: 'Leadership',
+    subtitle: 'Holds the whole', icon: 'star', tone: 'gold', stage: 'live', layer: 'lead',
+    purpose: 'Direction, alignment and the final word on questions no single circle can settle.',
+    roles: [
+      { name: 'Visionary Lead', icon: 'star', status: 'filled', holders: ['Jessica'] },
+      { name: 'Finance Lead', icon: 'shield', status: 'filled', holders: ['Kyleen'] },
+      { name: 'Development Lead', icon: 'building2', status: 'open', holders: [] },
+      { name: 'Community Lead', icon: 'users2', status: 'open', holders: [] },
+    ],
+  },
+  {
+    id: 'development-circle', name: 'Development Circle', short: 'Development',
+    subtitle: 'From drawings to homes', icon: 'building2', tone: 'amber', stage: 'live', layer: 'operating',
+    purpose: 'Architecture, permitting, construction, infrastructure and the land operations that carry them.',
+    roles: [
+      { name: 'Project Manager', icon: 'zap', status: 'filled', holders: ['Christian'] },
+      { name: 'Land Liaison', icon: 'leaf', status: 'filled', holders: ['Via'] },
+      { name: 'Land Steward', icon: 'home', status: 'open', holders: [] },
+      { name: 'Architecture Circle Lead', icon: 'building2', status: 'open', holders: [] },
+      { name: 'Regen Ag Circle Lead', icon: 'sprout', status: 'open', holders: [] },
+    ],
+    children: [
+      { id: 'architecture-circle', name: 'Architecture Circle', short: 'Architecture', icon: 'building', stage: 'forming', roles: [] },
+      { id: 'regen-ag-circle', name: 'Regenerative Agriculture & Permaculture Circle', short: 'Regen Ag', icon: 'sprout', stage: 'forming', roles: [] },
+    ],
+  },
+  {
+    id: 'outreach-growth-circle', name: 'Outreach & Growth Circle', short: 'Outreach & Growth',
+    subtitle: 'One journey, one circle', icon: 'handshake', stage: 'live', tone: 'teal', layer: 'operating',
+    purpose: 'How a stranger becomes a neighbour: marketing, sales, membership and the story we tell.',
+    roles: [
+      { name: 'Social Media Steward', icon: 'message', status: 'filled', holders: ['Mira'] },
+      { name: 'Marketing Steward', icon: 'lightbulb', status: 'open', holders: [] },
+      { name: 'Sales Lead', icon: 'handshake', status: 'open', holders: [] },
+      { name: 'Membership & Onboarding', icon: 'users', status: 'open', holders: [] },
+    ],
+  },
+  {
+    id: 'community-circle', name: 'Community Circle', short: 'Community',
+    subtitle: 'The human experience', icon: 'users', tone: 'sage', stage: 'live', layer: 'operating',
+    purpose: 'Gatherings, conflict care, governance practice and the everyday weave of living together.',
+    roles: [
+      { name: 'Campground & Events Steward', icon: 'home', status: 'open', holders: [] },
+      { name: 'Community Engagement Steward', icon: 'users', status: 'forming', holders: [] },
+      { name: 'Governance & Team Coherence', icon: 'scale', status: 'forming', holders: [] },
+    ],
+  },
+  {
+    id: 'finance-business-circle', name: 'Finance & Business Circle', short: 'Finance & Business',
+    subtitle: 'Fuel for the vision', icon: 'briefcase', tone: 'gold', stage: 'live', layer: 'operating',
+    purpose: 'Capital, entities, land trust and the enterprises that pay for the land.',
+    roles: [
+      { name: 'Business Development Steward', icon: 'briefcase', status: 'partial', holders: ['Ky (interim)'] },
+      { name: 'Entity & Land Trust Steward', icon: 'shield', status: 'forming', holders: [] },
+    ],
+  },
+  {
+    id: 'advisory-bodies', name: 'Advisory Bodies', short: 'Advisory',
+    subtitle: 'Counsel, not command', icon: 'compass', tone: 'coral', stage: 'forming', layer: 'advisory',
+    purpose: 'Elders, specialists and directors who advise the circles without holding the work.',
+    roles: [
+      { name: 'Wisdom Council', icon: 'circledot', status: 'forming', holders: [] },
+      { name: 'Advisory Board', icon: 'lightbulb', status: 'forming', holders: [] },
+      { name: 'Board of Directors', icon: 'shield', status: 'forming', holders: [] },
+    ],
+  },
+];
+
+/* The eight future councils: named, no seats yet. */
+const COUNCILS = [
+  { id: 'permaculture-council', name: 'Permaculture Council', short: 'Permaculture', subtitle: 'Land & food systems', icon: 'leaf' },
+  { id: 'education-council', name: 'Education Council', short: 'Education', subtitle: 'Learning & development', icon: 'bookopen' },
+  { id: 'culture-arts-council', name: 'Culture & Arts Council', short: 'Culture & Arts', subtitle: 'Creative expression', icon: 'palette' },
+  { id: 'health-healing-council', name: 'Health & Healing Council', short: 'Health & Healing', subtitle: 'Wellness & care', icon: 'stethoscope' },
+  { id: 'building-village-council', name: 'Building & Village Council', short: 'Building & Village', subtitle: 'Infrastructure', icon: 'building' },
+  { id: 'business-finance-council', name: 'Business & Finance Council', short: 'Business & Finance', subtitle: 'Economic sustainability', icon: 'dollarsign' },
+  { id: 'community-life-council', name: 'Community Life Council', short: 'Community Life', subtitle: 'Social connection', icon: 'users2' },
+  { id: 'intergenerational-wisdom-council', name: 'Intergenerational Wisdom Council', short: 'Intergenerational Wisdom', subtitle: 'Rights of nature', icon: 'treepine' },
+];
+
+</script>
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   Village Map: design directions. Vanilla JS + SVG, no dependencies.
+   ══════════════════════════════════════════════════════════════════ */
+
+const TONE = {
+  lead:      '#12403f',
+  coord:     '#157f7d',
+  dev:       '#9b4030',
+  outreach:  '#3a9896',
+  community: '#3d6e4a',
+  finance:   '#a06b1c',
+  advisory:  '#6f6250',
+  ghost:     '#a8a294',
+};
+const HUE = {
+  'leadership-circle': TONE.lead,
+  'general-circle': TONE.coord,
+  'development-circle': TONE.dev,
+  'outreach-growth-circle': TONE.outreach,
+  'community-circle': TONE.community,
+  'finance-business-circle': TONE.finance,
+  'advisory-bodies': TONE.advisory,
+};
+const OPEN = '#c98a2e', OPEN_SOFT = '#ecb163', GHOST = '#cfcabb';
+
+const byId = {};
+CIRCLES.forEach(c => { byId[c.id] = c; (c.children || []).forEach(k => byId[k.id] = k); });
+COUNCILS.forEach(c => byId[c.id] = c);
+
+const hueOf = id => HUE[id] || TONE.ghost;
+const seatsOf = c => (c.roles || []);
+const filledOf = c => seatsOf(c).filter(r => r.status === 'filled').length;
+const partialOf = c => seatsOf(c).filter(r => r.status === 'partial').length;
+const openOf = c => seatsOf(c).filter(r => r.status === 'open').length;
+
+function icon(name, size, color, sw) {
+  const d = ICONS[name] || ICONS.circledot;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color || 'currentColor'}"
+    stroke-width="${sw || 2}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+}
+function gIcon(name, cx, cy, size, color, sw) {
+  const s = size / 24;
+  return `<g transform="translate(${cx - size / 2} ${cy - size / 2}) scale(${s})" fill="none" stroke="${color}"
+    stroke-width="${(sw || 2) / s * (s)}" stroke-linecap="round" stroke-linejoin="round"
+    style="stroke-width:${(sw || 2) / s}">${ICONS[name] || ICONS.circledot}</g>`;
+}
+
+const rad = d => (d * Math.PI) / 180;
+const P = (cx, cy, r, deg) => [cx + r * Math.cos(rad(deg)), cy + r * Math.sin(rad(deg))];
+
+/** Stroked arc path. */
+function arcPath(cx, cy, r, a0, a1) {
+  const [x0, y0] = P(cx, cy, r, a0), [x1, y1] = P(cx, cy, r, a1);
+  const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
+  const sweep = a1 > a0 ? 1 : 0;
+  return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} ${sweep} ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+/** Filled annulus wedge. */
+function wedge(cx, cy, r0, r1, a0, a1) {
+  const [ax, ay] = P(cx, cy, r1, a0), [bx, by] = P(cx, cy, r1, a1);
+  const [cx2, cy2] = P(cx, cy, r0, a1), [dx, dy] = P(cx, cy, r0, a0);
+  const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
+  return `M ${ax.toFixed(2)} ${ay.toFixed(2)} A ${r1} ${r1} 0 ${large} 1 ${bx.toFixed(2)} ${by.toFixed(2)}
+    L ${cx2.toFixed(2)} ${cy2.toFixed(2)} A ${r0} ${r0} 0 ${large} 0 ${dx.toFixed(2)} ${dy.toFixed(2)} Z`;
+}
+/** Break a name into <= max lines of roughly `per` characters. */
+function wrap(name, per, max) {
+  const words = name.replace(' & ', ' & ').split(' ');
+  const lines = []; let cur = '';
+  for (const w of words) {
+    if (!cur) { cur = w; continue; }
+    if ((cur + ' ' + w).length <= per) cur += ' ' + w; else { lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > max) {
+    const kept = lines.slice(0, max - 1);
+    kept.push(lines.slice(max - 1).join(' '));
+    return kept;
+  }
+  return lines;
+}
+function svgLines(lines, x, y, lh, cls, size, fill) {
+  return lines.map((l, i) =>
+    `<text x="${x}" y="${(y + i * lh).toFixed(1)}" text-anchor="middle" class="${cls || ''}"
+      style="font-size:${size}px;font-weight:700;fill:${fill}">${l}</text>`).join('');
+}
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const initial = n => (n || '?').trim()[0].toUpperCase();
+
+/* ══════════════════════════════════════════════════════════════════
+   SECTION 2: seat treatments
+   ══════════════════════════════════════════════════════════════════ */
+const DEMO = CIRCLES.find(c => c.id === 'outreach-growth-circle');
+const DEMO_HUE = hueOf(DEMO.id);
+
+function specimenFrame(inner, r) {
+  return `<svg viewBox="0 0 250 220" width="240" role="img" aria-label="seat treatment specimen">${inner}</svg>`;
+}
+function coreLabel(cx, cy, r, opts) {
+  const o = opts || {};
+  const lines = wrap(DEMO.name.replace(' Circle', ''), 12, 2);
+  const ly = cy + (o.nudge || 0) - (lines.length - 1) * 8;
+  return gIcon(DEMO.icon, cx, cy - r * 0.44 + (o.iconNudge || 0), 20, DEMO_HUE, 1.9)
+    + svgLines(lines, cx, ly, 16, '', 13.5, '#12312f')
+    + (o.hideCount ? '' : `<text x="${cx}" y="${cy + r * 0.5}" text-anchor="middle"
+        style="font-size:10.5px;font-weight:600;fill:#5f7472">1 of 4 seats</text>`);
+}
+
+/* 1. capacity arc */
+function specCapacityArc() {
+  const cx = 125, cy = 105, r = 78;
+  const a0 = -50, span = 280, n = 4, gap = 4;
+  let segs = '';
+  DEMO.roles.forEach((role, i) => {
+    const s = a0 + (span / n) * i + gap / 2, e = a0 + (span / n) * (i + 1) - gap / 2;
+    const filled = role.status === 'filled';
+    segs += `<path d="${arcPath(cx, cy, r, s, e)}" fill="none" stroke="${filled ? DEMO_HUE : OPEN_SOFT}"
+      stroke-width="${filled ? 10 : 5}" stroke-linecap="round"/>`;
+  });
+  return specimenFrame(
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${DEMO_HUE}" fill-opacity=".07" stroke="${DEMO_HUE}" stroke-opacity=".18" stroke-width="1.5"/>
+     <path d="${arcPath(cx, cy, r, a0, a0 + span)}" fill="none" stroke="#ebe7db" stroke-width="10" stroke-linecap="round"/>
+     ${segs}${coreLabel(cx, cy, r)}`);
+}
+/* 2. seat tray */
+function specTray() {
+  const cx = 125, cy = 100, r = 78;
+  let pips = '';
+  const w = 20, h = 9, gapx = 6, total = 4 * w + 3 * gapx, x0 = cx - total / 2, y = cy + 38;
+  DEMO.roles.forEach((role, i) => {
+    const filled = role.status === 'filled';
+    pips += `<rect x="${x0 + i * (w + gapx)}" y="${y}" width="${w}" height="${h}" rx="4.5"
+      fill="${filled ? DEMO_HUE : '#fff'}" stroke="${filled ? DEMO_HUE : OPEN}" stroke-width="1.6"
+      ${filled ? '' : 'stroke-dasharray="3 2.5"'}/>`;
+  });
+  return specimenFrame(
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${DEMO_HUE}" fill-opacity=".08" stroke="${DEMO_HUE}" stroke-opacity=".35" stroke-width="2"/>
+     <rect x="${cx - 56}" y="${cy + 30}" width="112" height="26" rx="13" fill="${DEMO_HUE}" fill-opacity=".12"/>
+     ${coreLabel(cx, cy, r, { nudge: -8, iconNudge: -4, hideCount: true })}${pips}`);
+}
+/* 3. initial tokens */
+function specTokens() {
+  const cx = 125, cy = 100, r = 78;
+  let toks = '';
+  const d = 23, gapx = 5, total = 4 * d + 3 * gapx, x0 = cx - total / 2 + d / 2, y = cy + 40;
+  DEMO.roles.forEach((role, i) => {
+    const x = x0 + i * (d + gapx);
+    if (role.status === 'filled') {
+      toks += `<circle cx="${x}" cy="${y}" r="${d / 2}" fill="${DEMO_HUE}"/>
+        <text x="${x}" y="${y + 4}" text-anchor="middle" style="font-size:11.5px;font-weight:700;fill:#fff">${initial(role.holders[0])}</text>`;
+    } else {
+      toks += `<circle cx="${x}" cy="${y}" r="${d / 2 - 1}" fill="#fff" stroke="${OPEN}" stroke-width="1.7" stroke-dasharray="3 2.6"/>
+        <path d="M ${x - 4.5} ${y} h 9 M ${x} ${y - 4.5} v 9" stroke="${OPEN}" stroke-width="1.8" stroke-linecap="round"/>`;
+    }
+  });
+  return specimenFrame(
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${DEMO_HUE}" fill-opacity=".08" stroke="${DEMO_HUE}" stroke-opacity=".35" stroke-width="2"/>
+     ${coreLabel(cx, cy, r, { nudge: -10, iconNudge: -6, hideCount: true })}${toks}`);
+}
+/* 4. role glyphs */
+function specGlyphs() {
+  const cx = 125, cy = 100, r = 78;
+  let chips = '';
+  const d = 23, gapx = 4, total = 4 * d + 3 * gapx, x0 = cx - total / 2, y = cy + 28;
+  DEMO.roles.forEach((role, i) => {
+    const x = x0 + i * (d + gapx);
+    const filled = role.status === 'filled';
+    chips += `<rect x="${x}" y="${y}" width="${d}" height="${d}" rx="8" fill="${filled ? DEMO_HUE : '#fff'}"
+      stroke="${filled ? DEMO_HUE : OPEN}" stroke-width="1.5" ${filled ? '' : 'stroke-dasharray="3 2.5"'}/>
+      ${gIcon(role.icon, x + d / 2, y + d / 2, 13, filled ? '#fff' : OPEN, 2.1)}`;
+  });
+  return specimenFrame(
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${DEMO_HUE}" fill-opacity=".08" stroke="${DEMO_HUE}" stroke-opacity=".35" stroke-width="2"/>
+     ${coreLabel(cx, cy, r, { nudge: -14, iconNudge: -10, hideCount: true })}${chips}`);
+}
+/* 5. fill meter */
+function specMeter() {
+  const cx = 125, cy = 100, r = 78;
+  const w = 96, h = 8, x0 = cx - w / 2, y = cy + 34;
+  return specimenFrame(
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${DEMO_HUE}" fill-opacity=".08" stroke="${DEMO_HUE}" stroke-opacity=".35" stroke-width="2"/>
+     ${coreLabel(cx, cy, r, { nudge: -12, iconNudge: -8, hideCount: true })}
+     <rect x="${x0}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="#f0ece2"/>
+     <rect x="${x0}" y="${y}" width="${w / 4}" height="${h}" rx="${h / 2}" fill="${DEMO_HUE}"/>
+     <rect x="${x0 + w / 4 + 3}" y="${y}" width="${w * 0.75 - 3}" height="${h}" rx="${h / 2}" fill="none"
+       stroke="${OPEN}" stroke-width="1.5" stroke-dasharray="4 3"/>
+     <text x="${cx}" y="${y + 24}" text-anchor="middle" style="font-size:10.5px;font-weight:700;fill:${OPEN}">3 open calls</text>`);
+}
+/* 6. petals */
+function specPetals() {
+  const cx = 125, cy = 98, r = 60;
+  let petals = '';
+  const a0 = -40, span = 260, n = 4;
+  DEMO.roles.forEach((role, i) => {
+    const a = a0 + (span / n) * (i + 0.5);
+    const [bx, by] = P(cx, cy, r - 2, a);
+    const [tx, ty] = P(cx, cy, r + 36, a);
+    const [l1x, l1y] = P(cx, cy, r + 10, a - 13);
+    const [l2x, l2y] = P(cx, cy, r + 10, a + 13);
+    const filled = role.status === 'filled';
+    petals += `<path d="M ${bx.toFixed(1)} ${by.toFixed(1)} Q ${l1x.toFixed(1)} ${l1y.toFixed(1)} ${tx.toFixed(1)} ${ty.toFixed(1)}
+      Q ${l2x.toFixed(1)} ${l2y.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)} Z"
+      fill="${filled ? DEMO_HUE : '#fff'}" stroke="${filled ? DEMO_HUE : OPEN}" stroke-width="1.6"
+      ${filled ? '' : 'stroke-dasharray="3 2.4"'} stroke-linejoin="round"/>`;
+  });
+  return specimenFrame(
+    `${petals}<circle cx="${cx}" cy="${cy}" r="${r}" fill="${DEMO_HUE}" fill-opacity=".1" stroke="${DEMO_HUE}" stroke-opacity=".4" stroke-width="2"/>
+     ${coreLabel(cx, cy, r, { nudge: 2 })}`);
+}
+
+const SPECS = [
+  { svg: specCapacityArc, tag: 'recommended', pick: true, title: 'Capacity arc',
+    body: 'The circle border becomes the seat meter. One segment per seat on a shared track: a held seat fills it, an open seat runs thin in amber. Nothing lives inside the circle any more, so a label can never be covered.',
+    verdict: '<b>Best at map scale.</b> Readable down to a 40px circle, survives any zoom, and it is the smallest change to your existing layout function.' },
+  { svg: specTray, tag: 'strong', title: 'Seat tray',
+    body: 'A reserved band at the bottom of the circle holds the seats in a straight row. The top two thirds belong to the icon and the name, permanently.',
+    verdict: '<b>Best for counting.</b> Four seats read as four instantly. Needs a minimum circle size, so it wants the wall or the spine rather than a dense canvas.' },
+  { svg: specTokens, tag: 'strong', title: 'Initial tokens',
+    body: 'Held seats carry the holder initial, open seats carry a plus. The map answers "who" and "where can I join" in the same glance.',
+    verdict: '<b>Best for belonging.</b> People look for their own initial. The plus is a button shape, so an open seat reads as an invitation rather than as a gap.' },
+  { svg: specGlyphs, tag: 'expressive', title: 'Role glyphs',
+    body: 'Each seat draws its own icon, taken from the icon field your role rows already store. Land Steward looks like land, Finance looks like a shield.',
+    verdict: '<b>Best for recognition.</b> Turns a count into a cast of characters. Gets busy past five seats, so pair it with a plus-N overflow chip.' },
+  { svg: specMeter, tag: 'utility', title: 'Fill meter',
+    body: 'One bar. Filled portion in brand teal, the remainder dashed amber, with the open-call count spelled out underneath.',
+    verdict: '<b>Best for scanning many.</b> Perfect on cards and lists and in the mobile view. Loses the identity of individual seats, so it is a summary, not a map.' },
+  { svg: specPetals, tag: 'expressive', title: 'Petals',
+    body: 'Seats grow outward from the circle edge like petals. The interior stays completely empty, and the whole thing reads as something living.',
+    verdict: '<b>Best on brand.</b> An ecovillage map that looks like it grew. Needs breathing room between circles, so it suits a sparse canvas or a hero graphic.' },
+];
+
+function renderSpecs() {
+  document.getElementById('specs').innerHTML = SPECS.map(s => `
+    <div class="spec">
+      <div class="stage">${s.svg()}</div>
+      <div class="body">
+        <h4>${s.title} <span class="tag ${s.pick ? 'pick' : ''}">${s.tag}</span></h4>
+        <p>${s.body}</p>
+        <div class="verdict">${s.verdict}</div>
+      </div>
+    </div>`).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Shared detail panel
+   ══════════════════════════════════════════════════════════════════ */
+const STATUS_LABEL = { filled: 'held', open: 'open call', partial: 'interim', forming: 'forming' };
+function panelHTML(id) {
+  const c = byId[id];
+  if (!c) return `<div class="panel"><h3>The whole village</h3>
+    <p class="purpose">7 circles at work or advising, 8 councils forming, ${totalOpen()} seats open.
+    Pick any circle to meet it.</p>
+    <p class="tiny muted" style="margin:0">Every open seat on this page is a real vacancy in the Amora org chart.</p></div>`;
+  const roles = c.roles || [];
+  const rows = roles.map(r => {
+    const k = r.status === 'filled' || r.status === 'partial' ? '' : (r.status === 'open' ? 'open' : 'forming');
+    const chipk = r.status === 'partial' ? 'filled' : (r.status === 'filled' ? 'filled' : (r.status === 'open' ? 'open' : 'forming'));
+    return `<div class="rolerow">
+      <div class="ic ${k}">${icon(r.icon, 14, 'currentColor')}</div>
+      <div class="nm">${esc(r.name)}${r.holders && r.holders.length ? `<span class="who">${esc(r.holders.join(', '))}</span>` : ''}</div>
+      <span class="chip ${chipk}">${STATUS_LABEL[r.status]}</span></div>`;
+  }).join('');
+  const kids = (c.children || []).map(k =>
+    `<div class="rolerow"><div class="ic forming">${icon(k.icon, 14, 'currentColor')}</div>
+     <div class="nm">${esc(k.name)}</div><span class="chip forming">forming</span></div>`).join('');
+  const hue = hueOf(c.id);
+  return `<div class="panel">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+      <div style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;background:${hue}">
+        ${icon(c.icon, 18, '#fff')}</div>
+      <div><h3>${esc(c.name)}</h3>${c.subtitle ? `<div class="sub">${esc(c.subtitle)}</div>` : ''}</div>
+    </div>
+    ${c.purpose ? `<p class="purpose">${esc(c.purpose)}</p>` : `<p class="purpose">Named in the governance plan, not yet standing. No seats open until it forms.</p>`}
+    ${kids ? `<div class="tiny muted" style="font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin:2px 0 6px">Circles within</div>${kids}` : ''}
+    ${rows ? `<div class="tiny muted" style="font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin:12px 0 6px">Seats</div>${rows}` : ''}
+    ${openOf(c) ? `<div style="margin-top:12px;background:#fdf1de;border-radius:10px;padding:9px 12px;font-size:12.5px;color:#7a5310">
+      ${openOf(c)} seat${openOf(c) > 1 ? 's are' : ' is'} waiting for someone. Raise your hand.</div>` : ''}
+  </div>`;
+}
+function totalOpen() { return CIRCLES.reduce((n, c) => n + openOf(c), 0); }
+function legendHTML() {
+  return `<div class="legend" style="margin-top:16px">
+    <span class="k"><span class="sw" style="background:#157f7d"></span>seat held</span>
+    <span class="k"><span class="sw" style="background:#fff;border:2px dashed #c98a2e"></span>open call</span>
+    <span class="k"><span class="sw" style="background:#f0eee7;border:2px dashed #cfcabb"></span>forming</span>
+  </div>`;
+}
+const sel = {};
+function select(view, id) { sel[view] = id; render(view); }
+window.select = select;
+
+/* ══════════════════════════════════════════════════════════════════
+   VIEW A: nested circles, debugged
+   ══════════════════════════════════════════════════════════════════ */
+const NEST = [
+  { id: 'leadership-circle', a: -90, r: 76 },
+  { id: 'development-circle', a: -30, r: 104 },
+  { id: 'outreach-growth-circle', a: 30, r: 76 },
+  { id: 'community-circle', a: 90, r: 72 },
+  { id: 'finance-business-circle', a: 150, r: 70 },
+  { id: 'advisory-bodies', a: 210, r: 68 },
+];
+const CX = 500, CY = 500, RING = 212, CORE_R = 90, BAND0 = 352, BAND1 = 458, VILLAGE_R = 470;
+
+function seatArcs(cx, cy, r, roles, hue, opts) {
+  const o = opts || {};
+  const n = roles.length; if (!n) return '';
+  const w = o.w || 9;
+  const a0 = -50, span = 280, gapDeg = Math.min(5, 90 / n);
+  /* One continuous track holds every seat. Weight carries the meaning:
+     a held seat fills the track, an open seat runs thin, a forming seat
+     is a whisper. Nothing dashes hard enough to shout over the labels. */
+  let s = `<path d="${arcPath(cx, cy, r, a0, a0 + span)}" fill="none" stroke="#ebe7db" stroke-width="${w}" stroke-linecap="round"/>`;
+  s += roles.map((role, i) => {
+    const b0 = a0 + (span / n) * i + gapDeg / 2, b1 = a0 + (span / n) * (i + 1) - gapDeg / 2;
+    const held = role.status === 'filled' || role.status === 'partial';
+    const forming = role.status === 'forming';
+    const col = held ? hue : (forming ? '#d7d2c4' : OPEN_SOFT);
+    const sw = held ? w : (forming ? w * 0.3 : w * 0.52);
+    return `<path d="${arcPath(cx, cy, r, b0, b1)}" fill="none" stroke="${col}"
+      stroke-width="${sw.toFixed(1)}" stroke-linecap="round">
+      <title>${esc(role.name)}: ${STATUS_LABEL[role.status]}</title></path>`;
+  }).join('');
+  return s;
+}
+
+function viewNested() {
+  const selId = sel.nested;
+  let s = `<svg viewBox="0 0 1000 1000" role="group" aria-label="Village map, nested circles">
+    <defs>
+      <pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+        <line x1="0" y1="0" x2="0" y2="7" stroke="#cfcabb" stroke-width="1.6" opacity=".55"/></pattern>
+    </defs>`;
+
+  /* village boundary + forming band */
+  s += `<circle cx="${CX}" cy="${CY}" r="${VILLAGE_R}" fill="none" stroke="#c9d9cb" stroke-width="3"/>`;
+  s += `<circle cx="${CX}" cy="${CY}" r="${(BAND0 + BAND1) / 2}" fill="none" stroke="url(#hatch)" stroke-width="${BAND1 - BAND0}" opacity=".5"/>`;
+  s += `<circle cx="${CX}" cy="${CY}" r="${BAND0}" fill="none" stroke="#ded8c8" stroke-width="1.5" stroke-dasharray="6 6"/>`;
+  s += `<circle cx="${CX}" cy="${CY}" r="${BAND1}" fill="none" stroke="#ded8c8" stroke-width="1.5" stroke-dasharray="6 6"/>`;
+
+  /* eight councils as named arcs in the band */
+  const n = COUNCILS.length, seg = 360 / n, pad = 1.6;
+  COUNCILS.forEach((c, i) => {
+    const a0 = -90 - seg / 2 + seg * i + pad, a1 = a0 + seg - pad * 2;
+    const mid = (a0 + a1) / 2;
+    const on = selId === c.id;
+    const flip = mid > 0 && mid < 180;
+    const [ix, iy] = P(CX, CY, flip ? BAND1 - 26 : BAND0 + 26, mid);
+    const tr = flip ? 388 : 424;
+    const pathD = flip ? arcPath(CX, CY, tr, a1 - 2, a0 + 2) : arcPath(CX, CY, tr, a0 + 2, a1 - 2);
+    s += `<g class="clk" style="cursor:pointer" onclick="select('nested','${c.id}')">
+      <path d="${wedge(CX, CY, BAND0, BAND1, a0, a1)}" fill="${on ? '#e9e3d3' : '#f3efe4'}"
+        stroke="${on ? '#a8a294' : '#e0d9c8'}" stroke-width="${on ? 2 : 1}"/>
+      ${gIcon(c.icon, ix, iy, 19, '#8d8778', 1.9)}
+      <path id="cp${i}" d="${pathD}" fill="none"/>
+      <text style="font-size:14px;font-weight:700;fill:#7d7869" text-anchor="middle">
+        <textPath href="#cp${i}" startOffset="50%">${esc(c.name)}</textPath></text>
+      <title>${esc(c.name)}: forming</title></g>`;
+  });
+  s += `<text x="${CX}" y="${CY - BAND1 - 14}" text-anchor="middle" style="font-size:13px;font-weight:700;letter-spacing:.18em;fill:#a09a89">FORMING</text>`;
+
+  /* the linking circle at the centre */
+  s += circleNode(byId['general-circle'], CX, CY, CORE_R, selId, 'nested', { core: true });
+
+  /* the ring */
+  NEST.forEach(nd => {
+    const [x, y] = P(CX, CY, RING, nd.a);
+    s += circleNode(byId[nd.id], x, y, nd.r, selId, 'nested', {});
+  });
+  s += `</svg>`;
+  return s;
+}
+
+function circleNode(c, x, y, r, selId, view, opts) {
+  const o = opts || {};
+  const hue = hueOf(c.id);
+  const on = selId === c.id;
+  const forming = c.stage === 'forming';
+  const roles = c.roles || [];
+  const kids = c.children || [];
+  let s = `<g style="cursor:pointer" onclick="select('${view}','${c.id}')" tabindex="0"
+    role="button" aria-label="${esc(c.name)}">`;
+  s += `<circle cx="${x}" cy="${y}" r="${r}" fill="${forming ? '#f6f3ea' : hue}" fill-opacity="${forming ? 1 : (on ? .16 : .085)}"
+    stroke="${hue}" stroke-opacity="${on ? .95 : .4}" stroke-width="${on ? 3 : 1.6}"
+    ${forming ? 'stroke-dasharray="7 5"' : ''}/>`;
+  if (on) s += `<circle cx="${x}" cy="${y}" r="${r + 9}" fill="none" stroke="${hue}" stroke-opacity=".22" stroke-width="2"/>`;
+  s += seatArcs(x, y, r, roles, hue, { w: r > 90 ? 10 : 8 });
+
+  if (kids.length) {
+    /* parent: name in the crown, children below, seats on the border */
+    const lines = wrap(c.name.replace(/ Circle$/, ''), 15, 2);
+    s += gIcon(c.icon, x, y - r + 26, 21, hue, 1.9);
+    s += svgLines(lines, x, y - r + 52, 17, '', 15.5, '#12312f');
+    const spread = 43;
+    kids.forEach((k, i) => {
+      const kx = x + (i === 0 ? -spread : spread), ky = y + 18, kr = 27;
+      s += `<circle cx="${kx}" cy="${ky}" r="${kr}" fill="#f6f3ea" stroke="${hue}" stroke-opacity=".4"
+        stroke-width="1.3" stroke-dasharray="5 4"/>`;
+      s += gIcon(k.icon, kx, ky, 18, '#8d8778', 1.9);
+      s += `<text x="${kx}" y="${ky + kr + 13}" text-anchor="middle" style="font-size:10px;font-weight:700;fill:#7d7869">${esc(k.short)}</text>`;
+      s += `<text x="${kx}" y="${ky + kr + 23}" text-anchor="middle" style="font-size:8.6px;fill:#a09a89">forming</text>`;
+    });
+    s += `<text x="${x}" y="${y + r - 14}" text-anchor="middle" style="font-size:11px;font-weight:600;fill:#5f7472">
+      ${filledOf(c) + partialOf(c)} of ${roles.length} seats</text>`;
+  } else {
+    const per = o.core ? 13 : (r > 84 ? 15 : 12);
+    const lines = wrap(c.name.replace(/ Circle$/, '').replace(/ Bodies$/, ' Bodies'), per, 2);
+    const size = r > 84 ? 15 : (r > 72 ? 13 : 12.5);
+    s += gIcon(c.icon, x, y - r * 0.46, r > 84 ? 21 : 18, forming ? '#8d8778' : hue, 1.9);
+    s += svgLines(lines, x, y + 2 - (lines.length - 1) * (size * 0.6), size * 1.15, '', size, forming ? '#5c574b' : '#12312f');
+    const held = filledOf(c) + partialOf(c);
+    const label = forming && !held ? `${roles.length} bodies forming` : `${held} of ${roles.length} seats`;
+    s += `<text x="${x}" y="${y + r * 0.55}" text-anchor="middle" style="font-size:10.5px;font-weight:600;fill:#5f7472">${label}</text>`;
+    if (openOf(c)) s += `<text x="${x}" y="${y + r * 0.55 + 13}" text-anchor="middle"
+      style="font-size:10px;font-weight:700;fill:${OPEN}">${openOf(c)} open</text>`;
+  }
+  if (o.core) s += `<text x="${x}" y="${y - r * 0.735}" text-anchor="middle"
+    style="font-size:8.4px;font-weight:700;letter-spacing:.14em;fill:#8d8778">THE LINKING CIRCLE</text>`;
+  s += `<title>${esc(c.name)}</title></g>`;
+  return s;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   VIEW B: the governance spine
+   ══════════════════════════════════════════════════════════════════ */
+const BANDS = [
+  { key: 'lead', title: 'Holds the whole', note: 'Final word where no single circle can decide', ids: ['leadership-circle'] },
+  { key: 'coord', title: 'Links the circles', note: 'Every circle sends a voice here', ids: ['general-circle'] },
+  { key: 'work', title: 'Does the work today', note: 'Four operating circles, live now', ids: ['development-circle', 'outreach-growth-circle', 'community-circle', 'finance-business-circle'] },
+  { key: 'adv', title: 'Advises', note: 'Counsel without command', ids: ['advisory-bodies'] },
+];
+function seatStrip(c) {
+  const roles = seatsOf(c), hue = hueOf(c.id);
+  const cells = roles.map(r => {
+    const k = r.status === 'filled' ? 'f' : r.status === 'partial' ? 'p' : r.status === 'open' ? 'o' : 'g';
+    const st = k === 'f' ? ` style="background:${hue}"`
+      : k === 'p' ? ` style="background:linear-gradient(90deg,${hue} 50%,#fff 50%);border-color:${hue}"` : '';
+    return `<span class="seat ${k}"${st} title="${esc(r.name)}: ${STATUS_LABEL[r.status]}"></span>`;
+  }).join('');
+  const held = filledOf(c) + partialOf(c);
+  return `<div class="seats">${cells}<span class="seatlabel">${held} of ${roles.length}${openOf(c) ? ` · ${openOf(c)} open` : ''}</span></div>`;
+}
+function nodeCard(c, view, selId) {
+  const hue = hueOf(c.id);
+  return `<button class="node ${selId === c.id ? 'sel' : ''}" onclick="select('${view}','${c.id}')">
+    <div class="top"><div class="badge" style="background:${hue}">${icon(c.icon, 16, '#fff')}</div>
+      <div class="nm">${esc(c.name)}</div></div>
+    <div class="st">${esc(c.subtitle || '')}</div>${seatStrip(c)}
+    ${(c.children || []).length ? `<div class="tiny muted" style="margin-top:8px">holds ${c.children.map(k => esc(k.short)).join(' · ')}</div>` : ''}
+  </button>`;
+}
+function viewSpine() {
+  const selId = sel.spine;
+  let s = `<div class="spine">`;
+  BANDS.forEach(b => {
+    s += `<div class="band"><div class="bandhead"><h4>${b.title}</h4><span>${b.note}</span></div>
+      <div class="bandrow${b.ids.length === 1 ? ' solo' : ''}">${b.ids.map(id => nodeCard(byId[id], 'spine', selId)).join('')}</div></div>
+      <div class="spinelink"></div>`;
+  });
+  s += `<div class="band dim"><div class="bandhead"><h4>Forming</h4><span>Named in the plan, no seats yet</span></div>
+    <div class="bandrow">${COUNCILS.map(c => `
+      <button class="node ghost ${selId === c.id ? 'sel' : ''}" onclick="select('spine','${c.id}')">
+        <div class="top"><div class="badge">${icon(c.icon, 15, 'currentColor')}</div>
+          <div class="nm" style="font-size:12.8px">${esc(c.name)}</div></div>
+        <div class="st" style="margin:0">${esc(c.subtitle)}</div></button>`).join('')}</div></div></div>`;
+  return s;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   VIEW C: the circle wall
+   ══════════════════════════════════════════════════════════════════ */
+let wallFilter = 'open';
+const FILTERS = [
+  { k: 'open', label: 'Open seats first' },
+  { k: 'live', label: 'At work today' },
+  { k: 'all', label: 'Everything' },
+];
+function wallCard(c, ghost) {
+  const hue = ghost ? '#b6b0a1' : hueOf(c.id);
+  const roles = seatsOf(c);
+  const held = filledOf(c) + partialOf(c), open = openOf(c), form = roles.length - held - open;
+  const pct = v => (roles.length ? (v / roles.length) * 100 : 0);
+  const avs = roles.slice(0, 5).map(r => r.holders && r.holders.length
+    ? `<span class="av" style="background:${hue}" title="${esc(r.holders.join(', '))}">${initial(r.holders[0])}</span>`
+    : r.status === 'open'
+      ? `<span class="av open" title="${esc(r.name)}: open">+</span>`
+      : `<span class="av wait" title="${esc(r.name)}: forming"></span>`).join('');
+  return `<button class="wcard ${ghost ? 'ghost' : ''} ${sel.wall === c.id ? 'sel' : ''}" onclick="select('wall','${c.id}')">
+    <div class="whead"><div class="badge" style="background:${hue}">${icon(c.icon, 18, '#fff')}</div>
+      <div><h4>${esc(c.name)}</h4><div class="sub">${esc(c.subtitle || 'forming')}</div></div></div>
+    ${roles.length ? `<div class="meter">
+        <i style="width:${pct(held)}%;background:${hue}"></i>
+        <i style="width:${pct(open)}%;background:repeating-linear-gradient(90deg,#ecb163 0 4px,#fff 4px 7px)"></i>
+        <i style="width:${pct(form)}%;background:#e6e2d8"></i></div>
+      <div class="tiny muted">${held} of ${roles.length} seats held${open ? ` · <b style="color:#a06b1c">${open} open</b>` : ''}</div>
+      <div class="avatars">${avs}</div>`
+      : `<div class="tiny muted" style="margin-top:6px">No seats yet. This council forms when the village is ready for it.</div>`}
+  </button>`;
+}
+function viewWall() {
+  let list;
+  if (wallFilter === 'live') list = CIRCLES.filter(c => c.stage === 'live');
+  else if (wallFilter === 'all') list = CIRCLES.concat(COUNCILS);
+  else list = CIRCLES.slice().sort((a, b) => openOf(b) - openOf(a)).concat(COUNCILS);
+  return `<div class="wall">${list.map(c => wallCard(c, !c.roles || !c.roles.length)).join('')}</div>`;
+}
+function renderWallFilters() {
+  document.getElementById('wallfilters').innerHTML =
+    FILTERS.map(f => `<button class="${wallFilter === f.k ? 'on' : ''}" onclick="setWall('${f.k}')">${f.label}</button>`).join('')
+    + `<span class="tiny muted" style="margin-left:6px">${totalOpen()} seats open across the village</span>`;
+}
+window.setWall = k => { wallFilter = k; renderWallFilters(); render('wall'); };
+
+/* ══════════════════════════════════════════════════════════════════
+   VIEW D: the governance wheel
+   ══════════════════════════════════════════════════════════════════ */
+function viewWheel() {
+  const WCX = 410, WCY = 340;
+  const R0 = 62, RA0 = 66, RA1 = 128, RB0 = 132, RB1 = 176, LBL = 186;
+  const selId = sel.wheel;
+  const items = ['leadership-circle', 'general-circle', 'development-circle', 'outreach-growth-circle',
+    'community-circle', 'finance-business-circle', 'advisory-bodies'].map(id => byId[id]);
+  const totalSeats = items.reduce((n, c) => n + seatsOf(c).length, 0);
+  const per = 360 / totalSeats;
+  let a = -90;
+  let s = `<svg viewBox="0 0 820 700" role="group" aria-label="Governance wheel">`;
+  s += `<circle cx="${WCX}" cy="${WCY}" r="${R0}" fill="#0f5f5d"/>
+    <text x="${WCX}" y="${WCY - 6}" text-anchor="middle" style="font-size:15px;font-weight:700;fill:#fff">Amora</text>
+    <text x="${WCX}" y="${WCY + 12}" text-anchor="middle" style="font-size:10.5px;fill:#a8d4cf">${totalSeats} seats</text>
+    <text x="${WCX}" y="${WCY + 27}" text-anchor="middle" style="font-size:10.5px;fill:#ecb163">${totalOpen()} open</text>`;
+
+  items.forEach(c => {
+    const n = seatsOf(c).length, a0 = a, a1 = a + per * n, mid = (a0 + a1) / 2;
+    const hue = hueOf(c.id);
+    const on = selId === c.id;
+    /* ring A: the circle */
+    s += `<g style="cursor:pointer" onclick="select('wheel','${c.id}')">
+      <path d="${wedge(WCX, WCY, RA0, RA1, a0 + .7, a1 - .7)}" fill="${hue}" fill-opacity="${on ? .95 : .78}"/>
+      ${gIcon(c.icon, ...P(WCX, WCY, (RA0 + RA1) / 2, mid), 20, '#fff', 2)}
+      <title>${esc(c.name)}</title></g>`;
+    /* ring B: one tooth per seat */
+    seatsOf(c).forEach((r, i) => {
+      const b0 = a0 + per * i + 1.2, b1 = a0 + per * (i + 1) - 1.2;
+      const held = r.status === 'filled' || r.status === 'partial';
+      const form = r.status === 'forming';
+      s += `<g style="cursor:pointer" onclick="select('wheel','${c.id}')">
+        <path d="${wedge(WCX, WCY, RB0, held ? RB1 : RB1 - 8, b0, b1)}"
+          fill="${held ? hue : (form ? '#eeeae0' : '#fff')}" fill-opacity="${held ? .55 : 1}"
+          stroke="${held ? hue : (form ? GHOST : OPEN)}" stroke-width="1.4"
+          ${held ? '' : `stroke-dasharray="${form ? '2 4' : '3 3'}"`}/>
+        ${held && r.holders.length ? `<text ${xy(P(WCX, WCY, (RB0 + RB1) / 2, (b0 + b1) / 2))} text-anchor="middle"
+          style="font-size:11px;font-weight:700;fill:${hue}" dy="4">${initial(r.holders[0])}</text>` : ''}
+        ${!held && !form ? `<text ${xy(P(WCX, WCY, (RB0 + RB1 - 8) / 2, (b0 + b1) / 2))} text-anchor="middle"
+          style="font-size:12px;font-weight:700;fill:${OPEN}" dy="4">+</text>` : ''}
+        <title>${esc(r.name)}: ${STATUS_LABEL[r.status]}</title></g>`;
+    });
+    /* radial label outside */
+    const left = mid > 90 && mid < 270;
+    const [lx, ly] = P(WCX, WCY, LBL, mid);
+    s += `<g style="cursor:pointer" onclick="select('wheel','${c.id}')" transform="translate(${lx.toFixed(1)} ${ly.toFixed(1)}) rotate(${left ? mid + 180 : mid})">
+      <text x="${left ? -4 : 4}" y="0" text-anchor="${left ? 'end' : 'start'}" dy="-1"
+        style="font-size:13.5px;font-weight:700;fill:#12312f">${esc(c.name)}</text>
+      <text x="${left ? -4 : 4}" y="13" text-anchor="${left ? 'end' : 'start'}"
+        style="font-size:10.5px;fill:#5f7472">${filledOf(c) + partialOf(c)} of ${n} seats${openOf(c) ? ` · ${openOf(c)} open` : ''}</text></g>`;
+    a = a1;
+  });
+  s += `<text x="${WCX}" y="676" text-anchor="middle" style="font-size:11.5px;fill:#8d8778">
+    Eight councils are named in the plan and hold no seats yet. They join this wheel as they form.</text>`;
+  s += `</svg>`;
+  return s;
+}
+const xy = p => `x="${p[0].toFixed(1)}" y="${p[1].toFixed(1)}"`;
+
+/* ══════════════════════════════════════════════════════════════════
+   Wiring
+   ══════════════════════════════════════════════════════════════════ */
+const VIEWS = [
+  { k: 'nested', label: 'A. Nested circles, debugged', build: viewNested, canvas: 'cv-nested', panel: 'pn-nested', legend: 'lg-nested' },
+  { k: 'spine', label: 'B. The governance spine', build: viewSpine, canvas: 'cv-spine', panel: 'pn-spine' },
+  { k: 'wall', label: 'C. The circle wall', build: viewWall, canvas: 'cv-wall', panel: 'pn-wall' },
+  { k: 'wheel', label: 'D. The governance wheel', build: viewWheel, canvas: 'cv-wheel', panel: 'pn-wheel', legend: 'lg-wheel' },
+];
+function render(k) {
+  const v = VIEWS.find(x => x.k === k);
+  document.getElementById(v.canvas).innerHTML = v.build();
+  document.getElementById(v.panel).innerHTML = panelHTML(sel[k]);
+  if (v.legend) document.getElementById(v.legend).innerHTML = `
+    <span class="k"><span class="sw" style="background:#157f7d"></span>seat held</span>
+    <span class="k"><span class="sw" style="background:#fff;border:2px dashed #c98a2e"></span>open call</span>
+    <span class="k"><span class="sw" style="background:#f0eee7;border:2px dashed #cfcabb"></span>forming</span>
+    <span class="k"><span class="sw" style="background:#f3efe4;border:1px solid #e0d9c8;border-radius:3px"></span>the forming band</span>
+    <span class="k">colour marks the circle, size no longer means rank</span>`;
+}
+function renderSwitch() {
+  document.getElementById('viewswitch').innerHTML = VIEWS.map((v, i) =>
+    `<button class="${i === 0 ? 'on' : ''}" data-v="${v.k}">${v.label}</button>`).join('');
+  document.querySelectorAll('#viewswitch button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#viewswitch button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    document.querySelectorAll('.viewpane').forEach(p => p.classList.remove('on'));
+    document.getElementById('view-' + b.dataset.v).classList.add('on');
+  });
+}
+function scrollspy() {
+  const links = [...document.querySelectorAll('nav.tabs a')];
+  const secs = links.map(a => document.querySelector(a.getAttribute('href')));
+  const io = new IntersectionObserver(es => {
+    es.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('on'));
+        const i = secs.indexOf(e.target);
+        if (i >= 0) links[i].classList.add('on');
+      }
+    });
+  }, { rootMargin: '-45% 0px -50% 0px' });
+  secs.forEach(s => s && io.observe(s));
+}
+
+renderSpecs();
+renderSwitch();
+renderWallFilters();
+VIEWS.forEach(v => render(v.k));
+scrollspy();
+
+</script>
+</body>
+</html>

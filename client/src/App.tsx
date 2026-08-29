@@ -193,6 +193,7 @@ const ProsperityJourney = lazyPage(() => import("./pages/ProsperityJourney"));
 const LoveLetter = lazyPage(() => import("./pages/LoveLetter"));
 const Circles = lazyPage(() => import("./pages/Circles"));
 const Quests = lazyPage(() => import("./pages/Quests"));
+const QuestDetail = lazyPage(() => import("./pages/QuestDetail"));
 const ProposeQuest = lazyPage(() => import("./pages/ProposeQuest"));
 const Roles = lazyPage(() => import("./pages/Roles"));
 const HowWeCreate = lazyPage(() => import("./pages/HowWeCreate"));
@@ -275,6 +276,9 @@ function Router() {
       <Route path="/love-letter" component={LoveLetter} />
       <Route path="/circles" component={Circles} />
       <Route path="/quests" component={Quests} />
+      {/* Each quest's own page: deep-linkable, so a member can hand a friend
+          a URL that IS the quest. PAGE_TITLES resolves it by prefix. */}
+      <Route path="/quests/:id" component={QuestDetail} />
       <Route path="/tools" component={ToolsHub} />
       <Route path="/map" component={VillageMap} />
       <Route path="/first-walk" component={FirstWalk} />
