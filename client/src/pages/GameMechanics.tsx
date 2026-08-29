@@ -394,6 +394,33 @@ const authHeaders = (): Record<string, string> => {
     : { "Content-Type": "application/json" };
 };
 
+/**
+ * An objection a new proposal may say it answers, as the server offers it.
+ *
+ * No person in this shape, and there never may be one. Where an objection led
+ * is a fact about a decision, and one member-shaped field here is the whole
+ * distance between that and a scoreboard.
+ * `server/lib/objectionLineageShape.test.ts` holds the line across the tree,
+ * and it is the reason this comment describes the forward edge instead of
+ * spelling its column name: that guard keeps the lineage SHAPE inside the
+ * governance components, and it is right to be strict about it.
+ */
+interface AnswerableObjection {
+  id: string;
+  text: string;
+  status: string;
+  ballotId: string;
+  ballotTitle: string;
+  closedAt: string | null;
+}
+
+/** Enough of an objection to recognise it in a list, and no more. */
+function objectionSummary(o: AnswerableObjection): string {
+  const words = o.text.trim().replace(/\s+/g, " ");
+  const shown = words.length > 90 ? `${words.slice(0, 89)}…` : words;
+  return `${shown} (on "${o.ballotTitle}")`;
+}
+
 /** The per-dial editor: the input a member adjusts to stage a change. */
 function DialEditor({
   v,
@@ -476,6 +503,14 @@ export default function GameMechanics() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [problems, setProblems] = useState<Array<{ key: string; problem: string }>>([]);
+  /*
+   * The objections a proposal opened today may say it answers, and the one the
+   * proposer picked for each proposal. Both come from the server: the list is
+   * exactly what `objectionLineageProblem` will accept, so nobody is offered a
+   * choice that comes back refused.
+   */
+  const [answerable, setAnswerable] = useState<AnswerableObjection[]>([]);
+  const [answersFor, setAnswersFor] = useState<Record<string, string>>({});
 
   // A notification about a proposal lands ON the proposal. The dependency is
   // the list length because the target arrives with the fetch, not with the
@@ -497,6 +532,20 @@ export default function GameMechanics() {
       .catch(() => {});
   }, []);
 
+  /*
+   * A failed read leaves the list empty and the picker simply does not appear,
+   * which is the honest outcome: naming an objection is optional, so a page
+   * that cannot reach the record offers nothing and every proposal still
+   * opens. A guess about which objections exist would be worse than silence.
+   */
+  const loadAnswerable = useCallback(() => {
+    if (!authToken()) return;
+    fetch("/api/governance/objections/answerable", { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setAnswerable(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetch("/api/game/mechanics")
       .then((r) => {
@@ -510,7 +559,8 @@ export default function GameMechanics() {
 
   useEffect(() => {
     loadStanding();
-  }, [user, loadStanding]);
+    loadAnswerable();
+  }, [user, loadStanding, loadAnswerable]);
 
   const openHistory = () => {
     setHistoryOpen((v) => !v);
@@ -640,8 +690,37 @@ export default function GameMechanics() {
       )
     )
       return;
-    const d = await act(`/api/governance/mechanics/${p.id}/open-ballot`);
-    if (d) setFeedback({ ok: true, text: "The village vote is open, and everyone on the roll has been asked." });
+    /*
+     * THE OBJECTION THIS VERSION ANSWERS, IF THE PROPOSER NAMES ONE (0102).
+     *
+     * Optional, and it has to stay optional: the route's own comment says a
+     * proposer who names nothing still opens, and most proposals name nothing
+     * because most decisions never carried an objection in the first place.
+     * The field is left OFF the body entirely when nothing is chosen, so a
+     * vote opened without it is byte-identical to every vote opened before
+     * this picker existed.
+     */
+    const answers = answersFor[p.id];
+    const d = await act(
+      `/api/governance/mechanics/${p.id}/open-ballot`,
+      answers ? { answersObjectionId: answers } : undefined,
+    );
+    if (d) {
+      setAnswersFor((s) => {
+        const next = { ...s };
+        delete next[p.id];
+        return next;
+      });
+      // The objection just took its one successor, so it is no longer on offer
+      // to anybody else. Ask again instead of guessing what the record says.
+      loadAnswerable();
+      setFeedback({
+        ok: true,
+        text: answers
+          ? "The village vote is open, everyone on the roll has been asked, and the objection you named now points at it."
+          : "The village vote is open, and everyone on the roll has been asked.",
+      });
+    }
   };
 
   const villageName = cfg?.project?.name ?? "";
@@ -979,6 +1058,43 @@ export default function GameMechanics() {
                             >
                               Open the village vote
                             </button>
+                          )}
+                          {/* THE PROPOSER NAMES WHAT THIS ANSWERS (0102).
+                              An objection that changed a proposal should say
+                              so on its own page, and the only person who knows
+                              which objection this version answers is the
+                              person opening the vote. The write path shipped
+                              with no sender at all, so this was reachable by
+                              curl and by nothing else.
+
+                              Shown only when the record holds something to
+                              name, so a village that has never carried an
+                              objection sees the button exactly as it was.
+                              Optional, and it stays optional: the empty choice
+                              is first and it is the default. */}
+                          {mayOpenBallotOn(p) && answerable.length > 0 && (
+                            <label className="flex flex-col gap-1 basis-full text-xs text-stone-600">
+                              <span>Does this answer an objection? Naming one is optional.</span>
+                              <select
+                                value={answersFor[p.id] ?? ""}
+                                onChange={(e) =>
+                                  setAnswersFor((s) => {
+                                    const next = { ...s };
+                                    if (e.target.value) next[p.id] = e.target.value;
+                                    else delete next[p.id];
+                                    return next;
+                                  })
+                                }
+                                className="min-h-[44px] max-w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm text-stone-800"
+                              >
+                                <option value="">Nothing to name</option>
+                                {answerable.map((o) => (
+                                  <option key={o.id} value={o.id}>
+                                    {objectionSummary(o)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
                           )}
                           <button
                             type="button"

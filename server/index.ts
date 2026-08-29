@@ -26381,6 +26381,58 @@ ${inner}
   });
 
   /**
+   * WHICH OBJECTIONS A NEW PROPOSAL MAY SAY IT ANSWERS (0102, the proposer's side).
+   *
+   * `answersObjectionId` shipped on the open-ballot route with no sender
+   * anywhere in the client, so the only way to reach the feature was to call
+   * the API by hand. This is the read the picker is built from.
+   *
+   * IT OFFERS ONLY WHAT `objectionLineageProblem` WILL ACCEPT, and the three
+   * conditions are the same three, in the same order that function asks them:
+   * no successor yet, the objection has been ruled in a way that means a
+   * proposal changed, and the vote it was raised on has finished. A picker
+   * that offered anything else would walk a proposer into a refusal they could
+   * not have seen coming, and finding out by being told no is not how anybody
+   * should learn what they are allowed to do.
+   *
+   * The two statuses are named rather than excluded, so this is a SUBSET of
+   * what the route accepts and never a superset. If a sixth ruling is ever
+   * added, a proposer simply is not offered it until somebody decides whether
+   * "the proposal changed after this" is a true reading of it.
+   *
+   * IT NAMES NO PERSON, for the same reason the lineage route does not.
+   * `objectionLineageShape.test.ts` holds every query that touches this column
+   * to that line: lineage is a fact about a decision, and one member-shaped
+   * column here is all it takes to turn it into a scoreboard. The proposer
+   * needs the objection's words and the decision it was raised on. Who raised
+   * it is on that decision's own page, beside the objection, where it belongs.
+   */
+  const ANSWERABLE_CAP = 50;
+  app.get("/api/governance/objections/answerable", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT o.id, o.text, o.status, o.created_at, b.id AS ballot_id, b.title AS ballot_title, " +
+        "b.closed_at FROM ballot_objections o JOIN ballots b ON b.id = o.ballot_id " +
+        "WHERE o.led_to_ballot_id IS NULL AND o.status IN ('integrated','concern') " +
+        `AND b.status <> 'open' ORDER BY b.closed_at DESC, o.created_at DESC LIMIT ${ANSWERABLE_CAP}`,
+    );
+    res.json(
+      rows.map((r) => ({
+        id: String(r.id),
+        text: String(r.text),
+        status: String(r.status),
+        ballotId: String(r.ballot_id),
+        ballotTitle: String(r.ballot_title),
+        // Same spelling and the same reason as the lineage route above: mysql2
+        // runs with timezone "Z", so a datetime arrives as a Date already read
+        // as UTC, and handing a string to `new Date` would move the instant.
+        closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : r.closed_at ? String(r.closed_at) : null,
+      })),
+    );
+  });
+
+  /**
    * Rule an objection: integrated (it stands, the proposal must change),
    * concern (recorded, does not block), or withdrawn. The facilitator is a
    * proposal.decide holder or an admin; an objector may withdraw their own.

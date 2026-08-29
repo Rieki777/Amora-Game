@@ -221,6 +221,26 @@ afterAll(async () => {
   await testDb?.drop();
 });
 
+/**
+ * THE PICKER MAY ONLY EVER OFFER WHAT THE ROUTE WILL ACCEPT.
+ *
+ * `GET /api/governance/objections/answerable` is the read a proposer's picker
+ * is built from, and its whole reason for existing is that a name the route
+ * refuses must never be offered. Finding out by being told no is not how
+ * anybody should learn what they are allowed to do.
+ *
+ * So the offer is checked at three points of the SAME objection's walk below,
+ * against the same three conditions `objectionLineageProblem` asks: absent
+ * while its own vote is still running, present once that vote has closed, and
+ * gone again the moment it has taken its one successor.
+ */
+async function answerableIds(): Promise<string[]> {
+  const res = await call("GET", "/api/governance/objections/answerable");
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  expect(Array.isArray(res.json)).toBe(true);
+  return res.json.map((o: any) => String(o.id));
+}
+
 describe.skipIf(!DB_CONFIGURED)("an objection that changed a proposal says so", () => {
   let firstProposal = "";
   let firstBallot = "";
@@ -259,6 +279,18 @@ describe.skipIf(!DB_CONFIGURED)("an objection that changed a proposal says so", 
     expect(read.json?.standingObjections, "integrated still blocks").toBe(1);
   });
 
+  it("offers nothing while the objection's own vote is still running", async () => {
+    // Same condition the route refuses on, asked from the other side. The
+    // objection is ruled and has no successor, so the only thing keeping it
+    // off the list is the open ballot underneath it.
+    expect(await answerableIds()).not.toContain(objectionId);
+  });
+
+  it("refuses to say what is answerable to somebody with no account", async () => {
+    const stranger = await call("GET", "/api/governance/objections/answerable", { token: null });
+    expect(stranger.status).toBe(401);
+  });
+
   it("refuses to link an objection whose own vote is still running", async () => {
     const spare = await makeProposal("A version nobody has taken to a vote yet", "121");
     const refused = await call("POST", `/api/governance/mechanics/${spare}/open-ballot`, {
@@ -286,6 +318,20 @@ describe.skipIf(!DB_CONFIGURED)("an objection that changed a proposal says so", 
     // Everybody said yes and it still did not carry. That is consent.
     expect(closed.json?.outcome).toBe("failed");
     expect(await proposalStatus(firstProposal)).toBe("failed");
+  });
+
+  it("offers the objection once the vote it was raised on has finished", async () => {
+    const offered = await call("GET", "/api/governance/objections/answerable");
+    expect(offered.status).toBe(200);
+    const mine = offered.json.find((o: any) => String(o.id) === objectionId);
+    expect(mine, "a ruled objection on a closed vote must be nameable").toBeTruthy();
+    // Enough to recognise it by, and no person in it. The picker shows the
+    // objection's words and the decision it was raised on.
+    expect(mine.status).toBe("integrated");
+    expect(mine.ballotId).toBe(firstBallot);
+    expect(mine.ballotTitle).toBe("Widen the track before the wet season");
+    expect(String(mine.text)).toContain("wet season");
+    expect(JSON.stringify(offered.json), "the offer names nobody").not.toMatch(/user_?id/i);
   });
 
   it("says nothing about lineage until somebody names one", async () => {
@@ -321,6 +367,13 @@ describe.skipIf(!DB_CONFIGURED)("an objection that changed a proposal says so", 
     expect(lineage.json[0].title).toBe("Widen the track, and do it before the rain");
     // The lineage answer names no person, and it never may.
     expect(JSON.stringify(lineage.json)).not.toMatch(/user_?id/i);
+  });
+
+  it("stops offering an objection that has taken its one successor", async () => {
+    // The third condition, and the one a stale picker would get wrong: the
+    // record keeps the first answer forever, so continuing to offer this would
+    // walk the next proposer into "already points at".
+    expect(await answerableIds()).not.toContain(objectionId);
   });
 
   it("leaves the snapshot exactly as a vote opened without the field", async () => {
