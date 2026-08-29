@@ -1792,6 +1792,11 @@ interface InvestorDoc {
   url: string;
   pageLink: string | null;
   uploadedAt: string | null;
+  /**
+   * 0104. Is this document part of the packet the public request form emails?
+   * False for everything until a person says otherwise.
+   */
+  inPacket: boolean;
 }
 
 function InvestorVaultTab({ password }: { password: string }) {
@@ -1845,6 +1850,33 @@ function InvestorVaultTab({ password }: { password: string }) {
     setUploading(false);
   };
 
+  /**
+   * The one press that puts a document in the investor packet, or takes it out.
+   *
+   * The public request form emails the packet to anyone who asks, so this is
+   * the press that decides what a stranger can receive. The server's answer is
+   * read before the screen changes: a toggle that flips itself and then finds
+   * out is how an admin ends up believing the cap table is private.
+   */
+  const setInPacket = async (id: string, next: boolean) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/investor-docs/${id}`, {
+        method: "PATCH",
+        headers: { ...authHeaders(password), "Content-Type": "application/json" },
+        body: JSON.stringify({ inPacket: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). Nothing changed.`));
+        return;
+      }
+      toast.success(next ? "Added to the investor packet" : "Removed from the investor packet");
+      load();
+    } catch {
+      toast.error("That did not reach the server. Nothing changed.");
+    }
+  };
+
   const remove = async (id: string) => {
     if (!confirm("Delete this document permanently?")) return;
     try {
@@ -1854,7 +1886,19 @@ function InvestorVaultTab({ password }: { password: string }) {
         toast.error(refusal(body, `The server refused that (${res.status}). The document is still here.`));
         return;
       }
-      toast.success("Deleted");
+      /*
+       * The row going away is not proof the file went away. `/api/uploads/`
+       * has no authentication, so anyone still holding the old link can open
+       * the document until the file itself is gone. The server now says which
+       * of the two happened, and a half-delete has to reach the person who
+       * pressed the button.
+       */
+      const body = await res.json().catch(() => null);
+      if (body?.fileRemoved === false) {
+        toast.error(String(body.warning ?? "The record is gone, and its file is still on the server."), { duration: 12000 });
+      } else {
+        toast.success("Deleted");
+      }
       load();
     } catch {
       toast.error("That did not reach the server. The document is still here.");
@@ -1866,9 +1910,21 @@ function InvestorVaultTab({ password }: { password: string }) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Investor Vault</h2>
+          {/*
+            State what is true and then get out of the way. The old line said
+            "Documents shared with investors after they request the packet",
+            and every document really was shared with anyone who filled in the
+            public form. A count is a fact the founder can act on.
+          */}
           <p className="text-sm text-gray-500 mt-1">
-            Documents shared with investors after they request the packet.
+            Everything you upload stays private. The public request form emails
+            only the documents you tick as in the packet.
           </p>
+          {!loading && (
+            <p className="text-sm text-gray-500 mt-1">
+              {docs.filter((d) => d.inPacket).length} of {docs.length} in the packet.
+            </p>
+          )}
         </div>
       </div>
 
@@ -1950,6 +2006,17 @@ function InvestorVaultTab({ password }: { password: string }) {
                   {d.uploadedAt ? ` · ${new Date(d.uploadedAt).toLocaleDateString()}` : ""}
                 </div>
               </div>
+              <label className="flex items-center gap-2 mr-3 shrink-0 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={d.inPacket}
+                  onChange={(e) => setInPacket(d.id, e.target.checked)}
+                  className="w-4 h-4 accent-[#2D5A5A] cursor-pointer"
+                />
+                <span className={`text-xs font-medium ${d.inPacket ? "text-[#2D5A5A]" : "text-gray-400"}`}>
+                  {d.inPacket ? "In the packet" : "Private"}
+                </span>
+              </label>
               <button
                 onClick={() => remove(d.id)}
                 className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
@@ -8570,19 +8637,26 @@ function TokensTab({ password }: { password: string }) {
   const [form, setForm] = useState({ slug: "", name: "", kind: "credit", transferable: false });
   const [mint, setMint] = useState({ slug: "", toUserId: "", amount: "", reason: "" });
   const [renaming, setRenaming] = useState<{ slug: string; name: string } | null>(null);
+  /** 0106: grants waiting for a second steward, and the ones already decided. */
+  const [grants, setGrants] = useState<any[]>([]);
+  const [cosignOver, setCosignOver] = useState<number>(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [tRes, pRes] = await Promise.all([
+      const [tRes, pRes, gRes] = await Promise.all([
         fetch(`${API_BASE}/admin/tokens`, { headers: authHeaders(password) }),
         fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
+        fetch(`${API_BASE}/admin/mint-requests`, { headers: authHeaders(password) }),
       ]);
       const t = await tRes.json();
       const p = await pRes.json();
+      const g = await gRes.json();
       setTokens(Array.isArray(t.tokens) ? t.tokens : []);
       setMintCap(Number(t.mintCapPerCycle) || 0);
       setPlayers(Array.isArray(p) ? p : []);
+      setGrants(Array.isArray(g.requests) ? g.requests : []);
+      setCosignOver(Number(g.cosignOver) || 0);
     } catch { setTokens([]); }
     setLoading(false);
   }, [password]);
@@ -8682,10 +8756,51 @@ function TokensTab({ password }: { password: string }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(refusal(data, "failed"));
-      toast.success(`Minted: ${data.remaining} left under this cycle's cap`);
+      /*
+       * 0106: a grant over `ledger.admin_mint_cosign_over` answers 202 and
+       * moves nothing. Saying "Minted" here would be the product telling a
+       * steward something that did not happen, which is the one thing a
+       * message may never do.
+       */
+      if (data.pending) toast.success(data.message || "Recorded. Awaiting a second steward's sign-off");
+      else toast.success(`Minted: ${data.remaining} left under this cycle's cap`);
       setMint({ slug: "", toUserId: "", amount: "", reason: "" });
       load();
     } catch (e: any) { toast.error(e?.message || "Mint failed"); }
+  };
+
+  /** The SECOND steward agrees. The amount and token come from the record. */
+  const signGrant = async (id: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/mint-requests/${id}/approve`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(refusal(data, "failed"));
+      toast.success("Signed. The grant is credited");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Could not sign that grant"); }
+  };
+
+  const declineGrant = async (id: string) => {
+    // `?? ""` here would have made Cancel indistinguishable from an empty
+    // reason, so pressing Escape would have turned the grant down instead of
+    // walking away. Null is the cancel and it has to survive to the test.
+    const note = window.prompt("Why are you turning this down? The record keeps it.");
+    if (note === null) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/mint-requests/${id}/decline`, {
+        method: "POST",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ reason: note }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(refusal(data, "failed"));
+      toast.success("Turned down. The cap has its room back");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Could not turn that grant down"); }
   };
 
   // Minting into an example token is refused, and no ledger row exists for
@@ -8864,6 +8979,13 @@ function TokensTab({ password }: { password: string }) {
               Issues from the dedicated mint faucet, with a reason, audited. All admins
               together can mint at most {mintCap.toLocaleString()} per token per lunar
               cycle (ledger.admin_mint_cycle_cap).
+              {/* State what is true, then get out of the way (R56). Both of
+                  these are facts about what the route will do, and neither
+                  argues with the village about its own dials. */}
+              {" "}Minting to your own account is refused.
+              {cosignOver > 0
+                ? ` A grant over ${cosignOver.toLocaleString()} waits for a second steward to agree before anything moves (ledger.admin_mint_cosign_over).`
+                : " A second steward is not asked for at any amount (ledger.admin_mint_cosign_over is 0)."}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <select value={mint.slug} onChange={(e) => setMint({ ...mint, slug: e.target.value })}
@@ -8886,6 +9008,55 @@ function TokensTab({ password }: { password: string }) {
               </button>
             </div>
           </div>
+
+          {/*
+            0106: THE GRANTS RECORD.
+            Every admin sees the same list, waiting first. A queue only its
+            author can read is a drawer, and the point of a second signature is
+            that somebody else saw it. The decided rows stay because who agreed
+            to what, and when, is the record itself.
+          */}
+          {grants.length > 0 && (
+            <div className="border border-gray-200 rounded-xl p-5">
+              <h3 className="font-semibold text-gray-900 mb-1">Grants and their signatures</h3>
+              <p className="text-xs text-gray-500 mb-3">
+                A grant over the threshold moves nothing until a second steward agrees.
+                Whoever asked for it cannot be the one who signs it.
+              </p>
+              <div className="space-y-2">
+                {grants.map((g) => (
+                  <div key={g.id} className="flex flex-wrap items-center gap-3 border border-gray-100 rounded-lg px-3 py-2.5">
+                    <div className="flex-1 min-w-64">
+                      <p className="text-sm text-gray-900">
+                        <strong>{Number(g.amount).toLocaleString()} {g.tokenName}</strong>
+                        {" to "}{g.toName ?? g.toUserId}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {g.reason}
+                        {" · asked for by "}{g.requestedByName ?? g.requestedBy}
+                        {g.status === "pending"
+                          ? " · waiting for a second steward"
+                          : ` · ${g.status} by ${g.decidedByName ?? g.decidedBy}${g.decidedAt ? ` on ${new Date(g.decidedAt).toLocaleDateString()}` : ""}`}
+                        {g.decisionNote ? ` · "${g.decisionNote}"` : ""}
+                      </p>
+                    </div>
+                    {g.status === "pending" && (
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => signGrant(g.id)}
+                          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-2 font-medium">
+                          Sign it
+                        </button>
+                        <button onClick={() => declineGrant(g.id)}
+                          className="text-sm border border-gray-200 text-gray-700 rounded-lg px-3 py-2 font-medium">
+                          Turn it down
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -9070,6 +9241,11 @@ function CyclesTab({ password }: { password: string }) {
                       {pending.pool.problem}
                     </p>
                   )}
+                  {pending.unreadableCycles && (
+                    <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">
+                      {pending.unreadableCycles}
+                    </p>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-red-600 mt-1">The settlement preview could not be read.</p>
@@ -9081,7 +9257,13 @@ function CyclesTab({ password }: { password: string }) {
             <h3 className="font-semibold text-gray-900 mb-2">What a close would settle</h3>
             {due.length === 0 ? (
               <p className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-xl p-6">
-                Nothing is due. Every finished lunation is already settled.
+                {/* An empty list has two causes and they are not the same news.
+                    Claiming everything is settled while the server could not
+                    read some rows is the product stating a fact it does not
+                    have. */}
+                {pending?.unreadableCycles
+                  ? "The preview stopped before it could list anything. The message above says why."
+                  : "Nothing is due. Every finished lunation is already settled."}
               </p>
             ) : (
               <div className="space-y-3">
@@ -10043,6 +10225,18 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
    * worse than one that stays quiet about it.
    */
   const contentEditors = [
+    /*
+     * ORG CHART AND TEAM PAGE WERE MISSING FROM THIS LIST, and they are the two
+     * surfaces a fresh village publishes people on. A founder walked the whole
+     * wizard and was never shown the screen where the seats and the team cards
+     * are edited, so whatever was already on /team and /roles stayed there and
+     * read as the village's own. That is how a fork published four strangers.
+     *
+     * First in the list on purpose: people are the thing a visitor looks for
+     * first and the thing a village is most answerable for.
+     */
+    { tab: "org-chart", label: "Org Chart", hint: "Your circles, your seats, and who holds them. This is what /roles and /team show." },
+    { tab: "team", label: "Team Page", hint: "The portraits and short bios on /team, for the people you want a card for." },
     { tab: "faqs", label: "FAQs", hint: "The Common Questions on each journey page." },
     { tab: "milestones", label: "Build Progress", hint: "Your real build milestones shown on the homepage." },
     { tab: "training-modules", label: "Training modules", hint: "Your community's onboarding/learning modules." },
@@ -10148,7 +10342,11 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
       </Section>
 
       <Section id="numbers" n={3} title="Numbers" subtitle="The editable figures on your site.">
-        <p className="text-sm text-gray-600 mb-3">Village dues and other numbers live in the Settings tab.</p>
+        <p className="text-sm text-gray-600 mb-3">
+          Village dues live in the Settings tab, and so do the land and money figures the
+          investor page and the master plan show. Every one of them ships blank. A blank figure
+          means the page shows no figure at all, so your site only ever states what you stated.
+        </p>
         <button onClick={() => onOpenTab("settings")} className="px-4 py-2 bg-white border border-gray-200 text-[#2D5A5A] rounded-lg text-sm font-medium hover:bg-gray-50">
           Open Settings →
         </button>
@@ -10247,6 +10445,33 @@ function SettingsTab({ password }: { password: string }) {
 
   const dues = settings.villageDues ?? {};
   const setDues = (patch: any) => setSettings({ ...settings, villageDues: { ...dues, ...patch } });
+  const facts = settings.landFacts ?? {};
+  const setFact = (key: string, patch: any) =>
+    setSettings({ ...settings, landFacts: { ...facts, [key]: { ...(facts[key] ?? {}), ...patch } } });
+  /*
+   * Every one of these was a literal in a page file until now, so a fork
+   * published one specific property's acreage, appraisal and projected return
+   * as its own. Free text rather than a number input on purpose: a village may
+   * want "$16M+", "1.2M EUR" or "under valuation", and forcing a numeric field
+   * would push somebody into inventing a precision they do not have.
+   */
+  const landFields: Array<{ key: string; label: string; valueHint: string; noteHint: string; where: string }> = [
+    /*
+     * THE PLACEHOLDERS ARE NOT ANOTHER VILLAGE'S REAL FIGURES.
+     *
+     * The first draft of this panel used the exact numbers it was written to
+     * remove, as "e.g." hints, and the fork test caught all three of them
+     * shipping inside Admin's own chunk. A placeholder is content: whatever it
+     * says is what the next person copies, and half of them will leave it.
+     */
+    { key: "acres", label: "Size of the land", valueHint: "how many", noteHint: "acres, hectares", where: "Master plan" },
+    { key: "appraisal", label: "Appraised value", valueHint: "what it came to", noteHint: "when it was made", where: "Master plan, investor page" },
+    { key: "appreciation", label: "Change in land value", valueHint: "up or down by", noteHint: "over what period", where: "Investor page" },
+    { key: "projectedReturn", label: "Projected return", valueHint: "what your model says", noteHint: "what the model assumes", where: "Investor page" },
+    { key: "targetRaise", label: "Target raise", valueHint: "how much", noteHint: "for which phase", where: "Investor page" },
+    { key: "plannedHomes", label: "Planned homes", valueHint: "how many", noteHint: "", where: "Master plan" },
+    { key: "guestRooms", label: "Guest rooms", valueHint: "how many", noteHint: "", where: "Master plan" },
+  ];
   const preview = dues.amount ? `${dues.currency || "$"}${dues.amount} / ${dues.period || "month"}` : "Not shown until you set an amount";
 
   return (
@@ -10306,6 +10531,43 @@ function SettingsTab({ password }: { password: string }) {
         />
         <div className="text-sm text-gray-500">
           Preview on site: <span className="font-semibold text-[#2D5A5A]">{preview}</span>
+        </div>
+      </div>
+
+      <div className="border border-gray-200 rounded-xl p-5 max-w-3xl mt-6">
+        <h3 className="font-semibold text-gray-900 mb-1">Land and money</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          The figures the master plan and the investor page show. Leave one blank and that
+          tile does not appear, so the site never states a number you did not state. These are
+          claims about your land, and a visitor will read them as yours.
+        </p>
+        <div className="space-y-3">
+          {landFields.map((f) => (
+            <div key={f.key} className="grid grid-cols-[1fr_1fr] gap-3 items-end">
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">
+                  {f.label} <span className="text-gray-400">({f.where})</span>
+                </label>
+                <input
+                  type="text"
+                  value={facts[f.key]?.value ?? ""}
+                  onChange={(e) => setFact(f.key, { value: e.target.value })}
+                  placeholder={f.valueHint}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">Small line under it</label>
+                <input
+                  type="text"
+                  value={facts[f.key]?.note ?? ""}
+                  onChange={(e) => setFact(f.key, { note: e.target.value })}
+                  placeholder={f.noteHint}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+                />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

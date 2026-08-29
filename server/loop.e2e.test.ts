@@ -1048,6 +1048,36 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const noReason = await api("POST", "/api/admin/tokens/stay-credits/mint", { toUserId: peerId, amount: 5 }, founderToken);
     expect(noReason.status).toBe(400);
 
+    /*
+     * 0106: A GRANT OVER `ledger.admin_mint_cosign_over` MOVES NOTHING until a
+     * second steward signs it, and the default is 100. Measured here first,
+     * because a guard this case is about to turn off has to be shown working
+     * before it is turned off, or the next line reads as a test written around
+     * a rule.
+     */
+    const waits = await api(
+      "POST",
+      "/api/admin/tokens/stay-credits/mint",
+      { toUserId: peerId, amount: 9000, reason: "Over the co-signature threshold" },
+      founderToken,
+    );
+    expect(waits.status, `a grant of 9000 must wait: ${JSON.stringify(waits.json).slice(0, 200)}`).toBe(202);
+    expect(waits.json.pending).toBe(true);
+    // Turned down again, so it stops counting against the cap this case measures.
+    expect(
+      (await api("POST", `/api/admin/mint-requests/${waits.json.requestId}/decline`, { reason: "measuring the cap instead" }, founderToken)).status,
+    ).toBe(200);
+
+    /*
+     * THIS CASE IS ABOUT THE CAP, not the second signature, and the two are
+     * separate rules with separate coverage (`server/adminTokens.e2e.test.ts`
+     * drives the signature end to end). `ledger.admin_mint_cosign_over` at 0 is
+     * a state a village may choose and the variable's own description says so,
+     * so setting it here is using the dial rather than dodging a guard. It goes
+     * back to its default at the end of the case.
+     */
+    expect((await api("PUT", "/api/admin/variables/ledger.admin_mint_cosign_over", { value: "0" }, founderToken)).status).toBe(200);
+
     // Cap is 10000 by default; take most of it, then overflow.
     const first = await api(
       "POST",
@@ -1082,6 +1112,12 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // With the row known to be committed, the admin view surfaces it too.
     const audit = await api("GET", "/api/admin/audit", undefined, founderToken);
     expect(audit.json.some((r: any) => String(r.action) === "mint:9000:stay-credits")).toBe(true);
+
+    // The dial goes back to its default, so nothing after this case runs
+    // against a village that quietly stopped asking for a second signature.
+    expect(
+      (await api("PUT", "/api/admin/variables/ledger.admin_mint_cosign_over", { value: "100" }, founderToken)).status,
+    ).toBe(200);
   });
 
   it("S9 + Gate A, the closing assertion: the economy still conserves", async () => {
@@ -1650,6 +1686,41 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(seatNotes.some((n: any) => String(n.title).includes("Yes to your offer to hold"))).toBe(true);
     // `new` is a founder correcting their own filing and reaches nobody.
     expect((await api("PUT", `/api/admin/submissions/${handRow.id}/status`, { status: "new" }, founderToken)).json.notified).toBe(false);
+
+    /*
+     * A STEWARD CANNOT PAY THEMSELVES THROUGH THIS DOOR.
+     *
+     * Accepting a Work With Us proposal mints `gratitude.proposal_accept_award`
+     * to the matching member, 100 by default, and nothing checked that the
+     * matching member was not the steward pressing accept. Recognition is the
+     * DEFAULT `governance.weight_token`, so in a village weighting votes by
+     * token that is self-issued voting weight, once per submission, with
+     * nothing bounding how many submissions a person sends. The admin mint cap
+     * does not see it either: that guard counts `from_account = 'sys:mint'`
+     * and this issues from the recognition faucet.
+     *
+     * The acceptance still stands. The payment does not, and the route says
+     * which, because an accept with a silently unpaid mint teaches nobody
+     * anything. Nothing is minted here, so this leaves no balance behind for
+     * the order-dependent cases below.
+     */
+    const ownProposal = await api("POST", "/api/forms/submit", {
+      type: "work-with-us",
+      data: { email: founder.email, name: founder.name, work: "I will tend the food forest" },
+    }, founderToken);
+    expect(ownProposal.status).toBe(200);
+    const selfAccept = await api(
+      "PUT", `/api/admin/submissions/${ownProposal.json.id}/status`, { status: "accepted" }, founderToken,
+    );
+    expect(selfAccept.status).toBe(200);
+    expect(selfAccept.json.rewarded).toBe(false);
+    expect(String(selfAccept.json.rewardRefused ?? "")).toContain("waits for another steward");
+    // The status moved, and no recognition followed it.
+    const selfLedger = await api("GET", "/api/game/ledger", undefined, founderToken);
+    expect(
+      (selfLedger.json.entries ?? []).some((e: any) => e.source === "proposal_accepted"),
+      "accepting your own proposal mints nothing",
+    ).toBe(false);
 
     // The contact relay: opt-out is server-enforced, then a real relay lands
     // a notification (email is fire-and-forget without a key).
@@ -2763,7 +2834,15 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // can backdate, by design); an EDIT through the API restamps and clears
     // it; completed milestones never nag, however old.
     await testDb.conn.query("UPDATE milestones SET updated_at = (NOW() - INTERVAL 20 DAY) WHERE id = 'site-planning'");
-    await testDb.conn.query("UPDATE milestones SET updated_at = (NOW() - INTERVAL 40 DAY) WHERE id = 'land-acquired'");
+    // The completed fixture is MADE complete here rather than assumed. The
+    // seeded build board used to arrive with two rows already marked complete,
+    // stating that one specific property had been bought and appraised, which
+    // every fork then published as its own history. Nothing ships complete any
+    // more, so a test about "completed milestones never nag" has to complete
+    // one itself, which is also the honest shape for it.
+    await testDb.conn.query( // module-review-ok: no API can backdate or pre-complete a milestone, which is the point
+      "UPDATE milestones SET status = 'complete', updated_at = (NOW() - INTERVAL 40 DAY) WHERE id = 'land-acquired'",
+    );
     const withStale = await api("GET", "/api/admin/command-centre", undefined, founderToken);
     const stale = withStale.json.staleMilestones.find((m: any) => m.id === "site-planning");
     expect(stale).toBeTruthy();
@@ -5265,9 +5344,27 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const outsider = await api("POST", "/api/auth/register", {
       email: `outsider-gov-${PORT}@example.test`, password: "LoopTest123!", name: "Arrived After", paths: ["resident"],
     });
+    /*
+     * AND THE REFUSAL NAMES THE RIGHT REASON, which this case used to get
+     * wrong about itself. The account above is a fresh guest, and
+     * `ballot.vote` unlocks at the member rung, so the thing keeping them out
+     * is their own standing and not the clock. It was told "who may vote
+     * froze when it opened" and this line asserted that word, so the test
+     * agreed with the product about a cause neither of them had checked.
+     *
+     * Both halves are driven now. The guest hears about the account; the same
+     * person, once they reach the member rung, is off THIS roll for the one
+     * reason the freeze describes, and hears about the freeze.
+     */
     const refused = await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "yes" }, outsider.json.token);
     expect(refused.status).toBe(409);
-    expect(String(refused.json.error)).toContain("froze");
+    expect(String(refused.json.error)).toContain("Voting is not open to your account at the moment");
+    expect(String(refused.json.error)).not.toContain("froze");
+
+    await api("PUT", `/api/admin/players/${outsider.json.user.id}/stage`, { stageId: "member" }, founderToken);
+    const late = await api("POST", `/api/governance/ballots/${ballot.id}/vote`, { choice: "yes" }, outsider.json.token);
+    expect(late.status).toBe(409);
+    expect(String(late.json.error)).toContain("froze");
 
     // THE SNAPSHOT LAW, at route level: the village raises both dials
     // mid-ballot to values that would sink this vote if anything read live.

@@ -1,0 +1,26 @@
+-- THE INVESTOR PACKET STOPS SENDING EVERYTHING TO EVERYONE.
+--
+-- `POST /api/investor-docs/request` is public and unauthenticated. It read the
+-- whole vault with `investorDocsRepo.all()` and emailed every row as a download
+-- link to whatever address the requester typed. The vault is where a founder
+-- keeps the cap table, and `/api/uploads/<file>` has no authentication of its
+-- own, so each link is a bearer credential that never expires.
+--
+-- `in_packet` is the explicit, per-document choice a human makes. Default false
+-- and NOT NULL, so no row that already exists is opted in by this migration and
+-- no future insert can leave the answer unstated.
+--
+-- WHY NOT REUSE `requires_request`, WHICH IS ALREADY HERE AND ALREADY DORMANT:
+-- its polarity is ambiguous for a gate, and a security column with two honest
+-- readings is the defect rather than the fix. Read one way, `requires_request =
+-- false` means "no request needed, freely available", which argues FOR sending
+-- it. Read the other way it means "never send". The first honest reader has a
+-- coin to flip. `in_packet` has exactly one reading: is this document in the
+-- investor packet, yes or no.
+--
+-- `requires_request` is left exactly as it stands. It is written as a literal
+-- false at upload and read by nothing, and dropping it would break the vault
+-- upload on any rollback to the previous release, because `dbCollection` names
+-- every spec'd column on every insert. Its comment in schema.ts now says what is
+-- true about it instead of implying a gate that was never there.
+ALTER TABLE `investor_docs` ADD COLUMN `in_packet` boolean NOT NULL DEFAULT false;

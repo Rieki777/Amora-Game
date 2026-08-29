@@ -3,8 +3,11 @@ import { sceneForCircle } from "./circleScenes";
 
 describe("circle scenes", () => {
   it("maps every circle in the 2026-08 org chart to a specific motif", () => {
-    // The real ids from server/seeds/org-chart-2026-08.json — the structure
-    // Rye asked the scenes to be built against. None may fall to the generic.
+    // The ids the 2026-08 org restructure used. They came from
+    // server/seeds/org-chart-2026-08.json, which no longer ships: it carried
+    // one village's real people, so a fork published them. The id list stays
+    // here because the scenes were built against this structure and none of
+    // them may fall to the generic.
     const expectations: Record<string, string> = {
       "general-circle": "coordination",
       "outreach-growth-circle": "outreach",

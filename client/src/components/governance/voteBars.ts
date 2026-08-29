@@ -60,10 +60,23 @@ const clamp = (n: number) => Math.min(100, Math.max(0, Number.isFinite(n) ? n : 
 export const pctText = (n: number): string => `${Math.round(clamp(n) * 10) / 10}%`;
 
 /**
- * `none` is its own state rather than a shade of `short`.
+ * WHERE A NUMBER SITS AGAINST ITS THRESHOLD. Never `none`, and that is the
+ * whole point of the split.
  *
- * At zero nobody has disagreed with anything, and painting that red tells a
- * member the village has rejected a proposal it has not yet read.
+ * This used to return `none` for any value of zero, under the argument that
+ * "at zero nobody has disagreed with anything, and painting that red tells a
+ * member the village has rejected a proposal it has not yet read." The
+ * argument is right and the test was wrong, because ZERO PERCENT AGREEMENT IS
+ * NOT AN EMPTY BALLOT. A vote where the only person who answered said no has
+ * unity of exactly zero, and it was shown as "none yet": a member voted, the
+ * village closed the vote on their no, and the record told them nobody had
+ * ever taken a side. That is the strongest disagreement the engine can
+ * measure, rendered as an absence.
+ *
+ * Whether anything HAPPENED is a different question from where a number sits,
+ * and only the caller knows the answer to it. `unityBar` asks whether anybody
+ * took a side; `quorumBar` asks whether any weight has spoken. Each states its
+ * own emptiness test in its own words, where the argument for it can be read.
  *
  * `strict` is the majority method's comparison and it is load-bearing.
  * `evaluateBallot` reads majority as `unity > 50`, so a ballot resting exactly
@@ -71,8 +84,7 @@ export const pctText = (n: number): string => `${Math.round(clamp(n) * 10) / 10}
  * a vote the close route is about to fail, which is the exact defect this
  * module exists to make unbuildable, one method further in.
  */
-function markFor(valuePct: number, thresholdPct: number, strict = false): BarMark {
-  if (valuePct <= 0) return "none";
+function markAgainst(valuePct: number, thresholdPct: number, strict = false): "met" | "short" {
   const clears = strict ? valuePct > thresholdPct : valuePct >= thresholdPct;
   return clears ? "met" : "short";
 }
@@ -100,7 +112,9 @@ export function unityBar(
   const threshold = clamp(unityThresholdPct);
   const decided = tallies.yesW + tallies.noW;
   const strict = method === "majority";
-  const mark = decided > 0 ? markFor(value, threshold, strict) : "none";
+  // NOBODY TOOK A SIDE is the only emptiness this bar has. Everything else,
+  // zero included, is a real reading of a real vote.
+  const mark: BarMark = decided > 0 ? markAgainst(value, threshold, strict) : "none";
   const onTheLine = strict && decided > 0 && value === threshold;
   const reading =
     decided <= 0
@@ -135,7 +149,19 @@ export function quorumBar(
 ): BarReading {
   const value = clamp(quorumPctOf(tallies, totalWeight));
   const threshold = clamp(quorumThresholdPct);
-  const mark = markFor(value, threshold);
+  /*
+   * NOBODY HAS SPOKEN, measured in weight because that is what this bar
+   * counts. It reads correctly for every village that allocates weight, and
+   * it is the one case where a zero is genuinely an absence rather than a
+   * reading: no weight has spoken means the field is empty.
+   *
+   * Its edge, stated because the next person will meet it: in `custom` mode a
+   * member holding no allocated weight can vote and move this by nothing at
+   * all, and the sentence would say nobody has voted when somebody has. That
+   * needs a head count, which this function is not given and both of its
+   * callers hold. Flagged rather than half-fixed.
+   */
+  const mark: BarMark = value > 0 ? markAgainst(value, threshold) : "none";
   const reading =
     mark === "none"
       ? "Nobody has voted yet"

@@ -50,8 +50,25 @@ export default function Login() {
                   <Heart className="w-8 h-8 text-teal-deep" />
                 </div>
               </div>
-              <h1 className="text-4xl font-display font-bold text-teal-deep mb-2">Welcome Back</h1>
-              <p className="text-gray-600">Sign in to your Amora village journey</p>
+              {/*
+                It used to say "Welcome Back" to everybody, and `/profile` is
+                linked from the footer of every public page, so the person who
+                met that line most often was somebody arriving for the first
+                time. A member's own words: "It welcomed me back and I had
+                never been here."
+
+                And the page cannot tell the difference. The one thing that
+                counts visits is `recordVisit()` in landing.ts, which runs
+                inside `LandingRoute` alone, so a visitor who follows a link
+                straight to a sign-in form never increments it. There is no
+                fact here to build a greeting on, so the heading says what
+                the page is, which is also what the tab already says.
+              */}
+              <h1 className="text-4xl font-display font-bold text-teal-deep mb-2">Sign in</h1>
+              <p className="text-gray-600">
+                Members sign in here. If you do not have an account yet, there is a link to
+                create one below.
+              </p>
             </div>
 
             <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-lg p-8 space-y-6">

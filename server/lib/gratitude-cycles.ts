@@ -69,13 +69,25 @@ export interface DistributionRecord {
 }
 
 /**
- * The cycle id used on every acknowledgment. Lunation-based, formatted so it is
- * readable in a JSON file and sorts correctly: "lunar-000328".
+ * THE ONE CYCLE ID. Every `cycle_id` column in this build carries this string
+ * and no other, and this is the only function allowed to make one.
  *
- * The previous scheme was `YYYY-MM` (calendar month). Existing rows keep their
- * old ids and are simply never matched by the new ones, which is the correct
- * outcome: a member's budget resets once at changeover rather than double
- * counting a partially-spent month.
+ * It has not always been. `server/lib/economy.ts` grew a second formatter that
+ * wrote `moon-329` for the same lunation this one calls `lunar-000329`, into
+ * the same column, and the two never learned about each other. A member's
+ * spending was then counted twice, once against each half of the table, so
+ * they moved 130 in a lunation whose two allowances were 100 and 30. The
+ * settlement, which only matches `lunar-`, read 100 of those 130 and reported
+ * the other 30 to nobody. `economy.ts` now imports this function, and
+ * `cycleId.test.ts` fails if a second spelling ever appears.
+ *
+ * Lunation-based, and zero-padded so a plain string sort is a chronological
+ * sort: "lunar-000328" then "lunar-000329".
+ *
+ * The scheme before this one was `YYYY-MM` (calendar month). Old rows keep
+ * their old ids, and `unreadableCycleIds` below now REFUSES them out loud
+ * rather than dropping them quietly, because a settlement that skips rows it
+ * cannot read prices a village wrong and says nothing.
  */
 export function cycleIdFor(date: Date = new Date()): string {
   return formatCycleId(cycleBoundsFor(date).cycleNumber);
@@ -89,6 +101,53 @@ export function formatCycleId(cycleNumber: number): string {
 export function parseCycleId(cycleId: string): number | null {
   const m = /^lunar-(\d{1,9})$/.exec(cycleId);
   return m ? Number(m[1]) : null;
+}
+
+/**
+ * Every cycle id in `entries` that this build cannot read, once each.
+ *
+ * A row whose id nothing can parse is not a row that belongs to some other
+ * lunation. It is a row nobody knows the lunation of, and the honest answer is
+ * to stop and say so. The alternative shipped: `settleCycle` filtered on
+ * equality and `dueCycles` dropped anything `parseCycleId` returned null for,
+ * so 30 of 130 units vanished from a settlement, every total under them was
+ * wrong, and no surface anywhere said a number was missing.
+ *
+ * Two readers, one list, so the preview an admin reads before pressing close
+ * and the close itself can never disagree about what is unreadable.
+ */
+export function unreadableCycleIds(entries: readonly GratitudeEntryLike[]): string[] {
+  const bad = new Set<string>();
+  for (const e of entries) {
+    const id = String(e.cycleId ?? "");
+    if (parseCycleId(id) === null) bad.add(id);
+  }
+  return Array.from(bad).sort();
+}
+
+/**
+ * The sentence an admin reads instead of a settlement that quietly lost rows.
+ * Plain words and the ids themselves, because the fix is a migration somebody
+ * has to write and they need to know what they are looking at.
+ */
+export function unreadableCycleProblem(entries: readonly GratitudeEntryLike[]): string | null {
+  const bad = unreadableCycleIds(entries);
+  if (bad.length === 0) return null;
+  const shown = bad.slice(0, 5).map((id) => (id === "" ? "(empty)" : id));
+  const more = bad.length > shown.length ? `, and ${bad.length - shown.length} more` : "";
+  const rows = entries.filter((e) => parseCycleId(String(e.cycleId ?? "")) === null).length;
+  return (
+    `${rows} recognition row(s) carry a cycle id this build cannot read: ` +
+    `${shown.join(", ")}${more}. The settlement stops here. A total that leaves ` +
+    `rows out quietly is wrong in a way nobody can see afterwards. Give these rows ` +
+    `a lunar-NNNNNN id, then run the close again.`
+  );
+}
+
+/** Throw on anything unreadable. The last door before a total gets made. */
+function refuseUnreadable(entries: readonly GratitudeEntryLike[]): void {
+  const problem = unreadableCycleProblem(entries);
+  if (problem) throw new Error(problem);
 }
 
 /** Cycle metadata for the current lunation, for display and settlement. */
@@ -145,6 +204,10 @@ export function settleCycle(
   cycleId: string,
   eligibleSenders?: ReadonlySet<string>,
 ): SettleTotals[] {
+  // Before any arithmetic. Everything below produces numbers a member reads as
+  // facts about their moon, so a row this build cannot place must stop the
+  // total rather than be quietly absent from it.
+  refuseUnreadable(entries);
   const inCycle = entries.filter((e) => e.cycleId === cycleId);
   const byRecipient = new Map<
     string,
@@ -186,6 +249,10 @@ export function dueCycles(
   entries: readonly GratitudeEntryLike[],
   now: Date = new Date(),
 ): CycleRecord[] {
+  // A lunation this cannot read is a lunation it would never list as due, so a
+  // cycle whose whole activity came through the unreadable door would never be
+  // offered for closing and nothing would say why. Refuse instead.
+  refuseUnreadable(entries);
   const currentNumber = cycleBoundsFor(now).cycleNumber;
   const closed = new Set(existing.filter((c) => c.status === "closed").map((c) => c.cycleNumber));
 
@@ -194,6 +261,9 @@ export function dueCycles(
   for (const c of existing) candidates.add(c.cycleNumber);
   for (const e of entries) {
     const n = parseCycleId(e.cycleId);
+    // Never null here: refuseUnreadable above threw on anything that parses to
+    // null. The check stays so a future edit that moves the refusal cannot
+    // silently reopen the hole this whole file exists to close.
     if (n !== null) candidates.add(n);
   }
 

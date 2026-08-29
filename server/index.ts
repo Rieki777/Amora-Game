@@ -204,6 +204,7 @@ import { checkSpace, matchOutcome, readInboundOutcome } from "./lib/hypha/outcom
 import { switchoverPreflight } from "./lib/hypha/switchover";
 import { villageFigure } from "./lib/hypha/village";
 import {
+  amendedKeysFor,
   awaitingVote,
   ballotById,
   ballotsFor,
@@ -283,7 +284,7 @@ import {
   spendSurfacesFor,
 } from "./lib/spending";
 import { seatChargeFor, seatEscrowDrift, seatPriceFor, settleFinishedSeats } from "./lib/eventSeats";
-import { allowanceFor, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
+import { allowanceFor, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
 import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -738,6 +739,7 @@ import {
   settleCycle,
   formatCycleId,
   parseCycleId,
+  unreadableCycleProblem,
   type CycleRecord,
   type DistributionRecord,
 } from "./lib/gratitude-cycles";
@@ -1019,6 +1021,34 @@ const DEFAULT_SETTINGS = {
     currency: "$",
     note: "Village Dues cover utilities, maintenance, and community services. Contributions are recognised in Gratitude, and the value tokens the community pool distributes across Gratitude can help offset dues.",
   },
+  /*
+   * THE LAND AND MONEY FIGURES, and why every one of them ships blank.
+   *
+   * The investor page and the master plan used to state four things as module
+   * constants: a land appreciation percentage, an appraisal with its month, a
+   * projected internal rate of return, and a target raise. A fork inherited all
+   * four and published them about its own land, on day one, with no screen
+   * anywhere that could change them. That is a financial representation a fork
+   * cannot stand behind, and a misstatement of the real figures at the same
+   * time.
+   *
+   * Same rule as villageDues directly above, which is already the pattern here:
+   * blank means the site shows nothing rather than a figure somebody else
+   * earned. Each `value` is free text so a village can write "$16M+" or
+   * "1.2M EUR" or "under valuation", and each `note` is the small line under it
+   * that carries the date, the basis or the place.
+   *
+   * Anything a village types here is its own claim about its own land.
+   */
+  landFacts: {
+    acres: { value: "", note: "" },
+    appraisal: { value: "", note: "" },
+    appreciation: { value: "", note: "" },
+    projectedReturn: { value: "", note: "" },
+    targetRaise: { value: "", note: "" },
+    plannedHomes: { value: "", note: "" },
+    guestRooms: { value: "", note: "" },
+  },
 };
 
 const DEFAULT_TRAINING_MODULES = [
@@ -1143,6 +1173,10 @@ const investorDocsRepo = dbCollection(getPool(), {
     { js: "description", db: "description" },
     { js: "url", db: "url" },
     { js: "requiresRequest", db: "requires_request", kind: "bool" },
+    // 0104. The per-document packet choice. `kind: "bool"` matters: an absent
+    // key writes 0 rather than NULL, so a row can never arrive with the
+    // question unanswered.
+    { js: "inPacket", db: "in_packet", kind: "bool" },
     { js: "order", db: "sort_order", kind: "int" },
     // 0099. The upload route collected both of these and had nowhere to put
     // them, which is half of why its insert threw on every press.
@@ -3733,7 +3767,9 @@ function gratitudeBudget(user: any) {
 const notifyDeps: NotifyDeps = {
   get pool() { return getPool(); },
   memberById: (id) => members.byId(id),
-  sendEmail: (opts) => sendResendEmail(opts),
+  // The spine's contract wants `Promise<void>`; the sender now reports what it
+  // did, and this caller has no use for the report.
+  sendEmail: async (opts) => { await sendResendEmail(opts); },
   origin: () => (process.env.FRONTEND_URL || "https://amora.regencivics.earth").replace(/\/$/, ""),
   projectName: () => mergedConfig().project.name,
 };
@@ -4298,15 +4334,59 @@ function getWorkWithUs() {
   return { ...DEFAULT_WORK_WITH_US, ...workWithUsRepo.get() };
 }
 
-/** When a Work With Us proposal is accepted, fold it into the game for a matching
- * member: a logged contribution, Gratitude credit, and a pulse. Idempotent. */
-async function applyAcceptReward(entry: any): Promise<boolean> {
-  if (entry.rewarded) return false;
+/**
+ * When a Work With Us proposal is accepted, fold it into the game for a
+ * matching member: a logged contribution, Gratitude credit, and a pulse.
+ * Idempotent.
+ *
+ * A STEWARD MAY NOT PAY THEMSELVES THROUGH THIS DOOR. `canConfirm` in
+ * server/lib/economy.ts already states the rule for the whole build: "A
+ * steward may not witness their own work. Confirming releases value, so it
+ * must be structurally impossible to do it for yourself, admin included."
+ * This path releases value and did not ask. Anyone holding `intake.moderate`
+ * could send a Work With Us proposal in their own name, accept it, and mint
+ * themselves `gratitude.proposal_accept_award`, which defaults to 100. Once
+ * per submission, and nothing bounds how many submissions a person sends.
+ *
+ * That token is the DEFAULT `governance.weight_token`, so in a village
+ * running `governance.weight_mode = token` the amount minted here is voting
+ * weight. The admin mint cap does not reach it either: `mintCapGuard` counts
+ * `from_account = 'sys:mint'` and this issues from the recognition faucet.
+ *
+ * The acceptance itself still stands. Whether a steward may accept their own
+ * proposal at all is a question for the village, and this is not the place to
+ * answer it. What stops here is the payment, and the route says so, because a
+ * refusal nobody is told about teaches nothing.
+ */
+async function applyAcceptReward(
+  entry: any,
+  acceptedByUserId: string | null,
+): Promise<{ rewarded: boolean; refused?: string }> {
+  if (entry.rewarded) return { rewarded: false };
   const email = String(entry.data?.email ?? "").toLowerCase();
   const match =
     (entry.userId ? await members.byId(entry.userId) : null) ??
     (email ? await members.byEmail(email) : null);
-  if (!match) return false; // not a registered member; nothing to fold in
+  if (!match) return { rewarded: false }; // not a registered member; nothing to fold in
+  // The same rule the mint already enforces, restated where this mint happens
+  // so a new caller cannot route around it.
+  //
+  // Called with no actor, this refuses too, and that is the point.
+  // `canConfirm` answers "a confirmation needs a named steward" for an empty
+  // one, so an unattributed accept withholds the payment. Every live path
+  // here has an actor: the route sits behind `guardCapability`, which cannot
+  // pass without a signed-in user. A future caller that loses the actor meets
+  // a refusal it has to read, and inventing a witness to get past it is the
+  // one thing that must stay hard.
+  const witness = canConfirm(match.id, acceptedByUserId ?? "");
+  if (!witness.ok) {
+    return {
+      rewarded: false,
+      refused:
+        "The proposal is accepted. The recognition for it waits for another steward, " +
+        "because this proposal is yours.",
+    };
+  }
   // Registry, not the content document: this is recognition ISSUANCE, and it
   // sat in Work With Us page copy with no bounds and no mechanics visibility.
   // A runOnce migrated any customized document value into the variable.
@@ -4329,7 +4409,7 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
     });
     if (!credit.ok) {
       console.error(`[submissions] accept credit failed for submission ${entry.id}: ${credit.error}`);
-      return false;
+      return { rewarded: false };
     }
     newBalance = credit.toBalance;
   }
@@ -4344,9 +4424,9 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
     });
     if (newBalance != null) u.recognitionBalance = newBalance;
   });
-  if (!updated) return false;
+  if (!updated) return { rewarded: false };
   await addActivity("proposal", `${firstName(updated.name)}'s proposal was welcomed into the village`, { actorUserId: updated.id, entityType: "submission", entityRef: entry.id });
-  return true;
+  return { rewarded: true };
 }
 
 function escapeHtml(s: string): string {
@@ -4394,14 +4474,58 @@ function resolvedEmailSender(): string {
     if (validEmailSender(env)) return env;
     console.error(`[RESEND] EMAIL_FROM "${env}" is not a valid address, falling back`);
   }
-  return "Amora Site <notifications@amora.cr>";
+  /*
+   * NO LAST-RESORT SENDER ANY MORE, and that is the honest answer.
+   *
+   * This used to return one specific village's address. Two things followed.
+   * Every fork's mail went out claiming a domain it does not own, which Resend
+   * accepts with a 200 and then delivers nowhere, because the send fails the
+   * receiving domain's SPF and DKIM checks. And the runbook already records
+   * that this very domain is unverified, so the fallback was not even
+   * delivering for the village it named.
+   *
+   * An empty string means "this deployment has not said who its mail comes
+   * from", `sendResendEmail` declines rather than sending into a hole, and the
+   * caller is told. A refusal a founder can read beats a 200 nobody receives.
+   */
+  return "";
 }
 
-async function sendResendEmail(opts: { to: string[]; subject: string; html: string; from?: string; replyTo?: string }): Promise<void> {
+/**
+ * WHAT THIS RETURNS, and why it did not used to return anything.
+ *
+ * Every path out of this function used to be indistinguishable from every
+ * other: no API key, no recipients, a 4xx from the provider and a clean
+ * accepted send all returned the same `undefined`, and none of them threw. So
+ * a caller that wanted to know whether mail had actually gone had exactly one
+ * signal available, "it did not throw", which was true in all four cases.
+ *
+ * `POST /api/admin/bootstrap` was that caller. It set `emailed = true` after
+ * the await and reported it to the operator who had just created the founder
+ * account, on a deployment with no email provider configured, which is the
+ * state every fork boots in. The server log on the same request read
+ * "[RESEND] API key not set, skipping email".
+ *
+ * `sent` is now only true when the provider accepted the message, and `reason`
+ * names which door it left by otherwise. Note the ceiling on that word:
+ * ACCEPTED is not DELIVERED. A provider returns 200 for a domain whose SPF and
+ * DKIM records were never published and then delivers nothing, so `sent: true`
+ * means the message was handed over, never that it arrived.
+ *
+ * Callers that do not care may keep ignoring the result.
+ */
+type MailResult = { sent: boolean; reason?: "no_api_key" | "no_sender" | "no_recipients" | "rejected" | "failed" };
+
+async function sendResendEmail(opts: { to: string[]; subject: string; html: string; from?: string; replyTo?: string }): Promise<MailResult> {
   const cfg = getEmailConfig();
   if (!cfg.resend_api_key) {
     console.log("[RESEND] API key not set, skipping email");
-    return;
+    return { sent: false, reason: "no_api_key" };
+  }
+  const from = opts.from ?? resolvedEmailSender();
+  if (!from) {
+    console.error("[RESEND] no sender address configured, skipping email. Set EMAIL_FROM or the sender in Admin, Email config.");
+    return { sent: false, reason: "no_sender" };
   }
   // Every configured inbox may hold a comma-separated LIST — several people
   // receiving updates is the norm for a village, not an edge case. Split,
@@ -4411,7 +4535,7 @@ async function sendResendEmail(opts: { to: string[]; subject: string; html: stri
   ));
   if (!to.length) {
     console.log("[RESEND] No recipients, skipping email");
-    return;
+    return { sent: false, reason: "no_recipients" };
   }
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -4421,11 +4545,11 @@ async function sendResendEmail(opts: { to: string[]; subject: string; html: stri
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        // Admin-typed sender first, then the env var, then the platform's
-        // last-resort literal. A malformed admin value is IGNORED rather than
-        // sent (a bad From: kills every email silently), and says so in the
-        // log so the founder can find it.
-        from: opts.from ?? resolvedEmailSender(),
+        // Admin-typed sender first, then the env var. A malformed admin value
+        // is IGNORED rather than sent (a bad From: kills every email silently),
+        // and says so in the log so the founder can find it. Resolved above,
+        // because no sender at all is a refusal rather than a send.
+        from,
         to,
         subject: opts.subject,
         html: opts.html,
@@ -4437,9 +4561,12 @@ async function sendResendEmail(opts: { to: string[]; subject: string; html: stri
     if (!res.ok) {
       const errText = await res.text();
       console.error("[RESEND ERROR]", res.status, errText);
+      return { sent: false, reason: "rejected" };
     }
+    return { sent: true };
   } catch (err) {
     console.error("[RESEND ERROR]", err);
+    return { sent: false, reason: "failed" };
   }
 }
 
@@ -5296,7 +5423,9 @@ async function startServer() {
     // The signed token names the member, so the meter costs no database read.
     // `decodeToken` verifies the signature and the session window before it
     // returns anything, so this cannot be handed an id the deployment did not
-    // mint. `server/lib/modules.ts` states what it skips and why.
+    // mint. It does NOT check `token_version`, so it is not a session test on
+    // its own: `served()` in `server/lib/modules.ts` asks `isAuthed` before it
+    // writes a mark, which is the same answer `/api/profile` gives.
     meterUserId: (req) => {
       const header = (req as any).headers?.authorization;
       if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
@@ -7053,8 +7182,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const before = String(submissions[idx].status ?? "");
     submissions[idx].status = status;
     let rewarded = false;
+    let rewardRefused: string | null = null;
     if (status === "accepted" && !wasAccepted && submissions[idx].type === "work-with-us") {
-      rewarded = await applyAcceptReward(submissions[idx]);
+      // The acting steward, so the mint can refuse to pay them for their own
+      // proposal. Null when this arrives through a path with no named human,
+      // and the guard then leaves the payment alone: an unattributed accept is
+      // its own problem and inventing an actor here would hide it.
+      const actorId = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+      const outcome = await applyAcceptReward(submissions[idx], actorId);
+      rewarded = outcome.rewarded;
+      rewardRefused = outcome.refused ?? null;
       if (rewarded) submissions[idx].rewarded = true;
     }
     await submissionsRepo.replaceAll(submissions);
@@ -7096,7 +7233,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       });
       notified = true;
     }
-    res.json({ success: true, rewarded, notified });
+    // `rewardRefused` is null on every ordinary accept. When it is a
+    // sentence, the status moved and the recognition did not, and the desk has
+    // to be told which: "accepted" with a silent unpaid mint is the shape this
+    // guard exists to stop.
+    res.json({ success: true, rewarded, rewardRefused, notified });
   });
 
   // Admin: Export Submissions as CSV
@@ -7168,8 +7309,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * This route is unauthenticated and has no module gate, and the `roles`
    * section is the CARD-SHAPED org chart that 0049 replaced with rows. The
    * cards kept their `holders` array and `holderNote`, so this endpoint has
-   * been answering anonymous callers with "Via", "Jessica", "Ky (interim)" and
-   * notes like "Away and inactive" for as long as the section has existed.
+   * been answering anonymous callers with real first names, some of them
+   * qualified with "(interim)", and notes about a person's availability for as
+   * long as the section has existed.
    * `/api/org` tiers exactly those fields behind `map.viewPeople`; this was the
    * side door.
    *
@@ -7359,6 +7501,33 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     }
     let claimUrl: string | null = null;
     let emailed = false;
+    /*
+     * WHY THE FOUNDER'S LINK NEEDS A SENTENCE AND NOT JUST A BOOLEAN.
+     *
+     * This route answered `emailed: true` on a deployment with no email
+     * provider at all, which is the state every fork boots in, because
+     * `sendResendEmail` returned normally when it skipped the send and the
+     * `try` below could only ever catch a throw. An operator who read that
+     * line and closed the terminal had stranded the one account that can do
+     * anything, and the operator who did exactly that waited two days.
+     *
+     * So: the truth, plus what to do about it. `emailNote` is a sentence the
+     * runbook and the caller can print, and `claimUrl` is beside it already.
+     */
+    let emailNote: string | null = null;
+    const noteForMail = (r: { sent: boolean; reason?: string }): string | null => {
+      if (r.sent) return null;
+      if (r.reason === "no_api_key") {
+        return "No email provider is configured on this deployment, so nothing was sent. Open the claim link below yourself, or set an email provider and run this again.";
+      }
+      if (r.reason === "no_sender") {
+        return "No sender address is configured on this deployment, so nothing was sent. Open the claim link below yourself, or set EMAIL_FROM and run this again.";
+      }
+      if (r.reason === "no_recipients") {
+        return "That address was not usable as an email recipient, so nothing was sent. Open the claim link below yourself.";
+      }
+      return "The email provider refused the message, so nothing was sent. Open the claim link below yourself, and check the server log for the provider's own reason.";
+    };
     if (user) {
       await members.update(user.id, (u: any) => { u.role = "founder"; });
       // Expired-link recovery: an account created by bootstrap that never set a
@@ -7368,14 +7537,17 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         const claim = makeSetPasswordToken(user.id, user.passwordHash);
         claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
         try {
-          await sendResendEmail({
+          const mail = await sendResendEmail({
             to: [normEmail],
             subject: `Set your password`,
             html: `<p><a href="${escapeHtml(claimUrl)}">Set your password</a> (link expires in 60 minutes).</p>
 <p>If the button does nothing, paste this into your browser:<br>${escapeHtml(claimUrl)}</p>`,
           });
-          emailed = true;
-        } catch { /* claimUrl returned to the operator */ }
+          emailed = mail.sent;
+          emailNote = noteForMail(mail);
+        } catch {
+          emailNote = noteForMail({ sent: false, reason: "failed" });
+        }
       }
     } else {
       const userId = `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -7398,15 +7570,18 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       const claim = makeSetPasswordToken(userId, "");
       claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
       try {
-        await sendResendEmail({
+        const mail = await sendResendEmail({
           to: [normEmail],
           subject: `You are the founder admin. Set your password`,
           html: `<p>Your founder admin account was just created on ${escapeHtml(mergedConfig().project.name)}.</p>
 <p><a href="${escapeHtml(claimUrl)}">Set your password</a> (link expires in 60 minutes).</p>
 <p>If the button does nothing, paste this into your browser:<br>${escapeHtml(claimUrl)}</p>`,
         });
-        emailed = true;
-      } catch { /* fall through: claimUrl is returned to the operator */ }
+        emailed = mail.sent;
+        emailNote = noteForMail(mail);
+      } catch {
+        emailNote = noteForMail({ sent: false, reason: "failed" });
+      }
     }
 
     void recordEvent(getPool(), {
@@ -7423,7 +7598,17 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // escalation — and email providers accept sends they never deliver
     // (unverified sender domains fail silently AFTER a 200). A fork must be
     // bootstrappable with zero working email.
-    res.json({ success: true, userId: user.id, emailed, ...(claimUrl ? { claimUrl } : {}) });
+    //
+    // `emailed` now reports what the provider did rather than whether the call
+    // threw, and `emailNote` says what to do when nothing went. Even a true
+    // here means ACCEPTED, never DELIVERED.
+    res.json({
+      success: true,
+      userId: user.id,
+      emailed,
+      ...(emailNote ? { emailNote } : {}),
+      ...(claimUrl ? { claimUrl } : {}),
+    });
   });
 
   /**
@@ -8475,8 +8660,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     }
     const { category, title, body, kind, meta, imageUrl, tags } = req.body ?? {};
     if (!String(body ?? "").trim()) return res.status(400).json({ error: "Say something" });
-    if (!forumCategories().some((c: any) => c.id === category)) {
-      return res.status(400).json({ error: `Unknown category "${String(category)}"` });
+    // Same shape as the tools refusal below: `String(category)` on an absent
+    // field answers with the literal word "undefined", which tells the poster
+    // nothing about what happened.
+    const chosenCategory = String(category ?? "");
+    if (!chosenCategory) return res.status(400).json({ error: "Pick a category for this thread" });
+    if (!forumCategories().some((c: any) => c.id === chosenCategory)) {
+      return res.status(400).json({ error: `Unknown category "${chosenCategory}"` });
     }
     const threadKind = ["discussion", "decision", "post", "event", "announcement"].includes(kind) ? kind : "discussion";
     if (threadKind !== "post" && !String(title ?? "").trim()) {
@@ -10587,8 +10777,25 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       return "The link must be a valid URL";
     }
     if (url.protocol !== "https:") return "Tool links are https-only";
-    if (!toolsCategories().some((c: any) => c.id === body?.category)) {
-      return `Unknown category "${String(body?.category)}". Manage categories in the module's config`;
+    /*
+     * Three different facts used to arrive as one sentence, and the first two
+     * came out as the literal word "undefined": a request with no category at
+     * all read `Unknown category "undefined"`. That is a value reaching a
+     * sentence rather than a thing that happened.
+     *
+     * The middle case is the one that matters most on a fresh village. The
+     * tools module ships with no categories at all, so an admin who names one
+     * correctly is still refused, and being told their category is unknown
+     * sends them looking for a typo instead of at an empty list.
+     */
+    const categories = toolsCategories();
+    const chosen = String(body?.category ?? "");
+    if (!chosen) return "Pick a category for this tool. Categories are set in the module's config";
+    if (!categories.length) {
+      return "This village has no tool categories yet. Add one in the module's config, then save the tool";
+    }
+    if (!categories.some((c: any) => c.id === chosen)) {
+      return `Unknown category "${chosen}". Manage categories in the module's config`;
     }
     if (body?.visibility === "roles") {
       const known = new Set(rolesRepo.all().map((r: any) => r.id));
@@ -12571,7 +12778,15 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           (u: any) => (u.role === "admin" || u.role === "founder") && u.passwordHash,
         );
         return admins.length > 0
-          ? { state: "ok" as const, detail: `${admins.length} admin${admins.length === 1 ? "" : "s"} have their own login` }
+          ? {
+              state: "ok" as const,
+              // The noun agreed and the verb did not, so a village with one
+              // named admin read "1 admin have their own login".
+              detail:
+                admins.length === 1
+                  ? "1 admin has their own login"
+                  : `${admins.length} admins have their own login`,
+            }
           : { state: "missing" as const, detail: "No per-admin identities yet. The shared password cannot attribute or revoke anyone" };
       },
       "founder-appointed": async () => {
@@ -15581,8 +15796,31 @@ Send an empty drafts array when you are still listening. A role payload is {name
           : null;
       }
     }
+    const ledger = await balancesFor(getPool(), memberAccount(user.id));
     res.json({
-      ledger: await balancesFor(getPool(), memberAccount(user.id)),
+      ledger,
+      /*
+       * THE VILLAGE'S OWN WORD FOR EACH TOKEN IT HOLDS.
+       *
+       * `ledger` is keyed by slug, and the slug is history's identity and
+       * never changes. It is not the name a member agreed to hold, and a
+       * village that renames its currency to Seeds was still shown
+       * `qa3needle` on the one page they open to read what they own.
+       *
+       * Read live from the registry on every request, the way
+       * `/api/game/ledger` reads it, so a rename follows here the moment
+       * `loadTokenRegistry` reloads. Nothing anywhere stores a display name
+       * beside a balance or a ledger row: `tokens.name` is the only copy
+       * there is, which is why a rename can be complete.
+       *
+       * ADDITIVE. `ledger` keeps its shape, so every existing reader of it,
+       * including the send card's balance check, is untouched. A token with
+       * no registry row keeps showing its slug: that is a drift worth seeing
+       * and not a name worth inventing.
+       */
+      tokenNames: Object.fromEntries(
+        Object.keys(ledger).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
+      ),
       wallet: { address: user.walletAddress ?? null, verifiedAt: user.walletVerifiedAt ?? null },
       onchain,
       economicsEnabled,
@@ -16626,8 +16864,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
         [viewer.id],
       );
       const ctx = await capabilityCtx(viewer);
+      const held = await balancesFor(getPool(), memberAccount(viewer.id));
       mine = {
-        balances: await balancesFor(getPool(), memberAccount(viewer.id)),
+        balances: held,
+        // The same live registry read `/api/wallet` carries, for the same
+        // reason: `balances` is keyed by slug, and the wallet page rendered
+        // the slug as though it were the currency's name.
+        tokenNames: Object.fromEntries(
+          Object.keys(held).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
+        ),
         orders,
         canBuy: hasCapability("exchange.buy", ctx),
         canSwap: hasCapability("exchange.swap", ctx),
@@ -17283,6 +17528,71 @@ Send an empty drafts array when you are still listening. A role payload is {name
     return Number(row?.minted ?? 0);
   }
 
+  /**
+   * 0106: what is already asked for and waiting for a second steward.
+   *
+   * A PENDING GRANT IS SPOKEN FOR. It counts against the cap alongside what
+   * has actually been minted, because otherwise an admin who cannot mint over
+   * the cap in one call raises a hundred requests just under it and holds a
+   * hundred times the cap, each needing one signature. A cap that only counts
+   * completed acts is a cap on paperwork.
+   *
+   * NOT filtered by cycle, on purpose. A grant raised last lunation and signed
+   * this one mints THIS lunation, so it has to be spoken for now.
+   */
+  async function pendingMints(slug: string): Promise<number> {
+    const [[row]] = await getPool().query<any[]>(
+      "SELECT COALESCE(SUM(amount), 0) AS waiting FROM admin_mint_requests " +
+        "WHERE status = 'pending' AND token_slug = ?",
+      [slug],
+    );
+    return Number(row?.waiting ?? 0);
+  }
+
+  /** The threshold above which a hand-mint waits for a second steward. 0 is off. */
+  function cosignOver(): number {
+    return numberVar("ledger.admin_mint_cosign_over");
+  }
+
+  interface MintRequestRow {
+    id: string;
+    tokenSlug: string;
+    toUserId: string;
+    amount: number;
+    reason: string;
+    requestedBy: string;
+    requestedAt: string | null;
+    status: string;
+    decidedBy: string | null;
+    decidedAt: string | null;
+    decisionNote: string | null;
+  }
+
+  function mintRequestRow(r: any): MintRequestRow {
+    return {
+      id: String(r.id),
+      tokenSlug: String(r.token_slug),
+      toUserId: String(r.to_user_id),
+      amount: Number(r.amount),
+      reason: String(r.reason ?? ""),
+      requestedBy: String(r.requested_by),
+      requestedAt: r.requested_at instanceof Date ? r.requested_at.toISOString() : r.requested_at ?? null,
+      status: String(r.status),
+      decidedBy: r.decided_by ?? null,
+      decidedAt: r.decided_at instanceof Date ? r.decided_at.toISOString() : r.decided_at ?? null,
+      decisionNote: r.decision_note ?? null,
+    };
+  }
+
+  async function mintRequestById(id: string): Promise<MintRequestRow | null> {
+    const [rows] = await getPool().query<any[]>(
+      "SELECT id, token_slug, to_user_id, amount, reason, requested_by, requested_at, status, " +
+        "decided_by, decided_at, decision_note FROM admin_mint_requests WHERE id = ?",
+      [id],
+    );
+    return rows[0] ? mintRequestRow(rows[0]) : null;
+  }
+
   /*
    * Stock the treasury: sys:mint -> sys:treasury, under the SAME per-cycle
    * aggregate mint cap as hand-mints — stocking IS minting, and two doors
@@ -17505,16 +17815,91 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const target = await members.byId(String(toUserId));
     if (!target) return res.status(404).json({ error: "Member not found" });
 
+    /*
+     * 0106: NOBODY GRANTS THEMSELVES POWER ALONE.
+     *
+     * QA-2 self-granted 25 through this route and watched their own balance go
+     * from 20 to 45. Every guard above is real and not one of them looked at
+     * who the tokens were going to. The sharp edge is `village-voice`: under
+     * `governance.weight_mode = token` that balance IS voting weight, so the
+     * scaffolding could mint itself the electorate.
+     *
+     * REFUSED FLAT, at any amount, rather than co-signed. A self-grant has no
+     * legitimate shape that another steward could not record instead, so a
+     * ceremony here would only be a ceremony to game. There is no dial: R56
+     * says villages set their own dials, and this is not a dial, it is the one
+     * thing the scaffolding may not do to itself.
+     *
+     * `adminActor` is set by the `isAdmin` above, so it is present here. It is
+     * checked anyway: an unnamed actor must refuse rather than skip the rule,
+     * because a guard that silently does not run is worse than no guard.
+     */
+    const acting = adminActor(req);
+    if (!acting) return res.status(401).json({ error: "auth_required" });
+    if (acting.id === target.id) {
+      return res.status(403).json({
+        code: "self_grant_refused",
+        error: "You cannot mint to your own account. Ask another steward to record this grant",
+      });
+    }
+
     const cap = numberVar("ledger.admin_mint_cycle_cap");
     if (cap <= 0) return res.status(403).json({ error: "Manual minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
     // Pre-flight for a readable refusal; the guard on the post is the rule.
+    // A grant already waiting for a second steward is spoken for and counts
+    // here, or a hundred requests just under the cap would hold a hundred
+    // times it (`pendingMints`).
     const minted = await mintedThisCycle(slug);
-    if (minted + amt > cap) {
+    const waiting = await pendingMints(slug);
+    if (minted + waiting + amt > cap) {
       return res.status(409).json({
-        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
+        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation` +
+          (waiting > 0 ? `, and ${waiting} more is waiting for a second steward` : ""),
         minted,
+        waiting,
         cap,
-        remaining: Math.max(0, cap - minted),
+        remaining: Math.max(0, cap - minted - waiting),
+      });
+    }
+
+    /*
+     * 0106: A GRANT OVER THE THRESHOLD WAITS FOR A SECOND STEWARD.
+     *
+     * `docs/FOUNDATION_HANDOFF_2026-08-11.md` section 3b recorded this as
+     * specified and unbuilt. The threshold is a village dial with the same
+     * shape as `library.intake_dual_signoff_over`, which is the one second
+     * signature this codebase had already built, so this follows it rather
+     * than inventing a scheme. 0 turns it off.
+     *
+     * NOTHING MOVES HERE. The row holds the token, the recipient, the amount
+     * and the reason exactly as they were asked for, and the approval reads
+     * every one of them back from the row. An approval that does not pin the
+     * amount is an approval of nothing.
+     */
+    const threshold = cosignOver();
+    if (threshold > 0 && amt > threshold) {
+      const requestId = `amr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await getPool().query(
+        "INSERT INTO admin_mint_requests (id, token_slug, to_user_id, amount, reason, requested_by, status) " +
+          "VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+        [requestId, slug, target.id, amt, String(reason).trim().slice(0, 500), acting.id],
+      );
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `mint-requested:${amt}:${slug}`,
+        actorUserId: acting.id,
+        entityType: "user",
+        entityRef: target.id,
+        audience: "admin",
+      });
+      return res.status(202).json({
+        pending: true,
+        requestId,
+        tokenSlug: slug,
+        toUserId: target.id,
+        amount: amt,
+        cosignOver: threshold,
+        message: `Recorded. ${amt} ${def.name} is over the ${threshold} a village steward may grant alone, so it waits for a second steward to agree`,
       });
     }
 
@@ -17543,7 +17928,188 @@ Send an empty drafts array when you are still listening. A role payload is {name
       entityRef: target.id,
       audience: "admin",
     });
-    res.json({ success: true, toBalance: r.toBalance, minted: minted + amt, cap, remaining: cap - minted - amt });
+    // `waiting` is subtracted here too, or this number would tell an admin
+    // they have room the next grant will be refused for. The 409 above already
+    // counts it; a success body that did not would be the same claim made
+    // quietly.
+    res.json({
+      success: true,
+      toBalance: r.toBalance,
+      minted: minted + amt,
+      waiting,
+      cap,
+      remaining: Math.max(0, cap - minted - waiting - amt),
+    });
+  });
+
+  /**
+   * 0106: the grants waiting for a second steward, and the ones already
+   * decided.
+   *
+   * Every admin sees the same list. A queue only its author can read is not a
+   * record, it is a drawer.
+   */
+  app.get("/api/admin/mint-requests", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT id, token_slug, to_user_id, amount, reason, requested_by, requested_at, status, " +
+        "decided_by, decided_at, decision_note FROM admin_mint_requests " +
+        "ORDER BY (status = 'pending') DESC, requested_at DESC LIMIT 100",
+    );
+    const requests = rows.map(mintRequestRow);
+    // The names, so a steward reads people rather than ids. A member who has
+    // since left resolves to null, which is what a tombstone means.
+    const ids = Array.from(
+      new Set(requests.flatMap((r) => [r.toUserId, r.requestedBy, r.decidedBy].filter(Boolean) as string[])),
+    );
+    const names: Record<string, string | null> = {};
+    for (const id of ids) names[id] = (await members.byId(id))?.name ?? null;
+    res.json({
+      requests: requests.map((r) => ({
+        ...r,
+        tokenName: tokenDef(r.tokenSlug)?.name ?? r.tokenSlug,
+        toName: names[r.toUserId] ?? null,
+        requestedByName: names[r.requestedBy] ?? null,
+        decidedByName: r.decidedBy ? names[r.decidedBy] ?? null : null,
+      })),
+      cosignOver: cosignOver(),
+    });
+  });
+
+  /**
+   * THE SECOND STEWARD AGREES, and the tokens move here and nowhere else.
+   *
+   * The body is ignored on purpose. The token, the recipient and the amount
+   * all come from the stored row, so what the second steward agreed to is
+   * exactly what was asked for, and no later request can change it.
+   *
+   * Every guard the raise ran is run again, because a token can be retired, a
+   * member can leave, and a village can lower its cap between the asking and
+   * the agreeing. The one that has to be here rather than at the raise is the
+   * cap: `mintCapGuard` re-reads it inside the transfer's own lock.
+   */
+  app.post("/api/admin/mint-requests/:id/approve", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const acting = adminActor(req);
+    if (!acting) return res.status(401).json({ error: "auth_required" });
+    const request = await mintRequestById(String(req.params.id));
+    if (!request) return res.status(404).json({ error: "No such grant" });
+    if (request.status !== "pending") {
+      return res.status(409).json({ error: `This grant is already ${request.status}` });
+    }
+    if (request.requestedBy === acting.id) {
+      return res.status(409).json({
+        code: "second_steward_required",
+        error: "A second steward means somebody else. You asked for this grant",
+      });
+    }
+    const def = tokenDef(request.tokenSlug);
+    if (!def) return res.status(404).json({ error: `unknown token "${request.tokenSlug}"` });
+    if (def.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (def.governance !== "platform") {
+      return res.status(400).json({ error: `${request.tokenSlug} is issued on Hypha and cannot be minted here` });
+    }
+    const target = await members.byId(request.toUserId);
+    if (!target) return res.status(404).json({ error: "Member not found" });
+    // The rule that has no exception, re-read at the second door: the person
+    // this pays cannot be the person who asked for it, whoever signs.
+    if (target.id === request.requestedBy) {
+      return res.status(403).json({
+        code: "self_grant_refused",
+        error: "This grant pays the steward who asked for it. It cannot be signed",
+      });
+    }
+    const cap = numberVar("ledger.admin_mint_cycle_cap");
+    if (cap <= 0) return res.status(403).json({ error: "Manual minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
+
+    /*
+     * CLAIM THE ROW FIRST. Two stewards pressing at the same moment both pass
+     * the read above; only one wins this UPDATE, because `status = 'pending'`
+     * is in the WHERE. The loser is told the grant is already decided.
+     *
+     * If the transfer then fails, the claim is put back so the grant can be
+     * signed again rather than sitting approved with no tokens behind it. The
+     * transfer's idempotency key is the request id, so even a retry that
+     * raced past this cannot write a second ledger row.
+     */
+    const [claim] = await getPool().query<any>(
+      "UPDATE admin_mint_requests SET status = 'approved', decided_by = ?, decided_at = NOW() " +
+        "WHERE id = ? AND status = 'pending'",
+      [acting.id, request.id],
+    );
+    if (Number(claim?.affectedRows ?? 0) === 0) {
+      return res.status(409).json({ error: "This grant has just been decided by somebody else" });
+    }
+
+    const r = await postTransfer(getPool(), {
+      from: "sys:mint",
+      to: memberAccount(target.id),
+      tokenType: request.tokenSlug,
+      amount: request.amount,
+      source: "admin_mint",
+      sourceRef: request.id,
+      description: request.reason.slice(0, 500),
+      idempotencyKey: `admin_mint:req:${request.id}`,
+    }, mintCapGuard(request.tokenSlug, request.amount));
+    if (!r.ok) {
+      await getPool().query(
+        "UPDATE admin_mint_requests SET status = 'pending', decided_by = NULL, decided_at = NULL WHERE id = ?",
+        [request.id],
+      );
+      return res.status(r.error?.includes("mint cap") ? 409 : 400).json({ error: r.error });
+    }
+    // Recognition minted by hand still updates the profile's cached balance.
+    if (request.tokenSlug === "gratitude") {
+      await members.update(target.id, (u: any) => { u.recognitionBalance = r.toBalance; });
+    }
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `mint-cosigned:${request.amount}:${request.tokenSlug}`,
+      actorUserId: acting.id,
+      entityType: "user",
+      entityRef: target.id,
+      audience: "admin",
+    });
+    const decided = await mintRequestById(request.id);
+    res.json({
+      success: true,
+      toBalance: r.toBalance,
+      request: decided,
+    });
+  });
+
+  /**
+   * A steward says no, and the cap gets its room back.
+   *
+   * Without this a mistaken request would hold part of the village's own
+   * per-cycle cap until the moon turned, and nobody could clear it.
+   */
+  app.post("/api/admin/mint-requests/:id/decline", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const acting = adminActor(req);
+    if (!acting) return res.status(401).json({ error: "auth_required" });
+    const request = await mintRequestById(String(req.params.id));
+    if (!request) return res.status(404).json({ error: "No such grant" });
+    if (request.status !== "pending") {
+      return res.status(409).json({ error: `This grant is already ${request.status}` });
+    }
+    const [claim] = await getPool().query<any>(
+      "UPDATE admin_mint_requests SET status = 'declined', decided_by = ?, decided_at = NOW(), decision_note = ? " +
+        "WHERE id = ? AND status = 'pending'",
+      [acting.id, String(req.body?.reason ?? "").trim().slice(0, 500) || null, request.id],
+    );
+    if (Number(claim?.affectedRows ?? 0) === 0) {
+      return res.status(409).json({ error: "This grant has just been decided by somebody else" });
+    }
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `mint-declined:${request.amount}:${request.tokenSlug}`,
+      actorUserId: acting.id,
+      entityType: "user",
+      entityRef: request.toUserId,
+      audience: "admin",
+    });
+    res.json({ success: true, request: await mintRequestById(request.id) });
   });
 
   /**
@@ -18629,6 +19195,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
       description: null,
       url: `/api/uploads/${filename}`,
       requiresRequest: false,
+      // 0104. A newly uploaded document is NOT in the packet. Putting it there
+      // is a separate press, made by a person who meant it. Uploading the cap
+      // table must never be the same gesture as emailing it to strangers.
+      inPacket: false,
       order: investorDocsRepo.all().length + 1,
       pageLink,
       uploadedAt: new Date().toISOString(),
@@ -18648,6 +19218,40 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json(entry);
   });
 
+  /*
+   * ── THE PACKET CHOICE, MADE BY A PERSON, ONE DOCUMENT AT A TIME ─────────
+   *
+   * `POST /api/investor-docs/request` is public and unauthenticated, and it
+   * used to read the WHOLE vault and email every row as a download link to
+   * whatever address a stranger typed. The vault holds the cap table.
+   *
+   * This is the press that puts one document in the packet, and it is the only
+   * way a document ever gets there. A column no screen can set is a gate
+   * nobody can open, so the Investor Vault tab in Admin drives this route.
+   */
+  app.patch("/api/admin/investor-docs/:id", async (req, res) => {
+    if (!(await isAdmin(req))) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    // Only a real boolean. An absent or fuzzy value must not be read as a
+    // decision to publish somebody's financials.
+    const inPacket = req.body?.inPacket;
+    if (typeof inPacket !== "boolean") {
+      return res.status(400).json({ error: "inPacket must be true or false" });
+    }
+    const docs: any[] = investorDocsRepo.all();
+    const target = docs.find((d) => d.id === req.params.id);
+    if (!target) return res.status(404).json({ error: "Not found" });
+    // `replaceAll` is the only write this repo offers besides `insert`, and the
+    // delete route beside this one already uses it. A whole-table rewrite can
+    // race a concurrent writer; on a vault an admin edits by hand, a few rows
+    // at a time, that is the trade the available primitive forces.
+    await investorDocsRepo.replaceAll(
+      docs.map((d) => (d.id === req.params.id ? { ...d, inPacket } : d)),
+    );
+    res.json({ id: target.id, title: target.title, inPacket });
+  });
+
   app.delete("/api/admin/investor-docs/:id", async (req, res) => {
     if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "auth_required" });
@@ -18662,13 +19266,42 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // has a file to remove; an imported row pointing at an external address
     // must not have anything unlinked on its behalf.
     const url = String(target.url ?? "");
+    /*
+     * SAY SO WHEN THE FILE OUTLIVES THE ROW.
+     *
+     * `/api/uploads/:filename` has no authentication, so the file IS the
+     * secret: anyone holding the link can still fetch it after the row is
+     * gone, and there is no second revocation path for a vault document.
+     * A swallowed unlink error under a flat `{success: true}` told the founder
+     * the cap table was withdrawn while it was still being served. Removing
+     * the row is what makes the link unfindable; removing the file is what
+     * makes it dead. When only the first happened, the answer has to say so.
+     */
+    let fileRemoved: boolean | null = null;
     if (url.startsWith("/api/uploads/")) {
       const filePath = path.join(UPLOADS_DIR, path.basename(url));
       if (fs.existsSync(filePath)) {
-        try { fs.unlinkSync(filePath); } catch (err) { console.error("[VAULT] Failed to delete file", err); }
+        try {
+          fs.unlinkSync(filePath);
+          fileRemoved = true;
+        } catch (err) {
+          console.error("[VAULT] Failed to delete file", err);
+          fileRemoved = false;
+        }
+      } else {
+        fileRemoved = true; // nothing there to serve
       }
     }
-    res.json({ success: true });
+    res.json({
+      success: true,
+      fileRemoved,
+      ...(fileRemoved === false
+        ? {
+            warning:
+              "The document was removed from the vault, but its file is still on the server and anyone holding the old link can still open it. Please tell your administrator.",
+          }
+        : {}),
+    });
   });
 
   /*
@@ -18876,6 +19509,36 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!name || !email || typeof accredited !== "boolean") {
       return res.status(400).json({ error: "Missing required fields" });
     }
+    /*
+     * ── ONLY WHAT A PERSON CHOSE ───────────────────────────────────────────
+     *
+     * This read `investorDocsRepo.all()` and turned EVERY row into a download
+     * link in an email sent to whatever address a stranger typed. There was no
+     * per-document gate anywhere in the path, and this is the vault a founder
+     * keeps the cap table in. `/api/uploads/<file>` has no authentication of
+     * its own, so each link is a bearer credential that never expires and can
+     * be forwarded to anyone.
+     *
+     * `inPacket` (0104) is the explicit choice an admin makes, one document at
+     * a time, through `PATCH /api/admin/investor-docs/:id`. It defaults to
+     * false, so a document is private until somebody says otherwise, and the
+     * strict `=== true` means a row that somehow arrived without an answer is
+     * treated as private rather than published.
+     *
+     * Computed BEFORE the lead is written, so the lead can record what went.
+     */
+    const packet: any[] = investorDocsRepo.all().filter((d) => d.inPacket === true);
+
+    /*
+     * Whether a mailer is configured at all is a DEPLOYMENT fact, and it is a
+     * different question from which documents this requester was released.
+     * `sendResendEmail` already refuses and logs when there is no key. Keeping
+     * the two apart is what lets the lead record and the answer below both be
+     * true on both axes at once.
+     */
+    const cfg = getEmailConfig();
+    const emailConfigured = Boolean(cfg.resend_api_key);
+
     // Save lead — one INSERT, not snapshot→push→replaceAll (the whole-table
     // rewrite raced concurrent writers and dropped rows).
     const entry = {
@@ -18889,12 +19552,33 @@ Send an empty drafts array when you are still listening. A role payload is {name
       // other two submission writers set both; this one was the outlier.
       status: "new",
       rewarded: false,
-      data: { name, email, accredited: accredited ? "yes" : "no" },
+      data: {
+        name,
+        email,
+        accredited: accredited ? "yes" : "no",
+        /*
+         * WHAT THIS PERSON WAS ACTUALLY SENT, kept with the lead.
+         *
+         * A founder asked "what did this person receive" a year later and the
+         * honest answer was a shrug. Titles and ids, never the URLs: the lead
+         * table is read by the admin list, the CSV export and the notification
+         * email, and copying a bearer link into all three would spread the
+         * thing this fix exists to contain.
+         */
+        documentsSent: packet.map((d) => ({ id: String(d.id), title: String(d.title ?? "Document") })),
+        /*
+         * And whether an email was dispatched at all, because the list above
+         * is the packet and this is the postage. `sendResendEmail` refuses and
+         * logs when the village has no key configured, so without this a lead
+         * reading "Cap Table 2026" would suggest a person received a document
+         * that never left the building.
+         */
+        emailed: emailConfigured,
+      },
       submittedAt: new Date().toISOString(),
     };
     await submissionsRepo.insert(entry);
 
-    const docs: any[] = investorDocsRepo.all();
     /*
      * The origin comes from OUR configuration, never from the request.
      *
@@ -18908,8 +19592,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const origin = notifyDeps.origin();
 
     // Email the investor with download links
-    const cfg = getEmailConfig();
-    if (cfg.resend_api_key && email) {
+    if (email) {
       /*
        * READ THE COLUMNS THE TABLE ACTUALLY HAS, for the same reason the
        * upload route now writes them. This addressed `d.filename` and `d.name`,
@@ -18919,7 +19602,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
        * of the break had nothing to show it on.
        */
       const absolute = (link: string) => (/^https?:\/\//i.test(link) ? link : `${origin}${link}`);
-      const links = docs
+      const links = packet
         .map((d) => {
           const href = absolute(String(d.url ?? ""));
           const label = String(d.title ?? "Document");
@@ -18929,34 +19612,88 @@ Send an empty drafts array when you are still listening. A role payload is {name
           return `<li style="margin:8px 0"><a href="${escapeHtml(href)}" style="color:#2D5A5A;font-weight:600">${escapeHtml(label)}</a>${onSite}</li>`;
         })
         .join("");
-      const html = `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">
+      const shell = (heading: string, inner: string) => `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">
 <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
-  <div style="background:#2D5A5A;color:#fff;padding:24px"><div style="font-size:22px;font-weight:700">Your Amora Investor Packet</div></div>
+  <div style="background:#2D5A5A;color:#fff;padding:24px"><div style="font-size:22px;font-weight:700">${escapeHtml(heading)}</div></div>
   <div style="padding:24px">
     <p>Hi ${escapeHtml(name)},</p>
-    <p>Thank you for your interest in investing in Amora. Below are the documents in our current investor packet:</p>
-    <ul style="padding-left:18px">${links || "<li>No documents available yet. Our team will follow up shortly.</li>"}</ul>
-    <p style="margin-top:20px">A team member will be in touch within 48 hours to answer your questions.</p>
-    <p style="color:#6b7280;font-size:13px;margin-top:24px">The Amora Team</p>
+${inner}
+    <p style="color:#6b7280;font-size:13px;margin-top:24px">The ${escapeHtml(notifyDeps.projectName())} Team</p>
   </div>
 </div></body></html>`;
+
+      /*
+       * A "HERE IS YOUR PACKET" EMAIL WITH NO PACKET IN IT IS A CLAIM.
+       *
+       * The old copy always announced "Your Amora Investor Packet" and, when
+       * the list came out empty, filled the bullet with "No documents
+       * available yet". That is a heading promising a thing the body then
+       * takes back, and it is the same defect as a decision that CARRIED
+       * reading "Did not carry" because a fallback invented the answer.
+       *
+       * So there are two different emails, and which one is sent comes from
+       * what actually happened. Nobody is told a packet is attached unless
+       * documents really went with it.
+       */
+      const html = packet.length
+        ? shell(`Your ${notifyDeps.projectName()} Investor Packet`, `    <p>Thank you for your interest in investing in ${escapeHtml(notifyDeps.projectName())}. Below are the documents in our current investor packet:</p>
+    <ul style="padding-left:18px">${links}</ul>
+    <p style="margin-top:20px">A team member will be in touch within 48 hours to answer your questions.</p>`)
+        : shell(`Thank you for your interest in ${notifyDeps.projectName()}`, `    <p>Thank you for your interest in investing in ${escapeHtml(notifyDeps.projectName())}. We have your request and a member of our team will be in touch within 48 hours to talk it through with you.</p>`);
       await sendResendEmail({
         to: [email],
-        subject: `Your ${notifyDeps.projectName()} Investor Packet`,
+        subject: packet.length
+          ? `Your ${notifyDeps.projectName()} Investor Packet`
+          : `Thank you for your interest in ${notifyDeps.projectName()}`,
         html,
       });
-      // Also notify the investor team
+      // Also notify the investor team. The admins are told what the requester
+      // was actually sent, so an empty packet reaches a person who can act on
+      // it rather than sitting silently in a table.
       const investorTeam = recipientsForType("investor-doc-request");
       if (investorTeam.length) {
         await sendResendEmail({
           to: investorTeam,
-          subject: `[${notifyDeps.projectName()}] New investor doc request from ${name}`,
-          html: buildSubmissionEmailHtml("investor-doc-request", { name, email, accredited }, `${origin}/admin`),
+          subject: packet.length
+            ? `[${notifyDeps.projectName()}] New investor doc request from ${name}`
+            : `[${notifyDeps.projectName()}] Investor doc request from ${name}, no documents in the packet`,
+          html: buildSubmissionEmailHtml(
+            "investor-doc-request",
+            {
+              name,
+              email,
+              accredited,
+              "documents sent": packet.length
+                ? packet.map((d) => String(d.title ?? "Document")).join(", ")
+                : "none, the packet is empty. Nobody will receive documents until a document is put in the packet in Admin.",
+            },
+            `${origin}/admin`,
+          ),
         });
       }
     }
 
-    res.json({ success: true, message: "Check your email for the documents." });
+    /*
+     * SAY WHAT HAPPENED, NOT WHAT USUALLY HAPPENS.
+     *
+     * This answered "Check your email for the documents." every single time,
+     * including when the vault was empty, when nothing had been chosen, and
+     * when no Resend key was configured so no email could go at all. A
+     * sentence the product says has to come from what happened.
+     *
+     * `documentsSent` counts the documents released into this requester's
+     * packet, which is the number the lead record keeps and the number that
+     * bounds the leak. The message is separate, because a person is only told
+     * to go and look in their inbox when something can actually arrive there.
+     */
+    const followUp = "Thank you. We have your request and a member of our team will be in touch within 48 hours.";
+    res.json({
+      success: true,
+      documentsSent: packet.length,
+      message: emailConfigured && packet.length
+        ? "Your packet is on its way. Please check your email."
+        : followUp,
+    });
   });
 
   // â”€â”€ Training Modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -22360,12 +23097,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
     const cycles: CycleRecord[] = await cyclesRepo.all();
     const entries: any[] = await gratitudeRepo.all();
+    /*
+     * Read this BEFORE any total is computed, and hand it to the desk rather
+     * than throwing: `settleCycle` and `dueCycles` now refuse an id they cannot
+     * read, and the admin who has to fix it should meet a sentence here, on the
+     * page that exists to be read before pressing, instead of a 500.
+     *
+     * Empty `due` when it fires is the honest answer. There is no partial
+     * settlement to preview: a preview that quietly left the unreadable rows
+     * out would be the same lie the close used to tell.
+     */
+    const unreadable = unreadableCycleProblem(entries);
     const dists: DistributionRecord[] = await distributionsRepo.all();
     const allMembers = await members.all();
     const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
     const eligible = await eligibleSenderIds();
 
-    const due = dueCycles(cycles, entries, new Date()).map((cycle) => {
+    const due = (unreadable ? [] : dueCycles(cycles, entries, new Date())).map((cycle) => {
       const persisted = dists.filter((d) => d.cycleId === cycle.id);
       const totals = settleCycle(entries, cycle.id, eligible);
       const totalEligible = totals.reduce((n, t) => n + t.receivedEligible, 0);
@@ -22410,6 +23158,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
         tokenName: tokenDef(poolToken)?.name ?? poolToken,
         problem: cyclePoolProblem(poolSize, poolToken),
       },
+      // Null when every row's cycle is readable, which is the ordinary case.
+      // A sentence when it is not, and the close below refuses on the same one.
+      unreadableCycles: unreadable,
       due,
     });
   });
@@ -22448,6 +23199,20 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
     const cycles: CycleRecord[] = await cyclesRepo.all();
     const entries: any[] = await gratitudeRepo.all();
+    /*
+     * Fail loud on a cycle id nothing can read, in the same place and for the
+     * same reason the pool problem above fails loud: before anything settles.
+     *
+     * This used to be a quiet skip. `settleCycle` filtered on an exact id and
+     * `dueCycles` dropped whatever `parseCycleId` could not read, so 30 of 130
+     * units left the totals without a word, every recipient under them was told
+     * a smaller number than they had earned, and their share of the pool was
+     * computed from it. A number that is wrong and says so can be fixed in an
+     * hour. A number that is wrong and looks right is wrong forever.
+     */
+    const unreadable = unreadableCycleProblem(entries);
+    if (unreadable) return res.status(400).json({ error: unreadable });
+
     const due = dueCycles(cycles, entries, new Date());
 
     const closed: CycleRecord[] = [];
@@ -22665,6 +23430,46 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * unlocked. Revision 2, step 4 (profiles) reads this, and it is what makes
    * "you advanced and something opened" visible rather than mysterious.
    */
+  /**
+   * THE FIRST TIME SOMEBODY DID EACH OF THESE, DERIVED AND NEVER STORED.
+   *
+   * A member's stage crossings are recorded and shown; the three moments
+   * below are the ones the engine has always been able to answer and nobody
+   * ever asked it. `cast_at` defaults to CURRENT_TIMESTAMP and `updated_at`
+   * is the separate ON UPDATE column, so changing a vote does NOT move
+   * `cast_at`: the earliest one is exactly the first time this person voted,
+   * not an approximation of it. Same shape for a first objection and a first
+   * seat.
+   *
+   * WHAT IS DELIBERATELY NOT HERE:
+   *
+   *  - A first proposal of any kind. Only mechanics has a proposal table, the
+   *    other wizard types have no shared home, and `proposal_drafts` is
+   *    deleted on publish. There is no honest way to answer it, so it is not
+   *    answered rather than answered from the one type that happens to keep
+   *    rows.
+   *  - Anything in `EARNED_METRICS`. A badge is a public artefact and a first
+   *    vote is a private milestone, and putting one through the other would
+   *    manufacture the cross-member comparison R55 forbids.
+   *  - A count, of anything. This says WHEN, three times, for one person, and
+   *    a member who has done none of them gets three nulls and a page that
+   *    renders nothing rather than three zeroes (R55).
+   *
+   * Example rows are left out of the seat: a seating on a demonstration seat
+   * is the seeded chart talking, and dating a member's own first seat from it
+   * would be the product telling them about something they did not do.
+   */
+  async function firstTimesFor(userId: string): Promise<{ vote: string | null; objection: string | null; seat: string | null }> {
+    const [[row]] = await getPool().query<any[]>(
+      "SELECT (SELECT MIN(cast_at) FROM ballot_votes WHERE user_id = ?) AS first_vote, " +
+        "(SELECT MIN(created_at) FROM ballot_objections WHERE user_id = ?) AS first_objection, " +
+        "(SELECT MIN(started_at) FROM org_role_assignments WHERE user_id = ? AND holder_kind = 'member' AND is_example = 0) AS first_seat",
+      [userId, userId, userId],
+    );
+    const iso = (v: any): string | null => (v instanceof Date ? v.toISOString() : v ? String(v) : null);
+    return { vote: iso(row?.first_vote), objection: iso(row?.first_objection), seat: iso(row?.first_seat) };
+  }
+
   app.get("/api/game/progression", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
@@ -22682,6 +23487,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
         .filter((e) => e.userId === user.id)
         .sort((a, b) => String(b.at).localeCompare(String(a.at)))
         .map((e) => ({ fromStage: e.fromStage, toStage: e.toStage, unlocked: e.unlocked, reason: e.reason, at: e.at })),
+      firsts: await firstTimesFor(user.id),
     });
   });
 
@@ -25260,7 +26066,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
     };
   }
 
-  /** The record: every ballot, newest first, filterable by subject. */
+  /**
+   * The record: every ballot, newest first, filterable by subject.
+   *
+   * THE RECORD USED TO END AT A HUNDRED ROWS AND SAY NOTHING ABOUT IT. The
+   * query was a bare `LIMIT 100` with no way to ask for row 101, so a village
+   * four years in would open its own record and find its founding decisions
+   * simply gone: not archived, not behind a control, absent, with the page
+   * reading exactly as it does for a village that has held ninety.
+   *
+   * `limit` and `offset` make the rest reachable without making every load
+   * pay for it. The default is the same hundred it always served, because
+   * each card costs its own tallies read and a village should not buy its
+   * whole history to look at this week's vote. Asking for the next page is
+   * the member's act, on the page, when they want it.
+   */
   app.get("/api/governance/ballots", async (req, res) => {
     const viewer = await authedUser(req);
     const subjectType = String(req.query.subjectType ?? "").trim();
@@ -25269,27 +26089,91 @@ Send an empty drafts array when you are still listening. A role payload is {name
       const list = await ballotsFor(getPool(), subjectType, subjectRef);
       return res.json(await Promise.all(list.map((b) => serveBallotCard(b, viewer?.id))));
     }
-    const [rows] = await getPool().query<any[]>("SELECT * FROM ballots ORDER BY created_at DESC, id DESC LIMIT 100");
+    const limit = Math.max(1, Math.min(200, Math.trunc(Number(req.query.limit)) || 100));
+    const offset = Math.max(0, Math.trunc(Number(req.query.offset)) || 0);
+    const [rows] = await getPool().query<any[]>(
+      "SELECT * FROM ballots ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+      [limit, offset],
+    );
     res.json(await Promise.all(rows.map((r) => serveBallotCard(rowToBallot(r), viewer?.id))));
   });
 
+  /**
+   * ONE DECISION, AND THE TWO THINGS A COLD READ OF ONE WAS MISSING.
+   *
+   * `serveBallot` answers everything about the ballot itself. Both additions
+   * here are about the ballot's place in the village's story, and both were
+   * already in the database with nothing reading them:
+   *
+   *  - `appliedKeys` is WHAT THIS DECISION CHANGED, read from the amendment
+   *    ledger. The outcome card has always been able to say it, and only in
+   *    the browser session that closed the vote: `applied` came back on the
+   *    close response and was never fetched again. Open a carried decision
+   *    tomorrow and the most interesting thing about it had evaporated. The
+   *    ledger row is permanent and carries the ballot's own id, so the same
+   *    sentence is true on the day and on the anniversary.
+   *
+   *  - `priorAttempts` is every earlier time the village decided this same
+   *    subject. `ballotsFor` has returned the chain since 0089 and no surface
+   *    has ever called it.
+   *
+   * Neither invents anything when there is nothing: a first vote on a subject
+   * carries an empty list, and a decision that changed no dial carries an
+   * empty list, and the page renders neither rather than a zero.
+   */
   app.get("/api/governance/ballots/:id", async (req, res) => {
     const b = await ballotById(getPool(), req.params.id);
     if (!b) return res.status(404).json({ error: "Not found" });
     const viewer = await authedUser(req);
-    res.json(await serveBallot(b, viewer?.id));
+    const [payload, appliedKeys, chain] = await Promise.all([
+      serveBallot(b, viewer?.id),
+      amendedKeysFor(getPool(), b.id),
+      ballotsFor(getPool(), b.subjectType, b.subjectRef),
+    ]);
+    res.json({
+      ...payload,
+      appliedKeys,
+      priorAttempts: chain
+        .filter((p) => p.id !== b.id)
+        .map((p) => ({
+          id: p.id,
+          title: p.title,
+          status: p.status,
+          outcomeNote: p.outcomeNote,
+          opensAt: p.opensAt,
+          closedAt: p.closedAt,
+        })),
+    });
   });
 
-  /** Cast or change a vote. The electorate froze at open; so did the weights. */
+  /**
+   * Cast or change a vote. The electorate froze at open; so did the weights.
+   *
+   * THE GATE IS READ HERE SO THE REFUSAL CAN SAY WHY. Somebody who is not on
+   * the roll used to be told, always, that "who may vote froze when it
+   * opened". That is true of the member who joined after the vote started and
+   * false of the member a warning badge is holding back: `buildElectorate`
+   * runs the one gate at open and `capabilityDecision` refuses a warning's
+   * deny before it looks at any grant, so she is left off every roll built
+   * afterwards, and the product named the freeze and hid the cause. The
+   * sentence itself lives with the rule, in `offRollSentence`.
+   *
+   * A LOOK AND NEVER AN ACT (R53): `capabilityCtx` is the pure gate with no
+   * break-glass in it, exactly as `/api/governance/standing` reads it. Asking
+   * the gate why somebody is off a roll must not write "acted on a power this
+   * village holds" to a feed the village reads.
+   */
   app.post("/api/governance/ballots/:id/vote", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to vote" });
+    const voteGate = capabilityDecision("ballot.vote", await capabilityCtx(user));
     const result = await castVote(
       getPool(),
       req.params.id,
       user.id,
       String(req.body?.choice ?? ""),
       req.body?.reason === undefined ? undefined : String(req.body.reason),
+      { mayVoteNow: voteGate.allowed, deniedByWarning: voteGate.source === "denied by warning badge" },
     );
     if (!result.ok) return res.status(409).json({ error: result.error });
     const b = await ballotById(getPool(), req.params.id);
@@ -26529,11 +27413,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
         : snapshot.mode === "equal"
           ? " This village weighs every eligible vote the same today, so the allocation is on the record and is not what your vote weighs right now."
           : " This village weighs votes by token balance today, so the allocation is on the record and is not what your vote weighs right now.";
+    /*
+     * The operator's reason is quoted rather than run on. `modeLine` opens
+     * with a space and a capital, so a reason typed without a full stop
+     * produced one sentence out of two, verbatim: "The reason they gave:
+     * probe allocation This village weighs every eligible vote the same
+     * today...". A member had to read it three times.
+     *
+     * Their words are not edited. The closing stop is added only when the
+     * reason has not ended itself, which is punctuation and not content.
+     */
+    const reason = note.trim();
+    const reasonSentence = /[.!?…]$/.test(reason) ? reason : `${reason}.`;
     await notify({
       userId: target.id,
       type: "weight_changed",
       title: `Your voting weight allocation is now ${weight}`,
-      body: `${actorName} changed it from ${was}. The reason they gave: ${note.trim()}${modeLine}`,
+      body: `${actorName} changed it from ${was}. The reason they gave: ${reasonSentence}${modeLine}`,
       link: "/decisions",
       actorUserId: actorId,
       dedupeKey: `gw:${outcome.changeId}`,
@@ -26613,7 +27509,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!user) return res.status(401).json({ error: "auth_required" });
     const snapshot = weightModeNow();
     const ctx = await capabilityCtx(user);
-    const eligible = hasCapability("ballot.vote", ctx);
+    /*
+     * WHY, AND NOT ONLY WHETHER. This read the yes-or-no face of the gate and
+     * served a bare `eligible: false`, so the card underneath had to name
+     * BOTH of the two things that could be refusing a member and let them
+     * guess which was theirs. A member a warning badge is holding back is
+     * entitled to know that is the reason.
+     *
+     * ONE named fact rather than the source string. `CapabilitySource` is the
+     * gate's internal vocabulary, and shipping it would invite a client map
+     * from every one of its seven values to a sentence, which is the
+     * hand-kept-mirror class exactly. One boolean answers the one question a
+     * member is owed an answer to.
+     */
+    const voteGate = capabilityDecision("ballot.vote", ctx);
+    const eligible = voteGate.allowed;
     const weights = await weightsFor(getPool(), [String(user.id)], snapshot);
     const weight = weights.get(String(user.id)) ?? 0;
     const tokenName = snapshot.token ? tokenDef(snapshot.token)?.name ?? snapshot.token : null;
@@ -26628,6 +27538,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
       token: snapshot.token,
       tokenName,
       eligible,
+      /** Set only when a warning badge is the thing refusing the vote. */
+      deniedByWarning: voteGate.source === "denied by warning badge",
       weight,
       why,
       // Whether this member facilitates: rules objections, closes early. The
@@ -27808,12 +28720,41 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!role) return res.status(404).json({ error: "Seat not found" });
     if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const actor = await authedUser(req);
+    /*
+     * THE TERM, WHICH THIS ROUTE HAS NEVER SENT.
+     *
+     * `seatHolder` has taken `termEndsAt` and written the column since 0049,
+     * and this is the only route in the tree that seats anybody, so
+     * `term_ends_at` has been NULL on every seating every village has ever
+     * made. FOUR readers were dark the whole time: the amber term arc on the
+     * power map, the `seat-term` calendar source, the term branch of the
+     * `term-watch` job, and the term branch of `isLapsed`. One argument.
+     *
+     * Read rather than passed through. A date this route cannot parse is a
+     * refusal with the sentence saying so, never a quiet null: a village that
+     * believes it wrote an end date onto a seat, over a row that holds none,
+     * is the shape where the product says something that did not happen.
+     * Left out stays left out, which is a seat held with no end date and is
+     * exactly what every seating on every deployment is today.
+     */
+    const askedTerm = req.body?.termEndsAt;
+    let termEndsAt: Date | null = null;
+    if (askedTerm !== undefined && askedTerm !== null && String(askedTerm).trim() !== "") {
+      const parsed = new Date(String(askedTerm));
+      if (Number.isNaN(parsed.getTime())) {
+        return res.status(400).json({
+          error: "That term end date could not be read. Send a date like 2027-03-01, or leave it out for a seat with no end date",
+        });
+      }
+      termEndsAt = parsed;
+    }
     const r = await seatHolder(getPool(), req.params.id, {
       userId: req.body?.userId ?? null,
       displayName: req.body?.displayName ?? null,
       focus: req.body?.focus ?? null,
       note: req.body?.note ?? null,
       seasonId: seasonState().current?.id ?? null,
+      termEndsAt,
       grantedBy: actor?.id ?? null,
     });
     if (!r.ok) return res.status(409).json({ error: r.reason });

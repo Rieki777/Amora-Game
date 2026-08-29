@@ -47,6 +47,14 @@ export interface DueCycle {
  */
 export interface PendingSettlement {
   pool: { size: number; token: string; tokenName: string; problem: string | null };
+  /**
+   * Set when some recognition rows carry a cycle id the server cannot read.
+   * `due` is then EMPTY, and it is empty for a reason that is not "nothing is
+   * due". Saying "every finished lunation is already settled" in that state
+   * would be the product telling a founder a fact it does not have, so every
+   * sentence below checks this first.
+   */
+  unreadableCycles: string | null;
   due: DueCycle[];
 }
 
@@ -103,6 +111,9 @@ export function joinNumbers(numbers: readonly number[]): string {
  */
 export function settlementIntent(pending: PendingSettlement | null): string[] {
   if (!pending) return [];
+  // Checked ahead of the empty-due line, because an unreadable id is what
+  // MADE it empty. The close refuses on the same sentence at the server.
+  if (pending.unreadableCycles) return [pending.unreadableCycles];
   if (pending.due.length === 0) {
     return ["Nothing is due. Every finished lunation is already settled."];
   }
@@ -138,9 +149,12 @@ export function settlementIntent(pending: PendingSettlement | null): string[] {
   return lines;
 }
 
-/** A misconfigured pool stops the close at the server. Say so before the press. */
+/**
+ * A misconfigured pool stops the close at the server, and so does a cycle id
+ * the server cannot read. Say so before the press, either way.
+ */
 export function settlementBlocked(pending: PendingSettlement | null): boolean {
-  return !!pending?.pool.problem;
+  return !!pending?.pool.problem || !!pending?.unreadableCycles;
 }
 
 /**

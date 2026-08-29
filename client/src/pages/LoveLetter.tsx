@@ -186,7 +186,7 @@ export default function LoveLetter() {
             <p className="mb-6 text-foreground">Dear Future Amora Family Member,</p>
 
             <p className="mb-6 text-muted-foreground">
-              Something in you called you here. Maybe it was the land, 266 acres of sacred Costa Rican
+              Something in you called you here. Maybe it was the land, acres of sacred Costa Rican
               jungle, ocean-kissed and alive with possibility. Maybe it was the vision of a village where
               all beings belong and thrive. Maybe it was simply the feeling that the world you want to
               live in needs to be built.

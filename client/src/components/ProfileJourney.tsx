@@ -68,6 +68,53 @@ function useGratitudeBloom(): { name: string; message: string } | null {
   return bloom;
 }
 
+/**
+ * THE FIRST TIME, THREE TIMES, FOR ONE PERSON.
+ *
+ * Stage crossings are recorded and shown. These three are the moments the
+ * engine has always been able to answer and nobody ever asked it for: the
+ * first vote somebody cast, the first objection they named, the first seat
+ * they held. All derived on the read, none stored, and exact rather than
+ * approximate (`cast_at` does not move when a vote is changed).
+ *
+ * R55, and this surface is where it would be easiest to break. There is no
+ * count of anything, no total, no streak, no "you have voted in 3 of 11", and
+ * no comparison with another member. It says WHEN, and only for the reader.
+ * A member who has done none of these gets no section at all rather than
+ * three empty rows, and a member who has done one gets that one: an absence
+ * here is a person early in their own story and never a person behind.
+ *
+ * Deliberately not a badge. Badges are public artefacts and these are private
+ * milestones; putting one through the other is how a first vote turns into
+ * something members can rank each other by.
+ */
+function FirstTimes({ firsts }: { firsts?: { vote?: string | null; objection?: string | null; seat?: string | null } | null }) {
+  const rows = [
+    { key: "vote", label: "The first time you voted", at: firsts?.vote },
+    { key: "objection", label: "The first objection you named", at: firsts?.objection },
+    { key: "seat", label: "The first seat you held", at: firsts?.seat },
+  ].filter((r) => !!r.at);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mb-5 border-b border-gray-100 pb-4">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">The first time</p>
+      <ul className="space-y-1.5">
+        {rows.map((r) => (
+          <li key={r.key} className="flex items-start gap-3 text-sm">
+            <span className="mt-1.5 w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+            <span>
+              <span className="text-gray-900">{r.label}</span>
+              <span className="block text-xs text-gray-400 mt-0.5">
+                {new Date(String(r.at)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function ProfileJourney() {
   const [prog, setProg] = useState<any | null>(null);
   const [flows, setFlows] = useState<any | null>(null);
@@ -119,13 +166,24 @@ export default function ProfileJourney() {
                   <Users className="w-3 h-3" /> {prettySource(r)}
                 </span>
               ))}
+              {/* WHAT A MEMBER CAN DO, IN WORDS. These rendered the raw keys,
+                  in monospace, under a heading promising to say what somebody
+                  had unlocked: eleven chips reading `map.viewPeople` and
+                  `forum.post` at a person who has never seen a capability key
+                  and never should. `capabilityLabel` is the same function the
+                  stage-crossing line two blocks down already uses for exactly
+                  this, so the page held the answer and used it in one place
+                  out of two. The key stays as the title, for the one reader
+                  who wants it. */}
               {(prog.capabilities ?? []).map((c: string) => (
-                <span key={c} className="inline-flex items-center gap-1 text-xs bg-teal-deep/10 text-teal-deep px-2.5 py-1 rounded-full font-mono" title="A capability your stage or a role grants you">
-                  <ShieldCheck className="w-3 h-3" /> {c}
+                <span key={c} className="inline-flex items-center gap-1 text-xs bg-teal-deep/10 text-teal-deep px-2.5 py-1 rounded-full" title={c}>
+                  <ShieldCheck className="w-3 h-3" /> {capabilityLabel(c)}
                 </span>
               ))}
             </div>
           )}
+
+          <FirstTimes firsts={prog.firsts} />
 
           {(prog.history ?? []).length === 0 ? (
             <p className="text-sm text-gray-500">

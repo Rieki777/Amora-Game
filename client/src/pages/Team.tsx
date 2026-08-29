@@ -4,7 +4,7 @@ import { Users, ArrowRight, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import { Image } from "@/components/Image";
 import { useEffect, useState } from "react";
-import { gameFetch } from "@/lib/gameApi";
+import { gameFetch, useGameConfig } from "@/lib/gameApi";
 import { PeopleLockNote, type PeopleTier } from "@/components/PeopleLock";
 
 interface TeamMember {
@@ -21,10 +21,11 @@ const advisoryHighlights = [
   "Education & Child Development Experts",
   "Arts & Culture Leaders",
   "Local Community Representatives",
-  "Costa Rican Cultural Liaisons"
+  "Cultural Liaisons from where the village sits"
 ];
 
 export default function Team() {
+  const config = useGameConfig();
   const [team, setTeam] = useState<TeamMember[] | null>(null);
   // The tier this page's copy of /api/org came back at, plus the two counts
   // that are public on every tier. Held for the lock note below.
@@ -121,11 +122,16 @@ export default function Team() {
             <div className="w-16 h-16 rounded-full bg-sage/10 flex items-center justify-center mx-auto mb-6">
               <Users className="w-8 h-8 text-sage" />
             </div>
+            {/* The heading and the sentence under it used to name one village
+                and describe that village's founding team, so every fork of this
+                platform published a claim about four people it had never met.
+                The name comes from the live config now, and the sentence says
+                only what is true of any village reading it. */}
             <h1 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-4">
-              The Amora Team
+              {config?.project?.name ? `The ${config.project.name} Team` : "The Team"}
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Women-led and heart-centered, the founding team bringing the Amora vision to life.
+              The people holding seats here, and the circles they hold them in.
             </p>
           </motion.div>
 
@@ -141,7 +147,7 @@ export default function Team() {
                 Leadership Circle
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                This land called for women to lead the creation of a multigenerational, family-centered village. The full circle of roles, filled and open, lives on the{" "}
+                The full circle of roles, filled and open, lives on the{" "}
                 <Link href="/roles" className="text-sage font-medium hover:underline">Roles &amp; Circles page</Link>.
               </p>
             </motion.div>
@@ -152,6 +158,17 @@ export default function Team() {
             <div className="mb-12">
               <PeopleLockNote people={people} seats={seatCounts.seats} held={seatCounts.held} />
             </div>
+
+            {/* R55: a village with nobody seated yet is new, not failing. The
+                grid used to render zero cards under three headings, which reads
+                as a broken page rather than an early one, and it read that way
+                on a fork's very first day. */}
+            {team !== null && team.length === 0 && people?.visible ? (
+              <p className="text-center text-muted-foreground max-w-xl mx-auto">
+                Nobody holds a seat here yet. Seats and the people in them appear on this
+                page as the village fills them.
+              </p>
+            ) : null}
 
             <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
               {(team ?? []).map((member, index) => (
@@ -223,7 +240,7 @@ export default function Team() {
                 Community Advisory Council
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                10-14 influential practitioners and thought leaders shaping Amora's culture, partnerships, and community integration.
+                Practitioners and thought leaders shaping this village's culture, partnerships, and community integration.
               </p>
             </div>
             <div className="grid md:grid-cols-2 gap-4 max-w-4xl mx-auto mb-8">

@@ -19,7 +19,7 @@ what, where, what breaks without it.
 | Var | Purpose | Without it |
 |---|---|---|
 | `AUTH_TOKEN_SECRET` | Signs member tokens | **Silently degrades to per-process sessions** — logins die on every restart |
-| `ADMIN_PASSWORD` | Bootstrap-only (S1): each fork sets its own value and uses it once to create its founder via `POST /api/admin/bootstrap`. Inert after bootstrap — keeping it set is fine (foundation policy, Rye 2026-07-26); deleting it is optional hygiene. | No founder can be created |
+| `ADMIN_PASSWORD` | Bootstrap-only (S1): each fork sets its own value and uses it once to create its founder via `POST /api/admin/bootstrap`. **That response carries `claimUrl`, and on a fresh install it will also carry `emailed: false` and an `emailNote` saying why: a new deployment has no mail provider, so open the claim link yourself rather than waiting for an email. It used to answer `emailed: true` in exactly that case.** Inert after bootstrap — keeping it set is fine (foundation policy, Rye 2026-07-26); deleting it is optional hygiene. | No founder can be created |
 | `JOURNEY_PASSWORD` | Legacy Command Centre gate — retired at v3 S2 | — |
 | `BREAK_GLASS_ADMIN_EMAIL` | (from S1) may re-elevate exactly that account | No recovery if all admins are demoted |
 | `ANTHROPIC_API_KEY` | Maia guided proposals (`/api/assistant/*`), the launch guide, the map concierge tie-break, and call synthesis (S54). **S63: settable from Admin → Integrations instead** — an admin-typed key beats this env var; reads are masked (last4 only). | Assistant hides; forms still work; call synthesis refuses with an honest 503 while ingestion, transcripts and publishing keep working |
@@ -334,6 +334,19 @@ node scripts/enable-all-modules.mjs --base https://your-village.example --email 
 them admin-only first. Funds-bearing modules (stays, exchange) refuse while
 a shared password is the only admin credential — bootstrap per-admin
 identities first.
+
+**Every exit prints the state it left you in.** The run ends with a table of
+every module and its lifecycle, and so does the refusal it gives when its own
+list has gone stale. An operator who reads "this script is out of date" should
+never have to guess which modules their village now has. A module the server
+declines to enable counts as a failure and the exit code says so, which it did
+not before: one module sat above the module it requires, came back 409, stayed
+off, and the run still reported success.
+
+**Modules that declare `setup: "required"` and are not in the script's own list
+are skipped**, read from the server's field for the same reason the tier is.
+The Hypha bridge is the live case: turning it on for a village with no DHO
+gives that village a governance surface pointing at nothing.
 
 **Module library listings are skipped by that script, deliberately.** It reads
 the tier from the server and leaves anything above `included` alone: turning a
@@ -670,7 +683,8 @@ registries assumes a language. If a fork needs another language, the work
 is a locale layer over the client pages plus the seeds; the game rules,
 variables and invariants are language-free by construction.
 
-- Seeds: `server/seeds/org-chart-2026-08.json` — the org-chart content (role cards, circle cards, team cards) applied once by the `org-chart-2026-08` runOnce into the `roles` / `circles` / `team` content sections; the public `/roles`, `/circles`, `/team` pages render those sections and the content admin editor owns them afterward. Forks replace this seed with their own structure (or just edit in admin).
+- Seeds: **there is no org-chart seed any more, and a fresh village starts with no seats and no team cards.** `server/seeds/org-chart-2026-08.json` and its corrections file used to ship one village's real org chart in this repository: twelve seat holders, ten named people, internal availability notes, and two team cards with surnames and portraits. A fork seeded all of it into its own database on first boot and served the names to anyone with the URL, because a village's people are public by default (R57). Those people agreed to appear on one project's site.
+  The code that read those files still guards on their existence, so their absence is a clean no-op, and a village that was already seeded keeps everything: measured with `scripts/qa/r6-fork/measure-seed-dependence.ts`, which boots twice against one schema with the files moved aside the second time and gets byte-identical output. Build your chart in **Admin, Org Chart**, which the Setup Wizard now points at.
 
 ## Org chart and seasons (0049, 0050)
 

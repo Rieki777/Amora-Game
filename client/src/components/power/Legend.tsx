@@ -114,7 +114,12 @@ export default function Legend({
     { kind: "partial", word: "partly held" },
     { kind: "filled", word: "held" },
     { kind: "forming", word: "forming" },
-    { kind: "expired", word: "term ran out" },
+    // The state key stays `expired`, which is the server's word for the
+    // derived state. What a member READS is what changed: a seat whose term
+    // reached its date has lost nothing and its holder is still holding it,
+    // so the legend says what the seat is waiting for. Same word as the
+    // holder chip and the term line on the seat card, on purpose.
+    { kind: "expired", word: "ready to be re-chosen" },
   ];
 
   const shape = power.glossary.shapes.find((s) => s.id === power.shape) ?? null;
