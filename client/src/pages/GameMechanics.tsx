@@ -97,6 +97,26 @@ interface MechanicsSnapshot {
   governance: MechanicsGovernance;
 }
 
+/**
+ * THE VOTE INSIDE AN AMENDMENT'S REFERENCE.
+ *
+ * `applyMechanicsProposal` stamps every governance-sourced ledger row with
+ * `gm:<proposal>[ <hypha ref>][ bal:<ballot>]`, so the decision that made a
+ * change has been written next to the change since the on-site engine
+ * shipped. This page rendered the whole thing as dead monospace: a member
+ * reading their village's amendment history could see that a vote decided a
+ * dial and had no way to reach it.
+ *
+ * Returns null when there is no `bal:` segment, which is every amendment an
+ * admin made directly and every one that went to Hypha, and the row then
+ * renders exactly as it did before. Nothing is inferred: no segment means no
+ * link, never a guess at which vote it might have been.
+ */
+export function ballotIdIn(proposalRef: string | null | undefined): string | null {
+  const m = /(?:^|\s)bal:(\S+)/.exec(String(proposalRef ?? ""));
+  return m ? m[1] : null;
+}
+
 interface Amendment {
   id: string;
   key: string;
@@ -1147,7 +1167,20 @@ export default function GameMechanics() {
                               {h.source === "platform" ? " · platform migration" : ""}
                             </p>
                             {h.proposalRef && (
-                              <p className="text-[11px] text-stone-400 mt-0.5 font-mono">proposal: {h.proposalRef}</p>
+                              <p className="text-[11px] text-stone-400 mt-0.5">
+                                <span className="font-mono">proposal: {h.proposalRef}</span>
+                                {ballotIdIn(h.proposalRef) && (
+                                  <>
+                                    {" · "}
+                                    <Link
+                                      href={`/decisions/${ballotIdIn(h.proposalRef)}`}
+                                      className="text-teal-deep hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                                    >
+                                      read the vote that decided this
+                                    </Link>
+                                  </>
+                                )}
+                              </p>
                             )}
                             {h.note && <p className="text-[11px] text-stone-400 mt-0.5">{h.note}</p>}
                           </li>

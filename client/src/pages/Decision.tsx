@@ -35,7 +35,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { BreathingLoader } from "@/components/natural";
 import InfoTip from "@/components/InfoTip";
 import CloseBeat from "@/components/governance/CloseBeat";
-import DecisionOutcome from "@/components/governance/DecisionOutcome";
+import DecisionOutcome, { DECISION_OUTCOME_COPY } from "@/components/governance/DecisionOutcome";
 import MyStanding from "@/components/governance/MyStanding";
 import ObjectionPanel from "@/components/governance/ObjectionPanel";
 import TransferCeremony from "@/components/governance/TransferCeremony";
@@ -57,6 +57,7 @@ import {
   withdrawBallot,
   type Ballot,
   type CloseResult,
+  type PriorAttempt,
   type Standing,
   type WeightRecord as WeightRecordData,
 } from "@/components/governance/governanceApi";
@@ -108,6 +109,17 @@ export default function Decision() {
   const governance = useModule("governance");
 
   const [ballot, setBallot] = useState<Ballot | null>(null);
+  /**
+   * THE TWO FACTS THAT SURVIVE THE SESSION, held apart from the ballot.
+   *
+   * `ballot` is written by four routes: the read, the close, the withdrawal
+   * and a vote. Only the read carries these two, so they live in their own
+   * state rather than being declared on `Ballot` and then arriving undefined
+   * from three of the four. Neither goes stale in a way that matters: a close
+   * hands back its own `applied` for the session that did it, and calling a
+   * vote off does not change what earlier votes on the subject decided.
+   */
+  const [chronicle, setChronicle] = useState<{ appliedKeys: string[]; priorAttempts: PriorAttempt[] } | null>(null);
   const [standing, setStanding] = useState<Standing | null>(null);
   // The village-wide weight trail. It rides along here because this page shows
   // "Your weight" too, and that card no longer carries a trail of its own: the
@@ -130,8 +142,13 @@ export default function Decision() {
   const load = useCallback(async () => {
     if (!params.id) return;
     const answer = await fetchBallot(params.id);
-    if (answer.ok) setBallot(answer.data);
-    else setMissing(true);
+    if (answer.ok) {
+      setBallot(answer.data);
+      setChronicle({
+        appliedKeys: Array.isArray(answer.data.appliedKeys) ? answer.data.appliedKeys : [],
+        priorAttempts: Array.isArray(answer.data.priorAttempts) ? answer.data.priorAttempts : [],
+      });
+    } else setMissing(true);
   }, [params.id]);
 
   useEffect(() => {
@@ -305,6 +322,8 @@ export default function Decision() {
 
         <div className="mt-6 lg:grid lg:grid-cols-[1fr_20rem] lg:gap-8">
           <div className="min-w-0 space-y-6">
+            <PriorAttempts attempts={chronicle?.priorAttempts ?? []} />
+
             {!open && (
               <DecisionOutcome
                 ballot={ballot}
@@ -316,7 +335,17 @@ export default function Decision() {
                    a dial change is the quiet-lie shape all over again, so the
                    handover's own card says what changed, in the power's words,
                    for both the crossing and the refusal. */
-                applied={ballot.transfer ? undefined : justClosed?.applied}
+                /* AND IT IS STILL TRUE TOMORROW. `justClosed` exists only in
+                   the browser session that closed the vote, so this card used
+                   to know what a decision changed for about a minute and then
+                   forget: every reader after that got a carried decision with
+                   no consequence attached, which is the half worth coming
+                   back for. `appliedKeys` is the same fact read off the
+                   amendment ledger, which is permanent and carries this
+                   ballot's own id. The close response still wins where it
+                   exists, because it is the act's own answer, including when
+                   that answer is that nothing moved. */
+                applied={ballot.transfer ? undefined : (justClosed?.applied ?? chronicle?.appliedKeys)}
                 held={ballot.transfer ? null : justClosed?.held}
                 /* ONE MOMENT PER PAGE. A power handover that carried plays its
                    own celebration inside TransferCeremony, on the crossing
@@ -559,5 +588,57 @@ export default function Decision() {
         </div>
       </div>
     </Layout>
+  );
+}
+
+/**
+ * THE VILLAGE HAS DECIDED THIS BEFORE.
+ *
+ * `ballotsFor(subjectType, subjectRef)` has returned every ballot a village
+ * ever held on one subject since the engine shipped, newest first, and until
+ * now nothing anywhere called it. So a member opening a decision could not
+ * tell a first attempt from a fourth, and the fact that the village had been
+ * round this question three times already, which is usually the single most
+ * useful thing about it, lived in the database and in nobody's screen.
+ *
+ * Renders NOTHING when there is nothing. A first vote on a subject is the
+ * ordinary case, and it gets no strip, no "0 earlier attempts", no empty
+ * frame: the absence of a history is not a fact about a village that needs
+ * announcing (R55).
+ *
+ * The word for each earlier outcome comes from the outcome card's own map,
+ * so the record and the card cannot end up calling the same status two
+ * different things. A status this build has not been taught gets no word at
+ * all rather than a guessed one, and the date and the sentence carry the row.
+ * That fallback is the whole lesson of the card that read "Did not carry"
+ * over a decision the village carried.
+ */
+function PriorAttempts({ attempts }: { attempts: PriorAttempt[] }) {
+  if (attempts.length === 0) return null;
+  return (
+    <section className="rounded-xl border border-stone-200 bg-cream p-4">
+      <h2 className="text-base font-bold text-stone-900">The village has decided this before</h2>
+      <p className="mt-0.5 text-sm text-stone-600 leading-relaxed">
+        Earlier votes on this same question, each with the sentence it closed with.
+      </p>
+      <ol className="mt-3 space-y-2">
+        {attempts.map((p) => {
+          const word = DECISION_OUTCOME_COPY[p.status]?.word ?? null;
+          const on = p.closedAt ?? p.opensAt;
+          return (
+            <li key={p.id} className="border-l-2 border-stone-300 pl-3">
+              <Link
+                href={`/decisions/${p.id}`}
+                className="text-sm font-semibold text-teal-deep hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+              >
+                {word ? `${word}, ` : ""}
+                {new Date(on).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}
+              </Link>
+              {p.outcomeNote && <p className="text-sm text-stone-700 leading-relaxed">{p.outcomeNote}</p>}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }

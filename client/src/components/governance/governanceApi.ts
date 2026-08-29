@@ -132,6 +132,41 @@ export interface Ballot {
   myWeight: number | null;
 }
 
+/** An earlier ballot the village held on this same subject. */
+export interface PriorAttempt {
+  id: string;
+  title: string;
+  status: Ballot["status"];
+  outcomeNote: string | null;
+  opensAt: string;
+  closedAt: string | null;
+}
+
+/**
+ * A DECISION READ COLD, MONTHS LATER, BY SOMEBODY WHO WAS NOT THERE.
+ *
+ * Everything a `Ballot` carries is about the ballot itself and is the same
+ * whichever route answered. These two are about its place in the village's
+ * story, they are served only by `GET /api/governance/ballots/:id`, and they
+ * have their own type for exactly that reason: the close, vote and withdraw
+ * routes answer with a plain `Ballot`, and a field declared on `Ballot` that
+ * three of the four routes do not send would be a type saying something the
+ * server does not.
+ *
+ * `appliedKeys` is what this decision changed, read back out of the amendment
+ * ledger. The outcome card used to get that from the close response alone, so
+ * it existed in one browser session and was gone by morning: open a carried
+ * decision the next day and the most interesting thing about it had
+ * evaporated. The ledger row is permanent and carries the ballot's own id.
+ *
+ * `priorAttempts` is every earlier ballot on the same subject, newest first.
+ * The engine has kept the chain since 0089 and no surface has ever shown it.
+ */
+export interface DecisionRecord extends Ballot {
+  appliedKeys: string[];
+  priorAttempts: PriorAttempt[];
+}
+
 /**
  * A ballot as a CARD reads it: the two bars, the clock, and whether this vote
  * is waiting on the viewer. Deliberately NOT a `Ballot`: the list route does
@@ -245,8 +280,24 @@ async function call<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
   }
 }
 
-export const fetchBallots = () => call<BallotCard[]>("/api/governance/ballots");
-export const fetchBallot = (id: string) => call<Ballot>(`/api/governance/ballots/${encodeURIComponent(id)}`);
+/**
+ * The record, a page at a time.
+ *
+ * The route served a bare `LIMIT 100` and offered no way to ask for row 101,
+ * so a village four years in simply lost its founding decisions off the end
+ * of its own record. The default is still that same hundred, because every
+ * card buys its own tallies read and this week's vote should not cost a
+ * village its whole history. Asking for the next page is the member's act.
+ */
+export const fetchBallots = (page?: { limit?: number; offset?: number }) => {
+  const q = new URLSearchParams();
+  if (page?.limit) q.set("limit", String(page.limit));
+  if (page?.offset) q.set("offset", String(page.offset));
+  const qs = q.toString();
+  return call<BallotCard[]>(`/api/governance/ballots${qs ? `?${qs}` : ""}`);
+};
+export const fetchBallot = (id: string) =>
+  call<DecisionRecord>(`/api/governance/ballots/${encodeURIComponent(id)}`);
 export const fetchStanding = () => call<Standing>("/api/governance/standing");
 export const fetchWizardFacts = () => call<WizardFacts>("/api/governance/wizard");
 
