@@ -16,7 +16,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import mysql from "mysql2/promise";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
-import { ALL_CAPABILITIES, DENIABLE } from "../../shared/capabilities";
 import {
   CONDUCTABLE_TYPES,
   DRAFT_CAP,
@@ -29,7 +28,7 @@ import {
   saveDraft,
   typeRefusesCapability,
 } from "./proposalDrafts";
-import { ALL_CAPABILITIES } from "../../shared/capabilities";
+import { ALL_CAPABILITIES, DENIABLE } from "../../shared/capabilities";
 
 const configured = testDbConfigured();
 
