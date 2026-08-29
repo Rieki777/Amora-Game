@@ -1,0 +1,12 @@
+{
+  "founderId": "user-1788029300098-jskqu",
+  "founderToken": "eyJ1c2VySWQiOiJ1c2VyLTE3ODgwMjkzMDAwOTgtanNrcXUiLCJlbWFpbCI6ImZvdW5kZXJAcWE2Mi50ZXN0IiwidGltZXN0YW1wIjoxNzg4MDI5MzAwMjMxLCJ2IjowfQ._ORw-lUmp2rlmL8PjnxffRIxvAp2ThVSLSleMYaW924",
+  "aliceToken": "eyJ1c2VySWQiOiJ1c2VyLTE3ODgwMjkzMDAyMzctdTIxMTgiLCJlbWFpbCI6ImFsaWNlQHFhNjIudGVzdCIsInRpbWVzdGFtcCI6MTc4ODAyOTMwMDI5MywidiI6MH0.H7VF_gIvb5vWqg9uD3SO7g7UcWbmS9JExjFw_KTZDAg",
+  "aliceId": "user-1788029300237-u2118",
+  "bobToken": "eyJ1c2VySWQiOiJ1c2VyLTE3ODgwMjkzMDAyOTktY3Vzdm4iLCJlbWFpbCI6ImJvYkBxYTYyLnRlc3QiLCJ0aW1lc3RhbXAiOjE3ODgwMjkzMDAzNTgsInYiOjB9.NgE21ewn8zQkZs7Ir7ur0XaDy7IgcaTKAZJbIdnZB14",
+  "bobId": "user-1788029300299-cusvn",
+  "carolToken": "eyJ1c2VySWQiOiJ1c2VyLTE3ODgwMjkzMDAzNjQtOWF0OWwiLCJlbWFpbCI6ImNhcm9sQHFhNjIudGVzdCIsInRpbWVzdGFtcCI6MTc4ODAyOTMwMDQyMiwidiI6MH0.PxB0PDpVsH8y_8YhRjdfbWSHmVYH5td63MnJYlrncaA",
+  "carolId": "user-1788029300364-9at9l",
+  "daveToken": "eyJ1c2VySWQiOiJ1c2VyLTE3ODgwMjkzMDA0MjctNTJha2EiLCJlbWFpbCI6ImRhdmVAcWE2Mi50ZXN0IiwidGltZXN0YW1wIjoxNzg4MDI5MzAwNDgzLCJ2IjowfQ.2ppiQR-ZVZiKnvcvpK14hP5xRDqwRBGNaWi6xKbVxOM",
+  "daveId": "user-1788029300427-52aka"
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "inv": 1,
+    "attack": "spend the Hearts allowance and the acknowledgement budget in the same cycle",
+    "outcome": "BROKE",
+    "detail": "one member moved 130 into gratitude_log in a single lunar cycle. Acknowledgement budget 100, Hearts allowance 30, larger of the two 100. The two halves landed under DIFFERENT cycle_id values in the same column (lunar-000329 and moon-329), and the acknowledgement route's budget check (spentInCycle, which filters cycle_id = ?) never saw the Hearts rows: after 30 Hearts it still reported spent=0."
+  },
+  {
+    "inv": 1,
+    "attack": "a gift written under a cycle_id no cycle row carries",
+    "outcome": "BROKE",
+    "detail": "[{\"cycle_id\":\"lunar-000329\",\"n\":5,\"s\":\"101\"},{\"cycle_id\":\"moon-329\",\"n\":39,\"s\":\"39\"}] -- these rows sit under a cycle id that gratitude_cycles does not hold"
+  }
+]

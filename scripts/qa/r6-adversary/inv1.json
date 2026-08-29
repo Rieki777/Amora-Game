@@ -1,0 +1,68 @@
+[
+  {
+    "inv": 1,
+    "attack": "open the same module 41 times (the saturation claim)",
+    "outcome": "HELD",
+    "detail": "still 1 mark"
+  },
+  {
+    "inv": 1,
+    "attack": "open 4 different paths under one module prefix",
+    "outcome": "HELD",
+    "detail": "still 1 mark"
+  },
+  {
+    "inv": 1,
+    "attack": "delete the mark, reopen: does this process re-mark",
+    "outcome": "HELD",
+    "detail": "NOT re-marked: the per-process `seen` set suppressed the write, so a row lost after the process cached it does not come back until the cycle turns. The error direction is DOWN (a count too low), never up."
+  },
+  {
+    "inv": 1,
+    "attack": "404 under a module prefix counts as a use",
+    "outcome": "HELD",
+    "detail": "[404] 0 marks"
+  },
+  {
+    "inv": 1,
+    "attack": "sweep 17 module prefixes with a bogus path each",
+    "outcome": "HELD",
+    "detail": "0 of 17 modules claimed by a bogus path"
+  },
+  {
+    "inv": 1,
+    "attack": "HEAD/OPTIONS a module route (no body served)",
+    "outcome": "BROKE",
+    "detail": "HEAD 200 OPTIONS 404 produced 1 mark(s)"
+  },
+  {
+    "inv": 1,
+    "attack": "reach a module's admin prefix by 5 alias paths (case, double slash, dot segment, percent-encoding)",
+    "outcome": "HELD",
+    "detail": "0 marks; admin traffic never counted"
+  },
+  {
+    "inv": 1,
+    "attack": "a signed-out (tokenVersion-bumped) session still meters",
+    "outcome": "HELD",
+    "detail": "after logout the module route answered 401; marks for carol = 1"
+  },
+  {
+    "inv": 1,
+    "attack": "meter a public-tier module with a REVOKED session token",
+    "outcome": "HELD",
+    "detail": "route 200, marks 0"
+  },
+  {
+    "inv": 1,
+    "attack": "attribute a use to another member via header or query",
+    "outcome": "HELD",
+    "detail": "all 0 mark(s) belong to the caller"
+  },
+  {
+    "inv": 1,
+    "attack": "invent a member id in an unsigned token and mark with it",
+    "outcome": "HELD",
+    "detail": "route 401, 0 marks for the invented id"
+  }
+]

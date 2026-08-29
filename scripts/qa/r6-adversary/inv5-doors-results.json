@@ -1,0 +1,8 @@
+[
+  {
+    "inv": 5,
+    "attack": "anon sweep of 220 GET routes with people lock CLOSED",
+    "outcome": "HELD",
+    "detail": "47 routes answered anonymously, none carried any of the 10 locked strings (control: admin /api/org carries 5 of them)"
+  }
+]

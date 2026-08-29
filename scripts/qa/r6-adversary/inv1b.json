@@ -1,0 +1,14 @@
+[
+  {
+    "inv": 1,
+    "attack": "meter a public-tier module with a REVOKED session token",
+    "outcome": "BROKE",
+    "detail": "the token is dead for /api/profile (401) and still wrote a usage mark on a public module route (200). meterUserId reads the signature only and never checks tokenVersion, so a signed-out session keeps counting as an active member and as that module's reach."
+  },
+  {
+    "inv": 1,
+    "attack": "claim modules with HEAD instead of GET",
+    "outcome": "HELD",
+    "detail": "0 marks for 2 HEADs, which is exactly what 2 GETs would have produced. HEAD is not a lever: the unit is one member per module per cycle either way, and a member who can HEAD can GET."
+  }
+]

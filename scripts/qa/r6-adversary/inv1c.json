@@ -1,0 +1,20 @@
+[
+  {
+    "inv": 1,
+    "attack": "drain /api/game/gratitude/send then keep giving on /api/gratitude",
+    "outcome": "HELD",
+    "detail": "total 40 across both routes, which is <= the larger cap (100). send accepted 40 then refused [409]; hearts then accepted 0 and refused [400]. The looser route's ledger bounds the stricter one."
+  },
+  {
+    "inv": 1,
+    "attack": "drain /api/gratitude first, then /api/game/gratitude/send",
+    "outcome": "HELD",
+    "detail": "total 50 <= 100; order does not open a second allowance"
+  },
+  {
+    "inv": 1,
+    "attack": "cross the per-recipient cap by switching between the two routes",
+    "outcome": "HELD",
+    "detail": "the two caps are per-kind by construction (countPair filters on `kind`), so 1 acknowledgement(s) and 9 heart(s) reached the same recipient in one cycle: 10 rows, 10 total. Each cap held on its own kind; there is no single per-recipient ceiling across both, which is the known open decision and not a bypass of either cap."
+  }
+]

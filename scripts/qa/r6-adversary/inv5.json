@@ -1,0 +1,116 @@
+[
+  {
+    "inv": 5,
+    "attack": "signed-out /api/org, public_people=true",
+    "outcome": "HELD",
+    "detail": "0 held-back keys in 35103 bytes; 12 public holder rows, name-only"
+  },
+  {
+    "inv": 5,
+    "attack": "public holder name is firstName only, public_people=true",
+    "outcome": "HELD",
+    "detail": "12 rows, none multi-word"
+  },
+  {
+    "inv": 5,
+    "attack": "signed-out /api/org, public_people=false",
+    "outcome": "HELD",
+    "detail": "0 held-back keys in 34910 bytes; 0 public holder rows, name-only"
+  },
+  {
+    "inv": 5,
+    "attack": "public holder name is firstName only, public_people=false",
+    "outcome": "HELD",
+    "detail": "0 rows, none multi-word"
+  },
+  {
+    "inv": 5,
+    "attack": "lock OFF hides names",
+    "outcome": "HELD",
+    "detail": "anon got 0 holder rows with public_people=false"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/roles",
+    "outcome": "BROKE",
+    "detail": "heldBack= actorNames=Founder"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/circles",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/members",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/modules",
+    "outcome": "HELD",
+    "detail": "200, no held-back key, no actor name"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/content/roles",
+    "outcome": "BROKE",
+    "detail": "heldBack= actorNames=Founder"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/org/export",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/map/scene",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/village/brief",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /.well-known/village.json",
+    "outcome": "BROKE",
+    "detail": "heldBack=d.kind = \"village\" actorNames="
+  },
+  {
+    "inv": 5,
+    "attack": "anon /org/people.md",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /org/circles.md",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/team",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/people",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  },
+  {
+    "inv": 5,
+    "attack": "anon /api/village/public",
+    "outcome": "HELD",
+    "detail": "404 (route refuses anon)"
+  }
+]
