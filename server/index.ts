@@ -26151,12 +26151,16 @@ ${inner}
    *
    * THE GATE IS READ HERE SO THE REFUSAL CAN SAY WHY. Somebody who is not on
    * the roll used to be told, always, that "who may vote froze when it
-   * opened". That is true of the member who joined after the vote started and
-   * false of the member a warning badge is holding back: `buildElectorate`
-   * runs the one gate at open and `capabilityDecision` refuses a warning's
-   * deny before it looks at any grant, so she is left off every roll built
-   * afterwards, and the product named the freeze and hid the cause. The
-   * sentence itself lives with the rule, in `offRollSentence`.
+   * opened", and that is true of the member who joined after the vote started
+   * while naming timing as the cause for everybody else. The sentence itself
+   * lives with the rule, in `offRollSentence`.
+   *
+   * `deniedByWarning` CAN NO LONGER BE TRUE, and it is left in place rather
+   * than deleted (0109, R65/R66). A warning badge naming `ballot.vote` is
+   * ignored by the gate now, so this reads false for everybody and the
+   * warning branch of `offRollSentence` has no caller. It stays because the
+   * shape is the fail-safe: any later reason the gate refuses this key gets a
+   * sentence of its own instead of borrowing the freeze's.
    *
    * A LOOK AND NEVER AN ACT (R53): `capabilityCtx` is the pure gate with no
    * break-glass in it, exactly as `/api/governance/standing` reads it. Asking
@@ -27538,7 +27542,12 @@ ${inner}
       token: snapshot.token,
       tokenName,
       eligible,
-      /** Set only when a warning badge is the thing refusing the vote. */
+      /**
+       * Always false since 0109: a warning badge can no longer take a voice
+       * away, so this key never reaches the deny step. Served rather than
+       * dropped so the client contract holds while the surfaces that read it
+       * catch up.
+       */
       deniedByWarning: voteGate.source === "denied by warning badge",
       weight,
       why,

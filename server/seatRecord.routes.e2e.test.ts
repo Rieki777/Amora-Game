@@ -525,43 +525,45 @@ describe.skipIf(!DB_CONFIGURED)("a village does not lose its oldest decisions", 
 });
 
 /**
- * WHY SOMEBODY IS OFF A ROLL, SAID CORRECTLY.
+ * A VOICE THAT WAS EARNED IS NEVER TAKEN AWAY (0109, R65/R66).
  *
- * The refusal was one sentence for every reason: "Who may vote froze when it
- * opened." That is true of the member who joined after a vote started, and it
- * is false of a member a warning badge is holding back, who would be off a
- * roll built at any hour of any day. `buildElectorate` runs the one gate over
- * every member at open and `capabilityDecision` refuses a warning's deny
- * before it looks at any grant, so she is left off every roll made while the
- * warning stands, and the product named the freeze and hid the cause.
+ * What this block used to prove: a warning badge naming `ballot.vote` took
+ * its holder off `ballot_electorate` on every roll built afterwards, and the
+ * refusal she read blamed the clock. The sentence was fixed then. The founder
+ * has since ruled on the mechanism itself: "denying a voice is not a power
+ * anyone should hold", and "when voice is earned it should never be force
+ * taken away". So the deny is gone and this block proves its absence.
  *
- * Both cases are driven for real here: a warning is created, awarded and a
- * ballot opened after it, and a member is registered after a ballot opened.
- * Neither is simulated, because the mechanism is the claim.
+ * THREE LOCKS, DRIVEN AGAINST THE BUILT SERVER RATHER THAN DESCRIBED:
+ *
+ *  1. The write path refuses. `POST /api/admin/badges` will not save a
+ *     warning that names a voice key.
+ *  2. The GATE ignores one anyway. The badge row here is edited straight in
+ *     SQL after it was saved, which is exactly what the validator cannot see
+ *     and what code review cannot see either. Cara carries a badge whose
+ *     stored `denies` names `ballot.vote`, and she votes.
+ *  3. The deny that STAYED still bites. The same badge also denies
+ *     `forum.post`, and that refusal is untouched. A village asking somebody
+ *     to stop posting for a while is not the act that was ruled on, and the
+ *     two sit next to each other here so no later reader confuses them.
+ *
+ * The freeze case survives unchanged, because the snapshot law is unchanged:
+ * a member who arrived after a vote opened is still off that one roll, and is
+ * still told so in the freeze's own words.
  */
-describe.skipIf(!DB_CONFIGURED)("why somebody is off a roll", () => {
+describe.skipIf(!DB_CONFIGURED)("nobody can take away a voice that was earned", () => {
   let caraToken = "";
   let caraId = "";
   let danaToken = "";
   let ballotId = "";
+  let badgeId = "";
 
-  it("sets up a member the village has warned, and a member who arrived late", async () => {
+  it("REFUSES to save a warning badge that takes the vote away", async () => {
     expect((await call("PUT", "/api/admin/modules/badges/lifecycle", {
       body: { lifecycle: "members", examples: false },
     })).status).toBe(200);
 
-    const cara = await register("Cara Lin", `cara-${PORT}@example.test`);
-    caraToken = cara.token;
-    caraId = cara.id;
-    expect((await call("PUT", `/api/admin/players/${caraId}/stage`, { body: { stageId: "member" } })).status).toBe(200);
-
-    // Before the warning she holds the vote, which is what makes the case a
-    // case: nothing about her stage or her roles changes below.
-    const before = await call("GET", "/api/governance/standing", { token: caraToken });
-    expect(before.status).toBe(200);
-    expect(before.json?.eligible).toBe(true);
-
-    const badge = await call("POST", "/api/admin/badges", {
+    const refused = await call("POST", "/api/admin/badges", {
       body: {
         name: `Voting paused ${PORT}`,
         description: "A pause on voting while something is being worked out.",
@@ -569,18 +571,74 @@ describe.skipIf(!DB_CONFIGURED)("why somebody is off a roll", () => {
         denies: ["ballot.vote"],
       },
     });
-    expect(badge.status, JSON.stringify(badge.json)).toBe(200);
-    const badgeId = String(badge.json?.badge?.id ?? "");
+    expect(refused.status, JSON.stringify(refused.json)).toBe(400);
+    expect(String(refused.json?.error ?? "")).toContain("never taken away");
+
+    // The other voice key, refused by the same lock and named separately so a
+    // later reader can see the map is what decides rather than one key.
+    const alsoRefused = await call("POST", "/api/admin/badges", {
+      body: { name: `Vouching paused ${PORT}`, kind: "warning", denies: ["member.vouch"] },
+    });
+    expect(alsoRefused.status).toBe(400);
+
+    // And a control in the same block: the refusal is about WHICH key, never
+    // about warning badges. A warning that pauses posting still saves.
+    const saved = await call("POST", "/api/admin/badges", {
+      body: {
+        name: `Posting paused ${PORT}`,
+        description: "A pause on posting while something is being worked out.",
+        kind: "warning",
+        denies: ["forum.post"],
+      },
+    });
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    badgeId = String(saved.json?.badge?.id ?? "");
+    expect(badgeId).toBeTruthy();
+  });
+
+  it("gives that badge a hand-written deny on the vote, which is the case no validator sees", async () => {
+    const cara = await register("Cara Lin", `cara-${PORT}@example.test`);
+    caraToken = cara.token;
+    caraId = cara.id;
+    expect((await call("PUT", `/api/admin/players/${caraId}/stage`, { body: { stageId: "member" } })).status).toBe(200);
+
     expect((await call("POST", `/api/admin/badges/${badgeId}/award`, {
       body: { userId: caraId, note: "Paused while the circle finishes talking it through." },
     })).status).toBe(200);
 
-    const after = await call("GET", "/api/governance/standing", { token: caraToken });
-    expect(after.json?.eligible, "the warning holds the vote back").toBe(false);
-    expect(after.json?.deniedByWarning, "and the server says WHICH of the two reasons it is").toBe(true);
+    // Straight into the column, past every check the product has. This is the
+    // row a village could be carrying from before the ruling, and the row an
+    // admin with database access could still write tomorrow.
+    await pool.query("UPDATE badges SET denies = ? WHERE id = ?", [
+      JSON.stringify(["forum.post", "ballot.vote"]),
+      badgeId,
+    ]);
+    const [stored] = await pool.query<any[]>("SELECT denies FROM badges WHERE id = ?", [badgeId]);
+    expect(JSON.stringify(stored[0]?.denies), "the deny really is in the column").toContain("ballot.vote");
   });
 
-  it("opens a vote after the warning, and Cara is not on its roll", async () => {
+  it("HOLDS THE VOTE ANYWAY, and the same badge still pauses her posting", async () => {
+    const standing = await call("GET", "/api/governance/standing", { token: caraToken });
+    expect(standing.status).toBe(200);
+    expect(standing.json?.eligible, "the badge cannot take her vote").toBe(true);
+    expect(standing.json?.deniedByWarning, "and nothing claims a warning did").toBe(false);
+
+    // Both halves off one reading of the real gate, so the pair cannot drift.
+    const why = await call("GET", `/api/admin/members/${caraId}/capabilities`);
+    expect(why.status).toBe(200);
+    const rows: any[] = why.json?.capabilities ?? [];
+    const vote = rows.find((r) => r.capability === "ballot.vote");
+    const post = rows.find((r) => r.capability === "forum.post");
+    expect(vote?.held, "the voice key survives the deny").toBe(true);
+    expect(String(vote?.source)).not.toContain("denied");
+    expect(post?.held, "the deny that stayed still bites").toBe(false);
+    expect(post?.source).toBe("denied by warning badge");
+    // The server still reports the stored deny truthfully. It says what the
+    // badge SAYS; the gate decides what it TAKES.
+    expect(why.json?.badgeDenies).toContain("ballot.vote");
+  });
+
+  it("opens a vote after the warning, and Cara is ON its roll", async () => {
     // The founder's earlier advisory is still running and one opener may have
     // one at a time, so it is called off first.
     const open = await call("GET", "/api/governance/ballots?limit=200");
@@ -600,26 +658,22 @@ describe.skipIf(!DB_CONFIGURED)("why somebody is off a roll", () => {
 
     const seen = await call("GET", `/api/governance/ballots/${ballotId}`, { token: caraToken });
     expect(seen.status).toBe(200);
-    expect(seen.json?.myWeight, "she is outside the roll this vote froze").toBeNull();
+    expect(seen.json?.myWeight, "she is inside the roll this vote froze").not.toBeNull();
   });
 
-  it("TELLS HER THE WARNING IS WHY, instead of blaming the clock", async () => {
-    const refused = await call("POST", `/api/governance/ballots/${ballotId}/vote`, {
+  it("AND SHE CASTS IT. That is the whole ruling in one call", async () => {
+    const cast = await call("POST", `/api/governance/ballots/${ballotId}/vote`, {
       token: caraToken,
       body: { choice: "yes" },
     });
-    expect(refused.status).toBe(409);
-    const said = String(refused.json?.error ?? "");
-    expect(said).toContain("A warning on your account is holding voting back");
-    // The exact false claim this replaces. Timing did not do this to her.
-    expect(said).not.toContain("froze");
-    expect(said).not.toContain("Who may vote");
+    expect(cast.status, JSON.stringify(cast.json)).toBe(200);
+    expect(cast.json?.choice).toBe("yes");
   });
 
   it("still names the freeze for the member the freeze actually kept out", async () => {
     // Dana registers AFTER the ballot opened and reaches member stage, so she
     // holds `ballot.vote` right now and is off this one roll for the one
-    // reason the old sentence described.
+    // reason the freeze sentence describes. The snapshot law is untouched.
     const dana = await register("Dana Poe", `dana-${PORT}@example.test`);
     danaToken = dana.token;
     expect((await call("PUT", `/api/admin/players/${dana.id}/stage`, { body: { stageId: "member" } })).status).toBe(200);
@@ -640,8 +694,7 @@ describe.skipIf(!DB_CONFIGURED)("why somebody is off a roll", () => {
 
   it("and says the plain thing to an account voting is not open to at all", async () => {
     // The suite's ordinary member never reached member stage, so the gate
-    // refuses her for the third reason, which is neither a warning nor a
-    // clock. Three cases, three sentences, none of them borrowed.
+    // refuses her for a reason that is neither a warning nor a clock.
     const refused = await call("POST", `/api/governance/ballots/${ballotId}/vote`, {
       token: memberToken,
       body: { choice: "yes" },
