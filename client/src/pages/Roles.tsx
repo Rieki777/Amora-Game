@@ -27,6 +27,7 @@ import SeatClaimCard from "@/components/SeatClaimCard";
 import { swatchFor } from "@/lib/swatch";
 import { gameFetch } from "@/lib/gameApi";
 import { PeopleLockNote, type PeopleTier } from "@/components/PeopleLock";
+import SeatHistory from "@/components/power/SeatHistory";
 
 type RoleStatus = "filled" | "open" | "forming" | "partial";
 
@@ -47,6 +48,8 @@ interface RoleEntry {
   evolutionaryPurpose?: string;
   icon?: string;
   color?: string;
+  /** A seeded demonstration seat. Its history is demo rows, so it stays off. */
+  isExample?: boolean;
 }
 
 /** Icon names a card may reference; anything unknown falls back to CircleDot. */
@@ -79,9 +82,11 @@ interface RoleCardProps {
   expanded: boolean;
   onToggle: () => void;
   index: number;
+  /** Whether holder names reached this reader at all. */
+  canSeePeople: boolean;
 }
 
-function RoleCard({ role, expanded, onToggle, index }: RoleCardProps) {
+function RoleCard({ role, expanded, onToggle, index, canSeePeople }: RoleCardProps) {
   const Icon = ICONS[role.icon ?? ""] ?? CircleDot;
   // Admin-editable colour, resolved together with the ink that stays legible
   // on it. See client/src/lib/swatch.ts.
@@ -182,6 +187,15 @@ function RoleCard({ role, expanded, onToggle, index }: RoleCardProps) {
                   <p className="text-sm text-muted-foreground italic leading-relaxed">{why}</p>
                 </div>
               )}
+              {/* "Held By" above is the seat today. This is the seat's whole
+                  record, ended holdings included, which is the half a village
+                  loses when it keeps its org chart in a document. Fetched only
+                  once a reader opens the card. */}
+              {!role.isExample && (
+                <div className="pt-4 border-t border-border">
+                  <SeatHistory roleId={role.id} canSeePeople={canSeePeople} />
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -236,6 +250,7 @@ export default function Roles() {
             whyItMatters: r.whyItMatters ?? "",
             icon: r.icon ?? undefined,
             color: r.color ?? undefined,
+            isExample: !!r.isExample,
           })),
         );
       })
@@ -347,6 +362,7 @@ export default function Roles() {
                       expanded={expandedRole === role.id}
                       onToggle={() => toggle(role.id)}
                       index={i}
+                      canSeePeople={!!people?.visible}
                     />
                   ))}
                 </div>
