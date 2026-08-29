@@ -198,10 +198,22 @@ export default function SeatHistory({
         Who has held this seat
       </h4>
 
-      {names.length === 0 ? (
+      {/* A SEAT NOBODY HAS HELD AND A SEAT WHOSE NAMES ARE GONE ARE NOT THE
+          SAME SEAT, and they arrive here looking alike: `holderOrder` returns
+          an empty list for both. `releaseSeatingsForUser` clears
+          `display_name` on every row a departing member held, live and ended,
+          so a seat two people carried for four years can come back with no
+          names on it at all. Saying nobody has ever held it would be the page
+          erasing them a second time. */}
+      {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground leading-relaxed">
           Nobody has been recorded in this seat yet. That is what a seat looks like before somebody
           steps into it.
+        </p>
+      ) : names.length === 0 ? (
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          This seat has been held. The names on its record have been taken off, and the dates below are
+          what it keeps.
         </p>
       ) : names.length === 1 ? (
         <p className="text-sm text-foreground leading-relaxed">
