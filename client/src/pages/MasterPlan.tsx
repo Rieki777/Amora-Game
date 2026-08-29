@@ -75,6 +75,10 @@ export default function MasterPlan() {
   const brand = useBrandImages();
   const settings = useVillageSettings();
   const stats = statedFacts(settings, statShapes);
+  // Same rule as the investor page: null is "not loaded", never "nothing to
+  // say". A village with a valuation must not be told it has none while its
+  // own settings are still in flight.
+  const loaded = settings !== null;
   const appraisal = stats.find((s) => s.key === "appraisal");
   return (
     <Layout>
@@ -201,7 +205,7 @@ export default function MasterPlan() {
             {/* The appraisal sentence names the village's own figure or it does
                 not appear. It used to name one specific property's valuation and
                 the month it was made, in prose, on every fork. */}
-            {appraisal ? (
+            {!loaded ? null : appraisal ? (
               <>
                 <p className="text-muted-foreground mb-6">
                   {appraisal.note ? `${appraisal.note}: an appraisal ` : "An appraisal "}

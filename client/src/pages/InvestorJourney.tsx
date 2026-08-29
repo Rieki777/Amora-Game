@@ -176,6 +176,12 @@ const buyerPersonas = [
 export default function InvestorJourney() {
   const brand = useBrandImages();
   const settings = useVillageSettings();
+  // NULL IS "NOT LOADED YET", NEVER "NOTHING STATED". Without this line the
+  // page tells every visitor "this village has not published any figures" for
+  // the length of one fetch, including on a village that has published four,
+  // which is a sentence the product would be saying out of a default rather
+  // than out of what happened.
+  const loaded = settings !== null;
   const financialMetrics = statedFacts(settings, metricShapes);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("discover");
@@ -355,7 +361,9 @@ export default function InvestorJourney() {
               Key Numbers
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-6">
-              {financialMetrics.length
+              {!loaded
+                ? " "
+                : financialMetrics.length
                 ? "The figures this village has stated about its own land and its own raise."
                 : "This village has not published any figures yet."}
             </p>
@@ -366,7 +374,7 @@ export default function InvestorJourney() {
             ) : null}
           </motion.div>
 
-          {financialMetrics.length ? (
+          {!loaded ? null : financialMetrics.length ? (
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             {financialMetrics.map((metric, index) => (
               <motion.div
