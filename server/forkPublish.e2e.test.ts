@@ -352,6 +352,33 @@ describe.skipIf(!DB_CONFIGURED)("a village with its own people still publishes t
     expect(raw, "a surname is not the public tier's business").not.toContain("Ashfield");
   });
 
+  it("publishes the figures a village states about its own land", async () => {
+    /*
+     * The other half of "the fix does not simply blank the page". Taking four
+     * financial claims out of a module constant is only correct if a village
+     * that states its own gets them back, so this walks the door the investor
+     * page and the master plan read from.
+     *
+     * The pages themselves render from this payload, and a rendered page is
+     * not something an HTTP suite can assert. What it CAN hold is the
+     * contract: what a village writes reaches a stranger, unchanged, with no
+     * account.
+     */
+    const put = await call("PUT", "/api/admin/settings", {
+      landFacts: {
+        acres: { value: "40", note: "hectares" },
+        appraisal: { value: "2.4M", note: "March 2027" },
+      },
+    });
+    expect(put.status, "the village may state its own figures").toBe(200);
+
+    const anon = await http("/api/settings").then((r) => r.json());
+    expect(anon?.landFacts?.acres?.value, "and a stranger reads them").toBe("40");
+    expect(anon?.landFacts?.appraisal?.note, "including the line under the figure").toBe("March 2027");
+    // Untouched keys stay blank rather than picking anything up.
+    expect(String(anon?.landFacts?.projectedReturn?.value ?? ""), "an unstated figure stays unstated").toBe("");
+  });
+
   it("publishes the team cards a village writes for itself", async () => {
     const put = await call("PUT", "/api/admin/content/team", [
       {
