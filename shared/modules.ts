@@ -306,17 +306,18 @@ export interface ModuleDef {
    */
   builtBy?: string;
   /**
-   * The builder's ReGen Civics account, where the $ReGen builders' pool looks
-   * to find out who to pay.
+   * The builder's account handle, where a cycle settlement looks to find out
+   * who to pay. Read it with `builtByNamespace` below, which says on which
+   * system the handle is held. Neither half is usable alone.
    *
    * A HANDLE and never an address, which is Rye's ruling and is the whole
    * safety of the thing. An address written here is asserted by whoever edits
    * this file, in a public repository a fork can edit, for a payment somebody
-   * else receives. A handle is asserted by the builder themselves: they hold a
-   * ReGen Civics account, they link their Hypha account and Base address in
-   * their own profile setup, and the hub reads the address off the profile at
-   * the moment it writes a statement. The registry never learns the address
-   * and a pull request can never redirect a payment.
+   * else receives. A handle is asserted by the builder themselves: they hold an
+   * account, they link their Hypha account and Base address in their own
+   * profile setup there, and whoever settles a cycle reads the address off that
+   * profile at the moment they write a statement. The registry never learns the
+   * address and a pull request can never redirect a payment.
    *
    * A sibling of `builtBy` rather than a field inside it, because `builtBy` is
    * a credit LINE: a name a person wrote for a reader, and it stays readable

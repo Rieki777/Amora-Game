@@ -120,15 +120,17 @@ export function poolPaidModules(defs: readonly ModuleDef[]): ModuleDef[] {
 }
 
 /**
- * A ReGen Civics handle, checked for shape and nothing else.
+ * A builder handle, checked for shape and nothing else.
  *
  * Shape is all any code here can honestly check, and shape is all it needs to
  * check. Whether the handle names a real account, whether that account has a
  * Hypha account and a Base address linked, and whether the person holding it
- * is the person credited above are all questions the HUB answers at statement
- * time against its own member records. None of them can be answered from a
- * registry file, and a check here that pretended to would be the kind of
- * green that means nothing.
+ * is the person credited above are all questions the ACCOUNT SYSTEM answers at
+ * statement time against its own member records. Which system that is comes
+ * from `builtByNamespace` beside the handle, because R64 makes one shared
+ * roster an unsafe assumption. None of these can be answered from a registry
+ * file, and a check here that pretended to would be the kind of green that
+ * means nothing.
  *
  * The pattern is COPIED from the hub's own `HANDLE_RE` (regen-civics
  * `server/db.ts`), character for character, because a handle this file accepts
@@ -159,18 +161,18 @@ export function modulePayoutProblems(defs: readonly ModuleDef[]): string[] {
     const account = m.builtByAccount;
     if (account === undefined) continue;
     if (!m.builtBy?.trim()) {
-      problems.push(`module "${m.id}": names a ReGen Civics account and credits nobody. A payment needs a builder to pay`);
+      problems.push(`module "${m.id}": names a payout account and credits nobody. A payment needs a builder to pay`);
     }
     if (/^0x/i.test(account)) {
       // Checked before the shape, and exclusive of it, so the one mistake a
       // person is actually likely to make gets the sentence that explains it
       // instead of a generic "that is not a handle".
       problems.push(
-        `module "${m.id}": puts what looks like a wallet address where the ReGen Civics handle goes. The builder links their own address in their own profile and the hub reads it there`,
+        `module "${m.id}": puts what looks like a wallet address where the payout handle goes. The builder links their own address in their own profile, on the account system named beside the handle, and whoever settles a cycle reads it there`,
       );
     } else if (!isBuilderHandle(account)) {
       problems.push(
-        `module "${m.id}": gives "${account}" as a ReGen Civics account. A handle is lowercase letters, digits and hyphens, with no at sign and no address`,
+        `module "${m.id}": gives "${account}" as a payout account. A handle is lowercase letters, digits and hyphens, with no at sign and no address`,
       );
     }
   }

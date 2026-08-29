@@ -82,7 +82,7 @@
  * `instanceId` and `activeMembers` are in the report so it has something to
  * decide about. Saying that plainly is worth more than a check that pretends.
  */
-import { poolStatus } from "./modulePool";
+import { isBuilderHandle, poolStatus } from "./modulePool";
 import { isBuilderNamespace, type ModuleDef } from "./modules";
 
 /**
@@ -93,16 +93,6 @@ import { isBuilderNamespace, type ModuleDef } from "./modules";
  * shaped one, and semver cannot say that.
  */
 export const MODULE_USAGE_PROTOCOL = "module-usage/1";
-
-/**
- * A handle, checked for shape and nothing else.
- *
- * Copied character for character from `isBuilderHandle` in `modulePool.ts`,
- * which copied it from the hub's own rule, so a handle one accepts and another
- * cannot store never exists. Lowercase letters, digits and hyphens, never
- * starting or ending on a hyphen.
- */
-const HANDLE = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/;
 
 /** Who wrote a module, as it travels. Derived, never stored. */
 export interface ModuleProvenance {
@@ -376,7 +366,7 @@ function provenanceProblems(m: ModuleUsageEntry, id: string): string[] {
     // Checked before the shape, and exclusive of it, so the one mistake a
     // person is actually likely to make gets the sentence that explains it.
     out.push(`module "${id}" puts what looks like a wallet address where the payout handle goes. A builder links their own address in their own profile and a counter reads it there`);
-  } else if (!HANDLE.test(m.builderHandle)) {
+  } else if (!isBuilderHandle(m.builderHandle)) {
     out.push(`module "${id}" gives "${m.builderHandle}" as a payout handle. A handle is lowercase letters, digits and hyphens, with no at sign and no address`);
   } else if (typeof m.builderNamespace !== "string" || !isBuilderNamespace(m.builderNamespace)) {
     out.push(`module "${id}" gives a payout handle and no account system that asserts it, so a counter has nowhere to resolve "${m.builderHandle}"`);

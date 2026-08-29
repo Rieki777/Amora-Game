@@ -254,7 +254,7 @@ for (const m of targets) {
       for (const p of payout) console.log(`    ${p}`);
       bad(`payout identity is answerable: ${payout.length} problem(s)`);
     } else if (m.builtByAccount !== undefined) {
-      ok("payout identity is a ReGen Civics handle that credits a named builder");
+      ok("payout identity is a handle on a named account system, crediting a named builder");
     }
   }
 
