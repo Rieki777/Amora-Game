@@ -1,0 +1,62 @@
+[
+  {
+    "inv": 3,
+    "attack": "open a power handover as an ordinary member",
+    "outcome": "HELD",
+    "detail": "POST /api/governance/power-transfers with a member token -> 403 {\"error\":\"Opening a vote for the whole village is for a proposal.open holder\",\"adminOnly\":false}"
+  },
+  {
+    "inv": 3,
+    "attack": "replay the same power-transfer request",
+    "outcome": "HELD",
+    "detail": "second identical request -> 409 {\"error\":\"Steward Circle already holds this one. There is nothing for the village to decide here.\"}"
+  },
+  {
+    "inv": 3,
+    "attack": "the power is village-held (carried by an earlier pass of this probe)",
+    "outcome": "HELD",
+    "detail": "capability_holding now carries feed.announce: [{\"capability\":\"feed.announce\",\"holder_role_id\":\"steward-circle\",\"moved_by_ballot_id\":\"bal-1788030305902-391gsm\",\"moved_by_user_id\":\"user-1788029300299-cusvn\",\"moved_at\":\"2026-08-29T12:05:05.000Z\",\"note\":\"The village carried the handover; the QA lane now checks the record against the act.\"}]"
+  },
+  {
+    "inv": 4,
+    "attack": "a REFUSED act (409 hatch, no override) writes the public line",
+    "outcome": "HELD",
+    "detail": "route 409, 0 new capability row(s), 0 public"
+  },
+  {
+    "inv": 4,
+    "attack": "break the glass then fail validation: is a public act recorded",
+    "outcome": "HELD",
+    "detail": "route 400; the admin trail carries  and the public record carries nothing"
+  },
+  {
+    "inv": 4,
+    "attack": "control: a SUCCESSFUL reach writes exactly one public line",
+    "outcome": "HELD",
+    "detail": "Fiona Founder acted on a power this village holds: post announcements to the whole village feed. Steward Circle holds it."
+  },
+  {
+    "inv": 4,
+    "attack": "LOOK at 8 read surfaces (twice each, once carrying x-capability-override)",
+    "outcome": "HELD",
+    "detail": "0 capability rows written by any read, with or without the override header"
+  },
+  {
+    "inv": 3,
+    "attack": "seat yourself into the role that holds the power",
+    "outcome": "HELD",
+    "detail": "POST /api/admin/roles/steward-circle/holders as alice -> 401 {\"error\":\"auth_required\",\"message\":\"Appointing needs the village's decision capability\"}"
+  },
+  {
+    "inv": 3,
+    "attack": "the seated holder acts",
+    "outcome": "HELD",
+    "detail": "allowed (200) and no override record written, which is correct: she was given it"
+  },
+  {
+    "inv": 3,
+    "attack": "act on a power from a stale roll after being un-seated",
+    "outcome": "HELD",
+    "detail": "un-seated (200) and the next act was refused 403"
+  }
+]
