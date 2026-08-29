@@ -1,0 +1,47 @@
+-- 0102: an objection that changed a proposal points at the ballot that carried
+-- the change. Lineage on the artifact, never a score on the person.
+--
+-- WHAT IS BROKEN TODAY. Consent mode already keeps everything hard about an
+-- objection: who raised it, their exact words, the ruling, who ruled, why they
+-- ruled that way (a blank note is refused), and both timestamps. All of it is
+-- permanent and all of it is already served. The one edge missing is forward.
+-- An `integrated` objection means the proposal must change, so the ballot
+-- closes as failed, the close route writes the subject to `failed`, which is
+-- terminal, and the amended proposal is a brand new row with a brand new
+-- ballot and nothing pointing backwards. The person who saw the problem gets
+-- no evidence anywhere that the village acted on what they saw.
+--
+-- WHAT THIS COLUMN IS. One nullable pointer from the objection to the ballot
+-- the amended proposal ran as, written once, at that successor ballot's open,
+-- when the proposer names which objection they are answering. Naming one is
+-- optional: a proposer who names nothing still opens their vote.
+--
+-- WHAT IT MAY NEVER BECOME. No query may group this column by user_id, count
+-- objections per member, rank objectors, or hang a badge off it. "Credit" is a
+-- scoring word and this is the idea most likely to grow into a scoreboard;
+-- R55 forbids the comparison between members that a count would manufacture.
+-- server/lib/objectionLineageShape.test.ts is the gate that holds the line, and
+-- it reads the tree rather than trusting this comment.
+--
+-- THE ALTERNATIVE THAT WAS TURNED DOWN, AND WHAT IT WOULD HAVE COST.
+-- `governance_supports` (0089) could have carried this with no migration at
+-- all: a row of `(subject_type='objection_credit', subject_ref=<objection id>,
+-- user_id=<proposer>)`. It fits on the numbers, since an objection id is about
+-- 24 characters of the 64 that column holds, and it would have shipped in a
+-- morning. It was turned down because that table's own header declares what it
+-- is for: "staging/sensing supports generalized for the new subject types the
+-- later lanes add", INSERT IGNORE idempotent, one row per supporter. A lineage
+-- edge is none of those things. It is one write, by one person, about one
+-- artifact, and it is not a support. Putting it there makes the first honest
+-- reader of `governance_supports` wrong about what the table holds, and a
+-- reader who has to know a second unwritten rule to read a table correctly is
+-- how a schema stops being self-describing. A nullable column on the row the
+-- fact is about costs one migration and stays true on its own.
+--
+-- NO INDEX, DELIBERATELY. Every read of this column filters on `ballot_id`,
+-- which `ballot_objections_ballot_idx` already covers, and the column is NULL
+-- on almost every row that will ever exist: objections are consent-only, and
+-- `custom` is the default method, so most villages never file one. An index
+-- here would be write cost against a lookup nothing performs. Add one with the
+-- reverse query that needs it, never before.
+ALTER TABLE `ballot_objections` ADD COLUMN `led_to_ballot_id` varchar(40) NULL;

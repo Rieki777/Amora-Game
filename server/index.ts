@@ -24977,6 +24977,73 @@ Send an empty drafts array when you are still listening. A role payload is {name
   }
 
   /**
+   * The one race the lineage write below can lose, tagged so the route answers
+   * it as a sentence a proposer can act on instead of a 500 (0102).
+   */
+  const LINEAGE_TAKEN = "objection-lineage-taken";
+
+  /**
+   * LINEAGE, NOT CREDIT (0102).
+   *
+   * An objection that changed a proposal should say so on its own page. The
+   * chain that carries it was broken at exactly one edge: an `integrated`
+   * objection means the proposal must change, the ballot closes as failed, the
+   * subject goes terminal, and the amended proposal opens as a brand new row
+   * with a brand new ballot and nothing pointing backwards. The person who saw
+   * the problem got no evidence anywhere that the village acted on it.
+   *
+   * `ballot_objections.led_to_ballot_id` is that edge, and this is the check
+   * in front of it. The proposer of the amended version names the objection
+   * they are answering when they open its vote. Naming one is OPTIONAL, and
+   * that is load-bearing: a proposer who names nothing still opens.
+   *
+   * WHY THIS REFUSES INSTEAD OF DROPPING A BAD ID. A proposer who names an
+   * objection has made a claim about the village's record. Opening anyway and
+   * quietly not writing the link would leave them believing the record says
+   * something it does not, which is the kind of quiet default this house does
+   * not ship. A name that cannot be honoured comes back as a sentence saying
+   * which part of it did not hold, and the vote opens on the next attempt.
+   *
+   * WHAT MAY BE NAMED. A ruling of `integrated` (it stood, and the proposal
+   * had to change) or `concern` (it was heard and kept, and a proposer may
+   * amend for one anyway). Both are true readings of "the proposal changed
+   * after this". An `open` objection is unruled, so nobody has yet said it
+   * changed anything. A `withdrawn` one was taken back by the person who
+   * raised it, and hanging a consequence on a retraction is a false sentence.
+   * The objection's own ballot must be closed, because an objection on a vote
+   * still running has not finished being answered on that vote.
+   *
+   * ONE SHOT. An objection points at one successor forever. `IS NULL` in the
+   * guarded write is what enforces that; this read is the sentence in front of
+   * it.
+   */
+  async function objectionLineageProblem(objectionId: string): Promise<string | null> {
+    const [rows] = await getPool().query<any[]>(
+      "SELECT o.status, o.led_to_ballot_id, b.status AS ballot_status " +
+        "FROM ballot_objections o JOIN ballots b ON b.id = o.ballot_id WHERE o.id = ?",
+      [objectionId],
+    );
+    const row = rows[0];
+    if (!row) {
+      return "No objection on this village's record has that id, so nothing was linked. Open the vote again without naming one";
+    }
+    if (row.led_to_ballot_id) {
+      return "That objection already points at the vote that answered it. An objection leads to one decision, and the record keeps the first";
+    }
+    if (String(row.ballot_status) === "open") {
+      return "The vote that objection was raised on is still running, so it has not finished being answered there yet";
+    }
+    const status = String(row.status);
+    if (status === "open") {
+      return "Nobody has ruled on that objection yet, so the record cannot say a proposal changed because of it";
+    }
+    if (status === "withdrawn") {
+      return "The person who raised that objection took it back, so a later vote cannot be recorded as answering it";
+    }
+    return null;
+  }
+
+  /**
    * Open the ballot on a staged mechanics proposal. The proposer or any
    * proposal.open holder takes a proposal past the support threshold to the
    * village's own vote — the on-site sibling of the to-hypha route. One
@@ -25003,6 +25070,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
         supports,
         threshold,
       });
+    }
+    /*
+     * The objection this proposal is answering, if the proposer named one
+     * (0102). Checked here, before anything is written, so a name that cannot
+     * be honoured costs a sentence and never a half-open vote.
+     */
+    const answersObjectionId = String(req.body?.answersObjectionId ?? "").trim();
+    if (answersObjectionId) {
+      const problem = await objectionLineageProblem(answersObjectionId);
+      if (problem) return res.status(409).json({ error: problem });
     }
     // One rule for which method a village-wide ballot conducts, held in
     // shared/governanceEngine and read by every route that opens one. This
@@ -25057,7 +25134,34 @@ Send an empty drafts array when you are still listening. A role payload is {name
           [ballotId, p.id],
         );
         if (Number(r.affectedRows) === 0) throw new Error("proposal moved while the ballot was opening");
+        /*
+         * The lineage edge, inside the same transaction as the ballot it
+         * points at, so "this vote exists" and "that objection led here"
+         * commit together or neither does (0102). `IS NULL` makes the write
+         * one-shot: an objection leads to one successor and the record keeps
+         * the first. Zero rows means somebody claimed it in the moment between
+         * the check above and this line, and the honest answer is to roll the
+         * whole open back rather than open a vote carrying a lineage it does
+         * not have.
+         */
+        if (answersObjectionId) {
+          const [link] = await conn.query<any>( // module-review-ok: the ballot tables' one enumerable home (the ballots.ts pattern; no cache sits above them)
+            "UPDATE ballot_objections SET led_to_ballot_id = ? WHERE id = ? AND led_to_ballot_id IS NULL",
+            [ballotId, answersObjectionId],
+          );
+          if (Number(link.affectedRows) === 0) throw new Error(LINEAGE_TAKEN);
+        }
       },
+    }).catch((err: any): Awaited<ReturnType<typeof openBallot>> => {
+      // The lineage race, answered as a refusal. Everything else is rethrown
+      // exactly as it was, including the proposal-moved race beside it.
+      if (String(err?.message) === LINEAGE_TAKEN) {
+        return {
+          ok: false,
+          error: "That objection was linked to another vote a moment ago. Open this one again without naming it",
+        };
+      }
+      throw err;
     });
     if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
     await addActivity("governance", `The village opened a vote: ${p.title}`, {
@@ -25199,6 +25303,51 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const result = await fileObjection(getPool(), req.params.id, user.id, String(req.body?.text ?? ""));
     if (!result.ok) return res.status(409).json({ error: result.error });
     res.json({ success: true, id: result.id });
+  });
+
+  /**
+   * WHERE EACH OBJECTION ON THIS BALLOT LED, IF IT LED ANYWHERE (0102).
+   *
+   * An objection is already permanent, attributed and explained. What it never
+   * had was a forward edge: an `integrated` objection fails its ballot, the
+   * subject goes terminal, and the amended proposal opens as a new row with a
+   * new ballot and nothing pointing back. So the person who named the problem
+   * could not see that the village acted on it.
+   *
+   * Served on its own instead of folded into `serveBallot` for two reasons.
+   * The column is NULL on nearly every objection that will ever exist, since
+   * objections are consent-only and `custom` is the default method, so this
+   * would be a join on the decision page's hot path for a field that is almost
+   * always empty. And the fact lives on a DIFFERENT ballot: what a member
+   * wants beside the objection is that vote's own title, which is a second
+   * row either way.
+   *
+   * THE QUERY NAMES NO PERSON, AND THAT IS THE DESIGN. It selects the
+   * objection, the ballot it led to, and that ballot's own words. There is no
+   * user_id in it, no COUNT, and no GROUP BY, because this is lineage on the
+   * artifact and never a tally against a member.
+   * `server/lib/objectionLineageShape.test.ts` holds that line against the
+   * whole tree rather than trusting this paragraph.
+   */
+  app.get("/api/governance/ballots/:id/objections/lineage", async (req, res) => {
+    const b = await ballotById(getPool(), req.params.id);
+    if (!b) return res.status(404).json({ error: "Not found" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT o.id AS objection_id, led.id AS ballot_id, led.title, led.status, led.closed_at " +
+        "FROM ballot_objections o JOIN ballots led ON led.id = o.led_to_ballot_id " +
+        "WHERE o.ballot_id = ? AND o.led_to_ballot_id IS NOT NULL " +
+        "ORDER BY o.created_at, o.id",
+      [b.id],
+    );
+    res.json(
+      rows.map((r) => ({
+        objectionId: String(r.objection_id),
+        ballotId: String(r.ballot_id),
+        title: String(r.title),
+        status: String(r.status),
+        closedAt: r.closed_at ? new Date(r.closed_at).toISOString() : null,
+      })),
+    );
   });
 
   /**
