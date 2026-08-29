@@ -18695,8 +18695,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
       }
       cleaned.push({ label: label || url, url });
     }
-    const journey = journeyRepo.get();
-    journey.resources = cleaned;
+    // Copied rather than mutated in place. Before any row exists, `get()`
+    // hands back the module-level default OBJECT, so writing a field onto it
+    // edits the default every later reader in this process will see.
+    const journey = { ...journeyRepo.get(), resources: cleaned };
     await journeyRepo.put(journey);
     res.json({ success: true, resources: cleaned });
   });
