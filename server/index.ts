@@ -15583,8 +15583,31 @@ Send an empty drafts array when you are still listening. A role payload is {name
           : null;
       }
     }
+    const ledger = await balancesFor(getPool(), memberAccount(user.id));
     res.json({
-      ledger: await balancesFor(getPool(), memberAccount(user.id)),
+      ledger,
+      /*
+       * THE VILLAGE'S OWN WORD FOR EACH TOKEN IT HOLDS.
+       *
+       * `ledger` is keyed by slug, and the slug is history's identity and
+       * never changes. It is not the name a member agreed to hold, and a
+       * village that renames its currency to Seeds was still shown
+       * `qa3needle` on the one page they open to read what they own.
+       *
+       * Read live from the registry on every request, the way
+       * `/api/game/ledger` reads it, so a rename follows here the moment
+       * `loadTokenRegistry` reloads. Nothing anywhere stores a display name
+       * beside a balance or a ledger row: `tokens.name` is the only copy
+       * there is, which is why a rename can be complete.
+       *
+       * ADDITIVE. `ledger` keeps its shape, so every existing reader of it,
+       * including the send card's balance check, is untouched. A token with
+       * no registry row keeps showing its slug: that is a drift worth seeing
+       * and not a name worth inventing.
+       */
+      tokenNames: Object.fromEntries(
+        Object.keys(ledger).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
+      ),
       wallet: { address: user.walletAddress ?? null, verifiedAt: user.walletVerifiedAt ?? null },
       onchain,
       economicsEnabled,
@@ -16628,8 +16651,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
         [viewer.id],
       );
       const ctx = await capabilityCtx(viewer);
+      const held = await balancesFor(getPool(), memberAccount(viewer.id));
       mine = {
-        balances: await balancesFor(getPool(), memberAccount(viewer.id)),
+        balances: held,
+        // The same live registry read `/api/wallet` carries, for the same
+        // reason: `balances` is keyed by slug, and the wallet page rendered
+        // the slug as though it were the currency's name.
+        tokenNames: Object.fromEntries(
+          Object.keys(held).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
+        ),
         orders,
         canBuy: hasCapability("exchange.buy", ctx),
         canSwap: hasCapability("exchange.swap", ctx),

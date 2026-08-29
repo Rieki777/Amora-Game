@@ -107,6 +107,14 @@ export default function Wallet() {
   };
 
   const balances: Record<string, number> = data?.mine?.balances ?? {};
+  /*
+   * The village's own word for each token, from the registry, read live on
+   * every request. The slug is history's identity and never changes, so it is
+   * the wrong thing to show a member: a village that renamed its currency saw
+   * the old machine name here. Falls back to the slug for a token with no
+   * registry row, which is a drift worth seeing.
+   */
+  const tokenNames: Record<string, string> = data?.mine?.tokenNames ?? {};
 
   return (
     <Layout>
@@ -156,8 +164,8 @@ export default function Wallet() {
                     <div key={slug} className="border border-border rounded-lg px-3 py-2">
                       <p className={`text-lg font-bold ${Number(bal) < 0 ? "text-red-600" : "text-foreground"}`}>{bal}</p>
                       <p className="text-xs text-muted-foreground">
-                        {slug}
-                        <InfoTip tip={tokenTip(slug)} label={`What ${slug} is`} />
+                        {tokenNames[slug] ?? slug}
+                        <InfoTip tip={tokenTip(slug)} label={`What ${tokenNames[slug] ?? slug} is`} />
                       </p>
                     </div>
                   ))}
