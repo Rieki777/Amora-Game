@@ -121,13 +121,18 @@ describe.skipIf(!configured)("one cycle, one name", () => {
       give(pool, { fromUserId: giver, toUserId: to, amount, clientNonce: nonce }, async () => 1);
 
     // Door one: the Hearts economy, on the one allowance.
-    for (let i = 0; i < 3; i++) {
-      expect((await hearts(people[i], 25, `n-${i}`)).ok).toBe(true);
-    }
-    // The share, on this door. 26 to one person is over a quarter of 100.
-    const hogging = await hearts(people[3], 26, "n-hog");
+    expect((await hearts(people[0], 25, "n-0")).ok).toBe(true);
+
+    // The share, on this door, and measured while 75 of the allowance is still
+    // unspent so the ALLOWANCE cannot be what refuses it. Order of refusals is
+    // part of the contract: the remaining allowance is checked first, because
+    // it is the harder limit and the more useful sentence when both bind.
+    const hogging = await hearts(people[1], 26, "n-hog");
     expect(hogging.ok).toBe(false);
     expect(hogging.ok === false && hogging.error).toContain("25 is the most you can give one person");
+
+    expect((await hearts(people[1], 25, "n-1")).ok).toBe(true);
+    expect((await hearts(people[2], 25, "n-2")).ok).toBe(true);
 
     // Door two: the acknowledgement flow. Its budget already sees the 75.
     const budget = await budgetFor(depsOver(pool), { id: giver, name: giver });
