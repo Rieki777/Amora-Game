@@ -239,9 +239,12 @@ order of authority IS the policy (Gate E, shipped S36):
 
 1. `isAdmin` → true (the operator can always act — a real role on the user
    record, never a parallel path);
-2. `badgeDenies` → false (a warning badge's deny beats role AND stage
-   grants — "a warning that a role trivially overrides is not a warning";
-   only admin outranks it);
+2. `badgeDenies`, ON A DENIABLE KEY → false (a warning badge's deny beats
+   role AND stage grants — "a warning that a role trivially overrides is not
+   a warning"; only admin outranks it). `DENIABLE` (0109, R65/R66) says which
+   keys a deny may reach: `ballot.vote` and `member.vouch` are a member's own
+   say in a decision, nothing takes one away, and the gate ignores a deny
+   that names one. The other 27 keys are unchanged;
 3. `roleCapabilities` → true (appointments);
 4. `badgeCapabilities` → true (earned/granted badges);
 5. stage unlock (`STAGE_UNLOCKS`, deliberately only a handful of real
