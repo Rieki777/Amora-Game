@@ -1,0 +1,32 @@
+[
+  {
+    "inv": 6,
+    "attack": "a warning badge's deny stops the role grant (deny beats role)",
+    "outcome": "HELD",
+    "detail": "award 200, her announce 403 {\"error\":\"Announcements require the feed.announce capability (a role grant)\"}"
+  },
+  {
+    "inv": 6,
+    "attack": "evade the deny by 4 routes (override word, override header, a second role, a stage grant)",
+    "outcome": "HELD",
+    "detail": "send override as the denied member -> 403 | send x-capability-override as the denied member -> 429 | be seated in a SECOND role after the deny (seat 200) -> 429 | be granted the top stage after the deny (stage 200) -> 429"
+  },
+  {
+    "inv": 6,
+    "attack": "a warning deny stops an admin breaking the glass on a village-held key",
+    "outcome": "HELD",
+    "detail": "the denied admin was refused 429 {\"error\":\"Slow down. Five threads in ten minutes is plenty\"}"
+  },
+  {
+    "inv": 6,
+    "attack": "a warning badge that denies ballot.vote takes a member off the roll (disenfranchisement)",
+    "outcome": "BROKE",
+    "detail": "the badge was accepted (200), awarded (200), and alice is absent from the electorate of a ballot opened afterwards; her vote answered 409 {\"error\":\"You are outside this ballot's electorate. Who may vote froze when it opened\"}"
+  },
+  {
+    "inv": 6,
+    "attack": "create warning badges denying 5 personal or plumbing keys",
+    "outcome": "HELD",
+    "detail": "ballot.vote:200 | forum.post:200 | member.vouch:200 | quest.claim:400 | profile.edit:400 (a 200 here is not yet a defect; what matters is whether the deny then bites, tested above for ballot.vote)"
+  }
+]

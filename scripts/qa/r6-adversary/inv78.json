@@ -1,0 +1,38 @@
+[
+  {
+    "inv": 7,
+    "attack": "a geotagged JPEG keeps its EXIF through a member upload",
+    "outcome": "HELD",
+    "detail": "the fixture went in carrying FieldProbeCam and GPS; the stored and served bytes carry neither (6857b in, 6682b on disk)"
+  },
+  {
+    "inv": 7,
+    "attack": "guess an upload URL from a neighbouring timestamp (21 tries around a real name, known-good control answered 200)",
+    "outcome": "HELD",
+    "detail": "0 hits; the name carries a 13-digit ms stamp AND 5 base-36 characters (about 60 million per millisecond), and the volume is served by exact filename only"
+  },
+  {
+    "inv": 7,
+    "attack": "the suppressed-photo 404 is byte-identical to a missing-file 404",
+    "outcome": "NOT MEASURABLE",
+    "detail": "no suppressed photo exists in this scratch village to compare against; the missing-file 404 is \"{\\\"error\\\":\\\"Not found\\\"}\""
+  },
+  {
+    "inv": 7,
+    "attack": "write into the uploads volume with no account, across 7 doors",
+    "outcome": "BROKE",
+    "detail": "/api/work-with-us/attachment -> 200"
+  },
+  {
+    "inv": 8,
+    "attack": "read 12 private surfaces with no account (control: 4 answered for the owner)",
+    "outcome": "HELD",
+    "detail": "0 carried a member email or a password hash"
+  },
+  {
+    "inv": 8,
+    "attack": "read another member's private things by putting her id in 8 routes",
+    "outcome": "BROKE",
+    "detail": "/api/notifications?userId=user-1788029300237-u2118 -> 200 (body names her id, not his)"
+  }
+]
