@@ -19907,6 +19907,77 @@ ${inner}
 
   // â”€â”€ Visit Config (NEW-5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+  /**
+   * A CALL TO ACTION IS NOT A DOOR INTO THE VAULT.
+   *
+   * `GET /api/visit-config` and `GET /api/investor-summary` are both PUBLIC and
+   * both echo the whole admin-authored document back, `cta_url` and all. So
+   * pasting a vault document's link into that field published the document, to
+   * everybody, with nobody choosing to release it.
+   *
+   * That is the exact thing 0104 and PR #91 exist to stop from the other side.
+   * A vault document is private until an admin makes a per-document choice
+   * (`inPacket`), because `/api/uploads/:filename` has no authentication of its
+   * own: the link IS the credential, it never expires, and it can be forwarded.
+   * Deleting the row does not kill the file. There is no second revocation
+   * path. One paste into a text box walked around all of it.
+   *
+   * A VALIDATION, NEVER A GATE. An admin who pastes a vault link is trying to
+   * do something reasonable: point the button at the document they want people
+   * to read. So this refuses the one shape that leaks and says which door is
+   * open, in the founder's own words. Every other link still saves.
+   *
+   * The sweep is by FIELD NAME across the whole document, not by a path this
+   * function was told about. `visit_types` is an array of objects each with
+   * their own `cta_url`, and a shape that grows a third one should meet this
+   * on the day it is added instead of on the day somebody notices.
+   */
+  const UPLOADS_PATH = /^\/api\/uploads\//i;
+
+  /** The path out of whatever link shape was pasted, or the input unchanged. */
+  function linkPath(raw: string): string {
+    const scheme = /^[a-z][a-z0-9+.-]*:\/\/(.*)$/i.exec(raw);
+    if (scheme) return scheme[1].replace(/^[^/]*/, "");
+    if (raw.startsWith("//")) return raw.slice(2).replace(/^[^/]*/, "");
+    return raw;
+  }
+
+  function vaultLinkProblem(value: unknown): string | null {
+    if (value == null) return null;
+    const raw = String(value).trim();
+    if (!raw || !UPLOADS_PATH.test(linkPath(raw))) return null;
+    return (
+      "That link points into the investor vault. Files under /api/uploads/ have no sign-in in front of them, " +
+      "so anyone who opens this public page can read the document and pass the link to anybody else, forever. " +
+      "To share a document, put it in the investor packet under Admin, Investors, Documents, which is the choice " +
+      "that decides what a person receives. Then point this button at a page on the site."
+    );
+  }
+
+  /** Every call-to-action field in a document body, however deep it sits. */
+  function vaultLinkProblemIn(body: unknown): string | null {
+    const walk = (node: unknown): string | null => {
+      if (!node || typeof node !== "object") return null;
+      if (Array.isArray(node)) {
+        for (const v of node) {
+          const p = walk(v);
+          if (p) return p;
+        }
+        return null;
+      }
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        if (/^cta_?url$/i.test(key)) {
+          const p = vaultLinkProblem(value);
+          if (p) return p;
+        }
+        const deeper = walk(value);
+        if (deeper) return deeper;
+      }
+      return null;
+    };
+    return walk(body);
+  }
+
   app.get("/api/visit-config", async (_req, res) => {
     res.json(visitConfigRepo.get());
   });
@@ -19919,6 +19990,8 @@ ${inner}
   app.put("/api/admin/visit-config", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    const leak = vaultLinkProblemIn(req.body);
+    if (leak) return res.status(400).json({ error: leak });
     await visitConfigRepo.put(req.body);
     res.json({ success: true });
   });
@@ -19937,6 +20010,10 @@ ${inner}
   app.put("/api/admin/investor-summary", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    // The document this route saves is served verbatim to the public route
+    // above it. See vaultLinkProblem, in the visit-config block.
+    const leak = vaultLinkProblemIn(req.body);
+    if (leak) return res.status(400).json({ error: leak });
     await investorSummaryRepo.put(req.body);
     res.json({ success: true });
   });

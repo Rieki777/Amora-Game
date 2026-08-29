@@ -231,3 +231,91 @@ describe.skipIf(!DB_CONFIGURED)("the investor packet only sends what a person ch
     expect(withheld?.inPacket, "an anonymous caller moved a document into the packet").toBe(false);
   });
 });
+
+/**
+ * THE OTHER DOOR OUT OF THE VAULT: A LINK AN ADMIN PASTES INTO A PUBLIC FIELD.
+ *
+ * `GET /api/investor-summary` is public and echoes the whole admin-authored
+ * document back, `cta_url` and all. The vault's entire posture is that
+ * `/api/uploads/<file>` has no authentication, so a link IS the credential.
+ * Pasting a vault document's link into the call-to-action field therefore
+ * published the cap table to everyone who loaded /investor, without anybody
+ * choosing to release it and without the per-document `inPacket` choice PR #91
+ * built ever being asked.
+ *
+ * The same field, and the same public echo, exists on `visit-config`.
+ *
+ * These tests use the REAL url of a REAL vault document, read back out of the
+ * admin listing, so they cannot pass against a link shape the uploader has
+ * stopped producing.
+ */
+describe.skipIf(!DB_CONFIGURED)("a vault link cannot be published as a call to action", () => {
+  /** The genuine, working link to a document sitting in this village's vault. */
+  async function vaultUrl(): Promise<string> {
+    const res = await call("GET", "/api/admin/investor-docs");
+    expect(res.status, res.text).toBe(200);
+    const doc = res.json.find((d: any) => d.id === withheldId);
+    const url = String(doc?.url ?? "");
+    expect(url, "the fixture document must carry a real uploads url").toMatch(/^\/api\/uploads\//);
+    return url;
+  }
+
+  it("refuses the vault link, and says why in words a founder can act on", async () => {
+    const url = await vaultUrl();
+    const before = await call("GET", "/api/admin/investor-summary");
+    expect(before.status, before.text).toBe(200);
+
+    const res = await call("PUT", "/api/admin/investor-summary", { ...before.json, cta_url: url });
+    expect(res.status, res.text).toBe(400);
+    const said = String(res.json?.error ?? "");
+    // A founder pasting a vault link is trying to do something reasonable.
+    // The answer has to name the vault and offer the door that exists.
+    expect(said.toLowerCase()).toContain("vault");
+    expect(said.toLowerCase()).toContain("packet");
+    expect(said.length, "a bare validation code is not an answer").toBeGreaterThan(60);
+  });
+
+  it("publishes nothing, so the refusal is a refusal and not a warning", async () => {
+    const url = await vaultUrl();
+    const shown = await call("GET", "/api/investor-summary", undefined, "");
+    expect(shown.status, shown.text).toBe(200);
+    expect(shown.text).not.toContain(url);
+    expect(shown.text).not.toContain("/api/uploads/");
+  });
+
+  it("refuses an absolute link at the same file, which is what a browser copies", async () => {
+    const url = await vaultUrl();
+    const before = await call("GET", "/api/admin/investor-summary");
+    const res = await call("PUT", "/api/admin/investor-summary", {
+      ...before.json,
+      cta_url: `https://village.example${url}`,
+    });
+    expect(res.status, res.text).toBe(400);
+  });
+
+  it("still takes an ordinary call to action, so this is a validation and not a gate", async () => {
+    const before = await call("GET", "/api/admin/investor-summary");
+    const res = await call("PUT", "/api/admin/investor-summary", {
+      ...before.json,
+      cta_url: "https://example.org/talk-to-us",
+    });
+    expect(res.status, res.text).toBe(200);
+    const shown = await call("GET", "/api/investor-summary", undefined, "");
+    expect(shown.json?.cta_url).toBe("https://example.org/talk-to-us");
+  });
+
+  it("holds the same line on the visit page's call to action", async () => {
+    const url = await vaultUrl();
+    const before = await call("GET", "/api/admin/visit-config");
+    expect(before.status, before.text).toBe(200);
+    const types = Array.isArray(before.json?.visit_types) ? before.json.visit_types : [];
+    expect(types.length, "the visit config must carry visit types to test").toBeGreaterThan(0);
+    const res = await call("PUT", "/api/admin/visit-config", {
+      ...before.json,
+      visit_types: types.map((v: any, i: number) => (i === 0 ? { ...v, cta_url: url } : v)),
+    });
+    expect(res.status, res.text).toBe(400);
+    const shown = await call("GET", "/api/visit-config", undefined, "");
+    expect(shown.text).not.toContain("/api/uploads/");
+  });
+});
