@@ -104,6 +104,78 @@ describe.skipIf(!configured)("questsRepo story layer (MySQL)", () => {
     expect(q!.order).toBe(3);
   });
 
+  /*
+   * THE ADMIN EDIT PATH, END TO END, FOR THE THREE FIELDS THAT HAD NO INPUT.
+   *
+   * `difficulty`, `duration` and `impact` were in the Admin save payload and in
+   * its dirty-check projection from the day the story layer shipped, and no
+   * field was ever bound to any of them: the server accepted three values a
+   * founder had no door to set. The inputs exist now, so this pins the whole
+   * chain they travel, because a field that renders and does not persist is
+   * the same defect wearing a better coat.
+   *
+   * The test models the route rather than calling it: `PUT /api/admin/quests/:id`
+   * is `Object.assign(q, req.body, { id: q.id })` inside `questsRepo.update`,
+   * and `payload` below is the literal shape `Admin.tsx` sends on Save. The
+   * read back goes through `all()`, which is what `GET /api/quests` returns and
+   * what the Admin page reloads into the very same fields.
+   */
+  it("saves and reads back difficulty, duration and impact from the admin edit payload", async () => {
+    await quests.add(storied("q-trigger"));
+
+    // What Admin.tsx puts on the wire when the founder presses Save.
+    const payload = {
+      title: "Welcome the newcomers",
+      description: "Greet arrivals and help them find their feet.",
+      gratitude: "50-100",
+      status: "Open",
+      circle: "Community Development",
+      subtitle: "Be the first hello somebody remembers.",
+      story: "Most people decide how they feel about a place in the first hour.",
+      firstStep: "Introduce yourself to one person you have never met.",
+      deliverable: "A few words about who you welcomed.",
+      imageUrl: "/api/uploads/quest-01.webp",
+      difficulty: "Advanced",
+      duration: "Two mornings",
+      impact: "The newcomer is still here at six months.",
+      steps: ["Arrive early", "Learn three names", "Walk them to the kitchen"],
+      tips: ["Ask what brought them", "Water first, questions later"],
+    };
+
+    await quests.update("q-trigger", (q) => {
+      Object.assign(q, payload, { id: q.id });
+    });
+
+    // Read back the way the Admin page reloads, not the way it wrote.
+    const reloaded = (await quests.all()).find((q) => q.id === "q-trigger");
+    expect(reloaded).toBeDefined();
+    expect(reloaded!.difficulty).toBe("Advanced");
+    expect(reloaded!.duration).toBe("Two mornings");
+    expect(reloaded!.impact).toBe("The newcomer is still here at six months.");
+
+    // All three moved off the seeded values, so a no-op write cannot pass this.
+    expect(reloaded!.difficulty).not.toBe("Beginner");
+    expect(reloaded!.duration).not.toBe("2 hours");
+    expect(reloaded!.impact).not.toBe("A welcomed visitor often becomes a member.");
+  });
+
+  /*
+   * Clearing is a save too. The select offers "Not set" and both text fields
+   * can be emptied, and Admin.tsx sends `d.difficulty ?? ""` rather than
+   * dropping the key, so the empty string has to reach the column. A route
+   * that quietly kept the old value would leave a founder unable to undo.
+   */
+  it("clears difficulty, duration and impact when the founder empties them", async () => {
+    await quests.add(storied("q-trigger-clear"));
+    await quests.update("q-trigger-clear", (q) => {
+      Object.assign(q, { difficulty: "", duration: "", impact: "" }, { id: q.id });
+    });
+    const reloaded = (await quests.all()).find((q) => q.id === "q-trigger-clear");
+    expect(reloaded!.difficulty).toBe("");
+    expect(reloaded!.duration).toBe("");
+    expect(reloaded!.impact).toBe("");
+  });
+
   it("a mutation of one field leaves the whole story layer standing", async () => {
     await quests.add(storied("q-mutate"));
     await quests.update("q-mutate", (q) => {

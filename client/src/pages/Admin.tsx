@@ -3470,8 +3470,8 @@ function QuestsTab({ password }: { password: string }) {
                         behind. Difficulty is the load-bearing one: ringFor
                         reads it to place the quest on the board. */}
                     <label className="text-xs text-gray-500">Difficulty
-                      {/* A select, not a free text box. The three words are a
-                          vocabulary the board reads: QuestCard colours by them,
+                      {/* A select, because the three words are a vocabulary
+                          the board reads: QuestCard colours by them,
                           the Quests filter chips match on them exactly, and
                           ringFor compares against "Beginner" character for
                           character. A typed "beginner" would drop the colour
@@ -3504,9 +3504,9 @@ function QuestsTab({ password }: { password: string }) {
                     <label className="text-xs text-gray-500 sm:col-span-2">Why it matters
                       <textarea value={d.story ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, story: e.target.value } })} rows={3} className={`${inputCls} w-full mt-1 resize-y`} />
                     </label>
-                    {/* A textarea rather than a one-line input: the quest page
-                        prints this as a pull quote under Why it matters, and
-                        the seeded ones run to two full sentences. */}
+                    {/* A textarea, because the quest page prints this as a
+                        pull quote under Why it matters and the seeded ones run
+                        to two full sentences. */}
                     <label className="text-xs text-gray-500 sm:col-span-2">What changes because of it
                       <textarea value={d.impact ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, impact: e.target.value } })} rows={2} className={`${inputCls} w-full mt-1 resize-y`} />
                     </label>
