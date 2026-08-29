@@ -41,7 +41,7 @@
  */
 import { useEffect, useState } from "react";
 import { History } from "lucide-react";
-import { gameFetch } from "@/lib/gameApi";
+import { authToken, gameFetch } from "@/lib/gameApi";
 
 /** Exactly what `/api/org/roles/:id/history` answers with, per row. */
 export interface SeatSeating {
@@ -157,7 +157,31 @@ export default function SeatHistory({
     };
   }, [roleId, canSeePeople]);
 
-  if (!canSeePeople || unreadable) return null;
+  if (!canSeePeople) return null;
+
+  /*
+   * REFUSED, AND WHETHER THAT IS WORTH A SENTENCE.
+   *
+   * The two people who meet this are not in the same position. A village that
+   * has made its people public shows current holders to a signed-out reader
+   * (`/api/org` answers `seesPeople` on the village's own dial), while this
+   * route asks for `map.viewPeople`, which needs an account. So a visitor can
+   * read who holds a seat today and not who held it before, and the section
+   * simply would not appear, with nothing anywhere saying it exists.
+   *
+   * `map.viewPeople` unlocks at the guest rung, so for that reader signing in
+   * is the whole of it and the offer is true. For somebody already signed in
+   * it would be the useless advice `PeopleLock` names by name, so they get
+   * nothing here and the tier note on the page is what speaks.
+   */
+  if (unreadable) {
+    if (authToken()) return null;
+    return (
+      <p className="text-xs text-muted-foreground">
+        Sign in to see who has held this seat before.
+      </p>
+    );
+  }
 
   if (rows === null) {
     return <p className="text-xs text-muted-foreground">Reading who has held this seat…</p>;
