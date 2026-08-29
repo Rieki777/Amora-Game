@@ -239,7 +239,11 @@ export const VARIABLES: VariableDef[] = [
     default: "25",
     min: 1,
     max: 100,
-    unit: "% of the giver's allowance",
+    // Short on purpose. Game Mechanics renders a value as `${raw} ${unit}` in
+    // a chip, and three of those sit on one line ("25 % of the allowance",
+    // "village-tuned · default 25 % of the allowance", and a staged arrow), so
+    // a longer unit wraps the row. The full sentence is in the description.
+    unit: "% of the allowance",
   },
   {
     key: "gratitude.require_message",
