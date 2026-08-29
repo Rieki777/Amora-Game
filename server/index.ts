@@ -284,7 +284,7 @@ import {
   spendSurfacesFor,
 } from "./lib/spending";
 import { seatChargeFor, seatEscrowDrift, seatPriceFor, settleFinishedSeats } from "./lib/eventSeats";
-import { allowanceFor, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
+import { allowanceFor, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
 import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -739,6 +739,7 @@ import {
   settleCycle,
   formatCycleId,
   parseCycleId,
+  unreadableCycleProblem,
   type CycleRecord,
   type DistributionRecord,
 } from "./lib/gratitude-cycles";
@@ -4303,15 +4304,59 @@ function getWorkWithUs() {
   return { ...DEFAULT_WORK_WITH_US, ...workWithUsRepo.get() };
 }
 
-/** When a Work With Us proposal is accepted, fold it into the game for a matching
- * member: a logged contribution, Gratitude credit, and a pulse. Idempotent. */
-async function applyAcceptReward(entry: any): Promise<boolean> {
-  if (entry.rewarded) return false;
+/**
+ * When a Work With Us proposal is accepted, fold it into the game for a
+ * matching member: a logged contribution, Gratitude credit, and a pulse.
+ * Idempotent.
+ *
+ * A STEWARD MAY NOT PAY THEMSELVES THROUGH THIS DOOR. `canConfirm` in
+ * server/lib/economy.ts already states the rule for the whole build: "A
+ * steward may not witness their own work. Confirming releases value, so it
+ * must be structurally impossible to do it for yourself, admin included."
+ * This path releases value and did not ask. Anyone holding `intake.moderate`
+ * could send a Work With Us proposal in their own name, accept it, and mint
+ * themselves `gratitude.proposal_accept_award`, which defaults to 100. Once
+ * per submission, and nothing bounds how many submissions a person sends.
+ *
+ * That token is the DEFAULT `governance.weight_token`, so in a village
+ * running `governance.weight_mode = token` the amount minted here is voting
+ * weight. The admin mint cap does not reach it either: `mintCapGuard` counts
+ * `from_account = 'sys:mint'` and this issues from the recognition faucet.
+ *
+ * The acceptance itself still stands. Whether a steward may accept their own
+ * proposal at all is a question for the village, and this is not the place to
+ * answer it. What stops here is the payment, and the route says so, because a
+ * refusal nobody is told about teaches nothing.
+ */
+async function applyAcceptReward(
+  entry: any,
+  acceptedByUserId: string | null,
+): Promise<{ rewarded: boolean; refused?: string }> {
+  if (entry.rewarded) return { rewarded: false };
   const email = String(entry.data?.email ?? "").toLowerCase();
   const match =
     (entry.userId ? await members.byId(entry.userId) : null) ??
     (email ? await members.byEmail(email) : null);
-  if (!match) return false; // not a registered member; nothing to fold in
+  if (!match) return { rewarded: false }; // not a registered member; nothing to fold in
+  // The same rule the mint already enforces, restated where this mint happens
+  // so a new caller cannot route around it.
+  //
+  // Called with no actor, this refuses too, and that is the point.
+  // `canConfirm` answers "a confirmation needs a named steward" for an empty
+  // one, so an unattributed accept withholds the payment. Every live path
+  // here has an actor: the route sits behind `guardCapability`, which cannot
+  // pass without a signed-in user. A future caller that loses the actor meets
+  // a refusal it has to read, and inventing a witness to get past it is the
+  // one thing that must stay hard.
+  const witness = canConfirm(match.id, acceptedByUserId ?? "");
+  if (!witness.ok) {
+    return {
+      rewarded: false,
+      refused:
+        "The proposal is accepted. The recognition for it waits for another steward, " +
+        "because this proposal is yours.",
+    };
+  }
   // Registry, not the content document: this is recognition ISSUANCE, and it
   // sat in Work With Us page copy with no bounds and no mechanics visibility.
   // A runOnce migrated any customized document value into the variable.
@@ -4334,7 +4379,7 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
     });
     if (!credit.ok) {
       console.error(`[submissions] accept credit failed for submission ${entry.id}: ${credit.error}`);
-      return false;
+      return { rewarded: false };
     }
     newBalance = credit.toBalance;
   }
@@ -4349,9 +4394,9 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
     });
     if (newBalance != null) u.recognitionBalance = newBalance;
   });
-  if (!updated) return false;
+  if (!updated) return { rewarded: false };
   await addActivity("proposal", `${firstName(updated.name)}'s proposal was welcomed into the village`, { actorUserId: updated.id, entityType: "submission", entityRef: entry.id });
-  return true;
+  return { rewarded: true };
 }
 
 function escapeHtml(s: string): string {
@@ -7060,8 +7105,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const before = String(submissions[idx].status ?? "");
     submissions[idx].status = status;
     let rewarded = false;
+    let rewardRefused: string | null = null;
     if (status === "accepted" && !wasAccepted && submissions[idx].type === "work-with-us") {
-      rewarded = await applyAcceptReward(submissions[idx]);
+      // The acting steward, so the mint can refuse to pay them for their own
+      // proposal. Null when this arrives through a path with no named human,
+      // and the guard then leaves the payment alone: an unattributed accept is
+      // its own problem and inventing an actor here would hide it.
+      const actorId = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+      const outcome = await applyAcceptReward(submissions[idx], actorId);
+      rewarded = outcome.rewarded;
+      rewardRefused = outcome.refused ?? null;
       if (rewarded) submissions[idx].rewarded = true;
     }
     await submissionsRepo.replaceAll(submissions);
@@ -7103,7 +7156,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       });
       notified = true;
     }
-    res.json({ success: true, rewarded, notified });
+    // `rewardRefused` is null on every ordinary accept. When it is a
+    // sentence, the status moved and the recognition did not, and the desk has
+    // to be told which: "accepted" with a silent unpaid mint is the shape this
+    // guard exists to stop.
+    res.json({ success: true, rewarded, rewardRefused, notified });
   });
 
   // Admin: Export Submissions as CSV
@@ -22919,12 +22976,23 @@ ${inner}
 
     const cycles: CycleRecord[] = await cyclesRepo.all();
     const entries: any[] = await gratitudeRepo.all();
+    /*
+     * Read this BEFORE any total is computed, and hand it to the desk rather
+     * than throwing: `settleCycle` and `dueCycles` now refuse an id they cannot
+     * read, and the admin who has to fix it should meet a sentence here, on the
+     * page that exists to be read before pressing, instead of a 500.
+     *
+     * Empty `due` when it fires is the honest answer. There is no partial
+     * settlement to preview: a preview that quietly left the unreadable rows
+     * out would be the same lie the close used to tell.
+     */
+    const unreadable = unreadableCycleProblem(entries);
     const dists: DistributionRecord[] = await distributionsRepo.all();
     const allMembers = await members.all();
     const nameOf = (id: string) => firstName(allMembers.find((u: any) => u.id === id)?.name ?? "Member");
     const eligible = await eligibleSenderIds();
 
-    const due = dueCycles(cycles, entries, new Date()).map((cycle) => {
+    const due = (unreadable ? [] : dueCycles(cycles, entries, new Date())).map((cycle) => {
       const persisted = dists.filter((d) => d.cycleId === cycle.id);
       const totals = settleCycle(entries, cycle.id, eligible);
       const totalEligible = totals.reduce((n, t) => n + t.receivedEligible, 0);
@@ -22969,6 +23037,9 @@ ${inner}
         tokenName: tokenDef(poolToken)?.name ?? poolToken,
         problem: cyclePoolProblem(poolSize, poolToken),
       },
+      // Null when every row's cycle is readable, which is the ordinary case.
+      // A sentence when it is not, and the close below refuses on the same one.
+      unreadableCycles: unreadable,
       due,
     });
   });
@@ -23007,6 +23078,20 @@ ${inner}
 
     const cycles: CycleRecord[] = await cyclesRepo.all();
     const entries: any[] = await gratitudeRepo.all();
+    /*
+     * Fail loud on a cycle id nothing can read, in the same place and for the
+     * same reason the pool problem above fails loud: before anything settles.
+     *
+     * This used to be a quiet skip. `settleCycle` filtered on an exact id and
+     * `dueCycles` dropped whatever `parseCycleId` could not read, so 30 of 130
+     * units left the totals without a word, every recipient under them was told
+     * a smaller number than they had earned, and their share of the pool was
+     * computed from it. A number that is wrong and says so can be fixed in an
+     * hour. A number that is wrong and looks right is wrong forever.
+     */
+    const unreadable = unreadableCycleProblem(entries);
+    if (unreadable) return res.status(400).json({ error: unreadable });
+
     const due = dueCycles(cycles, entries, new Date());
 
     const closed: CycleRecord[] = [];
