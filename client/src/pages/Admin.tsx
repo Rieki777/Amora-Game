@@ -7203,8 +7203,10 @@ function BadgesAdminTab({ password }: { password: string }) {
           <h2 className="text-xl font-bold text-gray-900 mb-1">Badges & Skills</h2>
           <p className="text-sm text-gray-500 max-w-xl">
             Self and hypha badges gate nothing; only warnings may deny, and a
-            deny beats role and stage grants (admins excepted). Earned badges
-            ride settled metrics only, and never applause into permissions.
+            deny beats role and stage grants (admins excepted). A warning can
+            never take away voting or vouching. A voice that was earned stays.
+            Earned badges ride settled metrics only, and never applause into
+            permissions.
           </p>
         </div>
         <button
