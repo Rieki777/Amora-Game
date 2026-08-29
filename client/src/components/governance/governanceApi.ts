@@ -277,13 +277,29 @@ export const fetchStanding = () => call<Standing>("/api/governance/standing");
 
 /**
  * Lineage for the objections a panel is already holding, asked for by their
- * own ids. Objections a page has no rows for come back absent, which is what
- * is true about them.
+ * own ids. Objections with no successor come back absent, which is what is
+ * true about them.
+ *
+ * ASKED IN BATCHES BECAUSE THE ROUTE CAPS ITS BATCH, and a village can reach
+ * that cap. A `no` vote in consent mode files an objection on its own, so a
+ * village of sixty where fifty-five vote no has fifty-five objections on one
+ * decision. Sending all of them and taking the first fifty back would leave
+ * the tail of that page quietly missing a sentence the record holds, and a
+ * page that goes quiet at scale is the kind of gap nobody finds.
  */
-export const fetchObjectionLineage = (objectionIds: string[]) =>
-  call<ObjectionLineage[]>(
-    `/api/governance/objections/lineage?ids=${encodeURIComponent(objectionIds.join(","))}`,
-  );
+const LINEAGE_BATCH = 50;
+export async function fetchObjectionLineage(objectionIds: string[]): Promise<Answer<ObjectionLineage[]>> {
+  const rows: ObjectionLineage[] = [];
+  for (let at = 0; at < objectionIds.length; at += LINEAGE_BATCH) {
+    const batch = objectionIds.slice(at, at + LINEAGE_BATCH);
+    const answer = await call<ObjectionLineage[]>(
+      `/api/governance/objections/lineage?ids=${encodeURIComponent(batch.join(","))}`,
+    );
+    if (!answer.ok) return answer;
+    rows.push(...answer.data);
+  }
+  return { ok: true, data: rows };
+}
 export const fetchWizardFacts = () => call<WizardFacts>("/api/governance/wizard");
 
 export const castVote = (id: string, choice: VoteChoice, reason?: string) =>

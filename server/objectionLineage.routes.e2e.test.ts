@@ -350,6 +350,22 @@ describe.skipIf(!DB_CONFIGURED)("an objection that changed a proposal says so", 
     expect(opened.status, JSON.stringify(opened.json)).toBe(200);
   });
 
+  it("takes fifty ids at a time, which is why the panel asks in batches", async () => {
+    // The cap is real and a village can reach it: in consent mode a `no` vote
+    // files an objection by itself, so a large village voting one down puts
+    // dozens on a single decision. Fifty-first in the list, the route does not
+    // reach it; first in the list, it does. `fetchObjectionLineage` splits the
+    // ask for exactly this reason, and objectionLineageBatch.test.ts holds it.
+    const filler = Array.from({ length: 50 }, (_, i) => `obj-filler-${i}`);
+    const past = await call("GET", `/api/governance/objections/lineage?ids=${[...filler, objectionId].join(",")}`);
+    expect(past.status).toBe(200);
+    expect(past.json, "the fifty first id is past the cap").toEqual([]);
+
+    const within = await call("GET", `/api/governance/objections/lineage?ids=${[objectionId, ...filler].join(",")}`);
+    expect(within.status).toBe(200);
+    expect(within.json).toHaveLength(1);
+  });
+
   it("answers an unknown id with nothing about it, and asks for nothing when asked for nothing", async () => {
     const unknown = await call("GET", "/api/governance/objections/lineage?ids=obj-nothing-here,obj-nor-this");
     expect(unknown.status).toBe(200);

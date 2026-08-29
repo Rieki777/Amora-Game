@@ -25358,7 +25358,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
         ballotId: String(r.ballot_id),
         title: String(r.title),
         status: String(r.status),
-        closedAt: r.closed_at ? new Date(r.closed_at).toISOString() : null,
+        // The same shape `iso` uses in ballots.ts, and for its reason. mysql2
+        // runs with `timezone: "Z"` and no `dateStrings`, so a datetime comes
+        // back as a Date already read as UTC. Handing a STRING to `new Date`
+        // instead would parse it in the app machine's own zone and move the
+        // instant, which is how a decision's date drifts by a working day.
+        closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : r.closed_at ? String(r.closed_at) : null,
       })),
     );
   });
