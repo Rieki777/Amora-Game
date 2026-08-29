@@ -33,12 +33,13 @@ function BuilderCard({ guideUrl, poolUrl }: { guideUrl: string; poolUrl: string 
         <Hammer className="w-5 h-5 text-teal-deep" aria-hidden="true" />
         <h3 className="font-semibold text-foreground">
           Build one, get paid in{" "}
-          <InfoTip tip="$ReGen is the network's own token. The builders' pool pays module builders in it, each lunar cycle, sized by how many villages run their module.">$ReGen</InfoTip>
+          <InfoTip tip="$ReGen is the network's own token. The builders' pool pays module builders in it, each lunar cycle, sized by how many members open their module.">$ReGen</InfoTip>
         </h3>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed">
         Anyone can build a module for this platform. Every free module earns a share of the
-        builders' pool each lunar cycle, sized by how many villages run it.
+        builders' pool each lunar cycle, sized by how many members open it. Nothing has been paid out
+        yet.
       </p>
       <div className="mt-3 flex flex-col gap-1.5">
         <a

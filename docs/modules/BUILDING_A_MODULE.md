@@ -259,14 +259,36 @@ third-party builders for the platform's usage as well as their own. What it mean
 your share is a share of everything the pool measures, and what the platform earns never leaves the
 pool. The village's own pool statement shows the returning amount as a number.
 
-To be paid, create your ReGen Civics account and link your Hypha account with a Base address in
-profile setup. The pool pays an account and never a raw address written into a registry file,
-because a payout identity in a code file is one nobody can rotate or recover.
+To be paid, your registry entry carries two fields together:
 
-Clause 14 of `docs/MODULE_LIBRARY_CONTRACT.md` is the binding text. The listing lint now prints your
+- `builtByAccount`, the handle you hold on an account system.
+- `builtByNamespace`, the host of that system, for example the site you signed up on.
+
+You link your own Base address inside your own profile on that system, and whoever settles a cycle
+reads the address there. The pool pays an account and never a raw address written into a registry
+file, because a payout identity in a code file is one nobody can rotate or recover, and a pull
+request against it looks like a typo fix.
+
+**One field without the other is refused**, at boot and in the lint. A handle alone only resolves
+while everybody shares one account system, and that stopped being safe to assume the moment a second
+organisation ran this code: `alice` on one system is a different person from `alice` on another.
+
+Your credit travels with your module. It sits in the registry entry, every fork inherits it by
+pulling, and every village republishes it in the cycle report it serves at
+`/api/platform/module-usage`. There is no central list of builders to get onto, which is what lets a
+village nobody has heard of run your module and have that count.
+
+Clause 14 of `docs/MODULE_LIBRARY_CONTRACT.md` is the binding text, and
+`shared/moduleProvenance.ts` is the authority on what a report carries. The listing lint prints your
 module's pool status and the reason behind it, refuses a listing that charges while claiming the
-pool, and checks that the account you name is a ReGen Civics handle instead of an address. Run
+pool, and refuses a payout identity that is missing half of itself or is an address. Run
 `node scripts/validate-module.mjs <your-module-id>` and it tells you where you stand.
+
+**Nothing has been paid out yet, and you should know that before you write anything.** The
+measurement runs, the reports are served and signed, and a village's own statement closes to the
+unit. There is no wallet in this repository and no automated transfer: the last step is a person
+reading a statement and sending $ReGen by hand. The appendix to the contract tracks that line by
+line.
 
 ### What you may not do on lapse
 
