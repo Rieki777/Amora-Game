@@ -25237,16 +25237,34 @@ Send an empty drafts array when you are still listening. A role payload is {name
     });
   });
 
-  /** Cast or change a vote. The electorate froze at open; so did the weights. */
+  /**
+   * Cast or change a vote. The electorate froze at open; so did the weights.
+   *
+   * THE GATE IS READ HERE SO THE REFUSAL CAN SAY WHY. Somebody who is not on
+   * the roll used to be told, always, that "who may vote froze when it
+   * opened". That is true of the member who joined after the vote started and
+   * false of the member a warning badge is holding back: `buildElectorate`
+   * runs the one gate at open and `capabilityDecision` refuses a warning's
+   * deny before it looks at any grant, so she is left off every roll built
+   * afterwards, and the product named the freeze and hid the cause. The
+   * sentence itself lives with the rule, in `offRollSentence`.
+   *
+   * A LOOK AND NEVER AN ACT (R53): `capabilityCtx` is the pure gate with no
+   * break-glass in it, exactly as `/api/governance/standing` reads it. Asking
+   * the gate why somebody is off a roll must not write "acted on a power this
+   * village holds" to a feed the village reads.
+   */
   app.post("/api/governance/ballots/:id/vote", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to vote" });
+    const voteGate = capabilityDecision("ballot.vote", await capabilityCtx(user));
     const result = await castVote(
       getPool(),
       req.params.id,
       user.id,
       String(req.body?.choice ?? ""),
       req.body?.reason === undefined ? undefined : String(req.body.reason),
+      { mayVoteNow: voteGate.allowed, deniedByWarning: voteGate.source === "denied by warning badge" },
     );
     if (!result.ok) return res.status(409).json({ error: result.error });
     const b = await ballotById(getPool(), req.params.id);
@@ -26507,7 +26525,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!user) return res.status(401).json({ error: "auth_required" });
     const snapshot = weightModeNow();
     const ctx = await capabilityCtx(user);
-    const eligible = hasCapability("ballot.vote", ctx);
+    /*
+     * WHY, AND NOT ONLY WHETHER. This read the yes-or-no face of the gate and
+     * served a bare `eligible: false`, so the card underneath had to name
+     * BOTH of the two things that could be refusing a member and let them
+     * guess which was theirs. A member a warning badge is holding back is
+     * entitled to know that is the reason.
+     *
+     * ONE named fact rather than the source string. `CapabilitySource` is the
+     * gate's internal vocabulary, and shipping it would invite a client map
+     * from every one of its seven values to a sentence, which is the
+     * hand-kept-mirror class exactly. One boolean answers the one question a
+     * member is owed an answer to.
+     */
+    const voteGate = capabilityDecision("ballot.vote", ctx);
+    const eligible = voteGate.allowed;
     const weights = await weightsFor(getPool(), [String(user.id)], snapshot);
     const weight = weights.get(String(user.id)) ?? 0;
     const tokenName = snapshot.token ? tokenDef(snapshot.token)?.name ?? snapshot.token : null;
@@ -26522,6 +26554,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
       token: snapshot.token,
       tokenName,
       eligible,
+      /** Set only when a warning badge is the thing refusing the vote. */
+      deniedByWarning: voteGate.source === "denied by warning badge",
       weight,
       why,
       // Whether this member facilitates: rules objections, closes early. The

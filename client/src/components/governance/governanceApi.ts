@@ -212,6 +212,13 @@ export interface Standing {
   token: string | null;
   tokenName: string | null;
   eligible: boolean;
+  /**
+   * Why `eligible` is false, for the one case a member is owed by name. A
+   * warning badge's deny beats role, badge and stage in the one gate, so a
+   * member carrying one is left off every roll built while it stands. The
+   * card used to name both possible reasons and let her guess which was hers.
+   */
+  deniedByWarning: boolean;
   weight: number;
   why: string;
   /** Holds proposal.decide: may rule objections and close a ballot early. */

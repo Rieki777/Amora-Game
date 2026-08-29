@@ -523,3 +523,132 @@ describe.skipIf(!DB_CONFIGURED)("a village does not lose its oldest decisions", 
     expect(plain.json.length).toBe(100);
   });
 });
+
+/**
+ * WHY SOMEBODY IS OFF A ROLL, SAID CORRECTLY.
+ *
+ * The refusal was one sentence for every reason: "Who may vote froze when it
+ * opened." That is true of the member who joined after a vote started, and it
+ * is false of a member a warning badge is holding back, who would be off a
+ * roll built at any hour of any day. `buildElectorate` runs the one gate over
+ * every member at open and `capabilityDecision` refuses a warning's deny
+ * before it looks at any grant, so she is left off every roll made while the
+ * warning stands, and the product named the freeze and hid the cause.
+ *
+ * Both cases are driven for real here: a warning is created, awarded and a
+ * ballot opened after it, and a member is registered after a ballot opened.
+ * Neither is simulated, because the mechanism is the claim.
+ */
+describe.skipIf(!DB_CONFIGURED)("why somebody is off a roll", () => {
+  let caraToken = "";
+  let caraId = "";
+  let danaToken = "";
+  let ballotId = "";
+
+  it("sets up a member the village has warned, and a member who arrived late", async () => {
+    expect((await call("PUT", "/api/admin/modules/badges/lifecycle", {
+      body: { lifecycle: "members", examples: false },
+    })).status).toBe(200);
+
+    const cara = await register("Cara Lin", `cara-${PORT}@example.test`);
+    caraToken = cara.token;
+    caraId = cara.id;
+    expect((await call("PUT", `/api/admin/players/${caraId}/stage`, { body: { stageId: "member" } })).status).toBe(200);
+
+    // Before the warning she holds the vote, which is what makes the case a
+    // case: nothing about her stage or her roles changes below.
+    const before = await call("GET", "/api/governance/standing", { token: caraToken });
+    expect(before.status).toBe(200);
+    expect(before.json?.eligible).toBe(true);
+
+    const badge = await call("POST", "/api/admin/badges", {
+      body: {
+        name: `Voting paused ${PORT}`,
+        description: "A pause on voting while something is being worked out.",
+        kind: "warning",
+        denies: ["ballot.vote"],
+      },
+    });
+    expect(badge.status, JSON.stringify(badge.json)).toBe(200);
+    const badgeId = String(badge.json?.badge?.id ?? "");
+    expect((await call("POST", `/api/admin/badges/${badgeId}/award`, {
+      body: { userId: caraId, note: "Paused while the circle finishes talking it through." },
+    })).status).toBe(200);
+
+    const after = await call("GET", "/api/governance/standing", { token: caraToken });
+    expect(after.json?.eligible, "the warning holds the vote back").toBe(false);
+    expect(after.json?.deniedByWarning, "and the server says WHICH of the two reasons it is").toBe(true);
+  });
+
+  it("opens a vote after the warning, and Cara is not on its roll", async () => {
+    // The founder's earlier advisory is still running and one opener may have
+    // one at a time, so it is called off first.
+    const open = await call("GET", "/api/governance/ballots?limit=200");
+    const running = (open.json ?? []).find((b: any) => b.subjectType === "advisory" && b.status === "open");
+    if (running) {
+      expect((await call("POST", `/api/governance/ballots/${running.id}/withdraw`, {
+        body: { reason: "Asked before the question was settled. Asking the settled one now." },
+      })).status).toBe(200);
+    }
+
+    const asked = await call("POST", "/api/governance/advisory", {
+      body: { question: "Would we want the work morning to start an hour earlier?" },
+    });
+    expect(asked.status, JSON.stringify(asked.json)).toBe(200);
+    ballotId = String(asked.json?.ballot?.id ?? "");
+    expect(ballotId).toBeTruthy();
+
+    const seen = await call("GET", `/api/governance/ballots/${ballotId}`, { token: caraToken });
+    expect(seen.status).toBe(200);
+    expect(seen.json?.myWeight, "she is outside the roll this vote froze").toBeNull();
+  });
+
+  it("TELLS HER THE WARNING IS WHY, instead of blaming the clock", async () => {
+    const refused = await call("POST", `/api/governance/ballots/${ballotId}/vote`, {
+      token: caraToken,
+      body: { choice: "yes" },
+    });
+    expect(refused.status).toBe(409);
+    const said = String(refused.json?.error ?? "");
+    expect(said).toContain("A warning on your account is holding voting back");
+    // The exact false claim this replaces. Timing did not do this to her.
+    expect(said).not.toContain("froze");
+    expect(said).not.toContain("Who may vote");
+  });
+
+  it("still names the freeze for the member the freeze actually kept out", async () => {
+    // Dana registers AFTER the ballot opened and reaches member stage, so she
+    // holds `ballot.vote` right now and is off this one roll for the one
+    // reason the old sentence described.
+    const dana = await register("Dana Poe", `dana-${PORT}@example.test`);
+    danaToken = dana.token;
+    expect((await call("PUT", `/api/admin/players/${dana.id}/stage`, { body: { stageId: "member" } })).status).toBe(200);
+
+    const standing = await call("GET", "/api/governance/standing", { token: danaToken });
+    expect(standing.json?.eligible).toBe(true);
+    expect(standing.json?.deniedByWarning).toBe(false);
+
+    const refused = await call("POST", `/api/governance/ballots/${ballotId}/vote`, {
+      token: danaToken,
+      body: { choice: "yes" },
+    });
+    expect(refused.status).toBe(409);
+    const said = String(refused.json?.error ?? "");
+    expect(said).toContain("It froze when this vote opened");
+    expect(said).not.toContain("warning");
+  });
+
+  it("and says the plain thing to an account voting is not open to at all", async () => {
+    // The suite's ordinary member never reached member stage, so the gate
+    // refuses her for the third reason, which is neither a warning nor a
+    // clock. Three cases, three sentences, none of them borrowed.
+    const refused = await call("POST", `/api/governance/ballots/${ballotId}/vote`, {
+      token: memberToken,
+      body: { choice: "yes" },
+    });
+    expect(refused.status).toBe(409);
+    const said = String(refused.json?.error ?? "");
+    expect(said).toContain("Voting is not open to your account at the moment");
+    expect(said).not.toContain("warning");
+  });
+});

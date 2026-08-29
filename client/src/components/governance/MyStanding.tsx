@@ -63,9 +63,16 @@ export default function MyStanding({ standing }: { standing: Standing }) {
       </h3>
 
       {!standing.eligible ? (
+        /* THE TRUE ONE, RATHER THAN BOTH OF THEM. This named the stage rung
+           and the warning badge in one sentence and left the reader to work
+           out which was hers, and a member being held back by a warning has
+           no other place in the product to learn that. `deniedByWarning` is
+           the server saying which. R56: it is stated once, flatly, with
+           nothing in it about what she should have done. */
         <p className="mt-2 text-sm text-stone-600 leading-relaxed">
-          You cannot vote in this village yet. Voting opens at the member stage, and a warning badge suspends it for as
-          long as it stands.
+          {standing.deniedByWarning
+            ? "A warning on your account is holding voting back for as long as it stands."
+            : "You cannot vote in this village yet. Voting opens at the member stage."}
         </p>
       ) : (
         <>

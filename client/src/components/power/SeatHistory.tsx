@@ -54,6 +54,39 @@ export interface SeatSeating {
   endedReason: string | null;
 }
 
+/**
+ * ONE REQUEST WHEN TWO CARDS ASK AT ONCE.
+ *
+ * `VillageMap` renders HolderCard TWICE, on purpose: the standing panel is
+ * `hidden md:block` and the bottom sheet is `md:hidden`, so which one a
+ * person sees is CSS and both are mounted. Two mounts firing the same read in
+ * the same commit is two requests for one answer on every seat somebody taps.
+ *
+ * In-flight only, and the entry is dropped the moment it settles. A cache of
+ * finished answers would be the wrong trade here: a seat's history changes
+ * when somebody is seated or unseated, and a card that went on telling the
+ * old story after that would be the page saying something that stopped being
+ * true. Sharing a request that has not landed yet cannot go stale.
+ */
+const inFlight = new Map<string, Promise<SeatSeating[] | null>>();
+
+function readHistory(roleId: string): Promise<SeatSeating[] | null> {
+  const running = inFlight.get(roleId);
+  if (running) return running;
+  const request = gameFetch(`/api/org/roles/${encodeURIComponent(roleId)}/history`)
+    .then(async (r) => {
+      // A refusal is not an empty seat. Null means "say nothing", which is the
+      // only honest answer a page can give about a record it could not read.
+      if (!r.ok) return null;
+      const data = await r.json();
+      return Array.isArray(data) ? (data as SeatSeating[]) : [];
+    })
+    .catch(() => null)
+    .finally(() => inFlight.delete(roleId));
+  inFlight.set(roleId, request);
+  return request;
+}
+
 const day = (iso: string | null): string =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
 
@@ -114,21 +147,11 @@ export default function SeatHistory({
     let alive = true;
     setRows(null);
     setUnreadable(false);
-    gameFetch(`/api/org/roles/${encodeURIComponent(roleId)}/history`)
-      .then(async (r) => {
-        if (!alive) return;
-        // A refusal is not an empty seat. Saying nothing is the only honest
-        // answer a page can give about a record it was not allowed to read.
-        if (!r.ok) {
-          setUnreadable(true);
-          return;
-        }
-        const data = await r.json();
-        if (alive) setRows(Array.isArray(data) ? (data as SeatSeating[]) : []);
-      })
-      .catch(() => {
-        if (alive) setUnreadable(true);
-      });
+    void readHistory(roleId).then((answer) => {
+      if (!alive) return;
+      if (answer === null) setUnreadable(true);
+      else setRows(answer);
+    });
     return () => {
       alive = false;
     };
