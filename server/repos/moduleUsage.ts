@@ -25,6 +25,15 @@ export interface CycleUsage {
   modules: ModuleCycleUsage[];
   /** False while the cycle is open and the numbers are still moving. */
   sealed: boolean;
+  /**
+   * When the marks were aggregated and dropped, ISO, or null while open.
+   *
+   * The column has been NOT NULL in `module_usage_cycles` since 0101 and
+   * nothing ever read it. It is the counter's evidence that these numbers
+   * stopped moving: a settlement is made against a sealed cycle, and a sealed
+   * cycle with no date on it is a payment nobody can place afterwards.
+   */
+  sealedAt: string | null;
 }
 
 /**
@@ -70,6 +79,7 @@ export async function openCycleUsage(pool: Pool, cycleId: string): Promise<Cycle
     cycleId,
     activeMembers,
     sealed: false,
+    sealedAt: null,
     modules: rows.map((r) => ({
       moduleId: String(r.module_id),
       membersReached: Number(r.reached ?? 0),
@@ -78,10 +88,25 @@ export async function openCycleUsage(pool: Pool, cycleId: string): Promise<Cycle
   };
 }
 
+/**
+ * A timestamp column as ISO, or null when it is absent or unreadable.
+ *
+ * mysql2 hands back a Date for a `timestamp` column and a string when the
+ * driver is configured otherwise, and either can be an Invalid Date if the row
+ * holds a zero date. A report that carried "Invalid Date" as its seal time
+ * would fail the wire check downstream with a message about the wrong thing,
+ * so it is refused here instead and the seal reads as absent.
+ */
+function isoOrNull(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const d = v instanceof Date ? v : new Date(String(v));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 /** The sealed, final counts for a cycle. Empty when that cycle was never sealed. */
 export async function sealedCycleUsage(pool: Pool, cycleId: string): Promise<CycleUsage> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT module_id, members_reached, active_members FROM module_usage_cycles WHERE cycle_id = ?",
+    "SELECT module_id, members_reached, active_members, sealed_at FROM module_usage_cycles WHERE cycle_id = ?",
     [cycleId],
   );
   return {
@@ -89,6 +114,9 @@ export async function sealedCycleUsage(pool: Pool, cycleId: string): Promise<Cyc
     // Every row for a cycle carries the same denominator, written in one pass.
     activeMembers: rows.length ? Number(rows[0]!.active_members ?? 0) : 0,
     sealed: rows.length > 0,
+    // The same pass writes every row's `sealed_at`, so the first row's value is
+    // the cycle's. A re-seal moves all of them together.
+    sealedAt: rows.length ? isoOrNull(rows[0]!.sealed_at) : null,
     modules: rows.map((r) => ({
       moduleId: String(r.module_id),
       membersReached: Number(r.members_reached ?? 0),

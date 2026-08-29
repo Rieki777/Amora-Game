@@ -60,10 +60,18 @@ export const LIFECYCLE_RANK: Record<ModuleLifecycle, number> = {
  * it was written under, which is the whole reason the stamp exists: a later
  * version is a re-acceptance and never a silent rewrite.
  *
- * `node scripts/module-facts.mjs` compares the two and says so out loud. If it
- * reports a disagreement, one of the two moved without the other.
+ * `node scripts/module-facts.mjs` compares the two and says so out loud, and
+ * `shared/moduleListing.test.ts` fails when they disagree, so the agreement is
+ * checked rather than reported. The intake workflow treats a disagreement as a
+ * WARNING for a builder's pull request on purpose: our bookkeeping is not
+ * their problem, and it should never block their listing.
+ *
+ * It went to 1.2 when R72 changed what clause 14 promises: a share is sized by
+ * how many members open a module, the platform's own modules compete on the
+ * same measure, and a payout handle now travels with the account system that
+ * asserts it.
  */
-export const MODULE_LIBRARY_CONTRACT_VERSION = "1.1";
+export const MODULE_LIBRARY_CONTRACT_VERSION = "1.2";
 
 /**
  * Concurrent managed listings, hard. Two, and the second is a transition slot.
@@ -321,6 +329,32 @@ export interface ModuleDef {
    * never depends on this field, only settlement does.
    */
   builtByAccount?: string;
+  /**
+   * The account system that asserts `builtByAccount`, as a host name.
+   *
+   * REQUIRED whenever `builtByAccount` is set, and refused without it, because
+   * a bare handle only resolves if everybody shares one account system. R64 is
+   * the ruling that makes that assumption unsafe: "these tools and currency
+   * aren't the governance domain of a single organisation, but very quickly to
+   * form a network of them." The moment a second organisation runs this code
+   * there are two rosters, "alice" is a different person on each, and a report
+   * carrying only the handle pays the wrong one.
+   *
+   * A host rather than a free label, because a host is the one identifier a
+   * stranger can act on: a counter that has never heard of it can fetch its
+   * discovery document and find out what it is.
+   *
+   * NO DEFAULT, deliberately. Defaulting it to this platform's own namespace
+   * would weld one organisation into every fork, which is the thing
+   * `scripts/check-brand-refs.mjs` exists to stop, and it would make a fork's
+   * own builder silently claim an account on somebody else's system. The pair
+   * travels with the module in the registry entry, so a fork inherits both by
+   * pulling and a counter needs no list of its own.
+   *
+   * `shared/moduleProvenance.ts` is the authority on how the pair reaches a
+   * counter, and it checks this shape again on the wire.
+   */
+  builtByNamespace?: string;
   /** What this listing costs. Absent means it adds no charge of its own. */
   pricing?: ModulePricing;
   /** Set once the listing stops being offered. Blocks new enables, serves as before. */
@@ -1118,6 +1152,21 @@ const CURRENCY = /^[A-Z]{3}$/;
 const PRICE_PERIODS: readonly ModulePricePeriod[] = ["month", "year", "once"];
 
 /**
+ * A dotted host name, lowercase, for `builtByNamespace`.
+ *
+ * Shape is all any code here can honestly check. Whether that host runs an
+ * account system, and whether it knows the handle beside it, are questions
+ * only that host can answer, and a check here that pretended to answer them
+ * would be the kind of green that means nothing. 253 is the length a host name
+ * is allowed to be.
+ */
+const NAMESPACE_HOST = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+export function isBuilderNamespace(value: string): boolean {
+  return value.length <= 253 && NAMESPACE_HOST.test(value);
+}
+
+/**
  * Registry-shape problems, as a list of sentences.
  *
  * The tier is defined by where the credential lives, so a listing whose
@@ -1165,6 +1214,28 @@ export function moduleListingProblems(defs: readonly ModuleDef[] = MODULES): str
      */
     if (m.builtBy !== undefined && !m.builtBy.trim()) {
       say(m.id, "carries an empty builtBy credit. Name somebody or leave the field out");
+    }
+    /*
+     * The payout identity is a HANDLE plus the NAMESPACE that asserts it, and
+     * neither half is usable alone. A handle with no namespace resolves in
+     * whichever roster the reader happens to hold, which is how a payment
+     * reaches the wrong "alice" the moment a second organisation runs this
+     * code (R64). A namespace with no handle names a system and nobody in it.
+     *
+     * Checked here rather than only on the wire so a registry entry that could
+     * never be paid is refused at boot and in the listing lint, before a
+     * builder waits a cycle to find out.
+     */
+    const account = m.builtByAccount?.trim();
+    const namespace = m.builtByNamespace?.trim();
+    if (account && !namespace) {
+      say(m.id, `names the account "${account}" and no account system that asserts it. Set builtByNamespace to the host that holds the account`);
+    }
+    if (namespace && !account) {
+      say(m.id, `names the account system "${namespace}" and no account in it. A payment needs somebody to pay`);
+    }
+    if (namespace && !isBuilderNamespace(namespace)) {
+      say(m.id, `gives "${namespace}" as an account system. That is a host name, lowercase, with at least one dot`);
     }
     if (m.withdrawn) {
       if (!ISO_DAY.test(String(m.withdrawn.since ?? ""))) {

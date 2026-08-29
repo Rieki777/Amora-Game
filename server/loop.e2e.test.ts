@@ -4522,9 +4522,18 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     await api("PUT", "/api/admin/modules/map/lifecycle", { lifecycle: "off" }, founderToken);
     const darkWk = await api("GET", "/.well-known/village.json");
     // Announcing org/1 while the export is dark would send every reader to a
-    // 404 and teach them this village is broken instead of private.
-    expect(darkWk.json.supports).toEqual([]);
+    // 404 and teach them this village is broken instead of private. The
+    // assertion is about org/1 alone, and used to be `toEqual([])` because
+    // org/1 was the only protocol there was. `module-usage/1` is announced
+    // unconditionally and deliberately (counts of people, never a person, and
+    // already public), so pinning the whole array would say the village
+    // publishes exactly one thing rather than what this test is about.
+    expect(darkWk.json.supports).not.toContain("org/1");
+    expect(darkWk.json.supports).toContain("module-usage/1");
     expect(darkWk.json.links.org).toBeUndefined();
+    // The meter is reachable from discovery whatever the org export is doing:
+    // that link is how a counter that never heard of this fork finds it.
+    expect(darkWk.json.links.moduleUsage).toBe("/api/platform/module-usage");
     expect((await api("GET", "/api/public/org.json")).status).toBe(404);
     expect((await api("GET", "/org/index.md")).status).toBe(404);
 

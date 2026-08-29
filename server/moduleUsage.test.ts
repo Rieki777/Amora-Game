@@ -157,6 +157,7 @@ describe.skipIf(!configured)("the module meter", () => {
       cycleId: "lunar-000923",
       activeMembers: 2,
       sealed: true,
+      sealedAt: "2026-08-29T00:00:00.000Z",
       modules: [{ moduleId: "library", membersReached: 5, activeMembers: 2 }],
     });
     expect(weights.get("library")).toBe(1);
