@@ -18967,6 +18967,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
      */
     const packet: any[] = investorDocsRepo.all().filter((d) => d.inPacket === true);
 
+    /*
+     * Whether a mailer is configured at all is a DEPLOYMENT fact, and it is a
+     * different question from which documents this requester was released.
+     * `sendResendEmail` already refuses and logs when there is no key. Keeping
+     * the two apart is what lets the lead record and the answer below both be
+     * true on both axes at once.
+     */
+    const cfg = getEmailConfig();
+    const emailConfigured = Boolean(cfg.resend_api_key);
+
     // Save lead — one INSERT, not snapshot→push→replaceAll (the whole-table
     // rewrite raced concurrent writers and dropped rows).
     const entry = {
@@ -18994,6 +19004,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
          * thing this fix exists to contain.
          */
         documentsSent: packet.map((d) => ({ id: String(d.id), title: String(d.title ?? "Document") })),
+        /*
+         * And whether an email was dispatched at all, because the list above
+         * is the packet and this is the postage. `sendResendEmail` refuses and
+         * logs when the village has no key configured, so without this a lead
+         * reading "Cap Table 2026" would suggest a person received a document
+         * that never left the building.
+         */
+        emailed: emailConfigured,
       },
       submittedAt: new Date().toISOString(),
     };
@@ -19012,15 +19030,6 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const origin = notifyDeps.origin();
 
     // Email the investor with download links
-    const cfg = getEmailConfig();
-    /*
-     * Whether a mailer is configured at all is a DEPLOYMENT fact, and it is a
-     * different question from which documents this requester was released.
-     * `sendResendEmail` already refuses and logs when there is no key, so the
-     * guard here is only about having somewhere to send to. Keeping the two
-     * apart is what lets the answer below be true on both axes at once.
-     */
-    const emailConfigured = Boolean(cfg.resend_api_key);
     if (email) {
       /*
        * READ THE COLUMNS THE TABLE ACTUALLY HAS, for the same reason the

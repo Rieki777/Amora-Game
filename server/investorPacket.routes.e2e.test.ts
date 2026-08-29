@@ -197,6 +197,12 @@ describe.skipIf(!DB_CONFIGURED)("the investor packet only sends what a person ch
     const lead = await newestLead();
     expect(lead?.data?.email).toBe("stranger@example.test");
     expect(lead?.data?.documentsSent, "the lead record must say what was sent").toEqual([]);
+    /*
+     * This suite boots with RESEND_API_KEY empty, so no email is dispatched at
+     * all. The lead has to carry that fact next to the packet, or a founder
+     * reading a list of titles would believe somebody received them.
+     */
+    expect(lead?.data?.emailed, "the lead record must say whether an email went").toBe(false);
   });
 
   it("sends the chosen document and withholds the one nobody chose", async () => {
