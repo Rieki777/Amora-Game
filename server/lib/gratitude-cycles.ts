@@ -138,9 +138,9 @@ export function unreadableCycleProblem(entries: readonly GratitudeEntryLike[]): 
   const rows = entries.filter((e) => parseCycleId(String(e.cycleId ?? "")) === null).length;
   return (
     `${rows} recognition row(s) carry a cycle id this build cannot read: ` +
-    `${shown.join(", ")}${more}. Settlement stops here rather than leaving them out ` +
-    `of the totals, because a total that quietly misses rows is worse than one that ` +
-    `has not been made yet. Normalise them to lunar-NNNNNN and run the close again.`
+    `${shown.join(", ")}${more}. The settlement stops here. A total that leaves ` +
+    `rows out quietly is wrong in a way nobody can see afterwards. Give these rows ` +
+    `a lunar-NNNNNN id, then run the close again.`
   );
 }
 
