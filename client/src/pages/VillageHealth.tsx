@@ -100,7 +100,20 @@ export default function VillageHealth() {
                   {season.current.name}
                   {season.current.theme ? <span className="text-muted-foreground font-normal">: {season.current.theme}</span> : null}
                 </p>
-                <span className="text-xs text-muted-foreground">{count(season.daysLeft, "day")} left</span>
+                {/*
+                  `daysLeft` is null whenever the current season has no end
+                  date (server/index.ts: `current?.endsOn ? ... : null`), and
+                  this line rendered it either way. Before the plural fix that
+                  showed as " day(s) left" with a hole where the number goes;
+                  with the fix it would have said "null days left" out loud,
+                  which is a value reaching a sentence. A season with no end
+                  date has no days left to state, so the line is simply not
+                  there. Found by auditing this file after its gates went
+                  green, not by a gate.
+                */}
+                {season.daysLeft != null && (
+                  <span className="text-xs text-muted-foreground">{count(season.daysLeft, "day")} left</span>
+                )}
               </div>
               {goals.length > 0 ? (
                 <div className="space-y-1.5">
