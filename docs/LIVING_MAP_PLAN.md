@@ -11,7 +11,10 @@
 > Civilization study, and the Grounds experience. A good part of section 4 is
 > already built inside `docs/prototypes/grounds-v0.html`: structures as portals
 > with a hash address each, the attention cycle, the minimap, banners, build
-> mode. D10's address plane shipped as `drizzle/0060_map_address_plane.sql`.
+> mode. D10's address plane shipped as `drizzle/0060_map_address_plane.sql`. It
+> carries `structure_key` and `address_source` columns, plus `structure_keys`
+> for the multi-addressed case. Section 5.2 drew a `thread_structures` join
+> table for that, and no such table exists.
 >
 > **What the build did not do.** Section 5.1 proposed PixiJS in a lazy `/map`
 > route chunk with `shared/groundsLayout.ts` as a pure layout function. Neither
