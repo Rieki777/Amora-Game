@@ -10867,7 +10867,9 @@ function FeedbackAdminTab({ password }: { password: string }) {
         <p className="text-sm text-gray-500 mt-1">
           Bugs and ideas from your members.{" "}
           {data?.relayOn
-            ? "The platform relay is ON: a copy of each item (content only, never who) also reaches the ReGen Civics team, so a fix can ship to every village."
+            ? "The platform relay is ON: a copy of each item (content only, never who) also reaches the team who maintain this software, so a fix can ship to every village."
+            : data?.relayDialOn && data?.hubConfigured === false
+            ? "The platform relay is switched on and this server has no hub address, so nothing is being sent. Everything stays local to this village until FEEDBACK_HUB_URL is set."
             : "The platform relay is OFF: everything stays local to this village."}{" "}
           The switch lives in Game Mechanics → platform.feedback_relay.
         </p>
