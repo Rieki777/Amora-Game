@@ -188,7 +188,13 @@ function ThreadList() {
               </Link>
             ))}
             {threads.length === 0 && (
-              <p className="text-center text-sm text-muted-foreground py-12">No threads yet. Start the first one.</p>
+              /* "Start the first one" points at the New thread button, which
+                 renders on `user` above. A signed-out reader was being sent
+                 to a control that is not on their page, so they get the fact
+                 and nothing else. */
+              <p className="text-center text-sm text-muted-foreground py-12">
+                {user ? "No threads yet. Start the first one." : "No threads yet."}
+              </p>
             )}
           </div>
         </div>

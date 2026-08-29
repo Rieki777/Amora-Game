@@ -396,6 +396,23 @@ interface DiscussionTopic {
  * S2: the Command Centre rides the same admin identities as /admin. The second
  * shared password is retired; this gate auto-unlocks for a signed-in admin or
  * founder, and points everyone else at the admin sign-in.
+ *
+ * ── IT USED TO BE A TWO-STEP DEAD END ────────────────────────────────────
+ *
+ * Three things went wrong on one screen and they compounded:
+ *
+ *   1. `fixed inset-0` with no `<Layout>`, so the site shell was gone. The
+ *      page carried ONE link in total.
+ *   2. That link went to `/admin`, which signed out carries zero links of
+ *      its own. So the only way forward ended somewhere with no way forward.
+ *   3. The heading read "Journey to Launch", which is a DIFFERENT page in
+ *      this router (`/journey-to-launch`). A visitor was told the name of
+ *      somewhere they were not.
+ *
+ * `/journey-to-launch` gates the same area correctly and is the model this
+ * now follows: keep the site shell, so a visitor who followed a shared link
+ * always has the header, the footer and the tab bar to leave by. The heading
+ * says where they actually are.
  */
 function PasswordGate({ onUnlock }: { onUnlock: (pw: string) => void }) {
   const { user, loading } = useAuth();
@@ -409,33 +426,37 @@ function PasswordGate({ onUnlock }: { onUnlock: (pw: string) => void }) {
   }, [isAdmin, onUnlock]);
 
   return (
-    <div className="fixed inset-0 bg-teal-deep flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-sm w-full mx-4">
-        <div className="flex flex-col items-center gap-4 mb-6">
-          <div className="w-12 h-12 bg-teal-deep/10 rounded-full flex items-center justify-center">
-            <Lock className="w-6 h-6 text-teal-deep" />
+    <Layout>
+      <div className="py-24 flex justify-center px-4">
+        <div className="bg-card border border-border rounded-2xl p-8 max-w-sm w-full">
+          <div className="flex flex-col items-center gap-4 mb-6">
+            <div className="w-12 h-12 bg-teal-deep/10 rounded-full flex items-center justify-center">
+              <Lock className="w-6 h-6 text-teal-deep" />
+            </div>
+            <div className="text-center">
+              {/* The name the page gives itself once it opens (its own h1),
+                  so the gate and the page behind it agree. */}
+              <h2 className="font-display text-xl font-bold text-teal-deep">Project History</h2>
+              <p className="text-stone-500 text-sm mt-1">
+                {loading || isAdmin
+                  ? "Checking your access…"
+                  : user
+                  ? `Signed in as ${user.name}, but this area is for the founding team.`
+                  : "The Command Centre is for the founding team."}
+              </p>
+            </div>
           </div>
-          <div className="text-center">
-            <h2 className="font-display text-xl font-bold text-teal-deep">Journey to Launch</h2>
-            <p className="text-stone-500 text-sm mt-1">
-              {loading || isAdmin
-                ? "Checking your access…"
-                : user
-                ? `Signed in as ${user.name}, but this area is for the founding team.`
-                : "The Command Centre is for the founding team."}
-            </p>
-          </div>
+          {!loading && !isAdmin && (
+            <a
+              href="/admin"
+              className="block w-full bg-teal-deep text-white py-3 rounded-xl font-semibold text-sm hover:bg-teal transition-colors text-center"
+            >
+              Sign in with an admin account
+            </a>
+          )}
         </div>
-        {!loading && !isAdmin && (
-          <a
-            href="/admin"
-            className="block w-full bg-teal-deep text-white py-3 rounded-xl font-semibold text-sm hover:bg-teal transition-colors text-center"
-          >
-            Sign in with an admin account
-          </a>
-        )}
       </div>
-    </div>
+    </Layout>
   );
 }
 
