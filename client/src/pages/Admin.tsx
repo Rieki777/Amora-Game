@@ -3482,6 +3482,14 @@ function QuestsTab({ password }: { password: string }) {
                         <option value="Beginner">Beginner</option>
                         <option value="Intermediate">Intermediate</option>
                         <option value="Advanced">Advanced</option>
+                        {/* A stored value outside the three shows itself. A
+                            select whose value matches no option renders blank,
+                            which would read as "Not set" over a row that holds
+                            something, and the founder would save the blank
+                            believing they changed nothing. */}
+                        {d.difficulty && !["Beginner", "Intermediate", "Advanced"].includes(d.difficulty) && (
+                          <option value={d.difficulty}>{d.difficulty} (not one of the three)</option>
+                        )}
                       </select>
                     </label>
                     <label className="text-xs text-gray-500">Time it takes
