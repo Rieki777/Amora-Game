@@ -39,6 +39,32 @@ export interface BallotObjection {
   createdAt: string;
 }
 
+/**
+ * WHERE AN OBJECTION LED (0102).
+ *
+ * An objection that changed a proposal should say so on its own page. This is
+ * the forward edge that says it: the vote the amended version ran as, named by
+ * the proposer when they opened it.
+ *
+ * It is fetched beside the ballot instead of arriving inside it. The column is
+ * NULL on nearly every objection that will ever exist, because objections are
+ * consent-only and "this village's own dials" is the default method, so almost
+ * every decision page would carry an empty field. And the facts here belong to
+ * a DIFFERENT ballot, which is a second read either way.
+ *
+ * NOTHING IN THIS SHAPE NAMES A PERSON, and nothing may be added that does.
+ * Lineage sits on the artifact. A count of objections per member is the
+ * scoreboard this whole idea was reframed to avoid.
+ */
+export interface ObjectionLineage {
+  objectionId: string;
+  /** The vote the amended proposal ran as. */
+  ballotId: string;
+  title: string;
+  status: string;
+  closedAt: string | null;
+}
+
 export interface Ballot {
   id: string;
   subjectType: string;
@@ -248,6 +274,16 @@ async function call<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
 export const fetchBallots = () => call<BallotCard[]>("/api/governance/ballots");
 export const fetchBallot = (id: string) => call<Ballot>(`/api/governance/ballots/${encodeURIComponent(id)}`);
 export const fetchStanding = () => call<Standing>("/api/governance/standing");
+
+/**
+ * Lineage for the objections a panel is already holding, asked for by their
+ * own ids. Objections a page has no rows for come back absent, which is what
+ * is true about them.
+ */
+export const fetchObjectionLineage = (objectionIds: string[]) =>
+  call<ObjectionLineage[]>(
+    `/api/governance/objections/lineage?ids=${encodeURIComponent(objectionIds.join(","))}`,
+  );
 export const fetchWizardFacts = () => call<WizardFacts>("/api/governance/wizard");
 
 export const castVote = (id: string, choice: VoteChoice, reason?: string) =>

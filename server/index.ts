@@ -25306,7 +25306,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   /**
-   * WHERE EACH OBJECTION ON THIS BALLOT LED, IF IT LED ANYWHERE (0102).
+   * WHERE AN OBJECTION LED, IF IT LED ANYWHERE (0102).
    *
    * An objection is already permanent, attributed and explained. What it never
    * had was a forward edge: an `integrated` objection fails its ballot, the
@@ -25314,13 +25314,19 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * new ballot and nothing pointing back. So the person who named the problem
    * could not see that the village acted on it.
    *
-   * Served on its own instead of folded into `serveBallot` for two reasons.
-   * The column is NULL on nearly every objection that will ever exist, since
-   * objections are consent-only and `custom` is the default method, so this
-   * would be a join on the decision page's hot path for a field that is almost
-   * always empty. And the fact lives on a DIFFERENT ballot: what a member
-   * wants beside the objection is that vote's own title, which is a second
-   * row either way.
+   * ADDRESSED BY THE OBJECTIONS, BECAUSE THE FACT IS ABOUT THEM.
+   * `led_to_ballot_id` is a column on `ballot_objections`, so the ids in the
+   * query string are the ids of the things being asked about, and the panel
+   * that renders the sentence can ask for exactly the objections it is holding
+   * without needing to be told which ballot it is standing on.
+   *
+   * SERVED ON ITS OWN INSTEAD OF FOLDED INTO `serveBallot` for two more
+   * reasons. The column is NULL on nearly every objection that will ever
+   * exist, since objections are consent-only and `custom` is the default
+   * method, so this would be a join on the decision page's hot path for a
+   * field that is almost always empty. And the answer lives on a DIFFERENT
+   * ballot: what a member wants beside the objection is that vote's own title,
+   * which is a second row either way.
    *
    * THE QUERY NAMES NO PERSON, AND THAT IS THE DESIGN. It selects the
    * objection, the ballot it led to, and that ballot's own words. There is no
@@ -25328,16 +25334,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * artifact and never a tally against a member.
    * `server/lib/objectionLineageShape.test.ts` holds that line against the
    * whole tree rather than trusting this paragraph.
+   *
+   * Unknown ids answer with nothing about themselves, which is the truth: an
+   * objection with no successor has no lineage to state, and so does an id
+   * that was never an objection.
    */
-  app.get("/api/governance/ballots/:id/objections/lineage", async (req, res) => {
-    const b = await ballotById(getPool(), req.params.id);
-    if (!b) return res.status(404).json({ error: "Not found" });
+  const LINEAGE_ASK_CAP = 50;
+  app.get("/api/governance/objections/lineage", async (req, res) => {
+    const ids = String(req.query.ids ?? "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .slice(0, LINEAGE_ASK_CAP);
+    if (ids.length === 0) return res.json([]);
     const [rows] = await getPool().query<any[]>(
       "SELECT o.id AS objection_id, led.id AS ballot_id, led.title, led.status, led.closed_at " +
-        "FROM ballot_objections o JOIN ballots led ON led.id = o.led_to_ballot_id " +
-        "WHERE o.ballot_id = ? AND o.led_to_ballot_id IS NOT NULL " +
-        "ORDER BY o.created_at, o.id",
-      [b.id],
+        `FROM ballot_objections o JOIN ballots led ON led.id = o.led_to_ballot_id WHERE o.id IN (${ids.map(() => "?").join(",")})`,
+      ids,
     );
     res.json(
       rows.map((r) => ({

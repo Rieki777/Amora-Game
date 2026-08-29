@@ -22,11 +22,20 @@
  *    objection aside is a facilitator who thinks about it.
  *  - "Concern" is never rendered as a downgrade. It is a real outcome: the
  *    village heard it, it does not block, and it travels with the agreement.
+ *  - LINEAGE, NEVER CREDIT (0102). An objection that changed a proposal says so
+ *    here, on the objection, with a link to the vote the amended version ran
+ *    as. It is a fact about the decision and it lives on the decision's page.
+ *    It never appears on a person's profile, and NOTHING here counts
+ *    objections per member: no total, no ranking, no "most helpful objector",
+ *    no badge. "Credit" is a scoring word, and a scoreboard is what this whole
+ *    idea was reframed away from. `server/lib/objectionLineageShape.test.ts`
+ *    holds that line against the tree.
  */
-import { useState } from "react";
-import { CheckCircle2, CircleMinus, Hand, MessageSquareWarning } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link } from "wouter";
+import { CheckCircle2, CircleMinus, GitBranch, Hand, MessageSquareWarning } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
-import type { BallotObjection } from "./governanceApi";
+import { fetchObjectionLineage, type BallotObjection, type ObjectionLineage } from "./governanceApi";
 
 /**
  * What each state of an objection means, and its authority is the server's
@@ -119,6 +128,39 @@ export default function ObjectionPanel({
   const [ruling, setRuling] = useState("concern");
   const [note, setNote] = useState("");
 
+  /*
+   * WHERE EACH OF THESE OBJECTIONS LED, IF IT LED ANYWHERE (0102).
+   *
+   * Asked for by the ids this panel is already holding, so the panel needs to
+   * know nothing about which ballot it is standing on. Almost every objection
+   * that will ever exist has no successor, so this map is usually empty and
+   * the panel renders exactly as it did before.
+   *
+   * A failed read leaves the map empty and the panel says nothing, which is
+   * the honest outcome: a sentence about the village's record must come from
+   * the record. It is never guessed at from what is on screen.
+   */
+  const [lineage, setLineage] = useState<Record<string, ObjectionLineage>>({});
+  const ids = objections.map((o) => o.id).join(",");
+  useEffect(() => {
+    const asked = ids.split(",").filter(Boolean);
+    if (asked.length === 0) {
+      setLineage({});
+      return;
+    }
+    let live = true;
+    void fetchObjectionLineage(asked).then((answer) => {
+      if (!live) return;
+      if (!answer.ok) return;
+      const next: Record<string, ObjectionLineage> = {};
+      for (const row of answer.data) next[row.objectionId] = row;
+      setLineage(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [ids]);
+
   const file = async () => {
     if (!text.trim()) {
       setProblem("An objection is its reasoning. Say what consequence or risk you see.");
@@ -181,6 +223,23 @@ export default function ObjectionPanel({
                     <p className="text-xs font-semibold text-stone-700">Why it was ruled that way</p>
                     <p className="text-sm text-stone-700 leading-relaxed">{o.rulingNote}</p>
                   </div>
+                )}
+
+                {/* THE FORWARD EDGE. Shown only when the record holds one, and
+                    made of the successor vote's own title. A proposal changing
+                    because somebody spoke up is the thing worth saying, and it
+                    is said about the proposal. */}
+                {lineage[o.id] && (
+                  <p className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-teal-deep">
+                    <GitBranch className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span className="text-stone-700">The proposal changed after this. The version that came next:</span>
+                    <Link
+                      href={`/decisions/${lineage[o.id].ballotId}`}
+                      className="rounded font-semibold underline underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                    >
+                      {lineage[o.id].title}
+                    </Link>
+                  </p>
                 )}
 
                 {/* The facilitator tests an objection; its author may take it
