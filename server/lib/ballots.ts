@@ -115,6 +115,35 @@ export async function ballotsFor(pool: Pool, subjectType: string, subjectRef: st
   return rows.map(rowToBallot);
 }
 
+/**
+ * WHICH DIALS A BALLOT ACTUALLY MOVED, READ BACK OUT OF THE LEDGER.
+ *
+ * The apply path stamps every amendment row with `gm:<proposal> bal:<ballot>`
+ * (`applyMechanicsProposal`, server/index.ts), so the ballot that decided a
+ * change is already written next to the change. Nothing has ever read it in
+ * that direction. The outcome card's "What changed" came off the close
+ * response instead, which means it existed only in the browser session that
+ * closed the vote and was gone by the next morning, on exactly the decisions
+ * worth coming back to.
+ *
+ * This is the permanent answer to the same question. It reports what the
+ * ledger holds and never what a proposal asked for: a change the apply pass
+ * refused is absent here, correctly, because it did not happen.
+ *
+ * `LIKE` because the reference is a composite of up to three parts and the
+ * ballot marker sits at the end of it. The id is escaped for LIKE's own
+ * wildcards before it goes in, so an id is matched as characters and not as
+ * a pattern, whatever future ids turn out to contain.
+ */
+export async function amendedKeysFor(pool: Pool, ballotId: string): Promise<string[]> {
+  const escaped = ballotId.replace(/([\\%_])/g, "\\$1");
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT DISTINCT config_key FROM mechanics_changes WHERE source = 'governance' AND proposal_ref LIKE ? ORDER BY config_key",
+    [`%bal:${escaped}%`],
+  );
+  return rows.map((r) => String(r.config_key));
+}
+
 export interface OpenBallotInput {
   subjectType: string;
   subjectRef: string;

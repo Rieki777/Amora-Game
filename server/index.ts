@@ -204,6 +204,7 @@ import { checkSpace, matchOutcome, readInboundOutcome } from "./lib/hypha/outcom
 import { switchoverPreflight } from "./lib/hypha/switchover";
 import { villageFigure } from "./lib/hypha/village";
 import {
+  amendedKeysFor,
   awaitingVote,
   ballotById,
   ballotsFor,
@@ -25156,7 +25157,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
     };
   }
 
-  /** The record: every ballot, newest first, filterable by subject. */
+  /**
+   * The record: every ballot, newest first, filterable by subject.
+   *
+   * THE RECORD USED TO END AT A HUNDRED ROWS AND SAY NOTHING ABOUT IT. The
+   * query was a bare `LIMIT 100` with no way to ask for row 101, so a village
+   * four years in would open its own record and find its founding decisions
+   * simply gone: not archived, not behind a control, absent, with the page
+   * reading exactly as it does for a village that has held ninety.
+   *
+   * `limit` and `offset` make the rest reachable without making every load
+   * pay for it. The default is the same hundred it always served, because
+   * each card costs its own tallies read and a village should not buy its
+   * whole history to look at this week's vote. Asking for the next page is
+   * the member's act, on the page, when they want it.
+   */
   app.get("/api/governance/ballots", async (req, res) => {
     const viewer = await authedUser(req);
     const subjectType = String(req.query.subjectType ?? "").trim();
@@ -25165,15 +25180,61 @@ Send an empty drafts array when you are still listening. A role payload is {name
       const list = await ballotsFor(getPool(), subjectType, subjectRef);
       return res.json(await Promise.all(list.map((b) => serveBallotCard(b, viewer?.id))));
     }
-    const [rows] = await getPool().query<any[]>("SELECT * FROM ballots ORDER BY created_at DESC, id DESC LIMIT 100");
+    const limit = Math.max(1, Math.min(200, Math.trunc(Number(req.query.limit)) || 100));
+    const offset = Math.max(0, Math.trunc(Number(req.query.offset)) || 0);
+    const [rows] = await getPool().query<any[]>(
+      "SELECT * FROM ballots ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+      [limit, offset],
+    );
     res.json(await Promise.all(rows.map((r) => serveBallotCard(rowToBallot(r), viewer?.id))));
   });
 
+  /**
+   * ONE DECISION, AND THE TWO THINGS A COLD READ OF ONE WAS MISSING.
+   *
+   * `serveBallot` answers everything about the ballot itself. Both additions
+   * here are about the ballot's place in the village's story, and both were
+   * already in the database with nothing reading them:
+   *
+   *  - `appliedKeys` is WHAT THIS DECISION CHANGED, read from the amendment
+   *    ledger. The outcome card has always been able to say it, and only in
+   *    the browser session that closed the vote: `applied` came back on the
+   *    close response and was never fetched again. Open a carried decision
+   *    tomorrow and the most interesting thing about it had evaporated. The
+   *    ledger row is permanent and carries the ballot's own id, so the same
+   *    sentence is true on the day and on the anniversary.
+   *
+   *  - `priorAttempts` is every earlier time the village decided this same
+   *    subject. `ballotsFor` has returned the chain since 0089 and no surface
+   *    has ever called it.
+   *
+   * Neither invents anything when there is nothing: a first vote on a subject
+   * carries an empty list, and a decision that changed no dial carries an
+   * empty list, and the page renders neither rather than a zero.
+   */
   app.get("/api/governance/ballots/:id", async (req, res) => {
     const b = await ballotById(getPool(), req.params.id);
     if (!b) return res.status(404).json({ error: "Not found" });
     const viewer = await authedUser(req);
-    res.json(await serveBallot(b, viewer?.id));
+    const [payload, appliedKeys, chain] = await Promise.all([
+      serveBallot(b, viewer?.id),
+      amendedKeysFor(getPool(), b.id),
+      ballotsFor(getPool(), b.subjectType, b.subjectRef),
+    ]);
+    res.json({
+      ...payload,
+      appliedKeys,
+      priorAttempts: chain
+        .filter((p) => p.id !== b.id)
+        .map((p) => ({
+          id: p.id,
+          title: p.title,
+          status: p.status,
+          outcomeNote: p.outcomeNote,
+          opensAt: p.opensAt,
+          closedAt: p.closedAt,
+        })),
+    });
   });
 
   /** Cast or change a vote. The electorate froze at open; so did the weights. */
@@ -27641,12 +27702,41 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!role) return res.status(404).json({ error: "Seat not found" });
     if (role.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const actor = await authedUser(req);
+    /*
+     * THE TERM, WHICH THIS ROUTE HAS NEVER SENT.
+     *
+     * `seatHolder` has taken `termEndsAt` and written the column since 0049,
+     * and this is the only route in the tree that seats anybody, so
+     * `term_ends_at` has been NULL on every seating every village has ever
+     * made. FOUR readers were dark the whole time: the amber term arc on the
+     * power map, the `seat-term` calendar source, the term branch of the
+     * `term-watch` job, and the term branch of `isLapsed`. One argument.
+     *
+     * Read rather than passed through. A date this route cannot parse is a
+     * refusal with the sentence saying so, never a quiet null: a village that
+     * believes it wrote an end date onto a seat, over a row that holds none,
+     * is the shape where the product says something that did not happen.
+     * Left out stays left out, which is a seat held with no end date and is
+     * exactly what every seating on every deployment is today.
+     */
+    const askedTerm = req.body?.termEndsAt;
+    let termEndsAt: Date | null = null;
+    if (askedTerm !== undefined && askedTerm !== null && String(askedTerm).trim() !== "") {
+      const parsed = new Date(String(askedTerm));
+      if (Number.isNaN(parsed.getTime())) {
+        return res.status(400).json({
+          error: "That term end date could not be read. Send a date like 2027-03-01, or leave it out for a seat with no end date",
+        });
+      }
+      termEndsAt = parsed;
+    }
     const r = await seatHolder(getPool(), req.params.id, {
       userId: req.body?.userId ?? null,
       displayName: req.body?.displayName ?? null,
       focus: req.body?.focus ?? null,
       note: req.body?.note ?? null,
       seasonId: seasonState().current?.id ?? null,
+      termEndsAt,
       grantedBy: actor?.id ?? null,
     });
     if (!r.ok) return res.status(409).json({ error: r.reason });
