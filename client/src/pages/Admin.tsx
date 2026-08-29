@@ -10162,8 +10162,8 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
       <Section id="numbers" n={3} title="Numbers" subtitle="The editable figures on your site.">
         <p className="text-sm text-gray-600 mb-3">
           Village dues live in the Settings tab, and so do the land and money figures the
-          investor page and the master plan show. Every one of them ships blank, and a blank
-          figure means the page says nothing rather than showing a number you did not state.
+          investor page and the master plan show. Every one of them ships blank. A blank figure
+          means the page shows no figure at all, so your site only ever states what you stated.
         </p>
         <button onClick={() => onOpenTab("settings")} className="px-4 py-2 bg-white border border-gray-200 text-[#2D5A5A] rounded-lg text-sm font-medium hover:bg-gray-50">
           Open Settings →

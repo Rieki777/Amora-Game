@@ -64,7 +64,7 @@ const ADMIN = "fork-publish-admin";
  * The four financial claims, exactly as a fork rendered them. Each is a
  * statement about one specific piece of land in one specific country.
  */
-const FOREIGN_NUMBERS = ["+113%", "$16M+", "19.6%", "266 acres in Dominicalito"];
+const FOREIGN_NUMBERS = ["+113%", "$16M+", "19.6%", "266 acres in Dominicalito"]; // brand-ok: the regression list this file asserts the ABSENCE of
 
 /**
  * People who agreed to appear on one project's website. Surnames included:
@@ -83,7 +83,7 @@ const FOREIGN_PEOPLE = [
 ];
 
 /** The real project's own domain: every hotlinked photograph came from it. */
-const FOREIGN_MEDIA = "amora.cr/wp-content";
+const FOREIGN_MEDIA = "amora.cr/wp-content"; // brand-ok: asserted absent, never rendered
 
 /**
  * Signed-out routes a fresh fork answers. Anything that renders a page a
@@ -276,6 +276,19 @@ describe.skipIf(!DB_CONFIGURED)("a village with its own people still publishes t
       { password: ADMIN, email: `founder-${PORT}@example.test`, name: "Fork Founder" },
       "",
     );
+    /*
+     * The founder's link, on the state every fork boots in: no mail provider.
+     *
+     * This answered `emailed: true` while the server logged "[RESEND] API key
+     * not set, skipping email" on the same request, because the sender
+     * returned normally when it skipped and the caller could only ever catch a
+     * throw. An operator read that and waited two days for an email that was
+     * never attempted. A fork whose founder cannot get in never starts.
+     */
+    expect(boot.json?.emailed, "no provider means no email was sent").toBe(false);
+    expect(String(boot.json?.emailNote ?? ""), "and the response says why").toMatch(/provider|sender/i);
+    expect(boot.json?.claimUrl, "and the link is on screen instead").toBeTruthy();
+
     const claim = decodeURIComponent(String(boot.json?.claimUrl ?? "").match(/token=([^&]+)/)?.[1] ?? "");
     expect(claim, "bootstrap must return a claim link").toBeTruthy();
     const setPw = await call("POST", "/api/auth/set-password", { token: claim, password: "ForkPublish123!" }, "");
