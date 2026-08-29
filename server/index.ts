@@ -1021,6 +1021,34 @@ const DEFAULT_SETTINGS = {
     currency: "$",
     note: "Village Dues cover utilities, maintenance, and community services. Contributions are recognised in Gratitude, and the value tokens the community pool distributes across Gratitude can help offset dues.",
   },
+  /*
+   * THE LAND AND MONEY FIGURES, and why every one of them ships blank.
+   *
+   * The investor page and the master plan used to state four things as module
+   * constants: a land appreciation percentage, an appraisal with its month, a
+   * projected internal rate of return, and a target raise. A fork inherited all
+   * four and published them about its own land, on day one, with no screen
+   * anywhere that could change them. That is a financial representation a fork
+   * cannot stand behind, and a misstatement of the real figures at the same
+   * time.
+   *
+   * Same rule as villageDues directly above, which is already the pattern here:
+   * blank means the site shows nothing rather than a figure somebody else
+   * earned. Each `value` is free text so a village can write "$16M+" or
+   * "1.2M EUR" or "under valuation", and each `note` is the small line under it
+   * that carries the date, the basis or the place.
+   *
+   * Anything a village types here is its own claim about its own land.
+   */
+  landFacts: {
+    acres: { value: "", note: "" },
+    appraisal: { value: "", note: "" },
+    appreciation: { value: "", note: "" },
+    projectedReturn: { value: "", note: "" },
+    targetRaise: { value: "", note: "" },
+    plannedHomes: { value: "", note: "" },
+    guestRooms: { value: "", note: "" },
+  },
 };
 
 const DEFAULT_TRAINING_MODULES = [
@@ -3739,7 +3767,9 @@ function gratitudeBudget(user: any) {
 const notifyDeps: NotifyDeps = {
   get pool() { return getPool(); },
   memberById: (id) => members.byId(id),
-  sendEmail: (opts) => sendResendEmail(opts),
+  // The spine's contract wants `Promise<void>`; the sender now reports what it
+  // did, and this caller has no use for the report.
+  sendEmail: async (opts) => { await sendResendEmail(opts); },
   origin: () => (process.env.FRONTEND_URL || "https://amora.regencivics.earth").replace(/\/$/, ""),
   projectName: () => mergedConfig().project.name,
 };
@@ -4444,14 +4474,58 @@ function resolvedEmailSender(): string {
     if (validEmailSender(env)) return env;
     console.error(`[RESEND] EMAIL_FROM "${env}" is not a valid address, falling back`);
   }
-  return "Amora Site <notifications@amora.cr>";
+  /*
+   * NO LAST-RESORT SENDER ANY MORE, and that is the honest answer.
+   *
+   * This used to return one specific village's address. Two things followed.
+   * Every fork's mail went out claiming a domain it does not own, which Resend
+   * accepts with a 200 and then delivers nowhere, because the send fails the
+   * receiving domain's SPF and DKIM checks. And the runbook already records
+   * that this very domain is unverified, so the fallback was not even
+   * delivering for the village it named.
+   *
+   * An empty string means "this deployment has not said who its mail comes
+   * from", `sendResendEmail` declines rather than sending into a hole, and the
+   * caller is told. A refusal a founder can read beats a 200 nobody receives.
+   */
+  return "";
 }
 
-async function sendResendEmail(opts: { to: string[]; subject: string; html: string; from?: string; replyTo?: string }): Promise<void> {
+/**
+ * WHAT THIS RETURNS, and why it did not used to return anything.
+ *
+ * Every path out of this function used to be indistinguishable from every
+ * other: no API key, no recipients, a 4xx from the provider and a clean
+ * accepted send all returned the same `undefined`, and none of them threw. So
+ * a caller that wanted to know whether mail had actually gone had exactly one
+ * signal available, "it did not throw", which was true in all four cases.
+ *
+ * `POST /api/admin/bootstrap` was that caller. It set `emailed = true` after
+ * the await and reported it to the operator who had just created the founder
+ * account, on a deployment with no email provider configured, which is the
+ * state every fork boots in. The server log on the same request read
+ * "[RESEND] API key not set, skipping email".
+ *
+ * `sent` is now only true when the provider accepted the message, and `reason`
+ * names which door it left by otherwise. Note the ceiling on that word:
+ * ACCEPTED is not DELIVERED. A provider returns 200 for a domain whose SPF and
+ * DKIM records were never published and then delivers nothing, so `sent: true`
+ * means the message was handed over, never that it arrived.
+ *
+ * Callers that do not care may keep ignoring the result.
+ */
+type MailResult = { sent: boolean; reason?: "no_api_key" | "no_sender" | "no_recipients" | "rejected" | "failed" };
+
+async function sendResendEmail(opts: { to: string[]; subject: string; html: string; from?: string; replyTo?: string }): Promise<MailResult> {
   const cfg = getEmailConfig();
   if (!cfg.resend_api_key) {
     console.log("[RESEND] API key not set, skipping email");
-    return;
+    return { sent: false, reason: "no_api_key" };
+  }
+  const from = opts.from ?? resolvedEmailSender();
+  if (!from) {
+    console.error("[RESEND] no sender address configured, skipping email. Set EMAIL_FROM or the sender in Admin, Email config.");
+    return { sent: false, reason: "no_sender" };
   }
   // Every configured inbox may hold a comma-separated LIST — several people
   // receiving updates is the norm for a village, not an edge case. Split,
@@ -4461,7 +4535,7 @@ async function sendResendEmail(opts: { to: string[]; subject: string; html: stri
   ));
   if (!to.length) {
     console.log("[RESEND] No recipients, skipping email");
-    return;
+    return { sent: false, reason: "no_recipients" };
   }
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -4471,11 +4545,11 @@ async function sendResendEmail(opts: { to: string[]; subject: string; html: stri
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        // Admin-typed sender first, then the env var, then the platform's
-        // last-resort literal. A malformed admin value is IGNORED rather than
-        // sent (a bad From: kills every email silently), and says so in the
-        // log so the founder can find it.
-        from: opts.from ?? resolvedEmailSender(),
+        // Admin-typed sender first, then the env var. A malformed admin value
+        // is IGNORED rather than sent (a bad From: kills every email silently),
+        // and says so in the log so the founder can find it. Resolved above,
+        // because no sender at all is a refusal rather than a send.
+        from,
         to,
         subject: opts.subject,
         html: opts.html,
@@ -4487,9 +4561,12 @@ async function sendResendEmail(opts: { to: string[]; subject: string; html: stri
     if (!res.ok) {
       const errText = await res.text();
       console.error("[RESEND ERROR]", res.status, errText);
+      return { sent: false, reason: "rejected" };
     }
+    return { sent: true };
   } catch (err) {
     console.error("[RESEND ERROR]", err);
+    return { sent: false, reason: "failed" };
   }
 }
 
@@ -7232,8 +7309,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * This route is unauthenticated and has no module gate, and the `roles`
    * section is the CARD-SHAPED org chart that 0049 replaced with rows. The
    * cards kept their `holders` array and `holderNote`, so this endpoint has
-   * been answering anonymous callers with "Via", "Jessica", "Ky (interim)" and
-   * notes like "Away and inactive" for as long as the section has existed.
+   * been answering anonymous callers with real first names, some of them
+   * qualified with "(interim)", and notes about a person's availability for as
+   * long as the section has existed.
    * `/api/org` tiers exactly those fields behind `map.viewPeople`; this was the
    * side door.
    *
@@ -7423,6 +7501,33 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     }
     let claimUrl: string | null = null;
     let emailed = false;
+    /*
+     * WHY THE FOUNDER'S LINK NEEDS A SENTENCE AND NOT JUST A BOOLEAN.
+     *
+     * This route answered `emailed: true` on a deployment with no email
+     * provider at all, which is the state every fork boots in, because
+     * `sendResendEmail` returned normally when it skipped the send and the
+     * `try` below could only ever catch a throw. An operator who read that
+     * line and closed the terminal had stranded the one account that can do
+     * anything, and the operator who did exactly that waited two days.
+     *
+     * So: the truth, plus what to do about it. `emailNote` is a sentence the
+     * runbook and the caller can print, and `claimUrl` is beside it already.
+     */
+    let emailNote: string | null = null;
+    const noteForMail = (r: { sent: boolean; reason?: string }): string | null => {
+      if (r.sent) return null;
+      if (r.reason === "no_api_key") {
+        return "No email provider is configured on this deployment, so nothing was sent. Open the claim link below yourself, or set an email provider and run this again.";
+      }
+      if (r.reason === "no_sender") {
+        return "No sender address is configured on this deployment, so nothing was sent. Open the claim link below yourself, or set EMAIL_FROM and run this again.";
+      }
+      if (r.reason === "no_recipients") {
+        return "That address was not usable as an email recipient, so nothing was sent. Open the claim link below yourself.";
+      }
+      return "The email provider refused the message, so nothing was sent. Open the claim link below yourself, and check the server log for the provider's own reason.";
+    };
     if (user) {
       await members.update(user.id, (u: any) => { u.role = "founder"; });
       // Expired-link recovery: an account created by bootstrap that never set a
@@ -7432,14 +7537,17 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         const claim = makeSetPasswordToken(user.id, user.passwordHash);
         claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
         try {
-          await sendResendEmail({
+          const mail = await sendResendEmail({
             to: [normEmail],
             subject: `Set your password`,
             html: `<p><a href="${escapeHtml(claimUrl)}">Set your password</a> (link expires in 60 minutes).</p>
 <p>If the button does nothing, paste this into your browser:<br>${escapeHtml(claimUrl)}</p>`,
           });
-          emailed = true;
-        } catch { /* claimUrl returned to the operator */ }
+          emailed = mail.sent;
+          emailNote = noteForMail(mail);
+        } catch {
+          emailNote = noteForMail({ sent: false, reason: "failed" });
+        }
       }
     } else {
       const userId = `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -7462,15 +7570,18 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       const claim = makeSetPasswordToken(userId, "");
       claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
       try {
-        await sendResendEmail({
+        const mail = await sendResendEmail({
           to: [normEmail],
           subject: `You are the founder admin. Set your password`,
           html: `<p>Your founder admin account was just created on ${escapeHtml(mergedConfig().project.name)}.</p>
 <p><a href="${escapeHtml(claimUrl)}">Set your password</a> (link expires in 60 minutes).</p>
 <p>If the button does nothing, paste this into your browser:<br>${escapeHtml(claimUrl)}</p>`,
         });
-        emailed = true;
-      } catch { /* fall through: claimUrl is returned to the operator */ }
+        emailed = mail.sent;
+        emailNote = noteForMail(mail);
+      } catch {
+        emailNote = noteForMail({ sent: false, reason: "failed" });
+      }
     }
 
     void recordEvent(getPool(), {
@@ -7487,7 +7598,17 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // escalation — and email providers accept sends they never deliver
     // (unverified sender domains fail silently AFTER a 200). A fork must be
     // bootstrappable with zero working email.
-    res.json({ success: true, userId: user.id, emailed, ...(claimUrl ? { claimUrl } : {}) });
+    //
+    // `emailed` now reports what the provider did rather than whether the call
+    // threw, and `emailNote` says what to do when nothing went. Even a true
+    // here means ACCEPTED, never DELIVERED.
+    res.json({
+      success: true,
+      userId: user.id,
+      emailed,
+      ...(emailNote ? { emailNote } : {}),
+      ...(claimUrl ? { claimUrl } : {}),
+    });
   });
 
   /**

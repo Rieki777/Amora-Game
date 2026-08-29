@@ -10225,6 +10225,18 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
    * worse than one that stays quiet about it.
    */
   const contentEditors = [
+    /*
+     * ORG CHART AND TEAM PAGE WERE MISSING FROM THIS LIST, and they are the two
+     * surfaces a fresh village publishes people on. A founder walked the whole
+     * wizard and was never shown the screen where the seats and the team cards
+     * are edited, so whatever was already on /team and /roles stayed there and
+     * read as the village's own. That is how a fork published four strangers.
+     *
+     * First in the list on purpose: people are the thing a visitor looks for
+     * first and the thing a village is most answerable for.
+     */
+    { tab: "org-chart", label: "Org Chart", hint: "Your circles, your seats, and who holds them. This is what /roles and /team show." },
+    { tab: "team", label: "Team Page", hint: "The portraits and short bios on /team, for the people you want a card for." },
     { tab: "faqs", label: "FAQs", hint: "The Common Questions on each journey page." },
     { tab: "milestones", label: "Build Progress", hint: "Your real build milestones shown on the homepage." },
     { tab: "training-modules", label: "Training modules", hint: "Your community's onboarding/learning modules." },
@@ -10330,7 +10342,11 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
       </Section>
 
       <Section id="numbers" n={3} title="Numbers" subtitle="The editable figures on your site.">
-        <p className="text-sm text-gray-600 mb-3">Village dues and other numbers live in the Settings tab.</p>
+        <p className="text-sm text-gray-600 mb-3">
+          Village dues live in the Settings tab, and so do the land and money figures the
+          investor page and the master plan show. Every one of them ships blank. A blank figure
+          means the page shows no figure at all, so your site only ever states what you stated.
+        </p>
         <button onClick={() => onOpenTab("settings")} className="px-4 py-2 bg-white border border-gray-200 text-[#2D5A5A] rounded-lg text-sm font-medium hover:bg-gray-50">
           Open Settings →
         </button>
@@ -10429,6 +10445,33 @@ function SettingsTab({ password }: { password: string }) {
 
   const dues = settings.villageDues ?? {};
   const setDues = (patch: any) => setSettings({ ...settings, villageDues: { ...dues, ...patch } });
+  const facts = settings.landFacts ?? {};
+  const setFact = (key: string, patch: any) =>
+    setSettings({ ...settings, landFacts: { ...facts, [key]: { ...(facts[key] ?? {}), ...patch } } });
+  /*
+   * Every one of these was a literal in a page file until now, so a fork
+   * published one specific property's acreage, appraisal and projected return
+   * as its own. Free text rather than a number input on purpose: a village may
+   * want "$16M+", "1.2M EUR" or "under valuation", and forcing a numeric field
+   * would push somebody into inventing a precision they do not have.
+   */
+  const landFields: Array<{ key: string; label: string; valueHint: string; noteHint: string; where: string }> = [
+    /*
+     * THE PLACEHOLDERS ARE NOT ANOTHER VILLAGE'S REAL FIGURES.
+     *
+     * The first draft of this panel used the exact numbers it was written to
+     * remove, as "e.g." hints, and the fork test caught all three of them
+     * shipping inside Admin's own chunk. A placeholder is content: whatever it
+     * says is what the next person copies, and half of them will leave it.
+     */
+    { key: "acres", label: "Size of the land", valueHint: "how many", noteHint: "acres, hectares", where: "Master plan" },
+    { key: "appraisal", label: "Appraised value", valueHint: "what it came to", noteHint: "when it was made", where: "Master plan, investor page" },
+    { key: "appreciation", label: "Change in land value", valueHint: "up or down by", noteHint: "over what period", where: "Investor page" },
+    { key: "projectedReturn", label: "Projected return", valueHint: "what your model says", noteHint: "what the model assumes", where: "Investor page" },
+    { key: "targetRaise", label: "Target raise", valueHint: "how much", noteHint: "for which phase", where: "Investor page" },
+    { key: "plannedHomes", label: "Planned homes", valueHint: "how many", noteHint: "", where: "Master plan" },
+    { key: "guestRooms", label: "Guest rooms", valueHint: "how many", noteHint: "", where: "Master plan" },
+  ];
   const preview = dues.amount ? `${dues.currency || "$"}${dues.amount} / ${dues.period || "month"}` : "Not shown until you set an amount";
 
   return (
@@ -10488,6 +10531,43 @@ function SettingsTab({ password }: { password: string }) {
         />
         <div className="text-sm text-gray-500">
           Preview on site: <span className="font-semibold text-[#2D5A5A]">{preview}</span>
+        </div>
+      </div>
+
+      <div className="border border-gray-200 rounded-xl p-5 max-w-3xl mt-6">
+        <h3 className="font-semibold text-gray-900 mb-1">Land and money</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          The figures the master plan and the investor page show. Leave one blank and that
+          tile does not appear, so the site never states a number you did not state. These are
+          claims about your land, and a visitor will read them as yours.
+        </p>
+        <div className="space-y-3">
+          {landFields.map((f) => (
+            <div key={f.key} className="grid grid-cols-[1fr_1fr] gap-3 items-end">
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">
+                  {f.label} <span className="text-gray-400">({f.where})</span>
+                </label>
+                <input
+                  type="text"
+                  value={facts[f.key]?.value ?? ""}
+                  onChange={(e) => setFact(f.key, { value: e.target.value })}
+                  placeholder={f.valueHint}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">Small line under it</label>
+                <input
+                  type="text"
+                  value={facts[f.key]?.note ?? ""}
+                  onChange={(e) => setFact(f.key, { note: e.target.value })}
+                  placeholder={f.noteHint}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+                />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

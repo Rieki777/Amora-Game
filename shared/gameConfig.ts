@@ -240,12 +240,35 @@ export const GAME_CONFIG: GameConfig = {
   },
 
   images: {
-    hero: "https://amora.cr/wp-content/uploads/2025/11/4.jpg",
-    investorHero: "https://amora.cr/wp-content/uploads/2025/11/Shared-Governance-1024x683.jpg",
-    residentHero: "https://amora.cr/wp-content/uploads/2026/02/Land-Tour-3-1024x724.jpg",
-    stewardHero: "https://amora.cr/wp-content/uploads/2025/11/Planting-Trees.jpg",
-    prosperityHero: "https://amora.cr/wp-content/uploads/2026/02/Holistic-Wellbeing-1024x1024.jpg",
-    masterPlanHero: "https://amora.cr/wp-content/uploads/2025/11/4.jpg",
+    /*
+     * THE SIX HERO SLOTS SHIP EMPTY, AND THAT IS THE FIX.
+     *
+     * They used to hold six URLs on one village's WordPress site. Two things
+     * were wrong with that and only one of them was visible.
+     *
+     * The visible one: every last URL now answers 404 while the host root
+     * answers 200, so the live homepage, the four journey pages and the master
+     * plan all render torn images with their alt text spilling out of the card.
+     * Measured 2026-08-29, six URLs, six 404s.
+     *
+     * The one that would still be wrong if they came back: a fork pulling this
+     * platform inherits somebody else's private domain as the source of its own
+     * artwork, with no way to make it its own. That is the same shape as the
+     * seat holders and the appraisal figure, and re-pointing at a working URL
+     * on the same host would fix the broken pictures and leave the fork problem
+     * exactly where it was.
+     *
+     * Empty means "this village has not added its art yet", which every
+     * consumer already understands: `Image` draws a quiet mark and keeps the
+     * alt text as its accessible name, and the Setup Wizard's Pictures step
+     * writes a real URL or an upload into the brand overlay above this.
+     */
+    hero: "",
+    investorHero: "",
+    residentHero: "",
+    stewardHero: "",
+    prosperityHero: "",
+    masterPlanHero: "",
     // WebP, and sized to what the markup actually draws: the header mark is
     // 64px tall and the footer mark 90px, so 320px on the long edge covers a
     // 3x screen with room over. The favicon stays PNG on purpose - it is also

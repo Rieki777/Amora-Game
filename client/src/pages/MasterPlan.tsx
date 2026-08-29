@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { altOr, useBrandImages } from "@/lib/gameApi";
+import { altOr, statedFacts, useBrandImages, useVillageSettings } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { 
@@ -16,18 +16,26 @@ import {
 } from "lucide-react";
 import { Image } from "@/components/Image";
 
-const HERO_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/4.jpg";
 
-const stats = [
-  // 266, because that is what the other seven pages say. This tile read "300+"
-  // and sat next to "$16M+ Appraised Value" on the page an investor reads first,
-  // while /, /investor, /love-letter, /steward-rights, /resident-rights and
-  // /visit all say 266 acres in Dominicalito. ProjectHistory already listed
-  // "Total Acres" among its unverified placeholders, so the repo knew.
-  { label: "Total Acres", value: "266", icon: Mountain },
-  { label: "Planned Homes", value: "150+", icon: Home },
-  { label: "Retreat Keys", value: "120-150", icon: Tent },
-  { label: "Appraised Value", value: "$16M+", icon: Building },
+/*
+ * THE FOUR TILES ARE SHAPES, AND THE FIGURES BELONG TO THE VILLAGE.
+ *
+ * They used to be literals: an acreage, a home count, a retreat key count and
+ * an appraisal, all describing one specific property. Every fork of this
+ * platform published all four about its own land the first time somebody
+ * opened the master plan, and there was no field anywhere to change them.
+ *
+ * The repo already knew this tile row was fragile. The acreage carried a
+ * comment reconciling it against seven other pages that each stated the same
+ * figure in their own words, which is what a constant repeated across a
+ * codebase always ends up needing. A village states it once, in Settings, or
+ * the tile does not appear.
+ */
+const statShapes = [
+  { key: "acres", label: "Total Acres", icon: Mountain },
+  { key: "plannedHomes", label: "Planned Homes", icon: Home },
+  { key: "guestRooms", label: "Retreat Keys", icon: Tent },
+  { key: "appraisal", label: "Appraised Value", icon: Building },
 ];
 
 const zones = [
@@ -65,13 +73,20 @@ const zones = [
 
 export default function MasterPlan() {
   const brand = useBrandImages();
+  const settings = useVillageSettings();
+  const stats = statedFacts(settings, statShapes);
+  // Same rule as the investor page: null is "not loaded", never "nothing to
+  // say". A village with a valuation must not be told it has none while its
+  // own settings are still in flight.
+  const loaded = settings !== null;
+  const appraisal = stats.find((s) => s.key === "appraisal");
   return (
     <Layout>
       {/* Hero */}
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 z-0">
           <Image
-            src={brand.masterPlanHero || HERO_IMAGE}
+            src={brand.masterPlanHero}
             alt={altOr(brand.masterPlanHeroAlt, "The master plan for the village")}
             priority
             className="w-full h-full"
@@ -98,7 +113,10 @@ export default function MasterPlan() {
         </div>
       </section>
 
-      {/* Stats */}
+      {/* Stats. A village that has stated no figures gets no band at all: an
+          empty row of headings with nothing under them reads as broken, and a
+          placeholder number would be a claim nobody made. */}
+      {stats.length ? (
       <section className="py-12 bg-teal-deep text-white">
         <div className="container">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
@@ -121,6 +139,7 @@ export default function MasterPlan() {
           </div>
         </div>
       </section>
+      ) : null}
 
       {/* Vision */}
       <section className="py-20 bg-background overflow-x-clip">
@@ -183,15 +202,25 @@ export default function MasterPlan() {
             <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">
               Land Valuation
             </h2>
-            <p className="text-muted-foreground mb-6">
-              A January 2026 appraisal valued the property at over <strong>$16 million</strong>. 
-              We are currently awaiting an additional appraisal for the section of land 
-              that will be held in commons for conservation and community use.
-            </p>
-            <p className="text-muted-foreground">
-              This valuation supports our financing strategy and demonstrates the 
-              significant asset base underlying the Amora project.
-            </p>
+            {/* The appraisal sentence names the village's own figure or it does
+                not appear. It used to name one specific property's valuation and
+                the month it was made, in prose, on every fork. */}
+            {!loaded ? null : appraisal ? (
+              <>
+                <p className="text-muted-foreground mb-6">
+                  {appraisal.note ? `${appraisal.note}: an appraisal ` : "An appraisal "}
+                  valued the property at <strong>{appraisal.value}</strong>.
+                </p>
+                <p className="text-muted-foreground">
+                  This valuation supports the financing strategy and shows the asset base
+                  underneath the village.
+                </p>
+              </>
+            ) : (
+              <p className="text-muted-foreground">
+                This village has not published a land valuation yet.
+              </p>
+            )}
             <a
               href="https://amora.cr"
               target="_blank"

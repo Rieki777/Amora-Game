@@ -2834,7 +2834,15 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // can backdate, by design); an EDIT through the API restamps and clears
     // it; completed milestones never nag, however old.
     await testDb.conn.query("UPDATE milestones SET updated_at = (NOW() - INTERVAL 20 DAY) WHERE id = 'site-planning'");
-    await testDb.conn.query("UPDATE milestones SET updated_at = (NOW() - INTERVAL 40 DAY) WHERE id = 'land-acquired'");
+    // The completed fixture is MADE complete here rather than assumed. The
+    // seeded build board used to arrive with two rows already marked complete,
+    // stating that one specific property had been bought and appraised, which
+    // every fork then published as its own history. Nothing ships complete any
+    // more, so a test about "completed milestones never nag" has to complete
+    // one itself, which is also the honest shape for it.
+    await testDb.conn.query( // module-review-ok: no API can backdate or pre-complete a milestone, which is the point
+      "UPDATE milestones SET status = 'complete', updated_at = (NOW() - INTERVAL 40 DAY) WHERE id = 'land-acquired'",
+    );
     const withStale = await api("GET", "/api/admin/command-centre", undefined, founderToken);
     const stale = withStale.json.staleMilestones.find((m: any) => m.id === "site-planning");
     expect(stale).toBeTruthy();

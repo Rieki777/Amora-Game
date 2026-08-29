@@ -41,7 +41,7 @@ const RIGHTS = [
     icon: Leaf,
     title: "Access to All Commons",
     description:
-      "The trails, food forests, gathering spaces, streams, ponds, and 266 acres of shared land are yours to use and enjoy. Seasonal festivals, community events, potlucks, and village celebrations are part of your life here.",
+      "The trails, food forests, gathering spaces, streams, ponds, and the shared land are yours to use and enjoy. Seasonal festivals, community events, potlucks, and village celebrations are part of your life here.",
   },
   {
     icon: Heart,
@@ -190,7 +190,7 @@ export default function ResidentRights() {
             </h2>
             <p className="text-muted-foreground leading-relaxed max-w-xl mx-auto">
               The land at Amora is held collectively, not by a landlord, not by a developer, not
-              by any single person. Every resident is a steward of the whole 266 acres. Your home
+              by any single person. Every resident is a steward of the whole of it. Your home
               is your private space. The rest belongs to all of you. Approach every interaction
               with the land and the community from that place: this is mine, and it's also all of
               ours.

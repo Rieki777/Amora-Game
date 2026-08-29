@@ -25,10 +25,57 @@ import {
   Briefcase,
   Globe
 } from "lucide-react";
+import { useState } from "react";
 import { Image } from "@/components/Image";
 
-const HERO_IMAGE = "https://amora.cr/wp-content/uploads/2025/11/4.jpg";
 
+
+/**
+ * The art on a journey card, and what a card looks like before there is any.
+ *
+ * These four pictures used to be four literal URLs on one village's WordPress
+ * site. All four now 404, so the homepage renders four torn images with their
+ * alt text spilling out of the rounded corner, and every fork of this platform
+ * would have been hot-linking that village's domain for its own artwork even
+ * when the files were there.
+ *
+ * So the source is the brand overlay the Setup Wizard writes, and a village
+ * that has not added its art yet gets a quiet mark instead of a broken one.
+ * The card keeps its accessible name either way: a sighted visitor sees a
+ * deliberate empty panel and a screen reader still hears which journey this is.
+ *
+ * A bare <img> rather than <Image> for the same reason the markup below always
+ * used one: the hover zoom is `transition-transform` and the component's fade
+ * is `transition-opacity`, and one would silently cancel the other.
+ */
+function JourneyArt({ src, alt }: { src: string | undefined; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return (
+      <div
+        className="absolute inset-0 flex items-center justify-center bg-muted/40 text-muted-foreground/50"
+        role="img"
+        aria-label={alt}
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" className="h-8 w-8">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <circle cx="9" cy="10" r="1.6" />
+          <path d="M21 16l-5-5-5.5 5.5" />
+        </svg>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+    />
+  );
+}
 
 const journeyCards = [
   {
@@ -39,7 +86,7 @@ const journeyCards = [
     icon: TrendingUp,
     href: "/investor",
     color: "bg-amber",
-    image: "https://amora.cr/wp-content/uploads/2025/11/Shared-Governance-1024x683.jpg",
+    imageKey: "investorHero" as const,
   },
   {
     id: "steward",
@@ -49,7 +96,7 @@ const journeyCards = [
     icon: Users,
     href: "/steward",
     color: "bg-sage",
-    image: "https://amora.cr/wp-content/uploads/2025/11/Planting-Trees.jpg",
+    imageKey: "stewardHero" as const,
   },
   {
     id: "resident",
@@ -59,7 +106,7 @@ const journeyCards = [
     icon: HomeIcon,
     href: "/resident",
     color: "bg-teal",
-    image: "https://amora.cr/wp-content/uploads/2026/02/Land-Tour-3-1024x724.jpg",
+    imageKey: "residentHero" as const,
   },
   {
     id: "prosperity",
@@ -69,7 +116,7 @@ const journeyCards = [
     icon: Sparkles,
     href: "/prosperity",
     color: "bg-teal-light",
-    image: "https://amora.cr/wp-content/uploads/2026/02/Holistic-Wellbeing-1024x1024.jpg",
+    imageKey: "prosperityHero" as const,
   },
 ];
 
@@ -92,7 +139,7 @@ export default function Home() {
           {/* priority: this is the Largest Contentful Paint element. Without
               fetchPriority=high it queues behind every other image on the page. */}
           <Image
-            src={brand.hero || HERO_IMAGE}
+            src={brand.hero}
             alt={altOr(brand.heroAlt, "The village and the land around it")}
             priority
             className="w-full h-full"
@@ -269,20 +316,7 @@ export default function Home() {
                   <div className="group relative overflow-hidden rounded-2xl bg-card shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer">
                     {/* Image */}
                     <div className="relative h-56 overflow-hidden">
-                      {/* Deliberately a bare <img> rather than <Image>: the
-                          hover zoom needs `transition-transform`, and the
-                          component's fade uses `transition-opacity` — both set
-                          the same CSS property, so one would silently win and
-                          kill the other. The parent already reserves h-56, so
-                          there is no layout shift to fix here; lazy loading is
-                          the whole benefit and it applies directly. */}
-                      <img
-                        src={card.image}
-                        alt={card.title}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                      />
+                      <JourneyArt src={brand[card.imageKey]} alt={card.title} />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                       <div className={`absolute top-4 left-4 w-12 h-12 ${card.color} rounded-xl flex items-center justify-center`}>
                         <card.icon className="w-6 h-6 text-white" />

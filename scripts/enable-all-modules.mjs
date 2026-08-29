@@ -44,7 +44,19 @@ const TARGETS = [
   ["commerce", "public"],
   ["network", "public"],
   ["events", "public"],
+  // Four that shipped after this list was written and were never added, which
+  // is why the runbook's own step exited 3 on trunk and told the founder the
+  // script was out of date. How a village decides and how its resources flow
+  // are things villages publish; who is being introduced to whom is not.
+  ["governance", "public"],
+  ["resources", "public"],
+  ["crowdpool", "public"],
   ["messaging", "members"],
+  // AFTER messaging, which it requires. Measured: with introductions ahead of
+  // it the server answered 409 "requires messaging to be enabled first", the
+  // module stayed off, and this script still exited 0. Order is load-bearing
+  // in this list, exactly as the note at the top says.
+  ["introductions", "members"],
   ["automation", "members"],
 ];
 
@@ -62,6 +74,9 @@ const PROBES = {
   commerce: "/api/products",
   network: "/api/network/published",
   events: "/api/events",
+  governance: "/api/governance/ballots",
+  resources: "/api/resources",
+  crowdpool: "/api/crowdpool/campaigns",
 };
 
 async function api(method, path, body, token) {
@@ -128,15 +143,72 @@ async function main() {
    * acceptance.
    */
   const listings = before.json.modules.filter((m) => m.tier && m.tier !== "included");
+
+  /*
+   * Modules that declare `setup: "required"` are excluded on the same
+   * principle as the listings above, and read from the server's own field for
+   * the same reason: turning one on connects the village to something it has
+   * not set up. The Hypha bridge is the live case. Switching it on for a
+   * village with no DHO gives that village a governance surface pointing at
+   * nothing, which is the exact defect this round is closing everywhere else.
+   */
+  const needSetup = before.json.modules.filter(
+    (m) =>
+      !m.core &&
+      m.setup === "required" &&
+      // Only modules this script was NOT already told to open. Four of the
+      // list's own entries declare `setup: "required"` too, and without this
+      // clause the run printed "Skipping stays, library, exchange, commerce"
+      // and then turned all four on, which is a worse sentence than no
+      // sentence. Measured, not reasoned about.
+      !covered.has(m.id) &&
+      !listings.some((l) => l.id === m.id),
+  );
+
+  /*
+   * WHAT STATE AM I IN. This prints on every exit, including the refusal.
+   *
+   * The refusal below was already the right shape: it declines to report a
+   * success it cannot vouch for. What it never did was say what it had left
+   * behind, so an operator following the runbook read "this script is out of
+   * date", got exit 3, and had no idea which modules their village now had. A
+   * setup step that leaves somebody unsure what they are running is the same
+   * defect as a save that lands where nothing reads.
+   */
+  let lastRead = null;
+  const reportState = () => {
+    const rows = (lastRead ?? before).json.modules;
+    console.log("\nWhere this village stands right now:\n");
+    for (const m of rows) {
+      const state = m.core ? "always on" : m.lifecycle;
+      const served = m.served && m.served !== m.lifecycle ? `  (serving ${m.served})` : "";
+      console.log(`  ${String(m.id).padEnd(14)} ${String(state).padEnd(9)}${served}`);
+    }
+    console.log("");
+  };
   const missing = before.json.modules
-    .filter((m) => !m.core && !covered.has(m.id) && !listings.some((l) => l.id === m.id))
+    .filter(
+      (m) =>
+        !m.core &&
+        !covered.has(m.id) &&
+        !listings.some((l) => l.id === m.id) &&
+        !needSetup.some((n) => n.id === m.id),
+    )
     .map((m) => m.id);
   if (missing.length) {
     console.error(
       `\nThis script does not know about ${missing.length} module(s) the server offers: ${missing.join(", ")}.\n` +
         `Add them to TARGETS (and PROBES) in scripts/enable-all-modules.mjs — refusing to report success while the list is stale.`,
     );
+    reportState();
+    console.error("Nothing was changed. Every module above is exactly as you left it.");
     process.exit(3);
+  }
+  if (needSetup.length) {
+    console.log(
+      `\nSkipping ${needSetup.length} module(s) that need their own setup first: ${needSetup.map((m) => m.id).join(", ")}.\n` +
+        `Each one connects this village to something outside it. Turn it on from Admin -> Modules once that connection exists.`,
+    );
   }
   if (listings.length) {
     console.log(
@@ -164,11 +236,25 @@ async function main() {
     console.log(line);
   }
 
-  if (DRY) return;
+  if (DRY) {
+    reportState();
+    console.log("Dry run. Nothing was changed.");
+    return;
+  }
+
+  /*
+   * A REFUSED module counts against the run.
+   *
+   * `bad` used to count only probe failures and dependency demotions, so a
+   * module the server declined to enable was printed with a cross, left off,
+   * and then followed by "All modules enabled and answering" and exit 0. That
+   * was measured on this repo: introductions sat above the module it requires,
+   * came back 409, stayed off, and the script reported success.
+   */
+  let bad = results.filter((r) => r.action === "REFUSED").length;
 
   // Verify: what a signed-out visitor sees, module by module.
   console.log("\nVerifying public surfaces (as a signed-out visitor):\n");
-  let bad = 0;
   for (const [id, path] of Object.entries(PROBES)) {
     const target = TARGETS.find(([m]) => m === id)?.[1];
     const r = await api("GET", path);
@@ -178,6 +264,7 @@ async function main() {
   }
 
   const after = await api("GET", "/api/admin/modules", undefined, token);
+  lastRead = after;
   const servedOff = after.json.modules.filter((m) => !m.core && m.served === "off" && m.lifecycle !== "off");
   if (servedOff.length) {
     console.log("\n  ! demoted (dependency unmet, serving OFF):");
@@ -187,7 +274,10 @@ async function main() {
 
   const info = await api("GET", "/api/platform/info");
   console.log(`\n${info.json?.name ?? "?"} — ${info.json?.modules?.length ?? 0} module(s) serving, build ${info.json?.build ?? "?"}`);
-  console.log(bad === 0 ? "\nAll modules enabled and answering.\n" : `\n${bad} surface(s) need attention.\n`);
+  // The same table on the way out as on the refusal, so the answer to "what do
+  // I have now" never depends on which exit was taken.
+  reportState();
+  console.log(bad === 0 ? "All modules this script opens are on and answering.\n" : `${bad} module(s) or surface(s) need attention. The table above is what you have.\n`);
   process.exit(bad === 0 ? 0 : 1);
 }
 

@@ -47,7 +47,7 @@ const RIGHTS = (valueName: string) => [
     icon: Leaf,
     title: "Access to Shared Land and Commons",
     description:
-      "The 266 acres are yours to steward. You have the right to access all common areas, food forests, trails, gathering spaces, and natural features of the land. You can participate in every seasonal festival, community event, and village gathering.",
+      "The land is yours to steward. You have the right to access all common areas, food forests, trails, gathering spaces, and natural features of the land. You can participate in every seasonal festival, community event, and village gathering.",
   },
   {
     icon: Shield,
