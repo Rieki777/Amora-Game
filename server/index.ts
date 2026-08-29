@@ -24969,10 +24969,32 @@ ${inner}
   /**
    * The village-wide electorate, built through the ONE gate: every real,
    * sign-in-able member for whom hasCapability("ballot.vote") answers true.
-   * Example users are excluded; a warning badge's deny suspends voting; the
-   * admin shortcut and role/badge grants all ride the gate's own order.
+   * The admin shortcut and role/badge grants all ride the gate's own order.
    * Weight per the current mode — the caller freezes the result into the
    * ballot, after which nothing here matters to that vote again.
+   *
+   * A WARNING BADGE NO LONGER SUSPENDS VOTING HERE (0109, R65/R66). Denying a
+   * voice is not a power anyone holds, so `DENIABLE` marks `ballot.vote` as a
+   * key no deny reaches and the gate ignores one. Nothing about this function
+   * changed; what changed is the answer the gate gives it.
+   *
+   * WHO LEAVING TAKES OUT OF THE POOL, WHICH IS THE OTHER HALF AND IS
+   * LEGITIMATE. The `passwordHash` filter is doing that work and it is
+   * load-bearing rather than a tidy-up: `anonymizeMember` clears the hash when
+   * a member leaves through either door (`DELETE /api/admin/players/:id` or
+   * `POST /api/profile/delete-account`), so a departed member is not a
+   * candidate for any roll built afterwards. That matters because quorum is
+   * measured against `ballots.total_weight`, the sum of the roll frozen at
+   * open: a departed member left in the pool would count toward quorum
+   * forever and every proposal would get harder to pass as the village aged.
+   * `seatRecord.routes.e2e.test.ts` measures the drop against a control.
+   *
+   * The gap that is NOT covered: a member who stops taking part but keeps
+   * their account is still in the pool, because "left the village" has no
+   * representation here other than deleting the account. Confirming a
+   * departure by vote is a separate piece of work.
+   *
+   * Example users are excluded: they are content, never people.
    */
   async function buildElectorate(): Promise<Array<{ userId: string; weight: number }>> {
     const candidates = (await members.all()).filter((u: any) => !isExampleUser(u) && u.passwordHash);

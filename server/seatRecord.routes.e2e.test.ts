@@ -707,6 +707,77 @@ describe.skipIf(!DB_CONFIGURED)("nobody can take away a voice that was earned", 
     expect(said).toContain("Voting is not open to your account at the moment");
     expect(said).not.toContain("warning");
   });
+
+  /**
+   * THE OTHER ACT, AND IT IS LEGITIMATE. Leaving is not a sanction.
+   *
+   * The founder drew the line by TRIGGER rather than by effect. Stripping a
+   * member's voice because of how they behaved is the act R65/R66 forbid, and
+   * this file's earlier cases prove it is gone. Taking a DEPARTED member's
+   * voice out of the pool is a different act and it has to keep working, for
+   * a reason that is a real failure mode: a departed member left in the pool
+   * counts toward quorum forever, so every proposal gets harder to pass as a
+   * village ages. A village that loses four of twelve would slowly become
+   * ungovernable while every remaining member is present and willing.
+   *
+   * Quorum is measured against `ballots.total_weight`, which is the sum of
+   * the roll frozen at open, so whatever `buildElectorate` returns at open is
+   * the denominator for the life of that ballot. That makes this measurable
+   * rather than arguable, and it is measured here instead of read off the
+   * code: the counts come off two real ballots opened either side of a real
+   * departure.
+   */
+  it("MEASURES that a departed member leaves the pool, and a present one stays in it", async () => {
+    const withdrawRunning = async () => {
+      const open = await call("GET", "/api/governance/ballots?limit=200");
+      const running = (open.json ?? []).find((b: any) => b.subjectType === "advisory" && b.status === "open");
+      if (running) {
+        expect((await call("POST", `/api/governance/ballots/${running.id}/withdraw`, {
+          body: { reason: "Asked and answered in the circle." },
+        })).status).toBe(200);
+      }
+    };
+    const openOne = async (question: string) => {
+      await withdrawRunning();
+      const asked = await call("POST", "/api/governance/advisory", { body: { question } });
+      expect(asked.status, JSON.stringify(asked.json)).toBe(200);
+      return String(asked.json?.ballot?.id ?? "");
+    };
+
+    // Before. Dana is here, at member stage, and on the roll.
+    const beforeId = await openOne("Would we want a second compost bay?");
+    const before = await call("GET", `/api/governance/ballots/${beforeId}`, { token: danaToken });
+    expect(before.status).toBe(200);
+    const countBefore = Number(before.json?.electorateCount);
+    const weightBefore = Number(before.json?.totalWeight);
+    expect(countBefore, "the roll has people on it, or this measures nothing").toBeGreaterThan(0);
+    expect(before.json?.myWeight, "Dana is on the roll while she is here").not.toBeNull();
+
+    // She leaves, through the member's own door.
+    const left = await call("POST", "/api/profile/delete-account", {
+      token: danaToken,
+      body: { password: PASSWORD },
+    });
+    expect(left.status, JSON.stringify(left.json)).toBe(200);
+
+    // After. A ballot opened now builds its roll without her.
+    const afterId = await openOne("Would we want the tool shed painted?");
+    const after = await call("GET", `/api/governance/ballots/${afterId}`);
+    expect(after.status).toBe(200);
+    expect(Number(after.json?.electorateCount), "a departed member is out of the pool").toBe(countBefore - 1);
+    expect(Number(after.json?.totalWeight)).toBeLessThan(weightBefore);
+
+    // AND THE CONTROL, in the same measurement: Cara is still here, still
+    // carries the warning badge, and is still counted. So the drop above is
+    // departure and not some other thing that happened in between.
+    const caraSees = await call("GET", `/api/governance/ballots/${afterId}`, { token: caraToken });
+    expect(caraSees.json?.myWeight, "a member who is still here keeps her place in the pool").not.toBeNull();
+
+    // The ballot that was already open keeps the roll it froze, which is the
+    // snapshot law. Leaving does not rewrite a vote that is already running.
+    const frozen = await call("GET", `/api/governance/ballots/${beforeId}`);
+    expect(Number(frozen.json?.electorateCount), "an open ballot's roll is frozen, departures included").toBe(countBefore);
+  });
 });
 
 /**

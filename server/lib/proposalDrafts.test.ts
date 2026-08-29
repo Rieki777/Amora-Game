@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import mysql from "mysql2/promise";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
+import { ALL_CAPABILITIES, DENIABLE } from "../../shared/capabilities";
 import {
   CONDUCTABLE_TYPES,
   DRAFT_CAP,
@@ -267,5 +268,38 @@ describe.skipIf(!configured)("proposal drafts (MySQL)", () => {
     const bad = await saveDraft(pool, { userId: me, wizardType: "coup", payload: {}, stepIndex: 0 });
     expect(bad.ok).toBe(false);
     expect(await draftsOf(pool, me)).toHaveLength(0);
+  });
+});
+
+/**
+ * THE TWO KEYS THAT MAKE AN ELECTORATE, SAID TWICE, PINNED ONCE.
+ *
+ * This file's `TYPE_CAPABILITY_REFUSALS` and `shared/capabilities.ts`'s
+ * `DENIABLE` were written months apart, by different lanes, for different
+ * reasons, and they arrived at the same pair. The runway refuses a badge
+ * grant naming `ballot.vote` or `member.vouch` because handing a voice to
+ * named individuals is a few members choosing who else gets a say. `DENIABLE`
+ * refuses a warning badge TAKING either, because a voice that was earned is
+ * never taken away (R65/R66, 0109). Two directions, one line.
+ *
+ * Two statements of one fact drift. Neither is wrong today, and a later lane
+ * adding a third voice key to one of them would leave the other quietly
+ * behind, so the agreement is asserted rather than admired.
+ */
+describe("the badge-grant refusal and the deny map name the same voice keys", () => {
+  it("agrees key for key", () => {
+    const refusedByTheRunway = [...(TYPE_CAPABILITY_REFUSALS.badge_grant?.keys ?? [])].sort();
+    const notDeniable = ALL_CAPABILITIES.filter((c) => !DENIABLE[c]).sort();
+    expect(refusedByTheRunway.length, "the runway refuses nothing, so this proves nothing").toBeGreaterThan(0);
+    expect(notDeniable).toEqual(refusedByTheRunway);
+  });
+
+  it("and the pair really is the vote and the vouch", () => {
+    // Named outright, so renaming a key cannot make the agreement above hold
+    // over a pair nobody intended.
+    expect([...(TYPE_CAPABILITY_REFUSALS.badge_grant?.keys ?? [])].sort()).toEqual([
+      "ballot.vote",
+      "member.vouch",
+    ]);
   });
 });
