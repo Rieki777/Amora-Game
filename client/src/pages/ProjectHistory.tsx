@@ -778,9 +778,18 @@ export default function ProjectHistory() {
         body: JSON.stringify(body),
       });
       if (res.ok) return true;
+      // A refusal often says exactly what was wrong with it. Reporting only
+      // the status number throws that sentence away and leaves somebody
+      // guessing at a form they could have fixed in one edit.
+      const said = await res
+        .json()
+        .then((body: any) => String(body?.error ?? "").trim())
+        .catch(() => "");
       setWriteNote(
         res.status === 401
           ? "The tracker did not save that. Your journey password is no longer accepted, so reload the page and sign in again."
+          : said
+          ? `The tracker did not save that: ${said}`
           : `The tracker did not save that (${res.status}). What you see is back to what the server holds.`,
       );
     } catch {
@@ -1019,6 +1028,7 @@ export default function ProjectHistory() {
                         type="text"
                         value={r.label}
                         placeholder="What it is"
+                        aria-label={`Name for link ${i + 1}`}
                         onChange={(e) =>
                           setResourceDraft((prev) =>
                             prev.map((row, j) => (j === i ? { ...row, label: e.target.value } : row)),
@@ -1030,6 +1040,7 @@ export default function ProjectHistory() {
                         type="url"
                         value={r.url}
                         placeholder="https://"
+                        aria-label={`Web address for link ${i + 1}`}
                         onChange={(e) =>
                           setResourceDraft((prev) =>
                             prev.map((row, j) => (j === i ? { ...row, url: e.target.value } : row)),
@@ -1084,20 +1095,25 @@ export default function ProjectHistory() {
                     <ExternalLink className="w-3 h-3 opacity-70" />
                   </a>
                 ))}
-                <button
-                  onClick={() => {
-                    setResourceDraft(
-                      serverState.resources.length > 0
-                        ? serverState.resources.map((r) => ({ ...r }))
-                        : [{ label: "", url: "" }],
-                    );
-                    setEditingResources(true);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-white/40 text-white hover:bg-white/15 transition-colors"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  {serverState.resources.length > 0 ? "Edit links" : "Add the documents this team works from"}
-                </button>
+                {/* Held back until the server has answered. An admin whose
+                    village HAS links would otherwise be told, for a moment,
+                    that it has none. */}
+                {!loadingState && (
+                  <button
+                    onClick={() => {
+                      setResourceDraft(
+                        serverState.resources.length > 0
+                          ? serverState.resources.map((r) => ({ ...r }))
+                          : [{ label: "", url: "" }],
+                      );
+                      setEditingResources(true);
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-white/40 text-white hover:bg-white/15 transition-colors"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    {serverState.resources.length > 0 ? "Edit links" : "Add the documents this team works from"}
+                  </button>
+                )}
               </div>
             )}
           </div>

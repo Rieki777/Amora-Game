@@ -3803,7 +3803,7 @@ function gratitudeBudget(user: any) {
  * is a state somebody has to be told about rather than left to discover.
  */
 let observedOrigin = "";
-export function rememberDeploymentOrigin(req: express.Request): void {
+function rememberDeploymentOrigin(req: express.Request): void {
   if (observedOrigin) return;
   const proto = String(req.headers["x-forwarded-proto"] ?? req.protocol ?? "https")
     .split(",")[0].trim();
@@ -13659,14 +13659,14 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
   // ── S66: feedback — the local queue is the feature, the relay is a copy ──
 
   /**
-    * What the submission form needs to disclose, honestly, before anyone types.
-    *
-    * The setting alone is not the disclosure. Sharing needs the setting AND a
-    * hub to send to, and the hub is no longer defaulted to anybody's address,
-    * so a deployment with the dial ON and `FEEDBACK_HUB_URL` unset shares
-    * nothing. Reporting the dial by itself would promise a person their words
-    * are travelling somewhere when they are staying home.
-    */
+   * What the submission form needs to disclose, honestly, before anyone types.
+   *
+   * Two things decide it: the dial the village set, and whether this
+   * deployment was told where the hub is. The hub is no longer defaulted to
+   * anybody's address, so a deployment with the dial ON and `FEEDBACK_HUB_URL`
+   * unset shares nothing. Reporting the dial on its own would promise a person
+   * their words are travelling somewhere while they stay home.
+   */
   app.get("/api/feedback/config", async (_req, res) => {
     res.json({
       relayOn: feedbackIsShared(),
