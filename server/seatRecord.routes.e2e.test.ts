@@ -652,3 +652,57 @@ describe.skipIf(!DB_CONFIGURED)("why somebody is off a roll", () => {
     expect(said).not.toContain("warning");
   });
 });
+
+/**
+ * A MEMBER'S OWN FIRSTS, DERIVED ON THE READ.
+ *
+ * `cast_at` defaults to CURRENT_TIMESTAMP and `updated_at` is the separate ON
+ * UPDATE column, so a member who changes their mind does not move the date of
+ * their first vote. That is the whole reason this can be derived rather than
+ * stored, and it is asserted rather than trusted: the founder votes, changes
+ * the vote, and the first-time date must not have moved.
+ */
+describe.skipIf(!DB_CONFIGURED)("the first time somebody did each of these", () => {
+  it("says nothing at all about a member who has done none of them", async () => {
+    // A brand new account: never voted, never objected, holds no seat. Three
+    // nulls, and the page renders no section rather than three zeroes.
+    const fresh = await register("Eli Marsh", `eli-${PORT}@example.test`);
+    const theirs = await call("GET", "/api/game/progression", { token: fresh.token });
+    expect(theirs.status).toBe(200);
+    expect(theirs.json?.firsts).toEqual({ vote: null, objection: null, seat: null });
+  });
+
+  it("dates a first vote from cast_at, and a changed vote does not move it", async () => {
+    // One advisory per opener at a time, and the previous block left one
+    // running.
+    const open = await call("GET", "/api/governance/ballots?limit=200");
+    const running = (open.json ?? []).find((b: any) => b.subjectType === "advisory" && b.status === "open");
+    if (running) {
+      expect((await call("POST", `/api/governance/ballots/${running.id}/withdraw`, {
+        body: { reason: "Answered in the circle before the vote got going." },
+      })).status).toBe(200);
+    }
+    const asked = await call("POST", "/api/governance/advisory", {
+      body: { question: "Should the tool shed keep its own key?" },
+    });
+    expect(asked.status, JSON.stringify(asked.json)).toBe(200);
+    const id = String(asked.json?.ballot?.id ?? "");
+
+    expect((await call("POST", `/api/governance/ballots/${id}/vote`, { body: { choice: "yes" } })).status).toBe(200);
+    const first = await call("GET", "/api/game/progression");
+    expect(first.json?.firsts?.vote, "the founder's first vote is dated").toBeTruthy();
+    const dated = String(first.json.firsts.vote);
+
+    expect((await call("POST", `/api/governance/ballots/${id}/vote`, { body: { choice: "abstain" } })).status).toBe(200);
+    const again = await call("GET", "/api/game/progression");
+    expect(again.json?.firsts?.vote, "changing a vote does not move when you first voted").toBe(dated);
+  });
+
+  it("dates a first seat from the seating, and leaves an example seat out of it", async () => {
+    const mine = await call("GET", "/api/game/progression", { token: memberToken });
+    // She was seated on two real seats earlier in this suite.
+    expect(mine.json?.firsts?.seat, "her first seat is dated").toBeTruthy();
+    // And never before this run began, which is what an example row would do.
+    expect(new Date(String(mine.json.firsts.seat)).getFullYear()).toBeGreaterThanOrEqual(2025);
+  });
+});

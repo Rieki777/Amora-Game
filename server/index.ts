@@ -22666,6 +22666,46 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * unlocked. Revision 2, step 4 (profiles) reads this, and it is what makes
    * "you advanced and something opened" visible rather than mysterious.
    */
+  /**
+   * THE FIRST TIME SOMEBODY DID EACH OF THESE, DERIVED AND NEVER STORED.
+   *
+   * A member's stage crossings are recorded and shown; the three moments
+   * below are the ones the engine has always been able to answer and nobody
+   * ever asked it. `cast_at` defaults to CURRENT_TIMESTAMP and `updated_at`
+   * is the separate ON UPDATE column, so changing a vote does NOT move
+   * `cast_at`: the earliest one is exactly the first time this person voted,
+   * not an approximation of it. Same shape for a first objection and a first
+   * seat.
+   *
+   * WHAT IS DELIBERATELY NOT HERE:
+   *
+   *  - A first proposal of any kind. Only mechanics has a proposal table, the
+   *    other wizard types have no shared home, and `proposal_drafts` is
+   *    deleted on publish. There is no honest way to answer it, so it is not
+   *    answered rather than answered from the one type that happens to keep
+   *    rows.
+   *  - Anything in `EARNED_METRICS`. A badge is a public artefact and a first
+   *    vote is a private milestone, and putting one through the other would
+   *    manufacture the cross-member comparison R55 forbids.
+   *  - A count, of anything. This says WHEN, three times, for one person, and
+   *    a member who has done none of them gets three nulls and a page that
+   *    renders nothing rather than three zeroes (R55).
+   *
+   * Example rows are left out of the seat: a seating on a demonstration seat
+   * is the seeded chart talking, and dating a member's own first seat from it
+   * would be the product telling them about something they did not do.
+   */
+  async function firstTimesFor(userId: string): Promise<{ vote: string | null; objection: string | null; seat: string | null }> {
+    const [[row]] = await getPool().query<any[]>(
+      "SELECT (SELECT MIN(cast_at) FROM ballot_votes WHERE user_id = ?) AS first_vote, " +
+        "(SELECT MIN(created_at) FROM ballot_objections WHERE user_id = ?) AS first_objection, " +
+        "(SELECT MIN(started_at) FROM org_role_assignments WHERE user_id = ? AND holder_kind = 'member' AND is_example = 0) AS first_seat",
+      [userId, userId, userId],
+    );
+    const iso = (v: any): string | null => (v instanceof Date ? v.toISOString() : v ? String(v) : null);
+    return { vote: iso(row?.first_vote), objection: iso(row?.first_objection), seat: iso(row?.first_seat) };
+  }
+
   app.get("/api/game/progression", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
@@ -22683,6 +22723,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
         .filter((e) => e.userId === user.id)
         .sort((a, b) => String(b.at).localeCompare(String(a.at)))
         .map((e) => ({ fromStage: e.fromStage, toStage: e.toStage, unlocked: e.unlocked, reason: e.reason, at: e.at })),
+      firsts: await firstTimesFor(user.id),
     });
   });
 
