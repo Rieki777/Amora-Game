@@ -1678,7 +1678,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     );
     expect(selfAccept.status).toBe(200);
     expect(selfAccept.json.rewarded).toBe(false);
-    expect(String(selfAccept.json.rewardRefused ?? "")).toContain("needs another steward");
+    expect(String(selfAccept.json.rewardRefused ?? "")).toContain("waits for another steward");
     // The status moved, and no recognition followed it.
     const selfLedger = await api("GET", "/api/game/ledger", undefined, founderToken);
     expect(

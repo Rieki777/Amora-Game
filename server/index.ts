@@ -4335,16 +4335,22 @@ async function applyAcceptReward(
   if (!match) return { rewarded: false }; // not a registered member; nothing to fold in
   // The same rule the mint already enforces, restated where this mint happens
   // so a new caller cannot route around it.
-  if (acceptedByUserId) {
-    const witness = canConfirm(match.id, acceptedByUserId);
-    if (!witness.ok) {
-      return {
-        rewarded: false,
-        refused:
-          "The proposal is accepted. The recognition is not: this proposal is yours, and " +
-          "recognition for it needs another steward to accept it.",
-      };
-    }
+  //
+  // Called with no actor, this refuses too, and that is the point.
+  // `canConfirm` answers "a confirmation needs a named steward" for an empty
+  // one, so an unattributed accept withholds the payment. Every live path
+  // here has an actor: the route sits behind `guardCapability`, which cannot
+  // pass without a signed-in user. A future caller that loses the actor meets
+  // a refusal it has to read, and inventing a witness to get past it is the
+  // one thing that must stay hard.
+  const witness = canConfirm(match.id, acceptedByUserId ?? "");
+  if (!witness.ok) {
+    return {
+      rewarded: false,
+      refused:
+        "The proposal is accepted. The recognition for it waits for another steward, " +
+        "because this proposal is yours.",
+    };
   }
   // Registry, not the content document: this is recognition ISSUANCE, and it
   // sat in Work With Us page copy with no bounds and no mechanics visibility.
