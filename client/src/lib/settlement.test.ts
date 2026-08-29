@@ -20,6 +20,7 @@ import {
 
 const pending = (over: Partial<PendingSettlement> = {}): PendingSettlement => ({
   pool: { size: 1000, token: "credits", tokenName: "Village Credits", problem: null },
+  unreadableCycles: null,
   due: [
     {
       id: "lunar-000328",
@@ -167,5 +168,31 @@ describe("what the confirmation promises", () => {
     expect(joinNumbers([7])).toBe("7");
     expect(joinNumbers([7, 8])).toBe("7 and 8");
     expect(joinNumbers([6, 7, 8])).toBe("6, 7 and 8");
+  });
+});
+
+/**
+ * The empty list has two causes and they are different news. A preview that
+ * stopped because it met a cycle id it cannot read has NOT established that
+ * every lunation is settled, and saying so would be the desk stating a fact it
+ * does not have.
+ */
+describe("a cycle id the server cannot read", () => {
+  const trouble = "2 recognition row(s) carry a cycle id this build cannot read: 2026-07, moon-x.";
+
+  it("blocks the press, the same as a misconfigured pool", () => {
+    expect(settlementBlocked(pending({ unreadableCycles: trouble, due: [] }))).toBe(true);
+  });
+
+  it("says why, instead of saying everything is settled", () => {
+    const lines = settlementIntent(pending({ unreadableCycles: trouble, due: [] }));
+    expect(lines).toEqual([trouble]);
+  });
+
+  it("leaves the ordinary empty case exactly as it was", () => {
+    expect(settlementIntent(pending({ due: [] }))).toEqual([
+      "Nothing is due. Every finished lunation is already settled.",
+    ]);
+    expect(settlementBlocked(pending({ due: [] }))).toBe(false);
   });
 });

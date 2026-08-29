@@ -9070,6 +9070,11 @@ function CyclesTab({ password }: { password: string }) {
                       {pending.pool.problem}
                     </p>
                   )}
+                  {pending.unreadableCycles && (
+                    <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">
+                      {pending.unreadableCycles}
+                    </p>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-red-600 mt-1">The settlement preview could not be read.</p>
@@ -9081,7 +9086,13 @@ function CyclesTab({ password }: { password: string }) {
             <h3 className="font-semibold text-gray-900 mb-2">What a close would settle</h3>
             {due.length === 0 ? (
               <p className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-xl p-6">
-                Nothing is due. Every finished lunation is already settled.
+                {/* An empty list has two causes and they are not the same news.
+                    Claiming everything is settled while the server could not
+                    read some rows is the product stating a fact it does not
+                    have. */}
+                {pending?.unreadableCycles
+                  ? "The preview stopped before it could list anything. The message above says why."
+                  : "Nothing is due. Every finished lunation is already settled."}
               </p>
             ) : (
               <div className="space-y-3">
