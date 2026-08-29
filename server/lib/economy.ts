@@ -48,6 +48,7 @@
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { cycleBoundsFor } from "../../shared/lunar";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
+import { shareCapFor } from "./gratitude";
 import { numberVar } from "./variables";
 import {
   memberAccount,
@@ -507,6 +508,17 @@ export interface Allowance {
 }
 
 /**
+ * How much a member's stage multiplies the base allowance.
+ *
+ * Injected, and REQUIRED, because the stage rules live in the host: they read
+ * in-memory training and membership repos and a MySQL quest count, none of
+ * which this module can see. A default of 1 here would be a fallback inventing
+ * an allowance for a member whose stage nobody looked up, and every caller of
+ * `give` already holds what it takes to answer honestly.
+ */
+export type StageMultiplierFor = (userId: string) => Promise<number>;
+
+/**
  * What a member may still give this moon, COMPUTED from what they have given.
  *
  * A stored counter is the bug. It drifts, it survives a reversal that should
@@ -523,13 +535,22 @@ export interface Allowance {
 export async function allowanceFor(
   conn: Pool | PoolConnection,
   userId: string,
+  stageMultiplier: number,
   at: Date = new Date(),
 ): Promise<Allowance> {
   const { startsAt, endsAt, key } = cycleWindow(at);
-  // The engine's own dial, not `gratitude.base_budget`. That one is a
-  // stage-scaled budget for the acknowledgement flow; this one is the flat
-  // per-moon Hearts allowance the doctrine describes.
-  const total = numberVar("economy.giving_allowance_per_moon");
+  // ONE ALLOWANCE (R73). This read the engine's own flat
+  // `economy.giving_allowance_per_moon` (30) while the acknowledgement flow
+  // read `gratitude.base_budget` times the giver's stage multiplier (100 and
+  // up). Both sum their spending out of the same `gratitude_log` rows, so the
+  // two totals were two answers to one question and the stricter one silently
+  // won for anyone who used that door.
+  //
+  // The multiplier is a NUMBER the caller has already resolved, never a
+  // resolver this function calls: `give` reads it before it opens its
+  // SERIALIZABLE transaction, so nothing here reaches for a second pooled
+  // connection while holding a lock on the first.
+  const total = Math.round(numberVar("gratitude.base_budget") * stageMultiplier);
 
   const [rows] = await conn.query<RowDataPacket[]>(
     "SELECT COALESCE(SUM(`amount`), 0) AS given FROM `gratitude_log` " +
@@ -589,12 +610,20 @@ export function checkGive(
   if (amount > allowance.remaining) {
     return { ok: false, error: `You can still give ${allowance.remaining} this moon` };
   }
-  // Hearts, not sends. `gratitude.max_per_recipient_per_cycle` counts
-  // acknowledgements and defaults to 1, so reading it here would refuse every
-  // gift of two Hearts or more and blame a dial that was working correctly.
-  const perRecipient = numberVar("economy.hearts_per_recipient_per_moon");
-  if (alreadyToThisPerson + amount > perRecipient) {
-    return { ok: false, error: `You can give one person ${perRecipient} Gratitude a moon` };
+  // THE SAME per-recipient rule the acknowledgement flow applies, computed by
+  // the same function (R73). This used to read the engine's own
+  // `economy.hearts_per_recipient_per_moon`, a flat 10 that meant one thing at
+  // an allowance of 30 and something else entirely at 500. A share is
+  // stage-proof and edit-proof.
+  const cap = shareCapFor(allowance.total);
+  if (alreadyToThisPerson + amount > cap) {
+    const left = Math.max(0, cap - alreadyToThisPerson);
+    return {
+      ok: false,
+      error:
+        `${cap} is the most you can give one person this moon, and you have given them ` +
+        `${alreadyToThisPerson}. That leaves ${left} for them`,
+    };
   }
   return { ok: true };
 }
@@ -620,8 +649,14 @@ export function checkGive(
 export async function give(
   pool: Pool,
   input: GiveInput,
+  stageMultiplier: StageMultiplierFor,
 ): Promise<MintOutcome & { noteId?: string }> {
   const amount = Number(input.amount);
+  // Resolved BEFORE the transaction opens. The stage a member has reached is
+  // not what these gives race over, the spending is, and asking for it from
+  // inside a SERIALIZABLE transaction would take a second pooled connection
+  // while holding a lock on the first.
+  const multiplier = await stageMultiplier(input.fromUserId);
   const conn = await pool.getConnection();
   let noteId = "";
   try {
@@ -643,7 +678,7 @@ export async function give(
       return { ok: false, error: "no such member" };
     }
 
-    const allowance = await allowanceFor(conn, input.fromUserId);
+    const allowance = await allowanceFor(conn, input.fromUserId, multiplier);
     const { startsAt, endsAt, key } = cycleWindow();
     const [pair] = await conn.query<RowDataPacket[]>(
       "SELECT COALESCE(SUM(`amount`), 0) AS n FROM `gratitude_log` " +

@@ -17,6 +17,7 @@ import {
   allowanceFor,
   canConfirm,
   canSettleClaim,
+  checkGive,
   clampToCeiling,
   claimRefunds,
   economyEpoch,
@@ -50,6 +51,16 @@ const configured = testDbConfigured();
 
 let db: TestDb;
 let pool: mysql.Pool;
+
+/**
+ * The stage multiplier `give` now takes (R73: one allowance, so the engine
+ * reads `gratitude.base_budget` times the giver's stage the same way the
+ * acknowledgement flow does). These members exist as bare rows with no
+ * training, membership or quests, and the real resolver lives in the host, so
+ * the tests state the multiplier they mean: 1, which is Guest, which is what
+ * every registered member is at minimum.
+ */
+const AT_GUEST = async () => 1;
 
 /** A member with a ledger account, which `give` needs to lock. */
 async function makeMember(id: string): Promise<string> {
@@ -198,9 +209,40 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   // ── Gratitude ────────────────────────────────────────────────────────────
 
+  /**
+   * R73, the arithmetic, held away from the database.
+   *
+   * The share replaced a flat `economy.hearts_per_recipient_per_moon` of 10,
+   * which meant one thing against an allowance of 30 and something entirely
+   * different against 500. A share means the same thing at every stage, and
+   * the two edges below are the ones worth pinning: it rounds DOWN, and it
+   * never rounds down to zero.
+   */
+  it("caps one recipient at a share of the allowance, floored at 1", () => {
+    const at = (total: number) => ({ total, spent: 0, remaining: total, cycleKey: "lunar-000001" });
+    const send = (amount: number, total: number, already: number) =>
+      checkGive({ fromUserId: "a", toUserId: "b", amount }, at(total), already);
+
+    // 25% of 100 is 25, and the 26th unit to the same person is refused.
+    expect(send(25, 100, 0).ok).toBe(true);
+    expect(send(26, 100, 0).ok).toBe(false);
+    // It is a RUNNING total for the pair, so a second small send is measured
+    // against what the first one already used.
+    expect(send(5, 100, 20).ok).toBe(true);
+    expect(send(6, 100, 20).ok).toBe(false);
+    // It rounds down: 25% of 50 is 12.5, and the ceiling is 12.
+    expect(send(12, 50, 0).ok).toBe(true);
+    expect(send(13, 50, 0).ok).toBe(false);
+    // And it never rounds down to zero. 25% of 3 is 0.75, and a ceiling of 0
+    // would refuse every gift in the village while both dials still read as
+    // sane numbers.
+    expect(send(1, 3, 0).ok).toBe(true);
+    expect(send(2, 3, 0).ok).toBe(false);
+  });
+
   it("blocks self-gratitude", async () => {
     const u = await makeMember("econ-self");
-    const res = await give(pool, { fromUserId: u, toUserId: u, amount: 3 });
+    const res = await give(pool, { fromUserId: u, toUserId: u, amount: 3 }, AT_GUEST);
     // Thanking yourself mints standing out of nothing, which is the cheapest
     // possible attack on a reputation number.
     expect(res.ok).toBe(false);
@@ -211,7 +253,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
     const to = await makeMember("econ-ghost-to");
     // A row that does not exist cannot be locked, so this must refuse rather
     // than run every guard below against an unlocked world.
-    const res = await give(pool, { fromUserId: "nobody-at-all", toUserId: to, amount: 1 });
+    const res = await give(pool, { fromUserId: "nobody-at-all", toUserId: to, amount: 1 }, AT_GUEST);
     expect(res.ok).toBe(false);
   });
 
@@ -220,16 +262,19 @@ describe.skipIf(!configured)("the village economy engine", () => {
     const recipients = await Promise.all(
       [1, 2, 3, 4, 5].map((n) => makeMember(`econ-race-to-${n}`)),
     );
-    const before = await allowanceFor(pool, from);
-    const each = Math.max(1, Math.floor(before.remaining / 3));
+    const before = await allowanceFor(pool, from, 1);
+    // A quarter of the allowance, which at the stock dials is also exactly the
+    // per-recipient share (R73): any larger and the share would refuse these
+    // rather than the lock, and the test would prove nothing about the lock.
+    const each = Math.max(1, Math.floor(before.total / 4));
 
-    // Three of these fit in the allowance and two do not. Fired together, so
-    // the only thing that can refuse the last two is the lock.
+    // Four of these fit in the allowance and the fifth does not. Fired
+    // together, so the only thing that can refuse the last one is the lock.
     const results = await Promise.all(
-      recipients.map((to) => give(pool, { fromUserId: from, toUserId: to, amount: each })),
+      recipients.map((to) => give(pool, { fromUserId: from, toUserId: to, amount: each }, AT_GUEST)),
     );
 
-    const after = await allowanceFor(pool, from);
+    const after = await allowanceFor(pool, from, 1);
     expect(after.spent).toBeLessThanOrEqual(before.total);
     const accepted = results.filter((r) => r.ok).length;
     expect(accepted * each).toBeLessThanOrEqual(before.total);
@@ -239,10 +284,10 @@ describe.skipIf(!configured)("the village economy engine", () => {
   it("computes the allowance from the ledger rather than a counter", async () => {
     const from = await makeMember("econ-allow-from");
     const to = await makeMember("econ-allow-to");
-    const before = await allowanceFor(pool, from);
-    const res = await give(pool, { fromUserId: from, toUserId: to, amount: 2 });
+    const before = await allowanceFor(pool, from, 1);
+    const res = await give(pool, { fromUserId: from, toUserId: to, amount: 2 }, AT_GUEST);
     expect(res.ok).toBe(true);
-    const after = await allowanceFor(pool, from);
+    const after = await allowanceFor(pool, from, 1);
     // Spent is a SUM, so it cannot drift from what was actually given.
     expect(after.spent).toBe(before.spent + 2);
     expect(after.remaining).toBe(before.remaining - 2);
@@ -252,8 +297,8 @@ describe.skipIf(!configured)("the village economy engine", () => {
     const from = await makeMember("econ-nonce-from");
     const to = await makeMember("econ-nonce-to");
     const nonce = "tap-once-please";
-    const a = await give(pool, { fromUserId: from, toUserId: to, amount: 1, clientNonce: nonce });
-    const b = await give(pool, { fromUserId: from, toUserId: to, amount: 1, clientNonce: nonce });
+    const a = await give(pool, { fromUserId: from, toUserId: to, amount: 1, clientNonce: nonce }, AT_GUEST);
+    const b = await give(pool, { fromUserId: from, toUserId: to, amount: 1, clientNonce: nonce }, AT_GUEST);
     expect(a.ok).toBe(true);
     expect(b.ok).toBe(false);
   });

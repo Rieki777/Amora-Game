@@ -1,0 +1,66 @@
+-- 0110 (R73): retire three dials that the one allowance and the one share replace.
+--
+-- WHAT THE CODE DID IN THE SAME CHANGE
+--
+--   economy.giving_allowance_per_moon        a flat 30 a moon, read only by the
+--                                            engine's give path. Both write
+--                                            paths now read
+--                                            gratitude.base_budget times the
+--                                            giver's stage multiplier, which is
+--                                            the figure the acknowledgement
+--                                            flow always used.
+--   economy.hearts_per_recipient_per_moon    a flat 10 to any one person.
+--   gratitude.max_per_recipient_per_cycle    1 SEND to any one person.
+--
+-- Both per-recipient caps are replaced by gratitude.max_share_per_recipient,
+-- a share of the giver's own allowance, defaulting to 25%. The sends cap is
+-- the one that had to go: a cap on the COUNT bounds how OFTEN one member
+-- acknowledges another and never how MUCH, so a member at the top of the
+-- ladder could hand one person 500 Gratitude in a single send and break no
+-- rule. Gratitude is governance.weight_token by default, which made that a
+-- limit on concentrated voice that did not exist.
+--
+-- WHAT WAS MEASURED BEFORE WRITING THIS FILE
+--
+-- game_variables holds DELTAS ONLY: a row exists for a key only when a founder
+-- has moved it off its platform default, and setting a value back to the
+-- default deletes the row again. So the question "has any village set one of
+-- these" is answerable, and it was asked.
+--
+-- Production (amora.regencivics.earth, build 2026-07-28-wave1-6b44084) was read
+-- through the anonymous GET /api/game/mechanics snapshot on 2026-08-29, which
+-- carries `value` and `isDefault` for every key:
+--
+--   gratitude.base_budget                  100  isDefault true
+--   gratitude.max_per_recipient_per_cycle    1  isDefault true
+--   economy.giving_allowance_per_moon       30  isDefault true
+--   economy.hearts_per_recipient_per_moon   10  isDefault true
+--   feed.max_hearts_per_recipient_per_cycle  5  isDefault true
+--   feed.heart_amount                        1  isDefault true
+--
+-- The only non-default value in the whole 152-key registry there is
+-- tokens.base_rpc_url. GET /api/game/mechanics/proposals and
+-- /api/game/mechanics/history both return [], so no open proposal names a
+-- retired key and no amendment ledger row has to be reinterpreted. These three
+-- DELETEs therefore remove nothing on the one deployment that exists.
+--
+-- A FORK THAT HAD MOVED ONE OF THEM
+--
+-- Its value is not carried forward, and it is deliberately not translated into
+-- the new share. A per-moon amount of 10 and a share of 25% are answers to
+-- different questions, and inventing a percentage from one of them would be
+-- this platform writing a rule the village never voted for. The amendment
+-- ledger (mechanics_changes) keeps every historical change to these keys
+-- untouched, so a founder can still read what their village had chosen and
+-- decide the share themselves.
+--
+-- WHY THE DELETE MATTERS EVEN THOUGH THE ROW IS ALREADY INERT
+--
+-- loadVariables() reads every row into the override cache, but `variable()`
+-- throws on a key the registry does not hold and allVariables() iterates the
+-- registry, so a leftover row is never read by anything. It is deleted anyway,
+-- because a founder reading game_variables should see what the game reads.
+
+DELETE FROM `game_variables` WHERE `config_key` = 'economy.giving_allowance_per_moon';
+DELETE FROM `game_variables` WHERE `config_key` = 'economy.hearts_per_recipient_per_moon';
+DELETE FROM `game_variables` WHERE `config_key` = 'gratitude.max_per_recipient_per_cycle';

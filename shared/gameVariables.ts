@@ -98,9 +98,9 @@ export const VARIABLES: VariableDef[] = [
   {
     key: "gratitude.base_budget",
     category: "Gratitude",
-    label: "Base sending budget per cycle",
+    label: "Base sending allowance per cycle",
     description:
-      "How much Gratitude a member can give away each lunar cycle before their stage multiplier is applied. This is a budget to spend on others, not a balance they own.",
+      "THE allowance behind every way of giving in this village: written acknowledgments on the Gratitude page, and taps of appreciation on the feed. A member's own figure is this number times their stage multiplier under Progression, so the stock ladder runs from 100 a cycle at Guest to 500 at Sage. Set it to 0 and nobody gives anything at any stage. Raise it and every stage rises with it, and so does the amount any one person may receive, because that ceiling is a share of this. Unused allowance does not roll over. Giving mints fresh Gratitude for the person being thanked and takes nothing from the giver's own balance, so this allowance is what bounds it.",
     type: "integer",
     default: "100",
     min: 0,
@@ -157,44 +157,30 @@ export const VARIABLES: VariableDef[] = [
     max: 10000000,
     unit: "tokens",
   },
-  // ── The economy engine's own dials ────────────────────────────────────────
+  // ── R73, 2026-08-29: one allowance, one per-recipient rule ────────────────
   //
-  // These are separate from `gratitude.base_budget` and
-  // `gratitude.max_per_recipient_per_cycle` on purpose, and the reason is that
-  // the two pairs measure different things. The older pair governs the
-  // acknowledgement flow: a budget scaled by stage, and a cap counting SENDS,
-  // set to 1 so acknowledging someone is a considered act. The engine's pair
-  // governs Gratitude as an economy: a flat per-moon allowance, and a cap
-  // counting GRATITUDE rather than sends, so a member can thank the same person more than
-  // once in a moon without either dial meaning something different than it says.
+  // Three dials used to live here and just above. The economy engine carried
+  // its own flat `economy.giving_allowance_per_moon` (30) beside the
+  // acknowledgement flow's stage-scaled `gratitude.base_budget` (100), and
+  // each channel carried its own per-recipient cap:
+  // `economy.hearts_per_recipient_per_moon` counted GRATITUDE (10) and
+  // `gratitude.max_per_recipient_per_cycle` counted SENDS (1).
   //
-  // Reusing the sends cap as an amount cap was a real bug in this build: a
-  // default of 1 refused every gift of 2 Gratitude or more, and the refusal
-  // message named a dial that was doing its own job correctly.
-  {
-    key: "economy.giving_allowance_per_moon",
-    category: "Gratitude",
-    label: "Gratitude a member can give each moon",
-    description:
-      "How much Gratitude a member can give away in one lunation. Gratitude is given, never paid: giving mints fresh Gratitude to the person being thanked and takes nothing from the giver, so this allowance is what bounds it. Unused allowance does not roll over, and nothing anyone has been given is ever taken back.",
-    type: "integer",
-    default: "30",
-    min: 0,
-    max: 100000,
-    unit: "Gratitude",
-  },
-  {
-    key: "economy.hearts_per_recipient_per_moon",
-    category: "Gratitude",
-    label: "Gratitude to any one person each moon",
-    description:
-      "The most one member can give another in a single lunation. Stops a single friendship from carrying the whole of someone's standing, while still leaving room to thank the same person more than once.",
-    type: "integer",
-    default: "10",
-    min: 1,
-    max: 100000,
-    unit: "Gratitude",
-  },
+  // The sends cap is the one that had to go, and the reason is not tidiness.
+  // A cap on the COUNT never bounds the SIZE, so a member at the top of the
+  // ladder could hand one person 500 Gratitude in a single send and break no
+  // rule. Gratitude is `governance.weight_token` by default, so that was a
+  // limit on how much voice one member can concentrate in another, and it did
+  // not exist. `gratitude.max_share_per_recipient` replaces both caps with a
+  // share of the giver's own allowance, which means the same thing at 100 and
+  // at 500: doubling the base budget cannot silently double how much of one
+  // person's standing may come from one relationship.
+  //
+  // The retired keys are dropped from the registry by 0110. An override row
+  // for a key the registry no longer holds is never read (`variable()` throws
+  // on an unknown key and `allVariables()` iterates the registry), so a
+  // leftover row would be invisible instead of wrong. It is still deleted, so
+  // a founder reading the table sees what the game reads.
   // ── The voice claim ───────────────────────────────────────────────────────
   {
     key: "economy.voice_claim_threshold",
@@ -244,16 +230,16 @@ export const VARIABLES: VariableDef[] = [
     default: "",
   },
   {
-    key: "gratitude.max_per_recipient_per_cycle",
+    key: "gratitude.max_share_per_recipient",
     category: "Gratitude",
-    label: "Maximum sends to the same person per cycle",
+    label: "Share of an allowance any one person can receive",
     description:
-      "Stops one friendship from dominating recognition. Set to 1 so acknowledging someone is a considered act, once a month.",
-    type: "integer",
-    default: "1",
+      "The ceiling on how much of a giver's cycle allowance can land on one other member, written as a share of that allowance. At the default of 25 a member can give any one person a quarter of what they have, across as many sends as they like, so it takes at least four people to spend an allowance. Set it to 100 and one person can receive somebody's whole allowance. Set it to 1 and it takes a hundred people to spend one. It counts written acknowledgments and feed hearts TOGETHER, so neither channel can carry what the other refuses. The figure it is a share of is the base sending allowance times the giver's stage multiplier, so at the stock ladder 25 means 25 Gratitude to one person at Guest and 125 at Sage. The ceiling never falls below 1 Gratitude, so a small allowance and a small share cannot combine into a village where nobody can give anything at all.",
+    type: "percentage",
+    default: "25",
     min: 1,
     max: 100,
-    unit: "sends",
+    unit: "% of the giver's allowance",
   },
   {
     key: "gratitude.require_message",
@@ -1139,21 +1125,21 @@ export const VARIABLES: VariableDef[] = [
   {
     key: "feed.heart_amount",
     category: "Feed",
-    label: "Recognition each heart sends",
+    label: "Gratitude each heart sends",
     description:
-      "A heart is a REAL send from the tapper's cycle budget, small on purpose. Bounded 1-5 (economy critique): hearts are a tap, not a transfer instrument.",
+      "What one tap of appreciation on the feed is worth. A heart is a real send: it comes out of the tapper's own cycle allowance like any written acknowledgment, so a larger heart empties an allowance faster and reaches the per-person share sooner. Bounded 1 to 5 on purpose, which keeps a tap a small and frequent gesture. Raising it makes every heart heavier without changing how many a member can leave; the count is set by 'Hearts one member can tap for another per cycle'.",
     type: "integer",
     default: "1",
     min: 1,
     max: 5,
-    unit: "recognition",
+    unit: "Gratitude",
   },
   {
     key: "feed.max_hearts_per_recipient_per_cycle",
     category: "Feed",
-    label: "Hearts one person may send another per cycle",
+    label: "Hearts one member can tap for another per cycle",
     description:
-      "The heart channel's own per-recipient ceiling, separate from written acknowledgments. Both draw from the same cycle budget.",
+      "How many separate taps of appreciation one member can leave for another in a cycle. THE ONLY LIMIT IN THE VILLAGE THAT COUNTS TAPS: every other limit on giving counts Gratitude. Each tap spends the tapper's own cycle allowance, so the real ceiling is whichever runs out first, this count or the share of the allowance any one person can receive. At the stock dials a member can leave 5 hearts worth 1 each, well inside a share of 25. Set it to 1 to make a heart a once-per-cycle gesture; set it high and the share becomes the only thing holding the channel.",
     type: "integer",
     default: "5",
     min: 1,
@@ -1773,12 +1759,13 @@ const CYCLE_APPLY_KEYS = new Set([
   "economy.voice_claim_threshold",
   "economy.claims_week_days",
   "economy.claims_week_starts",
-  "economy.giving_allowance_per_moon",
-  "economy.hearts_per_recipient_per_moon",
   "gratitude.base_budget",
   "gratitude.pool_per_cycle",
   "gratitude.pool_token",
-  "gratitude.max_per_recipient_per_cycle",
+  // The share is measured against an allowance a member is already spending
+  // against, so moving it mid-cycle would move a ceiling under somebody who
+  // has already given up to the old one.
+  "gratitude.max_share_per_recipient",
   "feed.heart_amount",
   "feed.max_hearts_per_recipient_per_cycle",
   "ledger.admin_mint_cycle_cap",

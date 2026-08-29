@@ -295,7 +295,7 @@ import {
   spendSurfacesFor,
 } from "./lib/spending";
 import { seatChargeFor, seatEscrowDrift, seatPriceFor, settleFinishedSeats } from "./lib/eventSeats";
-import { allowanceFor, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
+import { allowanceFor, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId, type StageMultiplierFor } from "./lib/economy";
 import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -3800,6 +3800,28 @@ const gratitudeDeps: GratitudeDeps = {
 
 function gratitudeBudget(user: any) {
   return budgetFor(gratitudeDeps, user);
+}
+
+/**
+ * The same multiplier, for a caller that holds an id and no member row.
+ *
+ * The economy engine's give path needs it (R73: one allowance, so
+ * `allowanceFor` is `gratitude.base_budget` times the giver's stage the same
+ * way `budgetFor` is), and it takes a userId because it is called from inside
+ * `give` before the giver's row has been read.
+ *
+ * A member nobody can find gets 0, which is a refusal and never an invented
+ * number: `give` locks the giver's row a moment later and refuses an unknown
+ * one BY NAME, so this branch never has to word the sentence.
+ */
+const stageMultiplierById: StageMultiplierFor = async (userId: string) => {
+  const u = await members.byId(userId);
+  return u ? await gratitudeDeps.stageMultiplierFor(u) : 0;
+};
+
+/** The one allowance, for a caller that already holds the member row. */
+async function gratitudeAllowance(user: any) {
+  return allowanceFor(getPool(), user.id, await gratitudeDeps.stageMultiplierFor(user));
 }
 
 /**
@@ -23296,14 +23318,16 @@ ${inner}
    * remaining balance. Carries a tag, a place, a quiet flag and a client nonce,
    * none of which the older send path knows about.
    *
-   * TWO PATHS WRITE `gratitude_log` UNTIL RYE RETIRES ONE, and the difference
-   * is worth stating rather than discovering. `/api/game/gratitude/send` is the
-   * acknowledgement flow: a stage-scaled budget of 100 and a cap counting SENDS,
-   * set to 1. This is the Hearts economy: a flat allowance of 30 and a cap
-   * counting HEARTS, set to 10. Both sum into the same table, so this route's
-   * allowance already counts what the older one spent, which makes this the
-   * stricter of the two and never the looser. That is the safe direction for an
-   * overlap to run in, and it is still an overlap.
+   * TWO PATHS WRITE `gratitude_log`, AND SINCE R73 THEY OBEY ONE RULE.
+   * `/api/game/gratitude/send` is the acknowledgement flow and this is the
+   * Hearts economy, and both now read `gratitude.base_budget` times the
+   * giver's stage multiplier for the allowance and
+   * `gratitude.max_share_per_recipient` for how much of it one person may
+   * receive. They always summed their spending out of the same table; what
+   * they disagreed about was the total, so the flat 30 here quietly won for
+   * anyone who came through this door. The two doors differ now only in what
+   * they record: this one carries a tag, a place, a quiet flag and a client
+   * nonce, none of which the older path knows about.
    *
    * Inert until the village's rules are seeded, so a deployment that has not
    * opened its economy cannot reach it at all.
@@ -23333,7 +23357,7 @@ ${inner}
       structureKey: typeof structureKey === "string" ? structureKey : undefined,
       quiet: quiet === true,
       clientNonce: typeof clientNonce === "string" ? clientNonce : undefined,
-    });
+    }, stageMultiplierById);
     if (!outcome.ok) return res.status(400).json({ error: outcome.error });
 
     await notify({
@@ -23347,7 +23371,7 @@ ${inner}
       actorUserId: quiet === true ? null : user.id,
       dedupeKey: `gratitude:${outcome.noteId}`,
     });
-    const allowance = await allowanceFor(getPool(), user.id);
+    const allowance = await gratitudeAllowance(user);
     res.json({ success: true, allowance });
   });
 
@@ -23441,7 +23465,7 @@ ${inner}
       standing: await loadStanding(getPool(), user.id),
       gratitude: await loadGratitude(getPool(), villageId(), user.id, startsAt),
       party: await partyFor(getPool(), villageId(), user.id),
-      allowance: await allowanceFor(getPool(), user.id),
+      allowance: await gratitudeAllowance(user),
       voice: await claimReadiness(getPool(), user.id),
     });
   });
@@ -28477,7 +28501,11 @@ ${inner}
     res.json({
       gratitude: {
         baseBudget: numberVar("gratitude.base_budget"),
-        maxPerRecipientPerCycle: numberVar("gratitude.max_per_recipient_per_cycle"),
+        // A SHARE of the sender's own allowance, so the client cannot render
+        // it as an amount without knowing whose allowance it is a share of.
+        // `/api/game/me` carries that member's budget; this route is
+        // anonymous and describes the rule, never one person's ceiling.
+        maxSharePerRecipient: numberVar("gratitude.max_share_per_recipient"),
         requireMessage: boolVar("gratitude.require_message"),
         // The ReGen pool model: the community can always see how big the pool
         // is and what it pays — but a member's SHARE is unknowable before
