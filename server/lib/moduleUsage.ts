@@ -152,6 +152,38 @@ export function initModuleUsage(p: Pool): void {
 }
 
 /**
+ * The key `seen` remembers, and the key the database stores.
+ *
+ * Truncated HERE and not only in the repo: two ids sharing a 64-character
+ * prefix would otherwise collide in the row and stay distinct in memory, and
+ * the set would keep re-issuing a write that can never land.
+ */
+function markKey(cycleId: string, moduleId: string, rawUserId: string): string {
+  return `${cycleId}|${moduleId}|${rawUserId.slice(0, 64)}`;
+}
+
+/**
+ * Would a mark for this member and module cost a write, or is it already made?
+ *
+ * The gate asks this so it can decide whether a request is worth VERIFYING.
+ * Confirming that a session is still live costs one row read, and paying that
+ * on every request would be the write amplification problem this file's header
+ * rejects wearing a different hat. Paying it once per member per module per
+ * cycle is the same order as the insert it guards, which is nothing.
+ *
+ * False means this process has already written the mark, so nothing about this
+ * request can change the number and there is nothing to check. True means a
+ * write would follow, and the caller should find out who is asking first.
+ *
+ * Reads `seen` and never touches it: adding the key is `markModuleUse`'s
+ * decision, made after the caller has established that the mark is deserved.
+ */
+export function usageMarkPending(moduleId: string, rawUserId: string | null): boolean {
+  if (!pool || !rawUserId) return false;
+  return !seen.has(markKey(cycleIdFor(), moduleId, rawUserId));
+}
+
+/**
  * Record that a member opened a module. Never throws into the caller.
  *
  * This sits on the request path of every module route in the platform, so it
@@ -166,17 +198,13 @@ export function initModuleUsage(p: Pool): void {
  */
 export function markModuleUse(moduleId: string, rawUserId: string | null): void {
   if (!pool || !rawUserId) return;
-  // Truncated HERE and not only in the repo, so the key this process remembers
-  // is the key the database stores. Two ids sharing a 64-character prefix would
-  // otherwise collide in the row and stay distinct in memory, and the set would
-  // keep re-issuing a write that can never land.
-  const userId = rawUserId.slice(0, 64);
   const cycleId = cycleIdFor();
   if (cycleId !== seenCycle) {
     seen = new Set();
     seenCycle = cycleId;
   }
-  const key = `${cycleId}|${moduleId}|${userId}`;
+  const key = markKey(cycleId, moduleId, rawUserId);
+  const userId = rawUserId.slice(0, 64);
   if (seen.has(key)) return;
   seen.add(key);
   void markUse(pool, cycleId, moduleId, userId).catch((e) => {

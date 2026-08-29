@@ -5301,7 +5301,9 @@ async function startServer() {
     // The signed token names the member, so the meter costs no database read.
     // `decodeToken` verifies the signature and the session window before it
     // returns anything, so this cannot be handed an id the deployment did not
-    // mint. `server/lib/modules.ts` states what it skips and why.
+    // mint. It does NOT check `token_version`, so it is not a session test on
+    // its own: `served()` in `server/lib/modules.ts` asks `isAuthed` before it
+    // writes a mark, which is the same answer `/api/profile` gives.
     meterUserId: (req) => {
       const header = (req as any).headers?.authorization;
       if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
@@ -15586,8 +15588,31 @@ Send an empty drafts array when you are still listening. A role payload is {name
           : null;
       }
     }
+    const ledger = await balancesFor(getPool(), memberAccount(user.id));
     res.json({
-      ledger: await balancesFor(getPool(), memberAccount(user.id)),
+      ledger,
+      /*
+       * THE VILLAGE'S OWN WORD FOR EACH TOKEN IT HOLDS.
+       *
+       * `ledger` is keyed by slug, and the slug is history's identity and
+       * never changes. It is not the name a member agreed to hold, and a
+       * village that renames its currency to Seeds was still shown
+       * `qa3needle` on the one page they open to read what they own.
+       *
+       * Read live from the registry on every request, the way
+       * `/api/game/ledger` reads it, so a rename follows here the moment
+       * `loadTokenRegistry` reloads. Nothing anywhere stores a display name
+       * beside a balance or a ledger row: `tokens.name` is the only copy
+       * there is, which is why a rename can be complete.
+       *
+       * ADDITIVE. `ledger` keeps its shape, so every existing reader of it,
+       * including the send card's balance check, is untouched. A token with
+       * no registry row keeps showing its slug: that is a drift worth seeing
+       * and not a name worth inventing.
+       */
+      tokenNames: Object.fromEntries(
+        Object.keys(ledger).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
+      ),
       wallet: { address: user.walletAddress ?? null, verifiedAt: user.walletVerifiedAt ?? null },
       onchain,
       economicsEnabled,
@@ -16631,8 +16656,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
         [viewer.id],
       );
       const ctx = await capabilityCtx(viewer);
+      const held = await balancesFor(getPool(), memberAccount(viewer.id));
       mine = {
-        balances: await balancesFor(getPool(), memberAccount(viewer.id)),
+        balances: held,
+        // The same live registry read `/api/wallet` carries, for the same
+        // reason: `balances` is keyed by slug, and the wallet page rendered
+        // the slug as though it were the currency's name.
+        tokenNames: Object.fromEntries(
+          Object.keys(held).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
+        ),
         orders,
         canBuy: hasCapability("exchange.buy", ctx),
         canSwap: hasCapability("exchange.swap", ctx),
@@ -17288,6 +17320,71 @@ Send an empty drafts array when you are still listening. A role payload is {name
     return Number(row?.minted ?? 0);
   }
 
+  /**
+   * 0106: what is already asked for and waiting for a second steward.
+   *
+   * A PENDING GRANT IS SPOKEN FOR. It counts against the cap alongside what
+   * has actually been minted, because otherwise an admin who cannot mint over
+   * the cap in one call raises a hundred requests just under it and holds a
+   * hundred times the cap, each needing one signature. A cap that only counts
+   * completed acts is a cap on paperwork.
+   *
+   * NOT filtered by cycle, on purpose. A grant raised last lunation and signed
+   * this one mints THIS lunation, so it has to be spoken for now.
+   */
+  async function pendingMints(slug: string): Promise<number> {
+    const [[row]] = await getPool().query<any[]>(
+      "SELECT COALESCE(SUM(amount), 0) AS waiting FROM admin_mint_requests " +
+        "WHERE status = 'pending' AND token_slug = ?",
+      [slug],
+    );
+    return Number(row?.waiting ?? 0);
+  }
+
+  /** The threshold above which a hand-mint waits for a second steward. 0 is off. */
+  function cosignOver(): number {
+    return numberVar("ledger.admin_mint_cosign_over");
+  }
+
+  interface MintRequestRow {
+    id: string;
+    tokenSlug: string;
+    toUserId: string;
+    amount: number;
+    reason: string;
+    requestedBy: string;
+    requestedAt: string | null;
+    status: string;
+    decidedBy: string | null;
+    decidedAt: string | null;
+    decisionNote: string | null;
+  }
+
+  function mintRequestRow(r: any): MintRequestRow {
+    return {
+      id: String(r.id),
+      tokenSlug: String(r.token_slug),
+      toUserId: String(r.to_user_id),
+      amount: Number(r.amount),
+      reason: String(r.reason ?? ""),
+      requestedBy: String(r.requested_by),
+      requestedAt: r.requested_at instanceof Date ? r.requested_at.toISOString() : r.requested_at ?? null,
+      status: String(r.status),
+      decidedBy: r.decided_by ?? null,
+      decidedAt: r.decided_at instanceof Date ? r.decided_at.toISOString() : r.decided_at ?? null,
+      decisionNote: r.decision_note ?? null,
+    };
+  }
+
+  async function mintRequestById(id: string): Promise<MintRequestRow | null> {
+    const [rows] = await getPool().query<any[]>(
+      "SELECT id, token_slug, to_user_id, amount, reason, requested_by, requested_at, status, " +
+        "decided_by, decided_at, decision_note FROM admin_mint_requests WHERE id = ?",
+      [id],
+    );
+    return rows[0] ? mintRequestRow(rows[0]) : null;
+  }
+
   /*
    * Stock the treasury: sys:mint -> sys:treasury, under the SAME per-cycle
    * aggregate mint cap as hand-mints — stocking IS minting, and two doors
@@ -17510,16 +17607,91 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const target = await members.byId(String(toUserId));
     if (!target) return res.status(404).json({ error: "Member not found" });
 
+    /*
+     * 0106: NOBODY GRANTS THEMSELVES POWER ALONE.
+     *
+     * QA-2 self-granted 25 through this route and watched their own balance go
+     * from 20 to 45. Every guard above is real and not one of them looked at
+     * who the tokens were going to. The sharp edge is `village-voice`: under
+     * `governance.weight_mode = token` that balance IS voting weight, so the
+     * scaffolding could mint itself the electorate.
+     *
+     * REFUSED FLAT, at any amount, rather than co-signed. A self-grant has no
+     * legitimate shape that another steward could not record instead, so a
+     * ceremony here would only be a ceremony to game. There is no dial: R56
+     * says villages set their own dials, and this is not a dial, it is the one
+     * thing the scaffolding may not do to itself.
+     *
+     * `adminActor` is set by the `isAdmin` above, so it is present here. It is
+     * checked anyway: an unnamed actor must refuse rather than skip the rule,
+     * because a guard that silently does not run is worse than no guard.
+     */
+    const acting = adminActor(req);
+    if (!acting) return res.status(401).json({ error: "auth_required" });
+    if (acting.id === target.id) {
+      return res.status(403).json({
+        code: "self_grant_refused",
+        error: "You cannot mint to your own account. Ask another steward to record this grant",
+      });
+    }
+
     const cap = numberVar("ledger.admin_mint_cycle_cap");
     if (cap <= 0) return res.status(403).json({ error: "Manual minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
     // Pre-flight for a readable refusal; the guard on the post is the rule.
+    // A grant already waiting for a second steward is spoken for and counts
+    // here, or a hundred requests just under the cap would hold a hundred
+    // times it (`pendingMints`).
     const minted = await mintedThisCycle(slug);
-    if (minted + amt > cap) {
+    const waiting = await pendingMints(slug);
+    if (minted + waiting + amt > cap) {
       return res.status(409).json({
-        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
+        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation` +
+          (waiting > 0 ? `, and ${waiting} more is waiting for a second steward` : ""),
         minted,
+        waiting,
         cap,
-        remaining: Math.max(0, cap - minted),
+        remaining: Math.max(0, cap - minted - waiting),
+      });
+    }
+
+    /*
+     * 0106: A GRANT OVER THE THRESHOLD WAITS FOR A SECOND STEWARD.
+     *
+     * `docs/FOUNDATION_HANDOFF_2026-08-11.md` section 3b recorded this as
+     * specified and unbuilt. The threshold is a village dial with the same
+     * shape as `library.intake_dual_signoff_over`, which is the one second
+     * signature this codebase had already built, so this follows it rather
+     * than inventing a scheme. 0 turns it off.
+     *
+     * NOTHING MOVES HERE. The row holds the token, the recipient, the amount
+     * and the reason exactly as they were asked for, and the approval reads
+     * every one of them back from the row. An approval that does not pin the
+     * amount is an approval of nothing.
+     */
+    const threshold = cosignOver();
+    if (threshold > 0 && amt > threshold) {
+      const requestId = `amr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await getPool().query(
+        "INSERT INTO admin_mint_requests (id, token_slug, to_user_id, amount, reason, requested_by, status) " +
+          "VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+        [requestId, slug, target.id, amt, String(reason).trim().slice(0, 500), acting.id],
+      );
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `mint-requested:${amt}:${slug}`,
+        actorUserId: acting.id,
+        entityType: "user",
+        entityRef: target.id,
+        audience: "admin",
+      });
+      return res.status(202).json({
+        pending: true,
+        requestId,
+        tokenSlug: slug,
+        toUserId: target.id,
+        amount: amt,
+        cosignOver: threshold,
+        message: `Recorded. ${amt} ${def.name} is over the ${threshold} a village steward may grant alone, so it waits for a second steward to agree`,
       });
     }
 
@@ -17548,7 +17720,188 @@ Send an empty drafts array when you are still listening. A role payload is {name
       entityRef: target.id,
       audience: "admin",
     });
-    res.json({ success: true, toBalance: r.toBalance, minted: minted + amt, cap, remaining: cap - minted - amt });
+    // `waiting` is subtracted here too, or this number would tell an admin
+    // they have room the next grant will be refused for. The 409 above already
+    // counts it; a success body that did not would be the same claim made
+    // quietly.
+    res.json({
+      success: true,
+      toBalance: r.toBalance,
+      minted: minted + amt,
+      waiting,
+      cap,
+      remaining: Math.max(0, cap - minted - waiting - amt),
+    });
+  });
+
+  /**
+   * 0106: the grants waiting for a second steward, and the ones already
+   * decided.
+   *
+   * Every admin sees the same list. A queue only its author can read is not a
+   * record, it is a drawer.
+   */
+  app.get("/api/admin/mint-requests", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT id, token_slug, to_user_id, amount, reason, requested_by, requested_at, status, " +
+        "decided_by, decided_at, decision_note FROM admin_mint_requests " +
+        "ORDER BY (status = 'pending') DESC, requested_at DESC LIMIT 100",
+    );
+    const requests = rows.map(mintRequestRow);
+    // The names, so a steward reads people rather than ids. A member who has
+    // since left resolves to null, which is what a tombstone means.
+    const ids = Array.from(
+      new Set(requests.flatMap((r) => [r.toUserId, r.requestedBy, r.decidedBy].filter(Boolean) as string[])),
+    );
+    const names: Record<string, string | null> = {};
+    for (const id of ids) names[id] = (await members.byId(id))?.name ?? null;
+    res.json({
+      requests: requests.map((r) => ({
+        ...r,
+        tokenName: tokenDef(r.tokenSlug)?.name ?? r.tokenSlug,
+        toName: names[r.toUserId] ?? null,
+        requestedByName: names[r.requestedBy] ?? null,
+        decidedByName: r.decidedBy ? names[r.decidedBy] ?? null : null,
+      })),
+      cosignOver: cosignOver(),
+    });
+  });
+
+  /**
+   * THE SECOND STEWARD AGREES, and the tokens move here and nowhere else.
+   *
+   * The body is ignored on purpose. The token, the recipient and the amount
+   * all come from the stored row, so what the second steward agreed to is
+   * exactly what was asked for, and no later request can change it.
+   *
+   * Every guard the raise ran is run again, because a token can be retired, a
+   * member can leave, and a village can lower its cap between the asking and
+   * the agreeing. The one that has to be here rather than at the raise is the
+   * cap: `mintCapGuard` re-reads it inside the transfer's own lock.
+   */
+  app.post("/api/admin/mint-requests/:id/approve", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const acting = adminActor(req);
+    if (!acting) return res.status(401).json({ error: "auth_required" });
+    const request = await mintRequestById(String(req.params.id));
+    if (!request) return res.status(404).json({ error: "No such grant" });
+    if (request.status !== "pending") {
+      return res.status(409).json({ error: `This grant is already ${request.status}` });
+    }
+    if (request.requestedBy === acting.id) {
+      return res.status(409).json({
+        code: "second_steward_required",
+        error: "A second steward means somebody else. You asked for this grant",
+      });
+    }
+    const def = tokenDef(request.tokenSlug);
+    if (!def) return res.status(404).json({ error: `unknown token "${request.tokenSlug}"` });
+    if (def.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (def.governance !== "platform") {
+      return res.status(400).json({ error: `${request.tokenSlug} is issued on Hypha and cannot be minted here` });
+    }
+    const target = await members.byId(request.toUserId);
+    if (!target) return res.status(404).json({ error: "Member not found" });
+    // The rule that has no exception, re-read at the second door: the person
+    // this pays cannot be the person who asked for it, whoever signs.
+    if (target.id === request.requestedBy) {
+      return res.status(403).json({
+        code: "self_grant_refused",
+        error: "This grant pays the steward who asked for it. It cannot be signed",
+      });
+    }
+    const cap = numberVar("ledger.admin_mint_cycle_cap");
+    if (cap <= 0) return res.status(403).json({ error: "Manual minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
+
+    /*
+     * CLAIM THE ROW FIRST. Two stewards pressing at the same moment both pass
+     * the read above; only one wins this UPDATE, because `status = 'pending'`
+     * is in the WHERE. The loser is told the grant is already decided.
+     *
+     * If the transfer then fails, the claim is put back so the grant can be
+     * signed again rather than sitting approved with no tokens behind it. The
+     * transfer's idempotency key is the request id, so even a retry that
+     * raced past this cannot write a second ledger row.
+     */
+    const [claim] = await getPool().query<any>(
+      "UPDATE admin_mint_requests SET status = 'approved', decided_by = ?, decided_at = NOW() " +
+        "WHERE id = ? AND status = 'pending'",
+      [acting.id, request.id],
+    );
+    if (Number(claim?.affectedRows ?? 0) === 0) {
+      return res.status(409).json({ error: "This grant has just been decided by somebody else" });
+    }
+
+    const r = await postTransfer(getPool(), {
+      from: "sys:mint",
+      to: memberAccount(target.id),
+      tokenType: request.tokenSlug,
+      amount: request.amount,
+      source: "admin_mint",
+      sourceRef: request.id,
+      description: request.reason.slice(0, 500),
+      idempotencyKey: `admin_mint:req:${request.id}`,
+    }, mintCapGuard(request.tokenSlug, request.amount));
+    if (!r.ok) {
+      await getPool().query(
+        "UPDATE admin_mint_requests SET status = 'pending', decided_by = NULL, decided_at = NULL WHERE id = ?",
+        [request.id],
+      );
+      return res.status(r.error?.includes("mint cap") ? 409 : 400).json({ error: r.error });
+    }
+    // Recognition minted by hand still updates the profile's cached balance.
+    if (request.tokenSlug === "gratitude") {
+      await members.update(target.id, (u: any) => { u.recognitionBalance = r.toBalance; });
+    }
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `mint-cosigned:${request.amount}:${request.tokenSlug}`,
+      actorUserId: acting.id,
+      entityType: "user",
+      entityRef: target.id,
+      audience: "admin",
+    });
+    const decided = await mintRequestById(request.id);
+    res.json({
+      success: true,
+      toBalance: r.toBalance,
+      request: decided,
+    });
+  });
+
+  /**
+   * A steward says no, and the cap gets its room back.
+   *
+   * Without this a mistaken request would hold part of the village's own
+   * per-cycle cap until the moon turned, and nobody could clear it.
+   */
+  app.post("/api/admin/mint-requests/:id/decline", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const acting = adminActor(req);
+    if (!acting) return res.status(401).json({ error: "auth_required" });
+    const request = await mintRequestById(String(req.params.id));
+    if (!request) return res.status(404).json({ error: "No such grant" });
+    if (request.status !== "pending") {
+      return res.status(409).json({ error: `This grant is already ${request.status}` });
+    }
+    const [claim] = await getPool().query<any>(
+      "UPDATE admin_mint_requests SET status = 'declined', decided_by = ?, decided_at = NOW(), decision_note = ? " +
+        "WHERE id = ? AND status = 'pending'",
+      [acting.id, String(req.body?.reason ?? "").trim().slice(0, 500) || null, request.id],
+    );
+    if (Number(claim?.affectedRows ?? 0) === 0) {
+      return res.status(409).json({ error: "This grant has just been decided by somebody else" });
+    }
+    void recordEvent(getPool(), {
+      kind: "audit",
+      text: `mint-declined:${request.amount}:${request.tokenSlug}`,
+      actorUserId: acting.id,
+      entityType: "user",
+      entityRef: request.toUserId,
+      audience: "admin",
+    });
+    res.json({ success: true, request: await mintRequestById(request.id) });
   });
 
   /**

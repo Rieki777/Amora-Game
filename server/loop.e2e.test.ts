@@ -1048,6 +1048,36 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const noReason = await api("POST", "/api/admin/tokens/stay-credits/mint", { toUserId: peerId, amount: 5 }, founderToken);
     expect(noReason.status).toBe(400);
 
+    /*
+     * 0106: A GRANT OVER `ledger.admin_mint_cosign_over` MOVES NOTHING until a
+     * second steward signs it, and the default is 100. Measured here first,
+     * because a guard this case is about to turn off has to be shown working
+     * before it is turned off, or the next line reads as a test written around
+     * a rule.
+     */
+    const waits = await api(
+      "POST",
+      "/api/admin/tokens/stay-credits/mint",
+      { toUserId: peerId, amount: 9000, reason: "Over the co-signature threshold" },
+      founderToken,
+    );
+    expect(waits.status, `a grant of 9000 must wait: ${JSON.stringify(waits.json).slice(0, 200)}`).toBe(202);
+    expect(waits.json.pending).toBe(true);
+    // Turned down again, so it stops counting against the cap this case measures.
+    expect(
+      (await api("POST", `/api/admin/mint-requests/${waits.json.requestId}/decline`, { reason: "measuring the cap instead" }, founderToken)).status,
+    ).toBe(200);
+
+    /*
+     * THIS CASE IS ABOUT THE CAP, not the second signature, and the two are
+     * separate rules with separate coverage (`server/adminTokens.e2e.test.ts`
+     * drives the signature end to end). `ledger.admin_mint_cosign_over` at 0 is
+     * a state a village may choose and the variable's own description says so,
+     * so setting it here is using the dial rather than dodging a guard. It goes
+     * back to its default at the end of the case.
+     */
+    expect((await api("PUT", "/api/admin/variables/ledger.admin_mint_cosign_over", { value: "0" }, founderToken)).status).toBe(200);
+
     // Cap is 10000 by default; take most of it, then overflow.
     const first = await api(
       "POST",
@@ -1082,6 +1112,12 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // With the row known to be committed, the admin view surfaces it too.
     const audit = await api("GET", "/api/admin/audit", undefined, founderToken);
     expect(audit.json.some((r: any) => String(r.action) === "mint:9000:stay-credits")).toBe(true);
+
+    // The dial goes back to its default, so nothing after this case runs
+    // against a village that quietly stopped asking for a second signature.
+    expect(
+      (await api("PUT", "/api/admin/variables/ledger.admin_mint_cosign_over", { value: "100" }, founderToken)).status,
+    ).toBe(200);
   });
 
   it("S9 + Gate A, the closing assertion: the economy still conserves", async () => {

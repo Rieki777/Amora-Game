@@ -33,6 +33,8 @@ export default function WalletCard() {
   const exchangeModule = useModule("exchange");
   const { user } = useAuth();
   const [balances, setBalances] = useState<Record<string, number>>({});
+  /** The registry's display name per slug, so a rename reaches this card too. */
+  const [tokenNames, setTokenNames] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const section = useRef<HTMLDivElement>(null);
 
@@ -45,6 +47,7 @@ export default function WalletCard() {
       })
       .then((d) => {
         setBalances(d?.mine?.balances ?? {});
+        setTokenNames(d?.mine?.tokenNames ?? {});
         setStatus("ready");
       })
       .catch(() => setStatus("failed"));
@@ -105,7 +108,7 @@ export default function WalletCard() {
           {Object.entries(balances).map(([slug, bal]) => (
             <div key={slug} className="border border-gray-200 rounded-lg px-3 py-2">
               <p className={`text-lg font-bold ${Number(bal) < 0 ? "text-coral" : "text-gray-900"}`}>{bal}</p>
-              <p className="text-xs text-gray-500">{slug}</p>
+              <p className="text-xs text-gray-500">{tokenNames[slug] ?? slug}</p>
             </div>
           ))}
         </div>
