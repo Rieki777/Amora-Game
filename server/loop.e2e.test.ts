@@ -1651,6 +1651,41 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // `new` is a founder correcting their own filing and reaches nobody.
     expect((await api("PUT", `/api/admin/submissions/${handRow.id}/status`, { status: "new" }, founderToken)).json.notified).toBe(false);
 
+    /*
+     * A STEWARD CANNOT PAY THEMSELVES THROUGH THIS DOOR.
+     *
+     * Accepting a Work With Us proposal mints `gratitude.proposal_accept_award`
+     * to the matching member, 100 by default, and nothing checked that the
+     * matching member was not the steward pressing accept. Recognition is the
+     * DEFAULT `governance.weight_token`, so in a village weighting votes by
+     * token that is self-issued voting weight, once per submission, with
+     * nothing bounding how many submissions a person sends. The admin mint cap
+     * does not see it either: that guard counts `from_account = 'sys:mint'`
+     * and this issues from the recognition faucet.
+     *
+     * The acceptance still stands. The payment does not, and the route says
+     * which, because an accept with a silently unpaid mint teaches nobody
+     * anything. Nothing is minted here, so this leaves no balance behind for
+     * the order-dependent cases below.
+     */
+    const ownProposal = await api("POST", "/api/forms/submit", {
+      type: "work-with-us",
+      data: { email: founder.email, name: founder.name, work: "I will tend the food forest" },
+    }, founderToken);
+    expect(ownProposal.status).toBe(200);
+    const selfAccept = await api(
+      "PUT", `/api/admin/submissions/${ownProposal.json.id}/status`, { status: "accepted" }, founderToken,
+    );
+    expect(selfAccept.status).toBe(200);
+    expect(selfAccept.json.rewarded).toBe(false);
+    expect(String(selfAccept.json.rewardRefused ?? "")).toContain("needs another steward");
+    // The status moved, and no recognition followed it.
+    const selfLedger = await api("GET", "/api/game/ledger", undefined, founderToken);
+    expect(
+      (selfLedger.json.entries ?? []).some((e: any) => e.source === "proposal_accepted"),
+      "accepting your own proposal mints nothing",
+    ).toBe(false);
+
     // The contact relay: opt-out is server-enforced, then a real relay lands
     // a notification (email is fire-and-forget without a key).
     const peerNow = await api("GET", "/api/admin/players", undefined, founderToken);

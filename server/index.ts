@@ -283,7 +283,7 @@ import {
   spendSurfacesFor,
 } from "./lib/spending";
 import { seatChargeFor, seatEscrowDrift, seatPriceFor, settleFinishedSeats } from "./lib/eventSeats";
-import { allowanceFor, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
+import { allowanceFor, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId } from "./lib/economy";
 import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -4299,15 +4299,53 @@ function getWorkWithUs() {
   return { ...DEFAULT_WORK_WITH_US, ...workWithUsRepo.get() };
 }
 
-/** When a Work With Us proposal is accepted, fold it into the game for a matching
- * member: a logged contribution, Gratitude credit, and a pulse. Idempotent. */
-async function applyAcceptReward(entry: any): Promise<boolean> {
-  if (entry.rewarded) return false;
+/**
+ * When a Work With Us proposal is accepted, fold it into the game for a
+ * matching member: a logged contribution, Gratitude credit, and a pulse.
+ * Idempotent.
+ *
+ * A STEWARD MAY NOT PAY THEMSELVES THROUGH THIS DOOR. `canConfirm` in
+ * server/lib/economy.ts already states the rule for the whole build: "A
+ * steward may not witness their own work. Confirming releases value, so it
+ * must be structurally impossible to do it for yourself, admin included."
+ * This path releases value and did not ask. Anyone holding `intake.moderate`
+ * could send a Work With Us proposal in their own name, accept it, and mint
+ * themselves `gratitude.proposal_accept_award`, which defaults to 100. Once
+ * per submission, and nothing bounds how many submissions a person sends.
+ *
+ * That token is the DEFAULT `governance.weight_token`, so in a village
+ * running `governance.weight_mode = token` the amount minted here is voting
+ * weight. The admin mint cap does not reach it either: `mintCapGuard` counts
+ * `from_account = 'sys:mint'` and this issues from the recognition faucet.
+ *
+ * The acceptance itself still stands. Whether a steward may accept their own
+ * proposal at all is a question for the village, and this is not the place to
+ * answer it. What stops here is the payment, and the route says so, because a
+ * refusal nobody is told about teaches nothing.
+ */
+async function applyAcceptReward(
+  entry: any,
+  acceptedByUserId: string | null,
+): Promise<{ rewarded: boolean; refused?: string }> {
+  if (entry.rewarded) return { rewarded: false };
   const email = String(entry.data?.email ?? "").toLowerCase();
   const match =
     (entry.userId ? await members.byId(entry.userId) : null) ??
     (email ? await members.byEmail(email) : null);
-  if (!match) return false; // not a registered member; nothing to fold in
+  if (!match) return { rewarded: false }; // not a registered member; nothing to fold in
+  // The same rule the mint already enforces, restated where this mint happens
+  // so a new caller cannot route around it.
+  if (acceptedByUserId) {
+    const witness = canConfirm(match.id, acceptedByUserId);
+    if (!witness.ok) {
+      return {
+        rewarded: false,
+        refused:
+          "The proposal is accepted. The recognition is not: this proposal is yours, and " +
+          "recognition for it needs another steward to accept it.",
+      };
+    }
+  }
   // Registry, not the content document: this is recognition ISSUANCE, and it
   // sat in Work With Us page copy with no bounds and no mechanics visibility.
   // A runOnce migrated any customized document value into the variable.
@@ -4330,7 +4368,7 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
     });
     if (!credit.ok) {
       console.error(`[submissions] accept credit failed for submission ${entry.id}: ${credit.error}`);
-      return false;
+      return { rewarded: false };
     }
     newBalance = credit.toBalance;
   }
@@ -4345,9 +4383,9 @@ async function applyAcceptReward(entry: any): Promise<boolean> {
     });
     if (newBalance != null) u.recognitionBalance = newBalance;
   });
-  if (!updated) return false;
+  if (!updated) return { rewarded: false };
   await addActivity("proposal", `${firstName(updated.name)}'s proposal was welcomed into the village`, { actorUserId: updated.id, entityType: "submission", entityRef: entry.id });
-  return true;
+  return { rewarded: true };
 }
 
 function escapeHtml(s: string): string {
@@ -7054,8 +7092,16 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const before = String(submissions[idx].status ?? "");
     submissions[idx].status = status;
     let rewarded = false;
+    let rewardRefused: string | null = null;
     if (status === "accepted" && !wasAccepted && submissions[idx].type === "work-with-us") {
-      rewarded = await applyAcceptReward(submissions[idx]);
+      // The acting steward, so the mint can refuse to pay them for their own
+      // proposal. Null when this arrives through a path with no named human,
+      // and the guard then leaves the payment alone: an unattributed accept is
+      // its own problem and inventing an actor here would hide it.
+      const actorId = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
+      const outcome = await applyAcceptReward(submissions[idx], actorId);
+      rewarded = outcome.rewarded;
+      rewardRefused = outcome.refused ?? null;
       if (rewarded) submissions[idx].rewarded = true;
     }
     await submissionsRepo.replaceAll(submissions);
@@ -7097,7 +7143,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       });
       notified = true;
     }
-    res.json({ success: true, rewarded, notified });
+    // `rewardRefused` is null on every ordinary accept. When it is a
+    // sentence, the status moved and the recognition did not, and the desk has
+    // to be told which: "accepted" with a silent unpaid mint is the shape this
+    // guard exists to stop.
+    res.json({ success: true, rewarded, rewardRefused, notified });
   });
 
   // Admin: Export Submissions as CSV
