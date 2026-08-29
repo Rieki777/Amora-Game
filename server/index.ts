@@ -8475,8 +8475,13 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     }
     const { category, title, body, kind, meta, imageUrl, tags } = req.body ?? {};
     if (!String(body ?? "").trim()) return res.status(400).json({ error: "Say something" });
-    if (!forumCategories().some((c: any) => c.id === category)) {
-      return res.status(400).json({ error: `Unknown category "${String(category)}"` });
+    // Same shape as the tools refusal below: `String(category)` on an absent
+    // field answers with the literal word "undefined", which tells the poster
+    // nothing about what happened.
+    const chosenCategory = String(category ?? "");
+    if (!chosenCategory) return res.status(400).json({ error: "Pick a category for this thread" });
+    if (!forumCategories().some((c: any) => c.id === chosenCategory)) {
+      return res.status(400).json({ error: `Unknown category "${chosenCategory}"` });
     }
     const threadKind = ["discussion", "decision", "post", "event", "announcement"].includes(kind) ? kind : "discussion";
     if (threadKind !== "post" && !String(title ?? "").trim()) {
@@ -10587,8 +10592,25 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       return "The link must be a valid URL";
     }
     if (url.protocol !== "https:") return "Tool links are https-only";
-    if (!toolsCategories().some((c: any) => c.id === body?.category)) {
-      return `Unknown category "${String(body?.category)}". Manage categories in the module's config`;
+    /*
+     * Three different facts used to arrive as one sentence, and the first two
+     * came out as the literal word "undefined": a request with no category at
+     * all read `Unknown category "undefined"`. That is a value reaching a
+     * sentence rather than a thing that happened.
+     *
+     * The middle case is the one that matters most on a fresh village. The
+     * tools module ships with no categories at all, so an admin who names one
+     * correctly is still refused, and being told their category is unknown
+     * sends them looking for a typo instead of at an empty list.
+     */
+    const categories = toolsCategories();
+    const chosen = String(body?.category ?? "");
+    if (!chosen) return "Pick a category for this tool. Categories are set in the module's config";
+    if (!categories.length) {
+      return "This village has no tool categories yet. Add one in the module's config, then save the tool";
+    }
+    if (!categories.some((c: any) => c.id === chosen)) {
+      return `Unknown category "${chosen}". Manage categories in the module's config`;
     }
     if (body?.visibility === "roles") {
       const known = new Set(rolesRepo.all().map((r: any) => r.id));
@@ -12571,7 +12593,15 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           (u: any) => (u.role === "admin" || u.role === "founder") && u.passwordHash,
         );
         return admins.length > 0
-          ? { state: "ok" as const, detail: `${admins.length} admin${admins.length === 1 ? "" : "s"} have their own login` }
+          ? {
+              state: "ok" as const,
+              // The noun agreed and the verb did not, so a village with one
+              // named admin read "1 admin have their own login".
+              detail:
+                admins.length === 1
+                  ? "1 admin has their own login"
+                  : `${admins.length} admins have their own login`,
+            }
           : { state: "missing" as const, detail: "No per-admin identities yet. The shared password cannot attribute or revoke anyone" };
       },
       "founder-appointed": async () => {
@@ -26362,11 +26392,23 @@ Send an empty drafts array when you are still listening. A role payload is {name
         : snapshot.mode === "equal"
           ? " This village weighs every eligible vote the same today, so the allocation is on the record and is not what your vote weighs right now."
           : " This village weighs votes by token balance today, so the allocation is on the record and is not what your vote weighs right now.";
+    /*
+     * The operator's reason is quoted rather than run on. `modeLine` opens
+     * with a space and a capital, so a reason typed without a full stop
+     * produced one sentence out of two, verbatim: "The reason they gave:
+     * probe allocation This village weighs every eligible vote the same
+     * today...". A member had to read it three times.
+     *
+     * Their words are not edited. The closing stop is added only when the
+     * reason has not ended itself, which is punctuation and not content.
+     */
+    const reason = note.trim();
+    const reasonSentence = /[.!?…]$/.test(reason) ? reason : `${reason}.`;
     await notify({
       userId: target.id,
       type: "weight_changed",
       title: `Your voting weight allocation is now ${weight}`,
-      body: `${actorName} changed it from ${was}. The reason they gave: ${note.trim()}${modeLine}`,
+      body: `${actorName} changed it from ${was}. The reason they gave: ${reasonSentence}${modeLine}`,
       link: "/decisions",
       actorUserId: actorId,
       dedupeKey: `gw:${outcome.changeId}`,
