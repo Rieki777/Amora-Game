@@ -18,6 +18,7 @@ import {
   ALL_CAPABILITIES,
   capabilityDecision,
   hasCapability,
+  isDeniable,
   STAGE_UNLOCKS,
   TRANSFERABLE,
   type Capability,
@@ -24279,7 +24280,14 @@ ${inner}
     const ctx = await capabilityCtx(user);
     return proposerStanding(
       hasCapability("mechanics.propose", ctx),
-      (ctx.badgeDenies ?? []).includes("mechanics.propose"),
+      // THE SECOND READER OF A DENY, and the only one outside the gate.
+      // `isDeniable` is asked here too (0109) so this cannot drift from the
+      // gate the day somebody reclassifies a key. Byte-identical today:
+      // `mechanics.propose` is deniable, and the raw membership test that
+      // used to stand alone here is deliberately kept beside it, because it
+      // reaches an admin where the gate short-circuits and that is this
+      // function's own long-standing posture.
+      isDeniable("mechanics.propose") && (ctx.badgeDenies ?? []).includes("mechanics.propose"),
       Number(user.recognitionBalance ?? 0),
       Math.max(0, numberVar("governance.hypha_threshold")),
       ctx.isAdmin,
