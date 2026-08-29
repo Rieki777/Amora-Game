@@ -15,7 +15,7 @@
 > | B3, hash routes are additive | `routeHash` in `grounds-v0.html` now closes the Loom and leaves circles before opening a place, and `#/loom` leaves circles first. The routes are exclusive. |
 > | B4, `#/place/nope` is a silent no-op | `openPanel` and `routeHash` both call `toast('That place is no longer on the map.')` and clear the hash. |
 > | B5, `map_scene.version` reports a stale build string | `map_scene.version` reads `window.BUILD_VERSION`, the same source as the `grounds-ready` handshake. The artifact is at `v0.8-publish`. |
-> | F2, no cache headers on the 4 MB artifact | The grounds route computes a sha256 of the file and caches it behind a stat key. |
+> | F2, no cache headers on the 4 MB artifact | Both halves of the suggestion shipped. `/grounds/grounds-<hash>.html` is a content-hashed URL served `public, max-age=31536000, immutable`, with the hash memoised on size and mtime so a 4 MB read does not happen per request. The stable `/grounds/index.html` is kept for old addresses and revalidates to a 304. |
 >
 > The "Handoff Breakdown" and "Still to run" sections below are the 2026-08-08
 > picture. Nothing in them is a live task.
