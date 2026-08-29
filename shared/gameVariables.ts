@@ -100,7 +100,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Base sending allowance per cycle",
     description:
-      "THE allowance behind every way of giving in this village: written acknowledgments on the Gratitude page, and taps of appreciation on the feed. A member's own figure is this number times their stage multiplier under Progression, so the stock ladder runs from 100 a cycle at Guest to 500 at Sage. Set it to 0 and nobody gives anything at any stage. Raise it and every stage rises with it, and so does the amount any one person may receive, because that ceiling is a share of this. Unused allowance does not roll over. Giving mints fresh Gratitude for the person being thanked and takes nothing from the giver's own balance, so this allowance is what bounds it.",
+      "THE allowance behind every way of giving in this village: written acknowledgments on the Gratitude page, and taps of appreciation on the feed. A member's own figure is this number times their stage multiplier under Progression, so the stock ladder runs from 100 a cycle at Guest to 500 at Sage. Set it to 0 and nobody gives anything at any stage. Raise it and every stage rises with it, and so does the amount any one person may receive, because that ceiling is a share of this. Unused allowance does not roll over. Giving mints fresh Gratitude for the person being thanked and takes nothing from the giver's own balance, so this allowance is what bounds it. Works with: 'Share of an allowance any one person can receive', 'Gratitude each heart sends', 'Hearts one member can tap for another per cycle', and 'Sending-budget multiplier' under Progression.",
     type: "integer",
     default: "100",
     min: 0,
@@ -234,7 +234,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Gratitude",
     label: "Share of an allowance any one person can receive",
     description:
-      "The ceiling on how much of a giver's cycle allowance can land on one other member, written as a share of that allowance. At the default of 25 a member can give any one person a quarter of what they have, across as many sends as they like, so it takes at least four people to spend an allowance. Set it to 100 and one person can receive somebody's whole allowance. Set it to 1 and it takes a hundred people to spend one. It counts written acknowledgments and feed hearts TOGETHER, so neither channel can carry what the other refuses. The figure it is a share of is the base sending allowance times the giver's stage multiplier, so at the stock ladder 25 means 25 Gratitude to one person at Guest and 125 at Sage. The ceiling never falls below 1 Gratitude, so a small allowance and a small share cannot combine into a village where nobody can give anything at all.",
+      "The ceiling on how much of a giver's cycle allowance can land on one other member, written as a share of that allowance. At the default of 25 a member can give any one person a quarter of what they have, across as many sends as they like, so it takes at least four people to spend an allowance. Set it to 100 and one person can receive somebody's whole allowance. Set it to 1 and it takes a hundred people to spend one. It counts written acknowledgments and feed hearts TOGETHER, so neither channel can carry what the other refuses. The figure it is a share of is the base sending allowance times the giver's stage multiplier, so at the stock ladder 25 means 25 Gratitude to one person at Guest and 125 at Sage. The ceiling never falls below 1 Gratitude, so a small allowance and a small share cannot combine into a village where nobody can give anything at all. This is also the dial that bounds concentrated VOICE while Gratitude is the weight token under Governance: it decides how much of one member's standing may come from a single relationship. Works with: 'Base sending allowance per cycle', 'Gratitude each heart sends', 'Hearts one member can tap for another per cycle', and 'Sending-budget multiplier' under Progression.",
     type: "percentage",
     default: "25",
     min: 1,
@@ -1127,11 +1127,25 @@ export const VARIABLES: VariableDef[] = [
     unit: "characters",
   },
   {
+    // CATEGORY "Gratitude", DELIBERATELY, THOUGH THE KEY IS `feed.*`.
+    //
+    // Game Mechanics groups by this string and every group starts collapsed
+    // with only its name and a count showing, so a label in an unopened group
+    // is a label nobody can read and Ctrl+F cannot reach. These two dials and
+    // the two gratitude ones answer ONE question ("how much recognition can
+    // one member give another"), and a founder who has to guess two category
+    // names to see the whole answer has not been given the dial.
+    //
+    // Nothing branches on the category string: `ringOf` tests only
+    // FOUNDER_CATEGORIES, which holds neither name, and module visibility is
+    // keyed on `variableKeys` in shared/modules.ts, never on this. So a
+    // village running without the feed still never sees these two, and a
+    // founder switching the Feed module on still finds them named on its card.
     key: "feed.heart_amount",
-    category: "Feed",
+    category: "Gratitude",
     label: "Gratitude each heart sends",
     description:
-      "What one tap of appreciation on the feed is worth. A heart is a real send: it comes out of the tapper's own cycle allowance like any written acknowledgment, so a larger heart empties an allowance faster and reaches the per-person share sooner. Bounded 1 to 5 on purpose, which keeps a tap a small and frequent gesture. Raising it makes every heart heavier without changing how many a member can leave; the count is set by 'Hearts one member can tap for another per cycle'.",
+      "What one tap of appreciation on the feed is worth. A heart is a real send: it comes out of the tapper's own cycle allowance the same way a written acknowledgment does, so a larger heart empties an allowance faster and reaches the per-person share sooner. Bounded 1 to 5 on purpose, which keeps a tap a small and frequent gesture. Raising it makes every heart heavier and changes nothing about how many a member can leave. Works with: 'Base sending allowance per cycle', 'Share of an allowance any one person can receive', 'Hearts one member can tap for another per cycle', and 'Sending-budget multiplier' under Progression.",
     type: "integer",
     default: "1",
     min: 1,
@@ -1139,11 +1153,12 @@ export const VARIABLES: VariableDef[] = [
     unit: "Gratitude",
   },
   {
+    // Category "Gratitude" for the reason spelled out on `feed.heart_amount`.
     key: "feed.max_hearts_per_recipient_per_cycle",
-    category: "Feed",
+    category: "Gratitude",
     label: "Hearts one member can tap for another per cycle",
     description:
-      "How many separate taps of appreciation one member can leave for another in a cycle. THE ONLY LIMIT IN THE VILLAGE THAT COUNTS TAPS: every other limit on giving counts Gratitude. Each tap spends the tapper's own cycle allowance, so the real ceiling is whichever runs out first, this count or the share of the allowance any one person can receive. At the stock dials a member can leave 5 hearts worth 1 each, well inside a share of 25. Set it to 1 to make a heart a once-per-cycle gesture; set it high and the share becomes the only thing holding the channel.",
+      "How many separate taps of appreciation one member can leave for another in a cycle. THE ONLY LIMIT IN THE VILLAGE THAT COUNTS TAPS: every other limit on giving counts Gratitude. Each tap spends the tapper's own cycle allowance, so the real ceiling is whichever runs out first, this count or the share of the allowance any one person can receive. At the stock dials a member can leave 5 hearts worth 1 each, well inside a share of 25. Set it to 1 to make a heart a once-per-cycle gesture; set it high and the share becomes the only thing holding the channel. Works with: 'Base sending allowance per cycle', 'Share of an allowance any one person can receive', 'Gratitude each heart sends', and 'Sending-budget multiplier' under Progression.",
     type: "integer",
     default: "5",
     min: 1,
@@ -1673,7 +1688,7 @@ const STAGE_MULTIPLIER_DEFS: VariableDef[] = GAME_CONFIG.stages.map((s) => ({
   key: `progression.multiplier.${s.id}`,
   category: "Progression",
   label: `Sending-budget multiplier: ${s.name}`,
-  description: `Multiplies the base Gratitude sending budget for members at the ${s.name} stage. 0 means members at this stage cannot send yet.`,
+  description: `Multiplies the base Gratitude sending allowance for members at the ${s.name} stage, so a member here gives this many times 'Base sending allowance per cycle' each cycle. 0 means members at this stage cannot send yet. It moves the per-person ceiling too, because that is a share of the allowance this produces. Works with: 'Base sending allowance per cycle' and 'Share of an allowance any one person can receive', both under Gratitude.`,
   type: "decimal",
   default: String(s.gratitudeMultiplier),
   min: 0,
