@@ -305,7 +305,7 @@ describe("a change set that names a minting rule", () => {
       title: "Pay a seat more",
       rationale: "The seats carry more than they used to.",
       changeSet: [{ key: key(SEAT_GRATITUDE, "amount"), from: "20", to: "30" }],
-      villageName: "Amora",
+      villageName: "Larksfield",
       proposerName: "Rye",
       supports: 3,
       createdAt: "2026-08-30T00:00:00.000Z",
