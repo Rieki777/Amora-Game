@@ -346,3 +346,118 @@ describe.skipIf(!DB_CONFIGURED)("a vault link cannot be published as a call to a
     expect(shown.text).not.toContain("/api/uploads/");
   });
 });
+
+/**
+ * THE OTHER THING A CALL TO ACTION CAN CARRY: CODE.
+ *
+ * The guard above reads the PATH a link resolves to, which is exactly what a
+ * link into `/api/uploads/` needs. It never read the SCHEME. So
+ * `javascript:alert(1)` parsed, its pathname came out as `alert(1)`, nothing
+ * under `/api/uploads/` matched, and it saved.
+ *
+ * Both documents these routes write are handed back by a PUBLIC GET, and both
+ * pages that read them drop the value straight into `href`:
+ * `client/src/components/InvestorSummary.tsx` and `client/src/pages/Visit.tsx`.
+ * So the stored string runs in the browser of every visitor who clicks it,
+ * with no account needed at either end of that.
+ *
+ * The allowlist is `http`, `https`, `mailto`, and a path on this site. It is
+ * wider than `POST /api/journey/resources` next door, which takes http and
+ * https only, and both are right for their own surface: a founder pointing a
+ * visit button at `mailto:` or at `/visit` is doing an ordinary thing, and
+ * the journey list is a set of working documents on the web.
+ *
+ * THE DODGES ARE THE WHOLE TEST. A browser lowercases a scheme, drops leading
+ * whitespace, and strips every tab and newline anywhere in the URL before it
+ * decides what the link does. `JavaScript:`, ` javascript:` and
+ * `java<newline>script:` therefore all reach the same place, while a check
+ * reading the characters an admin typed sees three harmless different
+ * strings. So the guard asks the same parser the browser uses and reads the
+ * protocol off the result.
+ */
+describe.skipIf(!DB_CONFIGURED)("a call to action cannot carry a scheme that runs code", () => {
+  /** Every spelling of the same link that a browser resolves to javascript:. */
+  const RUNS_CODE = [
+    "javascript:alert(1)",
+    "JavaScript:alert(1)",
+    "JAVASCRIPT:alert(1)",
+    "  javascript:alert(1)",
+    "\tjavascript:alert(1)",
+    "java\nscript:alert(1)",
+    "java\tscript:alert(1)",
+    "java\rscript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "vbscript:msgbox(1)",
+  ];
+
+  /** Links a founder legitimately pastes, which must keep saving. */
+  const ORDINARY = [
+    "https://example.org/talk-to-us",
+    "http://example.org/talk-to-us",
+    "mailto:hello@example.org",
+    "MAILTO:hello@example.org",
+    "/visit",
+    "#visit-form",
+  ];
+
+  it("refuses every spelling of a link that runs code, and names what it takes", async () => {
+    const before = await call("GET", "/api/admin/investor-summary");
+    expect(before.status, before.text).toBe(200);
+    for (const dodge of RUNS_CODE) {
+      const res = await call("PUT", "/api/admin/investor-summary", { ...before.json, cta_url: dodge });
+      expect(res.status, `${JSON.stringify(dodge)} saved: ${res.text}`).toBe(400);
+      const said = String(res.json?.error ?? "");
+      // A refusal that does not say what the field takes sends a founder
+      // guessing, and this field takes four different shapes.
+      expect(said, `${JSON.stringify(dodge)}: ${said}`).toContain("mailto:");
+      expect(said.length, "a bare validation code is not an answer").toBeGreaterThan(60);
+    }
+  });
+
+  it("publishes none of them, so the refusal is a refusal", async () => {
+    const shown = await call("GET", "/api/investor-summary", undefined, "");
+    expect(shown.status, shown.text).toBe(200);
+    expect(shown.text.toLowerCase()).not.toContain("javascript:");
+    expect(shown.text.toLowerCase()).not.toContain("vbscript:");
+    expect(shown.text.toLowerCase()).not.toContain("data:text/html");
+  });
+
+  it("still takes the four shapes an ordinary call to action uses", async () => {
+    for (const good of ORDINARY) {
+      const before = await call("GET", "/api/admin/investor-summary");
+      const res = await call("PUT", "/api/admin/investor-summary", { ...before.json, cta_url: good });
+      expect(res.status, `${good} was refused: ${res.text}`).toBe(200);
+      const shown = await call("GET", "/api/investor-summary", undefined, "");
+      expect(shown.json?.cta_url, `${good} did not survive the round trip`).toBe(good);
+    }
+  });
+
+  it("checks a list of links link by link, the way the vault guard does", async () => {
+    const before = await call("GET", "/api/admin/investor-summary");
+    const res = await call("PUT", "/api/admin/investor-summary", {
+      ...before.json,
+      cta_url: ["https://example.org/talk-to-us", "javascript:alert(1)"],
+    });
+    expect(res.status, res.text).toBe(400);
+  });
+
+  it("reaches the call to action nested inside a visit type", async () => {
+    const before = await call("GET", "/api/admin/visit-config");
+    expect(before.status, before.text).toBe(200);
+    const types = Array.isArray(before.json?.visit_types) ? before.json.visit_types : [];
+    expect(types.length, "the visit config must carry visit types to test").toBeGreaterThan(0);
+    const res = await call("PUT", "/api/admin/visit-config", {
+      ...before.json,
+      visit_types: types.map((v: any, i: number) => (i === 0 ? { ...v, cta_url: "javascript:alert(1)" } : v)),
+    });
+    expect(res.status, res.text).toBe(400);
+    const shown = await call("GET", "/api/visit-config", undefined, "");
+    expect(shown.text.toLowerCase()).not.toContain("javascript:");
+  });
+
+  it("leaves an empty call to action alone, which is how a founder hides the button", async () => {
+    const before = await call("GET", "/api/admin/investor-summary");
+    const res = await call("PUT", "/api/admin/investor-summary", { ...before.json, cta_url: "" });
+    expect(res.status, res.text).toBe(200);
+  });
+});

@@ -8923,6 +8923,29 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const clientMeta = meta && typeof meta === "object" && !Array.isArray(meta) ? { ...(meta as any) } : null;
     if (clientMeta) for (const k of DECIDED_ONLY_META) delete clientMeta[k];
 
+    /*
+     * A THREAD'S META REACHES AN `href` TOO, and this one is member-written.
+     *
+     * The comment above says a cta "rides through untouched", and `Forum.tsx`
+     * renders `meta.ctaUrl` of an event thread as the anchor on the Respond
+     * button. So anybody holding `forum.post` could store
+     * `javascript:alert(1)` and have it run in the browser of every member who
+     * opened the thread. That is the same defect the visit and investor
+     * documents carried, reached from a lower stage.
+     *
+     * `ctaSchemeProblemIn` is the same sweep those two routes use, matching
+     * `cta_url` and `ctaUrl` alike. Only the scheme half applies here: a link
+     * to a village upload is ordinary in a thread, and `imageUrl` four lines
+     * up is REQUIRED to be one.
+     *
+     * Said out loud, unlike the decided-shape strip above it, because a
+     * member typing a link is doing something legitimate and deserves to know
+     * what the field takes. There is nothing to teach an attacker: the reply
+     * only names the shapes that work.
+     */
+    const metaLink = ctaSchemeProblemIn(clientMeta);
+    if (metaLink) return res.status(400).json({ error: metaLink });
+
     const thread = {
       id: `thr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       category,
@@ -20427,8 +20450,43 @@ ${inner}
    * function was told about. `visit_types` is an array of objects each with
    * their own `cta_url`, and a shape that grows a third one should meet this
    * on the day it is added instead of on the day somebody notices.
+   *
+   * ROUND 7 ADDED THE SECOND HALF OF THE SAME SENTENCE. The vault check reads
+   * the PATH a link resolves to and asked nothing about its SCHEME, so
+   * `javascript:alert(1)` parsed, landed nowhere near `/api/uploads/`, and
+   * saved into a document two public routes hand to anybody who asks. Both
+   * client pages then put that value straight into an `href`, so the stored
+   * string ran in a visitor's browser with no account at either end.
+   * `ctaSchemeProblem` closes it, and the two checks now run from one place so
+   * a field added later cannot pick up only one of them.
    */
   const UPLOADS_PATH = /^\/api\/uploads\//i;
+
+  /**
+   * The base every pasted link is resolved against, shared by both checks
+   * below so a bare path and a protocol-relative link mean the same thing to
+   * each of them. `village.invalid` can never resolve, which is the point: it
+   * stands in for "this site" without naming a host anybody could reach.
+   */
+  const LINK_BASE = "http://village.invalid";
+
+  /**
+   * The schemes a call to action may use, ruled by the founder.
+   *
+   * `http` and `https` are a page on the web. `mailto` is a founder pointing
+   * the button at their own inbox, which is the commonest call to action a
+   * village has. A path on this site arrives here as `http:` already, because
+   * a relative link inherits the base's scheme when it is parsed, so it needs
+   * no entry of its own.
+   *
+   * WIDER THAN `POST /api/journey/resources` NEXT DOOR, which takes http and
+   * https only, and both are right for their own surface. That list is a set
+   * of working documents on the web, where a `mailto:` would be a mistake.
+   * This is a button on a public page, where a founder pointing at their
+   * inbox or at `/visit` is doing the ordinary thing. Two surfaces, two
+   * answers, and unifying them would make one of them worse.
+   */
+  const ALLOWED_CTA_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 
   /**
    * The path a browser would actually ask the server for.
@@ -20449,27 +20507,54 @@ ${inner}
    */
   function linkPath(raw: string): string {
     try {
-      return new URL(raw, "http://village.invalid").pathname;
+      return new URL(raw, LINK_BASE).pathname;
     } catch {
       return raw;
     }
   }
 
-  function vaultLinkProblem(value: unknown): string | null {
-    if (value == null) return null;
-    // A list of links is checked link by link. My own first draft called
-    // String() on the whole array, so ["/somewhere", "/api/uploads/cap-table"]
-    // read as one string starting with "/somewhere" and sailed through, which
-    // is the shape a guard that only ever saw the happy input would keep.
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const problem = vaultLinkProblem(item);
-        if (problem) return problem;
-      }
-      return null;
+  /**
+   * THE SCHEME, READ OFF THE URL A BROWSER WILL RESOLVE.
+   *
+   * `linkPath` above parses instead of pattern-matching, because a guard has
+   * to read the same path the server will be asked for. The scheme needs the
+   * identical treatment for the identical reason, and the parser is doing far
+   * more work here than it looks:
+   *
+   *   JavaScript:alert(1)     a scheme is case-insensitive, so it lowercases
+   *   "  javascript:alert(1)" leading whitespace is stripped before parsing
+   *   java<newline>script:    every tab, newline and carriage return is
+   *   java<tab>script:        removed from ANYWHERE in the URL, so all three
+   *   java<return>script:     of these are the same link to a browser
+   *
+   * A check reading the characters an admin typed sees five different
+   * harmless strings there. Reading `.protocol` off the parse sees one, five
+   * times, because this is the same algorithm the browser runs before it
+   * decides what the link does.
+   *
+   * FAILS CLOSED. A string this parser cannot read is a string nobody can
+   * predict the behaviour of, and the safe answer for a value about to be
+   * published on a page open to everybody is no.
+   */
+  function ctaSchemeProblem(raw: string): string | null {
+    const shapes =
+      "A call to action can point at a web address starting http:// or https://, " +
+      "an email address starting mailto:, or a path on this site starting with a slash.";
+    let parsed: URL;
+    try {
+      parsed = new URL(raw, LINK_BASE);
+    } catch {
+      return `That link is not a web address this page can publish. ${shapes}`;
     }
-    const raw = String(value).trim();
-    if (!raw || !UPLOADS_PATH.test(linkPath(raw))) return null;
+    if (ALLOWED_CTA_SCHEMES.has(parsed.protocol)) return null;
+    return (
+      `That link opens with ${parsed.protocol} which this page will not save. ${shapes} ` +
+      "A link carrying code runs inside the browser of everyone who opens it."
+    );
+  }
+
+  function vaultLinkProblem(raw: string): string | null {
+    if (!UPLOADS_PATH.test(linkPath(raw))) return null;
     return (
       "That link points into the investor vault. Files under /api/uploads/ have no sign-in in front of them, " +
       "so anyone who opens this public page can read the document and pass the link to anybody else, forever. " +
@@ -20478,8 +20563,65 @@ ${inner}
     );
   }
 
-  /** Every call-to-action field in a document body, however deep it sits. */
-  function vaultLinkProblemIn(body: unknown): string | null {
+  /**
+   * Everything one call-to-action value has to survive.
+   *
+   * The scheme is asked FIRST. A link can fail both checks at once
+   * (`javascript:/api/uploads/x` is a real string somebody can type), and the
+   * scheme is the more urgent thing to say, because it is the half that runs.
+   * A link into the vault still gets the vault's own answer, since an
+   * ordinary `/api/uploads/...` path resolves to `http:` and passes here.
+   */
+  /**
+   * Run one check over a value that may be a single link or a list of them.
+   *
+   * A list is checked link by link. My own first draft called String() on the
+   * whole array, so ["/somewhere", "/api/uploads/cap-table"] read as one
+   * string starting with "/somewhere" and sailed through, which is the shape
+   * a guard that only ever saw the happy input would keep.
+   */
+  function eachLink(value: unknown, check: (raw: string) => string | null): string | null {
+    if (value == null) return null;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const problem = eachLink(item, check);
+        if (problem) return problem;
+      }
+      return null;
+    }
+    // A blank field is how a founder hides the button, so it is no link at
+    // all and none of these checks has anything to say about it.
+    const raw = String(value).trim();
+    if (!raw) return null;
+    return check(raw);
+  }
+
+  function ctaLinkProblem(value: unknown): string | null {
+    return eachLink(value, (raw) => ctaSchemeProblem(raw) ?? vaultLinkProblem(raw));
+  }
+
+  /**
+   * THE SCHEME ALONE, for a surface where the vault answer would be wrong.
+   *
+   * A village upload under `/api/uploads/` is an ordinary thing to link to
+   * from a forum thread: `imageUrl` on the same route is REQUIRED to be one.
+   * So the vault half belongs to the two investor-facing documents that
+   * publish to anybody, and the scheme half belongs everywhere a stored
+   * string reaches an `href`.
+   */
+  function ctaSchemeOnlyProblem(value: unknown): string | null {
+    return eachLink(value, ctaSchemeProblem);
+  }
+
+  /**
+   * Every call-to-action field in a document body, however deep it sits.
+   *
+   * The field name is matched `cta_url` OR `ctaUrl`, because both spellings
+   * are live in this repo: the investor and visit documents are snake_case
+   * and a forum event thread's `meta` is camelCase. One regex reaches both,
+   * which is the whole reason the sweep is by name.
+   */
+  function ctaFieldProblem(body: unknown, check: (value: unknown) => string | null): string | null {
     const walk = (node: unknown): string | null => {
       if (!node || typeof node !== "object") return null;
       if (Array.isArray(node)) {
@@ -20491,7 +20633,7 @@ ${inner}
       }
       for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
         if (/^cta_?url$/i.test(key)) {
-          const p = vaultLinkProblem(value);
+          const p = check(value);
           if (p) return p;
         }
         const deeper = walk(value);
@@ -20500,6 +20642,16 @@ ${inner}
       return null;
     };
     return walk(body);
+  }
+
+  /** The investor and visit documents: the scheme, and the vault. */
+  function ctaLinkProblemIn(body: unknown): string | null {
+    return ctaFieldProblem(body, ctaLinkProblem);
+  }
+
+  /** Anywhere else a stored call to action reaches an href: the scheme only. */
+  function ctaSchemeProblemIn(body: unknown): string | null {
+    return ctaFieldProblem(body, ctaSchemeOnlyProblem);
   }
 
   app.get("/api/visit-config", async (_req, res) => {
@@ -20514,8 +20666,8 @@ ${inner}
   app.put("/api/admin/visit-config", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    const leak = vaultLinkProblemIn(req.body);
-    if (leak) return res.status(400).json({ error: leak });
+    const problem = ctaLinkProblemIn(req.body);
+    if (problem) return res.status(400).json({ error: problem });
     await visitConfigRepo.put(req.body);
     res.json({ success: true });
   });
@@ -20535,9 +20687,10 @@ ${inner}
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     // The document this route saves is served verbatim to the public route
-    // above it. See vaultLinkProblem, in the visit-config block.
-    const leak = vaultLinkProblemIn(req.body);
-    if (leak) return res.status(400).json({ error: leak });
+    // above it. See ctaLinkProblem, in the visit-config block: it refuses a
+    // link into the vault and a link whose scheme runs code.
+    const problem = ctaLinkProblemIn(req.body);
+    if (problem) return res.status(400).json({ error: problem });
     await investorSummaryRepo.put(req.body);
     res.json({ success: true });
   });
@@ -24933,11 +25086,20 @@ ${inner}
       hasCapability("mechanics.propose", ctx),
       // THE SECOND READER OF A DENY, and the only one outside the gate.
       // `isDeniable` is asked here too (0109) so this cannot drift from the
-      // gate the day somebody reclassifies a key. Byte-identical today:
-      // `mechanics.propose` is deniable, and the raw membership test that
-      // used to stand alone here is deliberately kept beside it, because it
-      // reaches an admin where the gate short-circuits and that is this
-      // function's own long-standing posture.
+      // gate the day somebody reclassifies a key.
+      //
+      // THAT DAY WAS ROUND 7 AND THIS LINE IS WHY NOTHING BROKE. The founder
+      // ruled that proposing a change to the Game's own rules is a voice, so
+      // `DENIABLE` now marks `mechanics.propose` false and this whole
+      // expression is permanently false with it. Everything downstream goes
+      // quiet on its own: `standing.denied` stays false, the 403 below is
+      // dormant, and the deny checkbox has already gone from the admin screen
+      // because it lists `CAPS.filter(isDeniable)`.
+      //
+      // The dormant branches are left standing rather than cut. They cost
+      // nothing, they re-arm correctly if a key is ever reclassified again,
+      // and the `denied` field is on a payload `client/src/pages/GameMechanics.tsx`
+      // reads, which belongs to another lane. Removing it is that lane's call.
       isDeniable("mechanics.propose") && (ctx.badgeDenies ?? []).includes("mechanics.propose"),
       Number(user.recognitionBalance ?? 0),
       Math.max(0, numberVar("governance.hypha_threshold")),
@@ -29479,7 +29641,35 @@ ${inner}
     );
   });
 
-  /** One seat's whole history, ended seatings included. */
+  /**
+   * One seat's whole history, ended seatings included.
+   *
+   * THIS ROUTE IS STRICTER THAN `/api/org` ON PURPOSE. DO NOT LEVEL THEM.
+   *
+   * `/api/org` has three tiers and its widest one answers a signed-out
+   * stranger whenever `org.public_people` is on, which it is by default
+   * (R57). This route asks `map.viewPeople` or admin and stops there. It
+   * never consults that dial. Read side by side the two look inconsistent,
+   * and a tidy-up that "fixed" it would publish things `/api/org` spent real
+   * work withholding.
+   *
+   * THE REASON IS IN THE PAYLOADS, not in the principle. `/api/org`'s public
+   * tier is a first name and nothing else, and `publicHolder` above lists
+   * what it strips and why it was stripped: `focus`, `note`, `userId`,
+   * `kind`, `lapsed`. Every row this route returns carries `focus` and
+   * `endedReason`. Both sit at the MEMBER tier or above in that same
+   * document, so honouring `org.public_people` here would hand an anonymous
+   * caller two fields the route next door refuses them by name.
+   *
+   * Said the shorter way: a CURRENT seat is a fact about the village, and
+   * somebody deciding whether to approach it needs that. A HISTORY of who
+   * held it is a record about people over time, including when each of them
+   * stopped and why. The village publishes the first. The second is the
+   * members' own record of themselves.
+   *
+   * So the asymmetry is the decision. If it should ever change, the thing to
+   * change is what this payload carries, and the tiering follows from that.
+   */
   app.get("/api/org/roles/:id/history", async (req, res) => {
     const viewer = await authedUser(req);
     const maySeePeople =

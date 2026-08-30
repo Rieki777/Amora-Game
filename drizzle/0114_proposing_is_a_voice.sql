@@ -1,0 +1,44 @@
+-- 0114: clear `mechanics.propose` out of every warning badge's `denies`.
+--
+-- The founder's round 7 ruling, and the same one R65 and R66 stated: "denying
+-- a voice is not a power anyone should hold". Round 7 applied it to proposing
+-- a change to the Game's own rules, which is the say itself one step earlier.
+-- A village's rules are the thing its members vote about, so the power to put
+-- a change in front of them is a voice in every decision that follows.
+--
+-- 0109 did this for `ballot.vote` and `member.vouch` and its reasoning holds
+-- here line for line. `shared/capabilities.ts` names the voice keys in
+-- `DENIABLE`, the gate ignores a deny that names one, and `badgeProblem`
+-- refuses to save one. This file is the third lock: a row already stored
+-- answers to neither of the other two, and a warning badge written months ago
+-- outlives the admin who wrote it.
+--
+-- ORDER MATTERS AT BOOT, and it is the same reason 0090 and 0109 gave.
+-- `applyPending` runs migrations before `assertBadgeInvariants` re-validates
+-- every active badge, and that assertion refuses a voice key in `denies`.
+-- Without this file a village whose admin had once paused somebody's
+-- proposing would fail to start. With it, the row is cleaned a few seconds
+-- before the check reads it. That makes this migration REQUIRED rather than
+-- tidy-up: the map change alone would brick the boot of any village holding
+-- such a row.
+--
+-- WHY THE NEIGHBOURING KEY IS NOT HERE. `proposal.open` stays deniable, and
+-- the difference is what the deny leaves behind. Denying `proposal.open`
+-- leaves the drafts and the whole forum standing, so a member keeps every
+-- other way of being heard. A deny on `mechanics.propose` closes the only
+-- route to the rule set and closes the draft path with it, because
+-- `proposerStanding` answers `mayDraft: false`. A village that needs a remedy
+-- against flooding has one that names nobody:
+-- `governance.proposals_per_member_per_cycle`.
+--
+-- JSON_SEARCH plus JSON_REMOVE rather than string surgery, as in 0090 and
+-- 0109: both are available on MySQL 5.7+ and MariaDB 10.2+, the WHERE clause
+-- skips NULL columns on its own, and one occurrence per row is all the admin
+-- surface can produce, because a deny list is a set of checkboxes.
+--
+-- The badge itself is untouched. A warning may still exist and may still say
+-- something true about what happened; this removes only what it took.
+
+UPDATE `badges`
+SET `denies` = JSON_REMOVE(`denies`, JSON_UNQUOTE(JSON_SEARCH(`denies`, 'one', 'mechanics.propose')))
+WHERE JSON_SEARCH(`denies`, 'one', 'mechanics.propose') IS NOT NULL;

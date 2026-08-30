@@ -3078,7 +3078,7 @@ function VisitAdminTab({ password }: { password: string }) {
                   <textarea value={v.description} onChange={(e) => updateVisitType(idx, { description: e.target.value })} placeholder="Description" rows={2} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
                   <div className="grid grid-cols-2 gap-2">
                     <input type="text" value={v.cta_label} onChange={(e) => updateVisitType(idx, { cta_label: e.target.value })} placeholder="CTA Label" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-                    <input type="text" value={v.cta_url} onChange={(e) => updateVisitType(idx, { cta_url: e.target.value })} placeholder="CTA URL (blank = contact form)" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+                    <input type="text" value={v.cta_url} onChange={(e) => updateVisitType(idx, { cta_url: e.target.value })} placeholder="https://..., mailto:..., or /visit. Blank shows the contact form" className="px-3 py-2 text-sm border border-gray-200 rounded-lg" />
                   </div>
                 </div>
               ))}
@@ -3207,7 +3207,7 @@ function InvestorSummaryAdminTab({ password }: { password: string }) {
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">CTA URL</label>
-              <input type="text" value={cfg.cta_url} onChange={(e) => setCfg({ ...cfg, cta_url: e.target.value })} placeholder="leave blank to hide" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+              <input type="text" value={cfg.cta_url} onChange={(e) => setCfg({ ...cfg, cta_url: e.target.value })} placeholder="https://..., mailto:..., or /visit. Blank hides the button" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
             </div>
           </div>
         </div>

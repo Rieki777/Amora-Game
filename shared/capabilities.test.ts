@@ -406,10 +406,26 @@ describe("a badge may never take away a voice", () => {
       expect(DENIABLE["member.vouch"]).toBe(false);
     });
 
+    it("names proposing a rule change as a voice, which is the round 7 ruling", () => {
+      // The say itself, one step earlier: a village's rules are the thing its
+      // members vote about, so putting a change in front of them is a voice in
+      // every decision that follows.
+      expect(DENIABLE["mechanics.propose"]).toBe(false);
+    });
+
+    it("keeps opening a decision deniable, because that deny leaves a way to be heard", () => {
+      // The pair is the whole point of the split. A deny on `proposal.open`
+      // leaves the drafts and the forum standing. A deny on
+      // `mechanics.propose` closed the only route to the rule set, and closed
+      // the draft path with it, so there was nothing left over.
+      expect(DENIABLE["proposal.open"]).toBe(true);
+      expect(DENIABLE["mechanics.propose"]).toBe(false);
+    });
+
     it("leaves the expression keys alone, because the founder has not ruled on them", () => {
       // Silencing a harasser is a different act from disenfranchising a
       // dissenter. These stay deniable until he says otherwise.
-      for (const cap of ["forum.post", "message.send", "map.contact", "map.photograph", "proposal.open", "mechanics.propose"] as Capability[]) {
+      for (const cap of ["forum.post", "message.send", "map.contact", "map.photograph", "proposal.open"] as Capability[]) {
         expect(DENIABLE[cap], cap).toBe(true);
       }
     });
