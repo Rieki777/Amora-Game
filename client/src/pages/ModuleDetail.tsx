@@ -4,14 +4,20 @@
  * for admins the one button that starts the flow: Turn on (off to preview),
  * then the Go-live card the moment setup is done.
  *
- * Members and anonymous readers see no buttons at all. Admin state rides
+ * Anonymous readers see no buttons at all. Admin state rides
  * `/api/admin/modules` with the same bearer token AdminGate uses, so what an
  * admin sees here and in the Admin panel can never disagree.
+ *
+ * A SIGNED-IN MEMBER now gets one thing: a way to ask the village for a module
+ * it does not run (`ModuleAskDoor`). It opens an advisory vote and it cannot
+ * turn a module on, which the card says in as many words. Read
+ * `components/modules/askDoor.ts` before touching that copy.
  */
 import Layout from "@/components/Layout";
 import NotFound from "@/pages/NotFound";
 import { GoLiveCard } from "@/components/modules/GoLiveCard";
 import ModuleArt from "@/components/modules/ModuleArt";
+import ModuleAskDoor from "@/components/modules/ModuleAskDoor";
 import { type CatalogModule } from "@/components/modules/ModuleCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
@@ -399,6 +405,12 @@ export default function ModuleDetail() {
             </div>
           </section>
         )}
+
+        {/* The door sits after everything that describes the module, because a
+            member should have read what the thing does before they ask the
+            whole village for it. It draws nothing at all when there is nothing
+            to ask for. */}
+        <ModuleAskDoor module={m} />
 
         {isAdmin && <AdminPanel id={m.id} />}
       </div>
