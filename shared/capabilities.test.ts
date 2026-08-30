@@ -14,7 +14,9 @@ import {
   CAPABILITY_LABELS,
   capabilityDecision,
   capabilityLabel,
+  DENIABLE,
   hasCapability,
+  isDeniable,
   isVillageHeld,
   STAGE_UNLOCKS,
   TRANSFERABLE,
@@ -277,5 +279,145 @@ describe("capability labels", () => {
     // rendering an empty row and telling a member less than they hold.
     expect(capabilityLabel("nope.invented")).toBe("nope.invented");
     expect(capabilityLabel("forum.post")).toBe(CAPABILITY_LABELS["forum.post"]);
+  });
+});
+
+/**
+ * R65 AND R66: NOBODY MAY TAKE AWAY A VOICE THAT WAS EARNED.
+ *
+ * The founder's ruling, in his words: "denying a voice is not a power anyone
+ * should hold", and "when voice is earned it should never be force taken
+ * away". Waning is the one thing that survives it: a rule under which unused
+ * voice decays over time is legitimate and belongs to Hypha, for villages
+ * that want professional governance. An ACT by which one party strips
+ * another's earned voice is not legitimate at any tier, held by anybody.
+ *
+ * Before this, `denies` on a warning badge could name any of the platform's
+ * capability keys, and the deny sat at step 2 of the gate ahead of role and
+ * stage, so a warning badge naming `ballot.vote` took a member off every roll
+ * built while it stood. `ballot.vote` is deliberately non-transferable, so the
+ * village could never take that power back either.
+ *
+ * These tests are the floor under the ruling. They were written and watched
+ * FAIL before `DENIABLE` existed.
+ */
+describe("a badge may never take away a voice", () => {
+  /** The voice keys, read off the map so this cannot drift from the source. */
+  const VOICE = ALL_CAPABILITIES.filter((c) => !DENIABLE[c]);
+
+  it("REGRESSION: a member carrying a badge that denies ballot.vote still holds the vote", () => {
+    // Member stage, nothing else. This is exactly the member round 6
+    // measured off every roll opened after her warning landed.
+    const warned = ctx({ stageIndex: 2, badgeDenies: ["ballot.vote"] });
+    expect(hasCapability("ballot.vote", warned)).toBe(true);
+    expect(capabilityDecision("ballot.vote", warned).source).toBe("stage");
+  });
+
+  it("REGRESSION: the electorate builder runs this same gate, so she is on the roll", () => {
+    // `buildElectorate` runs `hasCapability("ballot.vote", ctx)` over every
+    // member with no request in hand. Whatever this answers IS the roll.
+    const members = [
+      { name: "no badge", c: ctx({ stageIndex: 2 }) },
+      { name: "warned on the vote", c: ctx({ stageIndex: 2, badgeDenies: ["ballot.vote"] }) },
+      { name: "warned on posting", c: ctx({ stageIndex: 2, badgeDenies: ["forum.post"] }) },
+    ];
+    const roll = members.filter((m) => hasCapability("ballot.vote", m.c)).map((m) => m.name);
+    expect(roll).toEqual(["no badge", "warned on the vote", "warned on posting"]);
+  });
+
+  it("a deny cannot reach a voice key by any route: role, badge or stage held it", () => {
+    for (const cap of VOICE) {
+      for (const source of ["roleCapabilities", "badgeCapabilities"] as const) {
+        const c = ctx({ [source]: [cap], badgeDenies: [cap] });
+        expect(hasCapability(cap, c), `${cap} via ${source}`).toBe(true);
+      }
+    }
+  });
+
+  it("a deny cannot reach a voice key on an ADMIN judged as a member either", () => {
+    // The 0098 branch: on a village-held key the admin is judged on steps
+    // 2 to 5. A voice key must come out the same way there.
+    const cap: Capability = "ballot.vote";
+    const d = capabilityDecision(cap, ctx({ isAdmin: true, stageIndex: 2, badgeDenies: [cap] }));
+    expect(d.allowed).toBe(true);
+  });
+
+  it("STILL REFUSES what the deny path keeps: a warning on posting stands", () => {
+    // The other half of the pair, so the next reader can tell the two apart.
+    // This is a village asking somebody to stop posting for a while, which is
+    // not the act the founder ruled on.
+    const c = ctx({ stageIndex: 3, roleCapabilities: ["forum.post"], badgeDenies: ["forum.post"] });
+    expect(hasCapability("forum.post", c)).toBe(false);
+    expect(capabilityDecision("forum.post", c).source).toBe("denied by warning badge");
+  });
+
+  /**
+   * THE GATE-ORDER PROOF the brief asks for. Removing an input from a gate
+   * that role and stage sit behind can change the answer for keys nobody
+   * meant to touch, so this walks EVERY capability rather than sampling.
+   */
+  it("the decision is unchanged for a member with no badge, key for key", () => {
+    const plain = ctx({ stageIndex: 3, roleCapabilities: ["library.keep"] });
+    for (const cap of ALL_CAPABILITIES) {
+      const d = capabilityDecision(cap, plain);
+      expect(d.source, cap).not.toBe("denied by warning badge");
+      // And the same context with an explicitly empty deny list answers the
+      // same way, which is the back-compat shape every deployment is in.
+      const same = capabilityDecision(cap, ctx({ stageIndex: 3, roleCapabilities: ["library.keep"], badgeDenies: [] }));
+      expect(same, cap).toEqual(d);
+    }
+  });
+
+  it("a deny on a voice key changes NO key's answer, not even its own neighbours", () => {
+    const base = ctx({ stageIndex: 3, roleCapabilities: ["library.keep", "forum.moderate"] });
+    const withDeny = ctx({
+      stageIndex: 3,
+      roleCapabilities: ["library.keep", "forum.moderate"],
+      badgeDenies: VOICE as string[],
+    });
+    for (const cap of ALL_CAPABILITIES) {
+      expect(capabilityDecision(cap, withDeny), cap).toEqual(capabilityDecision(cap, base));
+    }
+  });
+
+  it("a deny on a key that stayed deniable changes exactly that one key", () => {
+    const base = ctx({ stageIndex: 3, roleCapabilities: ["library.keep", "forum.moderate"] });
+    const withDeny = ctx({
+      stageIndex: 3,
+      roleCapabilities: ["library.keep", "forum.moderate"],
+      badgeDenies: ["forum.moderate"],
+    });
+    const changed = ALL_CAPABILITIES.filter(
+      (cap) => capabilityDecision(cap, withDeny).allowed !== capabilityDecision(cap, base).allowed,
+    );
+    expect(changed).toEqual(["forum.moderate"]);
+  });
+
+  describe("the DENIABLE map", () => {
+    it("classifies every capability, and nothing else", () => {
+      expect(Object.keys(DENIABLE).sort()).toEqual([...ALL_CAPABILITIES].sort());
+    });
+
+    it("names the vote as a voice, which is the ruling itself", () => {
+      expect(DENIABLE["ballot.vote"]).toBe(false);
+    });
+
+    it("names vouching as a voice: it is a member's say in who joins", () => {
+      expect(DENIABLE["member.vouch"]).toBe(false);
+    });
+
+    it("leaves the expression keys alone, because the founder has not ruled on them", () => {
+      // Silencing a harasser is a different act from disenfranchising a
+      // dissenter. These stay deniable until he says otherwise.
+      for (const cap of ["forum.post", "message.send", "map.contact", "map.photograph", "proposal.open", "mechanics.propose"] as Capability[]) {
+        expect(DENIABLE[cap], cap).toBe(true);
+      }
+    });
+
+    it("isDeniable refuses a key the platform does not know, which is the safe direction", () => {
+      expect(isDeniable("nope.invented")).toBe(false);
+      expect(isDeniable("forum.post")).toBe(true);
+      expect(isDeniable("ballot.vote")).toBe(false);
+    });
   });
 });

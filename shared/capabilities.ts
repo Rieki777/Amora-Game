@@ -201,9 +201,14 @@ export const STAGE_UNLOCKS: Partial<Record<Capability, string>> = {
   // a badge, never reached by climbing.
   "event.rsvp": "guest",
   // Voting opens where talking opens: membership is the electorate. The
-  // ballot electorate builder reads this THROUGH the one gate, so a warning
-  // badge's deny suspends voting (Gate E order preserved) and a role or
-  // badge can still grant it below the rung.
+  // ballot electorate builder reads this THROUGH the one gate, so a role or
+  // a badge can still grant it below the rung.
+  //
+  // A warning badge USED TO suspend it here, and that is what R65/R66 ended
+  // (0109). The rung is now the only thing between a member and the roll:
+  // once she is at it, nothing any other party holds takes her back off it.
+  // A village that wants a different electorate moves this rung, which is a
+  // rule it sets for everybody and not an act it performs on one person.
   "ballot.vote": "member",
   // Vouching is vouching FROM standing: a member who has contributed speaks
   // for an applicant with something behind the word.
@@ -391,6 +396,114 @@ export const TRANSFERABLE: Record<Capability, boolean> = {
 };
 
 /**
+ * WHICH KEYS A WARNING BADGE MAY EVER TAKE AWAY (0109).
+ *
+ * R65 and R66, the founder's ruling: "denying a voice is not a power anyone
+ * should hold", and "when voice is earned it should never be force taken
+ * away". One thing survives it and it is the whole of the design space here:
+ *
+ *   WANING IS NOT REMOVAL. A rule under which unused voice decays over time
+ *   is legitimate, and it belongs to Hypha, which villages that want to run
+ *   governance professionally are encouraged to use. An ACT by which one
+ *   party strips another's earned voice is not legitimate, at any tier, held
+ *   by anybody.
+ *
+ * Until this map existed, `denies` could name any key in ALL_CAPABILITIES,
+ * and the deny sits at step 2 of the gate ahead of role and stage. So a
+ * warning badge naming `ballot.vote` took its holder off `ballot_electorate`
+ * on every roll built while it stood. `ballot.vote` is also deliberately
+ * non-transferable, so the village could never take that power back. That
+ * combination is the act the ruling names, and it is what this map ends.
+ *
+ * `false` means A VOICE: a member's own say in a decision the village makes.
+ * Nothing may take one away. The gate ignores a deny naming one of these,
+ * `badgeProblem` refuses to save one, and `drizzle/0109` clears the ones
+ * already stored. Three locks on the same door, because a hand-written UPDATE
+ * is invisible to code review by definition and a stored row outlives the
+ * admin who wrote it.
+ *
+ * `true` means the deny still stands, and every one of them is either an act
+ * of EXPRESSION or a job. The expression keys are the open question and they
+ * are deliberately NOT settled here: a village asking a harasser to stop
+ * posting is a different act from a village disenfranchising a dissenter, and
+ * the founder ruled on the second. They stay deniable until he rules on the
+ * first.
+ *
+ * A Record and not a Set, for the reason TRANSFERABLE is one: a new
+ * capability with no line here is a TYPE ERROR, so whether a new key can be
+ * taken away is a decision somebody makes rather than a default somebody
+ * inherits. `capabilities.test.ts` pins that the keys are exactly
+ * ALL_CAPABILITIES.
+ */
+export const DENIABLE: Record<Capability, boolean> = {
+  // ── FALSE: A VOICE. A say in a decision the village makes ───────────────
+  //
+  // Casting a vote. The ruling names this one outright.
+  "ballot.vote": false,
+  // Vouching for an applicant at the membrane. It is a member's say in the
+  // village's decision about who joins, it is earned by climbing to
+  // contributor, and it is spoken as themselves rather than as a seat. That
+  // is a voice in a decision by every part of the definition. Gated by
+  // nothing today, because the membrane's vouching step does not exist yet,
+  // which makes this the cheapest possible moment to close the door.
+  "member.vouch": false,
+
+  // ── TRUE: EXPRESSION. Speaking, but not deciding ────────────────────────
+  //
+  // Brought back to the founder rather than settled here. Each of these is a
+  // member speaking as themselves, so each sits close to a voice, and a
+  // village that cannot ask somebody to stop for a while has no remedy short
+  // of removing them. The recommendation lives with the round 7 report.
+  "forum.post": true,
+  "message.send": true,
+  "map.contact": true,
+  "map.photograph": true,
+  "proposal.open": true,
+  "mechanics.propose": true,
+
+  // ── TRUE: NEITHER. A job, a power over others, a look, or a trade ───────
+  //
+  // Nobody earns these as a voice. They are appointments the village fills,
+  // powers held over other people's contributions, plain readings, or
+  // transactions. Suspending one is the village pausing a job, and a village
+  // with no way to pause a job it handed out has only the harsher remedies
+  // left.
+  "quest.consent": true,
+  "forum.moderate": true,
+  "proposal.decide": true,
+  "map.viewPeople": true,
+  "map.edit": true,
+  "map.publish": true,
+  "map.curatePhotos": true,
+  "feed.announce": true,
+  "stay.member_rate": true,
+  "exchange.buy": true,
+  "exchange.swap": true,
+  "exchange.manage": true,
+  "health.record": true,
+  "event.rsvp": true,
+  "event.manage": true,
+  "org.declare": true,
+  "org.seat": true,
+  "intake.moderate": true,
+  "library.keep": true,
+  "story.tell": true,
+  "dial.set": true,
+};
+
+/**
+ * May a warning badge take this capability away?
+ *
+ * Takes a plain string because both callers hold one: the gate reads keys off
+ * a badge row, and `badgeProblem` validates whatever an admin typed. A key
+ * the platform does not know answers `false`, which is the safe direction:
+ * an unrecognised key can never take anything away from anybody.
+ */
+export function isDeniable(cap: string): boolean {
+  return DENIABLE[cap as Capability] === true;
+}
+
+/**
  * Is this capability one the village is holding right now?
  *
  * Checks the TRANSFERABLE map as well as the holdings, so a row written by
@@ -477,9 +590,10 @@ export interface CapabilityDecision {
  *        - without one -> the admin short-circuit does not apply, and the
  *          same admin is judged on steps 2-5 like anybody else. An admin
  *          who holds the role still passes, and passes AS the holder.
- *   2. badgeDenies       -> false. A warning badge's deny beats ROLE and
- *      stage grants too, not just badge grants: a warning that a role
- *      trivially overrides is not a warning.
+ *   2. badgeDenies, ON A DENIABLE KEY -> false. A warning badge's deny beats
+ *      ROLE and stage grants too, not just badge grants: a warning that a
+ *      role trivially overrides is not a warning. It reaches only the keys
+ *      DENIABLE marks, and it can never reach a voice (0109, R65/R66).
  *   3. roleCapabilities  -> true.  Appointments.
  *   4. badgeCapabilities -> true.  Earned/granted badges.
  *   5. stage unlock      -> true.  The ladder everyone climbs.
@@ -503,7 +617,12 @@ export function capabilityDecision(cap: Capability, ctx: CapabilityCtx): Capabil
   const decided = (allowed: boolean, source: CapabilitySource): CapabilityDecision =>
     ({ allowed, source, villageHolds, reachedPastVillage: false });
 
-  if ((ctx.badgeDenies ?? []).includes(cap)) return decided(false, "denied by warning badge");
+  // 0109, R65/R66: a deny only lands on a key that MAY be taken away. A
+  // warning badge naming a voice key is ignored here rather than trusted,
+  // which is the lock that holds when the row was written by hand.
+  if (isDeniable(cap) && (ctx.badgeDenies ?? []).includes(cap)) {
+    return decided(false, "denied by warning badge");
+  }
   if (ctx.roleCapabilities.includes(cap)) return decided(true, "role");
   if ((ctx.badgeCapabilities ?? []).includes(cap)) return decided(true, "badge");
   const unlockStage = ctx.stageUnlockOverrides?.[cap] ?? STAGE_UNLOCKS[cap];

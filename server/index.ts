@@ -18,6 +18,7 @@ import {
   ALL_CAPABILITIES,
   capabilityDecision,
   hasCapability,
+  isDeniable,
   STAGE_UNLOCKS,
   TRANSFERABLE,
   type Capability,
@@ -24472,7 +24473,14 @@ ${inner}
     const ctx = await capabilityCtx(user);
     return proposerStanding(
       hasCapability("mechanics.propose", ctx),
-      (ctx.badgeDenies ?? []).includes("mechanics.propose"),
+      // THE SECOND READER OF A DENY, and the only one outside the gate.
+      // `isDeniable` is asked here too (0109) so this cannot drift from the
+      // gate the day somebody reclassifies a key. Byte-identical today:
+      // `mechanics.propose` is deniable, and the raw membership test that
+      // used to stand alone here is deliberately kept beside it, because it
+      // reaches an admin where the gate short-circuits and that is this
+      // function's own long-standing posture.
+      isDeniable("mechanics.propose") && (ctx.badgeDenies ?? []).includes("mechanics.propose"),
       Number(user.recognitionBalance ?? 0),
       Math.max(0, numberVar("governance.hypha_threshold")),
       ctx.isAdmin,
@@ -25162,10 +25170,32 @@ ${inner}
   /**
    * The village-wide electorate, built through the ONE gate: every real,
    * sign-in-able member for whom hasCapability("ballot.vote") answers true.
-   * Example users are excluded; a warning badge's deny suspends voting; the
-   * admin shortcut and role/badge grants all ride the gate's own order.
+   * The admin shortcut and role/badge grants all ride the gate's own order.
    * Weight per the current mode — the caller freezes the result into the
    * ballot, after which nothing here matters to that vote again.
+   *
+   * A WARNING BADGE NO LONGER SUSPENDS VOTING HERE (0109, R65/R66). Denying a
+   * voice is not a power anyone holds, so `DENIABLE` marks `ballot.vote` as a
+   * key no deny reaches and the gate ignores one. Nothing about this function
+   * changed; what changed is the answer the gate gives it.
+   *
+   * WHO LEAVING TAKES OUT OF THE POOL, WHICH IS THE OTHER HALF AND IS
+   * LEGITIMATE. The `passwordHash` filter is doing that work and it is
+   * load-bearing rather than a tidy-up: `anonymizeMember` clears the hash when
+   * a member leaves through either door (`DELETE /api/admin/players/:id` or
+   * `POST /api/profile/delete-account`), so a departed member is not a
+   * candidate for any roll built afterwards. That matters because quorum is
+   * measured against `ballots.total_weight`, the sum of the roll frozen at
+   * open: a departed member left in the pool would count toward quorum
+   * forever and every proposal would get harder to pass as the village aged.
+   * `seatRecord.routes.e2e.test.ts` measures the drop against a control.
+   *
+   * The gap that is NOT covered: a member who stops taking part but keeps
+   * their account is still in the pool, because "left the village" has no
+   * representation here other than deleting the account. Confirming a
+   * departure by vote is a separate piece of work.
+   *
+   * Example users are excluded: they are content, never people.
    */
   async function buildElectorate(): Promise<Array<{ userId: string; weight: number }>> {
     const candidates = (await members.all()).filter((u: any) => !isExampleUser(u) && u.passwordHash);
@@ -26344,12 +26374,16 @@ ${inner}
    *
    * THE GATE IS READ HERE SO THE REFUSAL CAN SAY WHY. Somebody who is not on
    * the roll used to be told, always, that "who may vote froze when it
-   * opened". That is true of the member who joined after the vote started and
-   * false of the member a warning badge is holding back: `buildElectorate`
-   * runs the one gate at open and `capabilityDecision` refuses a warning's
-   * deny before it looks at any grant, so she is left off every roll built
-   * afterwards, and the product named the freeze and hid the cause. The
-   * sentence itself lives with the rule, in `offRollSentence`.
+   * opened", and that is true of the member who joined after the vote started
+   * while naming timing as the cause for everybody else. The sentence itself
+   * lives with the rule, in `offRollSentence`.
+   *
+   * `deniedByWarning` CAN NO LONGER BE TRUE, and it is left in place rather
+   * than deleted (0109, R65/R66). A warning badge naming `ballot.vote` is
+   * ignored by the gate now, so this reads false for everybody and the
+   * warning branch of `offRollSentence` has no caller. It stays because the
+   * shape is the fail-safe: any later reason the gate refuses this key gets a
+   * sentence of its own instead of borrowing the freeze's.
    *
    * A LOOK AND NEVER AN ACT (R53): `capabilityCtx` is the pure gate with no
    * break-glass in it, exactly as `/api/governance/standing` reads it. Asking
@@ -27731,7 +27765,12 @@ ${inner}
       token: snapshot.token,
       tokenName,
       eligible,
-      /** Set only when a warning badge is the thing refusing the vote. */
+      /**
+       * Always false since 0109: a warning badge can no longer take a voice
+       * away, so this key never reaches the deny step. Served rather than
+       * dropped so the client contract holds while the surfaces that read it
+       * catch up.
+       */
       deniedByWarning: voteGate.source === "denied by warning badge",
       weight,
       why,

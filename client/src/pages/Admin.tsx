@@ -12,7 +12,7 @@ import {
   type MessageReport, type ReportStatus,
 } from "@/lib/messageReports";
 import { resolutionLine } from "@/lib/reportFeedback";
-import { ALL_CAPABILITIES } from "@shared/capabilities";
+import { ALL_CAPABILITIES, isDeniable } from "@shared/capabilities";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import Celebration from "@/components/natural/Celebration";
 import { useMomentWindow } from "@/components/natural/moments";
@@ -7245,8 +7245,10 @@ function BadgesAdminTab({ password }: { password: string }) {
           <h2 className="text-xl font-bold text-gray-900 mb-1">Badges & Skills</h2>
           <p className="text-sm text-gray-500 max-w-xl">
             Self and hypha badges gate nothing; only warnings may deny, and a
-            deny beats role and stage grants (admins excepted). Earned badges
-            ride settled metrics only, and never applause into permissions.
+            deny beats role and stage grants (admins excepted). A warning can
+            never take away voting or vouching. A voice that was earned stays.
+            Earned badges ride settled metrics only, and never applause into
+            permissions.
           </p>
         </div>
         <button
@@ -7338,8 +7340,14 @@ function BadgesAdminTab({ password }: { password: string }) {
           {form.kind === "warning" && (
             <div>
               <p className="text-xs text-gray-500 mb-1">Denies capabilities (beats role and stage grants)</p>
+              {/*
+                0109, R65/R66: the voice keys are not offered here, because a
+                voice that was earned is never taken away. The server refuses
+                one anyway; a checkbox that always fails would be a door
+                painted on a wall.
+              */}
               <div className="flex flex-wrap gap-1.5">
-                {CAPS.map((c) => (
+                {CAPS.filter(isDeniable).map((c) => (
                   <button key={c} onClick={() => setForm({ ...form, denies: toggleIn(form.denies, c) })}
                     className={`text-xs px-2 py-1 rounded-full border ${form.denies.includes(c) ? "bg-red-600 text-white border-red-600" : "border-gray-200 text-gray-500"}`}>
                     {c}
