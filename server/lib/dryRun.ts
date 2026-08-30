@@ -226,24 +226,37 @@ function claimsOpenInside(startsAt: Date, endsAt: Date): { open: boolean; opensA
  * harder than a real month would, so the refusals it produces belong on the
  * report where a founder can read them before launch.
  *
- * The two failures this catches, both reachable with dials that each read as a
+ * The four failures this catches, all reachable with dials that each read as a
  * sane number on their own:
  *
  *   a multiplier of 0, or a base budget of 0, so members at that stage cannot
  *   give anything and the page never says why;
  *
  *   a heart worth more than the whole per-person share, so every tap on the
- *   feed is refused while the acknowledgment page still works.
+ *   feed is refused while the acknowledgment page still works;
+ *
+ *   a share that rounds below one Gratitude, where `shareCapFor` floors at 1
+ *   and the dial then means something other than what it reads;
+ *
+ *   a heart tap cap that allows more taps than the share leaves room for, so
+ *   the number on the feed dial is never the number that bites.
  */
 function allowanceTable(): DryRunAllowance[] {
   const base = numberVar("gratitude.base_budget");
   const heart = numberVar("feed.heart_amount");
+  const sharePct = numberVar("gratitude.max_share_per_recipient");
+  const tapCap = numberVar("feed.max_hearts_per_recipient_per_cycle");
   return GAME_CONFIG.stages.map((s) => {
     const multiplier = Math.max(0, numberVar(`progression.multiplier.${s.id}`));
     const allowance = Math.round(base * multiplier);
     const cap = shareCapFor(allowance);
     const spreadsAcross = cap > 0 ? Math.ceil(allowance / cap) : 0;
     const heartsSendable = allowance > 0 && heart <= cap;
+    // The share the dial asks for, before the floor of 1 is applied.
+    const asked = Math.floor((allowance * sharePct) / 100);
+    // How many taps the share leaves room for, against how many the feed dial
+    // says a member gets. Whichever is smaller is the one a member meets.
+    const tapsTheShareAllows = heart > 0 ? Math.floor(cap / heart) : 0;
     let note: string;
     if (allowance <= 0) {
       note = `Members at ${s.name} can give nothing. Their sending budget is ${base} times ${multiplier}, which comes to zero.`;
@@ -251,6 +264,15 @@ function allowanceTable(): DryRunAllowance[] {
       note =
         `A heart is worth ${heart} and one person may receive ${cap} from a member at ${s.name}, ` +
         `so every tap on the feed would be refused. Raise the share, or lower what a heart is worth.`;
+    } else if (asked < 1) {
+      note =
+        `A member at ${s.name} gives ${allowance} a moon. ${sharePct}% of that is under one Gratitude, ` +
+        `so the ceiling holds at 1 and the share dial is doing nothing here.`;
+    } else if (tapsTheShareAllows < tapCap) {
+      note =
+        `A member at ${s.name} gives ${allowance} a moon and up to ${cap} of it to any one person. ` +
+        `That is ${tapsTheShareAllows} hearts to one person, and the feed dial says ${tapCap}, ` +
+        `so the share is the one they meet.`;
     } else {
       note =
         `A member at ${s.name} gives ${allowance} a moon and up to ${cap} of it to any one person, ` +
