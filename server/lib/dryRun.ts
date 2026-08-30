@@ -159,6 +159,13 @@ export interface DryRunReport {
   /** What this run touched, said before anything else. */
   isolation: string;
   turns: DryRunTurn[];
+  /**
+   * The facts that hold across the whole run instead of belonging to one moon:
+   * the value pool, the claim threshold, the modules that are off, the
+   * issuance gate. These used to ride on the first turn, which made moon one
+   * look busy and every other moon look empty.
+   */
+  runFindings: Finding[];
   allowances: DryRunAllowance[];
   jobs: DryRunJobLine[];
   /** Every refusal from every turn, gathered once, deduplicated by sentence. */
@@ -272,11 +279,7 @@ function allowanceTable(): DryRunAllowance[] {
  * with no faucet can never pay; and a rule whose amount rounds to zero ledger
  * units pays nothing while showing a number on the dial.
  */
-function settlementFindings(
-  snapshot: DryRunSnapshot,
-  cycle: number,
-  rules: readonly DryRunRule[],
-): Finding[] {
+function settlementFindings(snapshot: DryRunSnapshot, rules: readonly DryRunRule[]): Finding[] {
   const out: Finding[] = [];
   const cycleRules = rules.filter((r) => r.trigger === "role.cycle");
 
@@ -364,7 +367,6 @@ function settlementFindings(
       sentence: `${snapshot.seatCount} seat holder(s) each thanked ${r.amount} ${tokenName}, which comes to ${snapshot.seatCount * r.amount} for the moon.`,
     });
   }
-  void cycle;
   return out;
 }
 
@@ -404,7 +406,7 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
     const inForce = rulesInForce(snapshot.rules, cycle);
     const findings: Finding[] = [
       ...promotionFindings(snapshot.rules, cycle),
-      ...settlementFindings(snapshot, cycle, inForce),
+      ...settlementFindings(snapshot, inForce),
     ];
 
     const claims = claimsOpenInside(bounds.startsAt, bounds.endsAt);
@@ -514,7 +516,6 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
         },
   );
 
-  if (turns[0]) turns[0].findings.push(...runFindings);
 
   // ── The jobs, counted and never run ──────────────────────────────────────
   const spanDays = moons > 0
@@ -536,12 +537,10 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
   // Every refusal, once each, in the order they first appeared.
   const seen = new Set<string>();
   const refusals: Finding[] = [];
-  for (const t of turns) {
-    for (const f of t.findings) {
-      if (f.outcome !== "refused" || seen.has(f.sentence)) continue;
-      seen.add(f.sentence);
-      refusals.push(f);
-    }
+  for (const f of [...runFindings, ...turns.flatMap((t) => t.findings)]) {
+    if (f.outcome !== "refused" || seen.has(f.sentence)) continue;
+    seen.add(f.sentence);
+    refusals.push(f);
   }
 
   return {
@@ -555,6 +554,7 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
       "This run wrote nothing. It read your settings and worked out what each moon would do, " +
       "so no balance moved, no recognition was recorded, and nothing was issued.",
     turns,
+    runFindings,
     allowances: allowanceTable(),
     jobs,
     refusals,
