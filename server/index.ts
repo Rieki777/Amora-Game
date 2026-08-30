@@ -20405,8 +20405,43 @@ ${inner}
    * function was told about. `visit_types` is an array of objects each with
    * their own `cta_url`, and a shape that grows a third one should meet this
    * on the day it is added instead of on the day somebody notices.
+   *
+   * ROUND 7 ADDED THE SECOND HALF OF THE SAME SENTENCE. The vault check reads
+   * the PATH a link resolves to and asked nothing about its SCHEME, so
+   * `javascript:alert(1)` parsed, landed nowhere near `/api/uploads/`, and
+   * saved into a document two public routes hand to anybody who asks. Both
+   * client pages then put that value straight into an `href`, so the stored
+   * string ran in a visitor's browser with no account at either end.
+   * `ctaSchemeProblem` closes it, and the two checks now run from one place so
+   * a field added later cannot pick up only one of them.
    */
   const UPLOADS_PATH = /^\/api\/uploads\//i;
+
+  /**
+   * The base every pasted link is resolved against, shared by both checks
+   * below so a bare path and a protocol-relative link mean the same thing to
+   * each of them. `village.invalid` can never resolve, which is the point: it
+   * stands in for "this site" without naming a host anybody could reach.
+   */
+  const LINK_BASE = "http://village.invalid";
+
+  /**
+   * The schemes a call to action may use, ruled by the founder.
+   *
+   * `http` and `https` are a page on the web. `mailto` is a founder pointing
+   * the button at their own inbox, which is the commonest call to action a
+   * village has. A path on this site arrives here as `http:` already, because
+   * a relative link inherits the base's scheme when it is parsed, so it needs
+   * no entry of its own.
+   *
+   * WIDER THAN `POST /api/journey/resources` NEXT DOOR, which takes http and
+   * https only, and both are right for their own surface. That list is a set
+   * of working documents on the web, where a `mailto:` would be a mistake.
+   * This is a button on a public page, where a founder pointing at their
+   * inbox or at `/visit` is doing the ordinary thing. Two surfaces, two
+   * answers, and unifying them would make one of them worse.
+   */
+  const ALLOWED_CTA_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 
   /**
    * The path a browser would actually ask the server for.
@@ -20427,27 +20462,54 @@ ${inner}
    */
   function linkPath(raw: string): string {
     try {
-      return new URL(raw, "http://village.invalid").pathname;
+      return new URL(raw, LINK_BASE).pathname;
     } catch {
       return raw;
     }
   }
 
-  function vaultLinkProblem(value: unknown): string | null {
-    if (value == null) return null;
-    // A list of links is checked link by link. My own first draft called
-    // String() on the whole array, so ["/somewhere", "/api/uploads/cap-table"]
-    // read as one string starting with "/somewhere" and sailed through, which
-    // is the shape a guard that only ever saw the happy input would keep.
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const problem = vaultLinkProblem(item);
-        if (problem) return problem;
-      }
-      return null;
+  /**
+   * THE SCHEME, READ OFF THE URL A BROWSER WILL RESOLVE.
+   *
+   * `linkPath` above parses instead of pattern-matching, because a guard has
+   * to read the same path the server will be asked for. The scheme needs the
+   * identical treatment for the identical reason, and the parser is doing far
+   * more work here than it looks:
+   *
+   *   JavaScript:alert(1)     a scheme is case-insensitive, so it lowercases
+   *   "  javascript:alert(1)" leading whitespace is stripped before parsing
+   *   java<newline>script:    every tab, newline and carriage return is
+   *   java<tab>script:        removed from ANYWHERE in the URL, so all three
+   *   java<return>script:     of these are the same link to a browser
+   *
+   * A check reading the characters an admin typed sees five different
+   * harmless strings there. Reading `.protocol` off the parse sees one, five
+   * times, because this is the same algorithm the browser runs before it
+   * decides what the link does.
+   *
+   * FAILS CLOSED. A string this parser cannot read is a string nobody can
+   * predict the behaviour of, and the safe answer for a value about to be
+   * published on a page open to everybody is no.
+   */
+  function ctaSchemeProblem(raw: string): string | null {
+    const shapes =
+      "A call to action can point at a web address starting http:// or https://, " +
+      "an email address starting mailto:, or a path on this site starting with a slash.";
+    let parsed: URL;
+    try {
+      parsed = new URL(raw, LINK_BASE);
+    } catch {
+      return `That link is not a web address this page can publish. ${shapes}`;
     }
-    const raw = String(value).trim();
-    if (!raw || !UPLOADS_PATH.test(linkPath(raw))) return null;
+    if (ALLOWED_CTA_SCHEMES.has(parsed.protocol)) return null;
+    return (
+      `That link opens with ${parsed.protocol} which this page will not publish. ${shapes} ` +
+      "A link carrying code runs inside the browser of every visitor who opens this public page."
+    );
+  }
+
+  function vaultLinkProblem(raw: string): string | null {
+    if (!UPLOADS_PATH.test(linkPath(raw))) return null;
     return (
       "That link points into the investor vault. Files under /api/uploads/ have no sign-in in front of them, " +
       "so anyone who opens this public page can read the document and pass the link to anybody else, forever. " +
@@ -20456,8 +20518,37 @@ ${inner}
     );
   }
 
+  /**
+   * Everything one call-to-action value has to survive.
+   *
+   * The scheme is asked FIRST. A link can fail both checks at once
+   * (`javascript:/api/uploads/x` is a real string somebody can type), and the
+   * scheme is the more urgent thing to say, because it is the half that runs.
+   * A link into the vault still gets the vault's own answer, since an
+   * ordinary `/api/uploads/...` path resolves to `http:` and passes here.
+   */
+  function ctaLinkProblem(value: unknown): string | null {
+    if (value == null) return null;
+    // A list of links is checked link by link. My own first draft called
+    // String() on the whole array, so ["/somewhere", "/api/uploads/cap-table"]
+    // read as one string starting with "/somewhere" and sailed through, which
+    // is the shape a guard that only ever saw the happy input would keep.
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const problem = ctaLinkProblem(item);
+        if (problem) return problem;
+      }
+      return null;
+    }
+    // A blank field is how a founder hides the button, so it is not a link at
+    // all and neither check has anything to say about it.
+    const raw = String(value).trim();
+    if (!raw) return null;
+    return ctaSchemeProblem(raw) ?? vaultLinkProblem(raw);
+  }
+
   /** Every call-to-action field in a document body, however deep it sits. */
-  function vaultLinkProblemIn(body: unknown): string | null {
+  function ctaLinkProblemIn(body: unknown): string | null {
     const walk = (node: unknown): string | null => {
       if (!node || typeof node !== "object") return null;
       if (Array.isArray(node)) {
@@ -20469,7 +20560,7 @@ ${inner}
       }
       for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
         if (/^cta_?url$/i.test(key)) {
-          const p = vaultLinkProblem(value);
+          const p = ctaLinkProblem(value);
           if (p) return p;
         }
         const deeper = walk(value);
@@ -20492,8 +20583,8 @@ ${inner}
   app.put("/api/admin/visit-config", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
-    const leak = vaultLinkProblemIn(req.body);
-    if (leak) return res.status(400).json({ error: leak });
+    const problem = ctaLinkProblemIn(req.body);
+    if (problem) return res.status(400).json({ error: problem });
     await visitConfigRepo.put(req.body);
     res.json({ success: true });
   });
@@ -20513,9 +20604,10 @@ ${inner}
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
     // The document this route saves is served verbatim to the public route
-    // above it. See vaultLinkProblem, in the visit-config block.
-    const leak = vaultLinkProblemIn(req.body);
-    if (leak) return res.status(400).json({ error: leak });
+    // above it. See ctaLinkProblem, in the visit-config block: it refuses a
+    // link into the vault and a link whose scheme runs code.
+    const problem = ctaLinkProblemIn(req.body);
+    if (problem) return res.status(400).json({ error: problem });
     await investorSummaryRepo.put(req.body);
     res.json({ success: true });
   });
