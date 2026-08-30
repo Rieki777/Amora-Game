@@ -21588,6 +21588,68 @@ ${inner}
   });
 
   /**
+   * EVERY photograph in the village, newest first, across every place.
+   *
+   * ── WHY THIS PAGE EXISTS, AND WHAT IT DELIBERATELY IS NOT ────────────────
+   *
+   * Somebody who wants a picture of themselves taken down has to be able to
+   * find it. They do not know which place it was filed under, and making them
+   * guess is the same failure as making them ask a curator. The cheap way to
+   * solve that is to work out who is in every photograph and let a person
+   * search for their own face. That would find the picture, and it would also
+   * leave the village holding a permanent record of who appears in every
+   * photograph of it, for everybody, forever. A page somebody can scroll
+   * answers the same question and leaves nothing behind that can be turned on
+   * anyone later.
+   *
+   * ── IT AGGREGATES, SO IT MUST NOT AGGREGATE PAST A PERMISSION ────────────
+   *
+   * An index is the classic way a surface leaks what its sources protect. The
+   * two rules here are the SAME two the per-place gallery runs, in the same
+   * order and through the same functions:
+   *
+   *  - `photoViewer` decides whether this caller may read the village's
+   *    photographs at all: a signed-in member always, an anonymous visitor
+   *    only while `map.public_structure` is on.
+   *  - `includeHidden` is `hand.canCurate`, exactly as
+   *    `/api/places/:key/photos` passes it. A member who cannot see a hidden
+   *    photograph in its place cannot see it here.
+   *
+   * Anything stricter than the place page would be an index that hides a
+   * member's own record from them; anything looser is a leak.
+   */
+  app.get("/api/places/photos", async (req, res) => {
+    if ((await photoViewer(req)) === null) return res.status(401).json({ error: "auth_required" });
+    const hand = await photoHand(req);
+    const raw = req.query.before;
+    let before: placePhotosRepo.PhotoCursor | null = null;
+    if (raw !== undefined) {
+      before = placePhotosRepo.parsePhotoCursor(String(raw));
+      // A cursor this route cannot read is refused rather than dropped.
+      // Silently starting again from the newest page would hand a person
+      // scrolling for their own picture the top of the list a second time,
+      // dressed as the next page down.
+      if (!before) return res.status(400).json({ error: "That is not a place in the list to carry on from." });
+    }
+    const page = await placePhotosRepo.photosAcrossPlaces(getPool(), PLACE_VILLAGE, {
+      // The place page's own value, read from the same hand. Not 'true', which
+      // is what this route was first written with and what put a hidden
+      // photograph in front of the member its place refuses.
+      includeHidden: hand.canCurate,
+      before,
+    });
+    res.json({
+      photos: page.photos,
+      nextBefore: page.nextBefore,
+      canCurate: hand.canCurate,
+      // The viewer's own id, so a contributor's own takedown control renders
+      // here exactly as it does on the place page, without a second request.
+      viewerId: hand.user?.id ?? null,
+      signedIn: !!hand.user,
+    });
+  });
+
+  /**
    * The curator's queue. Capability-gated and outside `/api/admin` on purpose.
    *
    * A member can flag a photograph, and this is where that flag arrives. It
