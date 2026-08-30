@@ -223,9 +223,11 @@ describe("the mechanics page speaks every state the server can send", () => {
 
 describe("finding a dial you cannot name", () => {
   /*
-   * R79's second half. The Dials list is 151 dials across 29 categories, every
-   * category shut, and no way to search. A founder setting up a Game is
-   * opening drawers looking for a switch whose key they have never seen.
+   * R79's second half. The Dials list is every tunable rule in the Game, spread
+   * over more than two dozen categories, every category shut, and no way to
+   * search. A founder setting up a Game is opening drawers looking for a switch
+   * whose key they have never seen. The exact count moves every round, so it is
+   * deliberately not written down here.
    *
    * THE DESCRIPTION IS PART OF THE HAYSTACK, and that is the point of these
    * tests. Somebody hunting for the feedback switch types "bug report" or
