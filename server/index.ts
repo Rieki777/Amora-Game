@@ -609,7 +609,7 @@ import {
   recordLaunchCarried,
   type LaunchDeps,
 } from "./lib/launch";
-import { issuanceRefusal, readGameStart, recordGameStart } from "./lib/gameStart";
+import { founderPowerStands, issuanceRefusal, readGameStart, recordGameStart } from "./lib/gameStart";
 import {
   assertModuleGraph,
   attachModuleReadiness,
@@ -3936,6 +3936,73 @@ function notify(input: Parameters<typeof insertNotification>[1]) {
  * the vote closed, which is a reminder that exists to look busy.
  */
 const BALLOT_CLOSING_NOTICE_HOURS = 48;
+
+/**
+ * CAN AN ACCOUNT ON THIS ROLE REACH THE ADMIN PANEL, said once (R90).
+ *
+ * `isAdmin` answers it for a request. This answers it for a role string, which
+ * is what the two guards that must never strand a deployment need: the role
+ * route asking what a change would leave behind, and the exit routes asking
+ * whether the person leaving is the last way in.
+ *
+ * It is the same pair of role names `isAdmin` reads, on purpose. The moment
+ * these two disagree, a guard would refuse a demotion the panel still allows,
+ * or allow one that locks everybody out.
+ */
+function adminReaches(role: unknown): boolean {
+  return role === "admin" || role === "founder";
+}
+
+/**
+ * Every account that can administer this village, examples excluded.
+ *
+ * R90 ends the founder role at launch, and the last-founder guard was the one
+ * thing standing between a launched village and nobody being able to reach the
+ * panel. After launch there is no founder tier to count, so the guarantee has
+ * to be counted over the set that actually holds the reach.
+ *
+ * Standing examples are filtered for the reason bootstrap already filters
+ * them: they have an empty password hash and can never sign in, so counting
+ * one would let the real last administrator be stood down behind a person who
+ * does not exist.
+ */
+async function accountsWithAdminReach(): Promise<any[]> {
+  return (await members.all()).filter((u: any) => adminReaches(u?.role) && !isExampleUser(u));
+}
+
+/**
+ * WHY THIS ACCOUNT MAY NOT LEAVE THE VILLAGE YET, or null when it may.
+ *
+ * Four routes ask it: a member opening their own departure, an admin opening
+ * one for somebody, the account-deletion pair beneath them. All four carried
+ * the same rule inline, and all four stated it as "a founder must hand off
+ * first" because the founder was the account a deployment could not afford to
+ * lose.
+ *
+ * R90 ends the founder role at launch, so after that moment the sentence names
+ * an account tier that no longer decides anything, and the guarantee under it
+ * would quietly stop holding: a founder who stood themselves down to
+ * administrator could then walk out of a village where nobody else could reach
+ * the panel. The rule the routes were always making is that the LAST way in
+ * cannot leave, so after launch that is what it counts.
+ *
+ * Before launch nothing moves. The founder sentence is the one a founder has
+ * always read, and the last-founder guard on the role route means the set is
+ * never empty, so the two halves cannot both refuse the same person.
+ */
+async function departureStrandingRefusal(target: any, self: boolean): Promise<string | null> {
+  if (await founderPowerStands(getPool())) {
+    if (target?.role !== "founder") return null;
+    return self
+      ? "A founder must hand off the village before leaving. Demote yourself first"
+      : "Demote the founder first. A deployment must never strand itself";
+  }
+  if (!adminReaches(target?.role)) return null;
+  if ((await accountsWithAdminReach()).length > 1) return null;
+  return self
+    ? "You are the last account that can administer this village. Hand the panel to somebody else first, and a deployment never strands itself"
+    : "This is the last account that can administer this village. A deployment must never strand itself";
+}
 
 /**
  * S32 ops rider: one alert to EVERY admin/founder. The shared dedupeKey is
@@ -7906,15 +7973,23 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * click, so returning it in the response would make every admin able to
    * become any member with one request and no trace on the member's side.
    *
-   * A plain admin may not target a founder — otherwise the weaker role resets
-   * the stronger one's password and inherits the deployment.
+   * WHILE THE FOUNDER ROLE STANDS, a plain admin may not target a founder,
+   * because otherwise the weaker role resets the stronger one's password and
+   * inherits the deployment.
+   *
+   * AFTER LAUNCH THERE IS NO STRONGER ROLE (R90). The founder's powers end
+   * when the village starts its Game, so from that moment an administrator and
+   * a founder reach exactly the same surfaces and this fence protects a
+   * difference that no longer exists. A personal immunity that outlived the
+   * power it guarded is a standing personal power of its own, which is the
+   * thing R90 removes.
    */
   app.post("/api/admin/users/:id/send-password-link", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (req as any).adminUser;
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
-    if (target.role === "founder" && actor?.role !== "founder") {
+    if (target.role === "founder" && actor?.role !== "founder" && (await founderPowerStands(getPool()))) {
       return res.status(403).json({ error: "Only a founder can send a founder a password link" });
     }
     if (!target.email) return res.status(409).json({ error: "That account has no address to send to" });
@@ -7957,21 +8032,59 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   /**
-   * Role management (S2). Admins run the village; founders run the admins:
-   * only a founder may change roles, a founder can only be demoted by a
-   * founder (structurally: by the actor rule), and the LAST founder cannot be
-   * demoted at all — a deployment must never strand itself without a master
-   * admin, because bootstrap is spent.
+   * Role management (S2), and the one route where R90 has the most to say.
+   *
+   * ── BEFORE LAUNCH: UNCHANGED ────────────────────────────────────────────
+   *
+   * Admins run the village and founders run the admins. Only a founder may
+   * change roles, a founder can only be demoted by a founder (structurally, by
+   * the actor rule), and the LAST founder cannot be demoted at all, because a
+   * deployment must never strand itself without a master admin and the shared
+   * bootstrap password is spent.
+   *
+   * ── AFTER LAUNCH: THERE IS NO FOUNDER TO ASK (R90) ──────────────────────
+   *
+   * "The founder role disappears once the game starts." A tier that can name
+   * every other tier is the strongest standing personal power in this file, so
+   * it is the one R90 most clearly ends. Three things change at that moment
+   * and each is chosen against a specific way of getting this wrong:
+   *
+   *  1. THE ACTOR TEST BECOMES `isAdmin`, which the line above already
+   *     applied. Refusing every actor instead would read stricter and would
+   *     brick the village: the exit routes tell a founder to demote themselves
+   *     before leaving, so a frozen roster is a village nobody can leave, and
+   *     no rogue account could ever be stood down again.
+   *  2. NOBODY MAY BE MADE A FOUNDER. Minting a new holder of a role that has
+   *     ended is the one change that would put the power back, and it is the
+   *     change a captured admin account would reach for first.
+   *  3. THE LAST-FOUNDER GUARD BECOMES A LAST-ADMIN GUARD. Its stated reason
+   *     was never the founder tier, it was that a deployment must never strand
+   *     itself. After launch the accounts that can administer the village are
+   *     admins and founders together, so the guard counts that set. Restating
+   *     it is what keeps the guarantee true once the tier it named is gone.
+   *
+   * WHAT THIS IS NOT. It is not the village deciding who its admins are. R90
+   * says that arrives with the Game Steward, and a village votes powers onto a
+   * role rather than voting somebody an account tier. Until a key exists for
+   * this route, an administrator still holds it, and that is stated here
+   * rather than dressed up.
    */
   app.put("/api/admin/users/:id/role", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (req as any).adminUser;
-    if (actor.role !== "founder") {
+    const founderStands = await founderPowerStands(getPool());
+    if (founderStands && actor.role !== "founder") {
       return res.status(403).json({ error: "Only a founder can change roles" });
     }
     const { role } = req.body ?? {};
     if (!["member", "admin", "founder"].includes(role)) {
       return res.status(400).json({ error: "role must be member, admin, or founder" });
+    }
+    if (!founderStands && role === "founder") {
+      return res.status(409).json({
+        error:
+          "The founder role ended when this village started its Game, so nobody new can be made one. An administrator is the most this can set.",
+      });
     }
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
@@ -7981,10 +8094,19 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // hard-DELETEs. The ids are fixed and public in every fork.
     if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const fromRole = target.role ?? "member";
-    if (fromRole === "founder" && role !== "founder") {
-      const founders = (await members.all()).filter((u: any) => u.role === "founder");
-      if (founders.length <= 1) {
-        return res.status(409).json({ error: "The last founder cannot be demoted" });
+    if (founderStands) {
+      if (fromRole === "founder" && role !== "founder") {
+        const founders = (await members.all()).filter((u: any) => u.role === "founder");
+        if (founders.length <= 1) {
+          return res.status(409).json({ error: "The last founder cannot be demoted" });
+        }
+      }
+    } else if (adminReaches(fromRole) && !adminReaches(role)) {
+      const reach = await accountsWithAdminReach();
+      if (reach.length <= 1) {
+        return res.status(409).json({
+          error: "This is the last account that can administer this village, so it cannot be stood down. A deployment must never strand itself",
+        });
       }
     }
     await members.update(target.id, (u: any) => { u.role = role; });
@@ -13026,9 +13148,30 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       },
       "founder-appointed": async () => {
         const founders = (await members.all()).filter((u: any) => u.role === "founder" && u.passwordHash);
-        return founders.length > 0
-          ? { state: "ok" as const, detail: `Founder: ${founders.map((f: any) => f.name ?? f.handle ?? f.id).slice(0, 3).join(", ")}` }
-          : { state: "missing" as const, detail: "Nobody holds the founder role with their own login" };
+        if (founders.length > 0) {
+          return { state: "ok" as const, detail: `Founder: ${founders.map((f: any) => f.name ?? f.handle ?? f.id).slice(0, 3).join(", ")}` };
+        }
+        /*
+         * AFTER LAUNCH, HAVING NO FOUNDER IS THE POINT (R90).
+         *
+         * "The founder role disappears once the game starts." This item asks
+         * whether a village on its way to launch has somebody who can build
+         * it, so on a launched village with no founder left the honest reading
+         * is a journey finished rather than a requirement missed. Reporting
+         * `missing` there would put a permanent red line on the operator's own
+         * dashboard for doing exactly what the ruling asks.
+         *
+         * The other half of the guarantee is `admin-identities` directly
+         * above, which asks whether anybody at all can reach the panel with
+         * their own credential, and that item keeps its meaning forever.
+         */
+        if (!(await founderPowerStands(getPool()))) {
+          return {
+            state: "ok" as const,
+            detail: "The founder role ended when this village started its Game",
+          };
+        }
+        return { state: "missing" as const, detail: "Nobody holds the founder role with their own login" };
       },
       "brand-basics": () => {
         const b = getBrand();
@@ -14825,6 +14968,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * answer belongs to everybody, and there is no number of admins that can
    * carry it without the rest of the village.
    *
+   * R90 leaves that untouched, because it is a power exercised entirely before
+   * launch and the founder role ends at launch. What R90 does add is the line
+   * below: this route must read the fact that gates issuance, and not only the
+   * journey document.
+   *
+   * WHY BOTH, AND IT IS NOT BELT AND BRACES. `launchVoteBlocked` refuses a
+   * second vote by reading `launch-state.launchedAt`, which only this vote
+   * writes. Migration 0112 recorded `game-start` for every village that was
+   * already issuing before the vote existed, and wrote no launch state for
+   * them, on purpose. So on those villages the journey reads "never launched"
+   * while the Game has been running for months, and a founder could open a
+   * launch ballot on a Game that already started. The two facts are the same
+   * event going forwards and different events looking back, so the route that
+   * must never run twice reads the one that looks back correctly.
+   *
    * The thresholds and the floor come from `shared/ballotSubjects.ts` and are
    * not written here, so the next subject that needs its own numbers does not
    * copy this route's judgment.
@@ -14833,6 +14991,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const user = await authedUser(req);
     if (!user || user.role !== "founder") {
       return res.status(403).json({ error: "Asking the village to start its Game is a founder's act" });
+    }
+    if ((await readGameStart(getPool())).started) {
+      return res.status(409).json({ error: "This village has already started its Game." });
     }
 
     /*
@@ -15453,7 +15614,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     });
   });
 
-  /** A member opens their own departure. Password-confirmed, founder-guarded. */
+  /** A member opens their own departure. Password-confirmed, stranding-guarded. */
   app.post("/api/profile/request-exit", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
@@ -15461,9 +15622,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!password || !(await verifyPassword(String(password), user.passwordHash))) {
       return res.status(403).json({ error: "Confirm with your password" });
     }
-    if (user.role === "founder") {
-      return res.status(409).json({ error: "A founder must hand off the village before leaving. Demote yourself first" });
-    }
+    const stranding = await departureStrandingRefusal(user, true);
+    if (stranding) return res.status(409).json({ error: stranding });
     const policy: any = exitPolicyRepo.get();
     const r = await createExit(getPool(), {
       userId: user.id,
@@ -15491,9 +15651,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // row would outlive the identities (retirement deletes users, not exits)
     // and the notify below is addressed to an account nobody can sign in to.
     if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
-    if (target.role === "founder") {
-      return res.status(409).json({ error: "Demote the founder first. A deployment must never strand itself" });
-    }
+    const stranding = await departureStrandingRefusal(target, false);
+    if (stranding) return res.status(409).json({ error: stranding });
     const policy: any = exitPolicyRepo.get();
     const r = await createExit(getPool(), {
       userId: target.id,
@@ -23701,58 +23860,41 @@ ${inner}
   /**
    * Queue a change. It lands at the next moon and says so in the response.
    *
-   * ── AFTER THE GAME STARTS, THIS IS A FOUNDER'S KEY (R81, R85, R68) ────────
+   * ── AFTER THE GAME STARTS, NOBODY HAS A KEY (R81, R90) ────────────────────
    *
    * R81: "all minting of tokens go through the governance process" once the
    * village has voted to start its Game. R84 says which reading that is: the
    * village votes on the RULES. So after launch this route stops being an
-   * ordinary admin act, and the way an ordinary admin changes a minting rule
-   * is to put it to the village, which they can now do
-   * (`shared/mintRuleKeys.ts`).
+   * ordinary admin act, and the way an administrator changes a minting rule is
+   * to put it to the village, which they can do (`shared/mintRuleKeys.ts`).
    *
    * BEFORE LAUNCH NOTHING CHANGES. R67: a founder builds the whole Game alone,
    * and nothing issues until the launch vote carries, so an unrestricted
    * editor before that moment creates no value and takes nothing from anybody.
    *
-   * R85 IS WHY THE DOOR IS NOT SIMPLY SHUT. In the founder's words: "all named
-   * founders have this back door ability until it is taken away." So a village
-   * has three stages and not two. Setup, launched, and a second handover after
-   * which the key is gone. THAT SECOND EVENT DOES NOT EXIST YET, and this
-   * route is where it will attach: see the TODO below.
+   * ── THE FOUNDER KEY THAT USED TO BE HERE, AND WHY IT IS GONE ──────────────
    *
-   * "Named founders" is a SET and not a person, which is what the `founder`
-   * account role already is, and the last-founder guard on
-   * `PUT /api/admin/users/:id/role` means the set is never empty. So a founder
-   * key can never strand a village that cannot assemble its quorum.
+   * R85 asked for one: "all named founders have this back door ability until
+   * it is taken away", with a second handover event that would take it. This
+   * route carried that key for a few hours. R90 SUPERSEDES R85 and removes the
+   * second event: "The founder role disappears once the game starts and a
+   * minimum of 3 people vote the game to start."
    *
-   * R68 IS WHY IT IS LOUD. After launch, every admin action is available to be
-   * seen by all members. A back door nobody can see would contradict that
-   * directly, so a founder's use of this writes a line on the PUBLIC pulse
-   * saying what changed and that no vote decided it, beside the admin trail
-   * row that was already here.
+   * So there is one moment and not two, the moment is launch, and after it
+   * every actor takes the same 403 on this route. Nothing is stranded by that.
+   * The governed path already exists and a member opens it, so a village that
+   * wants a different minting rule after launch has a way to have one that
+   * does not run through anybody's account.
    *
-   * TODO (R85, the second handover): when the handover event lands, it records
-   * one dated fact the way `app_config['game-start']` records the launch, and
-   * this route reads it beside `readGameStart`. After it, the founder branch
-   * below goes away and every actor takes the same 403. The event needs three
-   * things and none of them exist today: a record with a date and the ballot
-   * or ceremony behind it, a surface that makes it a deliberate act instead of
-   * a flag somebody flips, and a sweep of every other route that treats
-   * `role === "founder"` as a standing power. Do not infer it from anything
-   * already in the tree.
-   *
-   * R89 makes that TODO a step on a committed path rather than a loose end.
-   * The stated end state is a village that governs itself with NO admins, on
-   * its own voice rules, minting eternally. This branch is the last thing
-   * standing between the mint and that, and it is meant to be removed.
+   * The public pulse line that announced a founder's use of this key went with
+   * it. It said "without a village vote", and after R90 there is no such
+   * change to announce.
    */
   app.patch("/api/admin/economy/rules/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const actorUser = (req as any).adminUser;
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
     const started = await readGameStart(getPool());
-    const isNamedFounder = actorUser?.role === "founder";
-    if (started.started && !isNamedFounder) {
+    if (started.started) {
       return res.status(403).json({
         error:
           "This village decides what it mints. Put the change up on the Game Mechanics page and the village votes on it.",
@@ -23763,13 +23905,6 @@ ${inner}
     if ("amount" in body) change.amount = body.amount === null ? null : Number(body.amount);
     if ("ceiling" in body) change.ceiling = Number(body.ceiling);
     if ("enabled" in body) change.enabled = body.enabled === true;
-
-    /*
-     * Read BEFORE the write, so the public line can say what the rule is for
-     * in the village's own words. After the write the row still carries them,
-     * and reading first keeps the sentence and the refusal on one code path.
-     */
-    const before = (await mintRulesByIds(getPool(), [req.params.id])).get(req.params.id) ?? null;
 
     const out = await queueRuleChange(getPool(), req.params.id, change, actor);
     if (!out.ok) return res.status(400).json({ error: out.error });
@@ -23783,21 +23918,13 @@ ${inner}
       audience: "admin",
     });
     /*
-     * THE BACK DOOR IS VISIBLE (R68, R85). Only after launch, because before
-     * it there is no village governing anything and a line per dial edit
-     * during setup would be noise in a feed nobody is reading yet. It names
-     * the fact and stops: what changed, that no vote decided it, and when it
-     * lands. R56 says state what is true and then get out of the way, so there
-     * is no warning attached and nothing asking anyone to feel a way about it.
+     * NOTHING GOES ON THE PUBLIC PULSE FROM HERE ANY MORE. R68 asked for a
+     * visible line because a back door nobody can see would contradict the
+     * rule that after launch every admin action is available to be seen. R90
+     * closed the door instead, so the only edits this route can now make are
+     * the ones a founder makes during setup, before the village exists to read
+     * a feed. The admin trail row above still records every one of them.
      */
-    if (started.started) {
-      const what = before ? `${before.trigger} in ${before.tokenSlug}` : "one of the village's minting rules";
-      await addActivity(
-        "governance",
-        `A founder changed what the village mints for ${what}, without a village vote. It takes effect at the next moon.`,
-        { actorUserId: actor, entityType: "mint_rule", entityRef: req.params.id },
-      );
-    }
     res.json({ success: true, fromCycle: out.fromCycle, view: await mintView(getPool()) });
   });
 
@@ -30662,9 +30789,8 @@ ${inner}
     // thread and feed post would carry that byline — worse than the "(example)"
     // suffix it replaced, and permanent. Retirement is the way examples go.
     if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
-    if (target.role === "founder") {
-      return res.status(409).json({ error: "Demote the founder first. A deployment must never strand itself" });
-    }
+    const stranding = await departureStrandingRefusal(target, false);
+    if (stranding) return res.status(409).json({ error: stranding });
     // S52: a tombstone must never strand open economic state (an unsettled
     // loan would break escrow reconciliation at the next boot). The exit
     // flow is the front door; this back door keeps the same lock.
@@ -30686,9 +30812,8 @@ ${inner}
     if (!password || !(await verifyPassword(String(password), user.passwordHash))) {
       return res.status(403).json({ error: "Confirm with your password to delete your account" });
     }
-    if (user.role === "founder") {
-      return res.status(409).json({ error: "A founder must hand off the village before leaving. Demote yourself first" });
-    }
+    const stranding = await departureStrandingRefusal(user, true);
+    if (stranding) return res.status(409).json({ error: stranding });
     // S52: same lock as the admin path — settle blocking state first. The
     // 409 names each domain so the member knows exactly what remains.
     const blocking = blockingStates(await exitOpenState(getPool(), user.id, roleIdsFor(user.id)));

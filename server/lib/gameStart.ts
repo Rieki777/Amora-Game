@@ -155,3 +155,50 @@ export async function issuanceRefusal(conn: Pool | PoolConnection): Promise<stri
     "Issuance opens when the village's launch vote carries."
   );
 }
+
+/**
+ * WHETHER THE FOUNDER ROLE STILL CARRIES A POWER OF ITS OWN (R90).
+ *
+ * R90, in the founder's words: "The founder role disappears once the game
+ * starts and a minimum of 3 people vote the game to start. After that they can
+ * optionally vote in a steward role and give various powers to this steward to
+ * immediately act."
+ *
+ * So launch is two facts landing in one moment. It was already the moment
+ * issuance turns on (R67, R74). It is now also the moment the founder stops
+ * being a standing power.
+ *
+ * ── WHAT ENDS ───────────────────────────────────────────────────────────────
+ *
+ * Every power the `founder` account role carries BEYOND an administrator's.
+ * After launch a founder is an administrator and nothing else: the mint back
+ * door R85 asked for closes, the exclusive claim on who administers the
+ * village ends, and the personal immunity that stopped an administrator
+ * resetting a founder's password ends with it.
+ *
+ * ── WHAT DELIBERATELY DOES NOT END, AND THIS IS THE LOAD-BEARING HALF ───────
+ *
+ * The admin panel. R90 says a village may choose never to vote in a steward
+ * and must still work completely, so the scaffolding cannot go away in the
+ * same moment the founder does. Eighteen branches in `server/index.ts` read
+ * `role === "admin" || role === "founder"` and mean one thing by it: is this
+ * person an administrator. Ending those at launch would leave a village that
+ * had just voted to start its Game unable to be administered at all, and with
+ * no way back, because the route that appoints an administrator sits behind
+ * the same admin check and the shared bootstrap password is spent. R89's end
+ * state is a village with no admins, and it arrives by powers crossing to the
+ * village one vote at a time.
+ *
+ * ── WHY IT READS THE SAME ROW AS EVERYTHING ELSE ────────────────────────────
+ *
+ * `readGameStart` is already the one answer to "has this village started", and
+ * this file's header says at length why that answer is read from the database
+ * rather than held in a module. A second copy of launch state, whether a
+ * rewritten column on `users` or a flag set at close, is a second thing that
+ * can disagree with the first, can half-apply across rows, and leaves no
+ * record of which state was intended. So this is a read. There is nothing to
+ * migrate and nothing that can drift.
+ */
+export async function founderPowerStands(conn: Pool | PoolConnection): Promise<boolean> {
+  return !(await readGameStart(conn)).started;
+}
