@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, CheckCircle2, ArrowRight, Users, Home, TrendingUp, Sparkles, Send } from "lucide-react";
 import { useState } from "react";
+import { authToken } from "@/lib/gameApi";
 
 const commitments = [
   "Treat all beings with respect, compassion, and authentic communication",
@@ -67,9 +68,27 @@ export default function LoveLetter() {
     setError("");
     setSubmitting(true);
     try {
+      /*
+       * THE SIGNATURE CARRIES WHO SIGNED IT, when there is somebody to name.
+       *
+       * This form has never sent a token, in any commit, and `authedUser` on
+       * the server reads `Authorization: Bearer` alone with no cookie
+       * fallback. So every signature this page has ever stored was anonymous,
+       * and a signed-in member who signed the Love Letter left a row that
+       * could not be connected back to their account. Accepting one now
+       * admits the person who signed it, and without this header there is
+       * nobody named to admit.
+       *
+       * A stranger signing without an account sends no header and is stored
+       * exactly as before.
+       */
+      const token = authToken();
       const res = await fetch("/api/forms/submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           type: "membership-508",
           data: {

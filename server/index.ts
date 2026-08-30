@@ -1130,6 +1130,58 @@ const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" |
 };
 
 /**
+ * THE FORM TYPES THE PUBLIC DOOR COLLECTS. Nothing else gets through it.
+ *
+ * `POST /api/forms/submit` read `type` off the request body and stored it, so
+ * a caller named the kind of thing they were submitting. That is one input
+ * reaching a lot of decisions: the type picks the inbox the notification goes
+ * to, the words the submitter is later told, the queue a founder works, and,
+ * through `hasMembership`, it used to pick a person's STANDING. Any signed-in
+ * account posted `membership-508` for itself once and stood on every ballot
+ * roll built afterwards. The standing half is closed at `hasMembership`; this
+ * closes the door it came through, because a caller naming its own type is
+ * wrong in the other directions too. A forged `role-application` puts an offer
+ * nobody made in front of a founder seating a role.
+ *
+ * DERIVED, never guessed. The list is the union of three things the product
+ * already holds and no fourth:
+ *
+ *   - what a real page posts: `membership-508` (LoveLetter), `investor-call`
+ *     (InvestorJourney), `steward-interest` (StewardJourney), `visit-inquiry`
+ *     (Visit), `quest-proposal` (ProposeQuest and GuideChat), `work-with-us`
+ *     (WorkWithUs and GuideChat);
+ *   - what `FORM_TYPE_TO_PATHWAY` above already knows how to route to an
+ *     inbox: `investor`, `investor-pack`, `resident`, `prosperity`, `contact`;
+ *   - what `Admin.tsx` lists in its own filter, which is the same set again.
+ *
+ * TWO REAL TYPES ARE DELIBERATELY ABSENT, and their absence is the point.
+ * `role-application` is written by `POST /api/map/roles/:id/raise-hand` and
+ * `investor-doc-request` by `POST /api/investor-docs/request`. Both are
+ * genuine rows in this table and both land in the queue a founder works, and
+ * NEITHER has ever arrived through this route. Each of those routes still
+ * writes its own type directly, which no allowlist here touches; what stops
+ * now is a stranger typing one into the public form.
+ *
+ * A type added to a form later has to be added here too, and that is the
+ * intended cost: a new kind of thing the village collects is a decision
+ * somebody makes once, in the open.
+ */
+const PUBLIC_FORM_TYPES: ReadonlySet<string> = new Set([
+  "membership-508",
+  "visit-inquiry",
+  "steward-interest",
+  "steward",
+  "resident",
+  "prosperity",
+  "contact",
+  "work-with-us",
+  "quest-proposal",
+  "investor",
+  "investor-pack",
+  "investor-call",
+]);
+
+/**
  * The single seam for member data. Every read and write of a member record goes
  * through here — and as of S6 "here" is MySQL, reached through the shared pool
  * (server/db/pool.ts). The JSON-to-MySQL swap happened in this one module; the
@@ -3745,11 +3797,45 @@ function firstName(name: string): string {
  * runOnce key is recorded everywhere, and replaying it today would convert
  * every self-typed email match accumulated since into a permanent grant, which
  * is the hole itself. It froze a moment, and the moment has passed.
+ *
+ * ── AND THAT WAS STILL SELF-GRANTABLE, BY THE OTHER HALF OF THE REQUEST ──
+ *
+ * The rule above closed the EMAIL and left the TYPE open, and the type is
+ * caller-controlled too. `POST /api/forms/submit` read `type` off the request
+ * body with no allowlist and stamped `userId` from the caller's own token, so
+ * an ATTRIBUTED signing proved who submitted and never proved what they had
+ * submitted. Any signed-in account posted one request naming `membership-508`
+ * for itself and was a member: the rung, the doubled gratitude multiplier, and
+ * a place on every ballot roll built afterwards, permanently.
+ *
+ * So membership no longer reads submissions at all. A row in a table anyone
+ * can write into is not a fact about a person's standing, and no amount of
+ * narrowing WHICH row makes it one.
+ *
+ * WHAT ADMITS SOMEBODY NOW is `membershipGranted`, the flag this function
+ * already trusted and that the comment above already called the explicit
+ * grant. It finally has a writer: accepting a `membership-508` submission
+ * through `PUT /api/admin/submissions/:id/status` sets it on the person who
+ * signed. That route is gated on `intake.moderate`, which is a capability the
+ * village can hold and hand out, so admission is an act somebody performs on
+ * behalf of the village rather than a thing a person does to themselves.
+ *
+ * Signing stays a personal act and stays public: the Love Letter still takes
+ * a stranger's signature and keeps it. Being admitted is the village's answer
+ * to it, and the two are separate steps now because they were always two
+ * different things.
+ *
+ * NOBODY IS DEMOTED BY THIS. The only surface that has ever posted
+ * `membership-508` is the Love Letter page, which sends no `Authorization`
+ * header and never has, in any commit. `authedUser` reads that header alone
+ * with no cookie fallback, so a real signing has always stored `user_id` NULL
+ * and has never once satisfied the rule this removes. Every row that could
+ * satisfy it was a request somebody hand-built. Members who are actually here
+ * hold `membershipGranted` (the 0058 freeze wrote it) or a `stageGranted`
+ * rung, and this function and `computeStage` still answer for both.
  */
 function hasMembership(user: any): boolean {
-  if (user.membershipGranted) return true;
-  const submissions: any[] = submissionsRepo.all();
-  return submissions.some((s) => s.type === "membership-508" && s.userId && s.userId === user.id);
+  return !!user.membershipGranted;
 }
 
 
@@ -7263,6 +7349,27 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!type || !data) {
       return res.status(400).json({ error: "Missing type or data" });
     }
+    /*
+     * The type is caller-controlled input, so it is checked against the list
+     * of forms this village actually collects (PUBLIC_FORM_TYPES, above the
+     * pathway map, where the reasoning lives).
+     *
+     * `typeof` first, because `!type` lets an array or an object through and
+     * both of those reach a `Set.has` that answers false for the wrong reason.
+     * A non-string type is refused for being unreadable rather than by
+     * accident.
+     *
+     * The refusal does NOT echo what was typed. Reflecting caller input into
+     * a message is how a refusal becomes a delivery mechanism, and there is
+     * nothing here a person needs the exact string for.
+     */
+    if (typeof type !== "string" || !PUBLIC_FORM_TYPES.has(type)) {
+      return res.status(400).json({
+        error: "unknown_form_type",
+        message:
+          "We could not find a form by that name. If a page on this site sent you here, please tell us through the contact form so we can put it right.",
+      });
+    }
     // Honeypot: a hidden field only bots fill. Pretend success, store nothing.
     if (hp) return res.json({ success: true });
     // Rate limit: modest cap per IP to blunt spam floods.
@@ -7380,6 +7487,36 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       rewarded = outcome.rewarded;
       rewardRefused = outcome.refused ?? null;
       if (rewarded) submissions[idx].rewarded = true;
+    }
+    /*
+     * ADMISSION. Accepting a signed Love Letter is what makes somebody a
+     * member, and until now nothing did: `membershipGranted` was read in three
+     * places and written by one boot migration that has already run, so a
+     * village had no way at all to admit its next person except the hole this
+     * lane closed (`hasMembership`, above).
+     *
+     * ONE WAY, ON PURPOSE. Moving the row on to `declined` afterwards does not
+     * take the flag back off. Standing that somebody holds is not a founder's
+     * mis-click away from vanishing, and a member who lost their vote because
+     * a queue got tidied would have no way to see what happened. Taking
+     * membership back is a separate act with its own name, and it is not this
+     * route in a different mood.
+     *
+     * ONLY A SIGNING THAT NAMES ITS SIGNER. A stranger signs the Love Letter
+     * without an account, and that row carries no `userId`, so there is nobody
+     * to admit; the acceptance is still recorded and still means what it says.
+     * Matching a typed email to an account is exactly the hole that was closed
+     * before this one, and it stays closed.
+     */
+    if (
+      status === "accepted" &&
+      !wasAccepted &&
+      submissions[idx].type === "membership-508" &&
+      submissions[idx].userId
+    ) {
+      await members.update(String(submissions[idx].userId), (m: any) => {
+        m.membershipGranted = true;
+      });
     }
     await submissionsRepo.replaceAll(submissions);
 

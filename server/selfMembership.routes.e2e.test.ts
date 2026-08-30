@@ -125,6 +125,17 @@ async function standingOf(token: string): Promise<{ stage: string; membership: b
   };
 }
 
+/**
+ * Forget the submission rate limit, which is a different guard than the one
+ * under test. The route caps six posts per ten minutes per IP, every case here
+ * dials from the same localhost, and the cap is no defence against this attack
+ * anyway: one request was always enough. Clearing the window keeps a 429 from
+ * standing in for a refusal the allowlist should be the one to give.
+ */
+async function forgetTheRateWindow(): Promise<void> {
+  await pool.query("DELETE FROM rate_hits WHERE bucket LIKE 'submit:%'"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+}
+
 async function submissionsOfType(type: string): Promise<any[]> {
   const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     "SELECT id, type, status, user_id FROM submissions WHERE type = ? ORDER BY submitted_at, id",
@@ -194,10 +205,12 @@ beforeAll(async () => {
   founderId = String(setPw.json?.user?.id ?? "");
   expect(founderToken, "founder must hold a session").toBeTruthy();
 
-  const on = await call("PUT", "/api/admin/modules/governance/lifecycle", {
-    body: { lifecycle: "members", examples: false },
-  });
-  expect(on.status, "governance must be on for this suite").toBe(200);
+  for (const mod of ["governance", "map"]) {
+    const on = await call("PUT", `/api/admin/modules/${mod}/lifecycle`, {
+      body: { lifecycle: "members", examples: false },
+    });
+    expect(on.status, `${mod} must be on for this suite`).toBe(200);
+  }
 
   const wren = await register("Wren Ashby", "wren");
   wrenToken = wren.token; wrenId = wren.id;
@@ -259,6 +272,7 @@ describe.skipIf(!DB_CONFIGURED)("a signed-in account names its own type", () => 
   let selfIssued = "";
 
   it("still takes the signature, because signing is something a person may do", async () => {
+    await forgetTheRateWindow();
     const before = await onTheRoll();
     const posted = await call("POST", "/api/forms/submit", {
       token: malloryToken,
@@ -291,6 +305,7 @@ describe.skipIf(!DB_CONFIGURED)("a signed-in account names its own type", () => 
   });
 
   it("cannot be bought by asking again, or by asking twice", async () => {
+    await forgetTheRateWindow();
     for (let i = 0; i < 2; i += 1) {
       const again = await call("POST", "/api/forms/submit", {
         token: malloryToken,
@@ -324,6 +339,7 @@ describe.skipIf(!DB_CONFIGURED)("a signed-in account names its own type", () => 
 
 describe.skipIf(!DB_CONFIGURED)("a submitted form cannot name its own type", () => {
   it("still takes every type the village actually collects", async () => {
+    await forgetTheRateWindow();
     // The control, in the same case as the refusals below: a guard that
     // refused everything would pass a test that only checked the attack.
     for (const type of ["visit-inquiry", "work-with-us", "steward-interest", "contact", "quest-proposal"]) {
@@ -337,6 +353,7 @@ describe.skipIf(!DB_CONFIGURED)("a submitted form cannot name its own type", () 
   });
 
   it("refuses a type nobody built a form for, in a sentence a person can read", async () => {
+    await forgetTheRateWindow();
     const made = await call("POST", "/api/forms/submit", {
       token: malloryToken,
       body: { type: "board-of-directors", data: { name: "Mallory Vane" } },
@@ -349,6 +366,7 @@ describe.skipIf(!DB_CONFIGURED)("a submitted form cannot name its own type", () 
   });
 
   it("refuses the types only the village's own routes are allowed to write", async () => {
+    await forgetTheRateWindow();
     // `role-application` is written by raise-hand and `investor-doc-request`
     // by the investor packet route. Both land in the same inbox a founder
     // works, so forging one puts a lie in front of a person making decisions.
@@ -364,6 +382,7 @@ describe.skipIf(!DB_CONFIGURED)("a submitted form cannot name its own type", () 
   });
 
   it("refuses a type that is not a string at all", async () => {
+    await forgetTheRateWindow();
     for (const type of [{ toString: () => "membership-508" }, ["membership-508"], 508]) {
       const odd = await call("POST", "/api/forms/submit", {
         token: malloryToken,
