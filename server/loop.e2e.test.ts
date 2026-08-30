@@ -670,7 +670,10 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const rules = await api("GET", "/api/game/rules");
     expect(rules.status).toBe(200);
     expect(rules.json.gratitude.baseBudget).toBe(100);
-    expect(rules.json.gratitude.cycleMode).toBe("lunar");
+    // The rhythm is no longer a field here. It was a dial nothing honoured, so
+    // the client is told the budget and the caps and nothing about a choice
+    // the engine cannot make. server/lunarRhythm.test.ts holds that shut.
+    expect(rules.json.gratitude).not.toHaveProperty("cycleMode");
     expect(rules.json.governance.voiceWeighting).toBe("equal");
     // Operational values are NOT exposed to the public surface.
     expect(JSON.stringify(rules.json)).not.toContain("base_rpc_url");
@@ -1002,6 +1005,55 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const state = await api("GET", "/api/journey/state", undefined, founderToken);
     expect(state.status).toBe(200);
     expect(state.json).toHaveProperty("checkboxes");
+  });
+
+  it("the tracker's working documents start empty and live behind the same gate", async () => {
+    /*
+     * These links used to be a module constant in the tracker page, so they
+     * shipped inside a chunk any stranger could download while the route that
+     * renders them was admin-only. `server/trackerPrivacy.test.ts` holds the
+     * bundle half of that. This holds the other half: the place they moved to
+     * has to be at least as closed as the page they left, and it has to start
+     * empty so a fork inherits nobody else's address.
+     */
+    const fresh = await api("GET", "/api/journey/state", undefined, founderToken);
+    expect(fresh.status).toBe(200);
+    expect(
+      fresh.json.resources ?? [],
+      "a village that has written no links has none",
+    ).toEqual([]);
+
+    const anon = await api("POST", "/api/journey/resources", { resources: [] });
+    expect(anon.status, "a stranger may not write the founders' references").toBe(401);
+    const asMember = await api("POST", "/api/journey/resources", { resources: [] }, doerToken);
+    expect(asMember.status, "nor may a plain member").toBe(401);
+
+    // A refusal that says what was wrong with it, rather than a status alone.
+    const bad = await api(
+      "POST",
+      "/api/journey/resources",
+      { resources: [{ label: "Notes", url: "javascript:alert(1)" }] },
+      founderToken,
+    );
+    expect(bad.status, "only a web address may become an anchor here").toBe(400);
+    expect(String(bad.json?.error ?? ""), "and it says so").toMatch(/https?/i);
+
+    const wrote = await api(
+      "POST",
+      "/api/journey/resources",
+      { resources: [{ label: "Build notes", url: "https://notes.example.test/build" }] },
+      founderToken,
+    );
+    expect(wrote.status, "the founder may write their own references").toBe(200);
+
+    const back = await api("GET", "/api/journey/state", undefined, founderToken);
+    expect(
+      (back.json.resources ?? []).map((r: any) => r.url),
+      "and read them back",
+    ).toEqual(["https://notes.example.test/build"]);
+
+    const stranger = await api("GET", "/api/journey/state");
+    expect(stranger.status, "while a stranger still cannot read them").toBe(401);
   });
 
   it("S9: admins name tokens (Gate D), and the registry refuses re-denomination", async () => {
@@ -3672,13 +3724,22 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(confirmed.json.status.items.find((i: any) => i.id === "backups-drilled").state).toBe("ok");
     // A live-checked item refuses hand-confirmation: evidence, not assertion.
     expect((await api("POST", "/api/admin/launch/confirm", { id: "admin-identities", done: true }, founderToken)).status).toBe(400);
-    // Launch refuses while ANY blocking item is open (stripe-webhook is not
-    // applicable with stays off, but modules/brand items may still be open —
-    // assert on the semantics, not this deployment's exact remainder).
-    const attempt = await api("POST", "/api/admin/launch/launched", undefined, founderToken);
+    // R74: the button PROPOSES now. It still refuses while any blocking item
+    // is open (stripe-webhook is not applicable with stays off, but
+    // modules/brand items may still be open), and this village may also be
+    // short of the three members a launch vote asks for, so this asserts the
+    // semantics and never this deployment's exact remainder.
+    const attempt = await api("POST", "/api/admin/launch/propose", undefined, founderToken);
     const after = (await api("GET", "/api/admin/launch", undefined, founderToken)).json;
     if (after.blockingOpen > 0) expect(attempt.status).toBe(409);
-    else expect(attempt.json.success).toBe(true);
+    /*
+     * THE WHOLE BEHAVIOUR CHANGE, IN ONE ASSERTION, AND IT HOLDS IN EVERY
+     * BRANCH. Pressing this used to mark the village launched. Now nothing but
+     * a ballot carrying can write that flag, so whether the press was refused
+     * or opened a vote, the village is not launched on the way out.
+     * server/launchVote.routes.e2e.test.ts drives the vote itself end to end.
+     */
+    expect(after.launchedAt).toBeNull();
 
     // ── S63: a secret goes in, and only its shape comes back. ──
     const put = await api("PUT", "/api/admin/integrations/resend_api_key", { value: "re_TESTKEY_abcd1234" }, founderToken);

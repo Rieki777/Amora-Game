@@ -327,7 +327,12 @@ export type VoteResult = { ok: true; choice: VoteChoice } | { ok: false; error: 
 export interface VoterStanding {
   /** Does this member hold `ballot.vote` at this moment? */
   mayVoteNow: boolean;
-  /** Is a warning badge the thing refusing it? */
+  /**
+   * Is a warning badge the thing refusing it? False for everybody since 0109:
+   * a badge can no longer take a voice away, so the gate never reaches its
+   * deny step on this key. Kept so the refusal has somewhere to put a cause
+   * that is not the clock. See `offRollSentence`.
+   */
   deniedByWarning: boolean;
 }
 
@@ -338,25 +343,32 @@ export interface VoterStanding {
  * when it opened." That is true of exactly one of the four, and for the
  * others it names TIMING as the cause of something timing did not cause.
  *
- * `buildElectorate` runs the one gate over every member at open, and
- * `capabilityDecision` refuses a warning badge's deny before it looks at any
- * grant. So a member carrying a warning that denies `ballot.vote` is left off
- * every roll built afterwards, opens the vote, is told the roll froze, and
- * has no way at all to learn from the product that a warning is the reason.
- * The freeze was named and the cause was hidden. That is the same shape as an
- * outcome card telling a village a decision it carried did not carry: a
- * sentence that is true of one situation, served for a different one.
+ * `buildElectorate` runs the one gate over every member at open. A warning
+ * badge used to be able to refuse `ballot.vote` there, so its holder was left
+ * off every roll built afterwards, opened the vote, was told the roll froze,
+ * and had no way at all to learn from the product that a warning was the
+ * reason. The freeze was named and the cause was hidden. That is the same
+ * shape as an outcome card telling a village a decision it carried did not
+ * carry: a sentence that is true of one situation, served for a different one.
  *
- * R56 is the other half. State what is true, then get out of the way: a
- * warning being the reason is a fact somebody is owed, and it is said once,
- * flatly, with nothing in it about what they should have done differently.
+ * R56 is the other half. State what is true, then get out of the way: the
+ * reason is a fact somebody is owed, and it is said once, flatly, with
+ * nothing in it about what they should have done differently.
  *
- * The last case is the one where the caller could not work anything out, and
- * it is the ONLY sentence here that is not for a member: nothing in the
- * product reaches it, because the vote route always reads the gate. It says
- * what this file knows for certain and names no cause at all, which is the
- * fail-safe direction for any later caller that cannot read the gate. It is
- * also the first half of the sentence all four of these replace, word for
+ * TWO OF THESE FOUR NOW HAVE NO CALLER, and both are kept on purpose.
+ *
+ * The warning case is the first. R65/R66 (0109) removed the ability to take a
+ * voice away, so `DENIABLE` marks `ballot.vote` as a key no deny may reach
+ * and `capabilityDecision` can no longer answer "denied by warning badge" for
+ * it. No caller can set `deniedByWarning` any more. The sentence stays
+ * because deleting it would leave the next reason the gate refuses this key
+ * borrowing the freeze's words, which is the exact defect this function was
+ * written to end.
+ *
+ * The last case is the second: the caller could not work anything out. It
+ * says what this file knows for certain and names no cause at all, which is
+ * the fail-safe direction for any later caller that cannot read the gate. It
+ * is also the first half of the sentence all four of these replace, word for
  * word, because that half was never the part that lied.
  */
 export function offRollSentence(standing?: VoterStanding): string {

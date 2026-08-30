@@ -854,6 +854,14 @@ export const SUBJECT_NOUN: Record<string, string> = {
    * "advisory vote", so the card says the same words.
    */
   advisory: "Advisory vote",
+  /*
+   * ALSO NOT A WIZARD TYPE. A launch vote is opened from the journey to
+   * launch, once in a village's life, and `ballots.subject_type` carries it
+   * here like every other. The noun is the THING and not the machinery: the
+   * table would call it a village launch, and what happened is that a village
+   * decided to start playing.
+   */
+  village_launch: "Starting the Game",
 };
 
 export const subjectNoun = (subjectType: string): string => SUBJECT_NOUN[subjectType] ?? "Decision";

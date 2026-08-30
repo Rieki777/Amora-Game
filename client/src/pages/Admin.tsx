@@ -12,7 +12,7 @@ import {
   type MessageReport, type ReportStatus,
 } from "@/lib/messageReports";
 import { resolutionLine } from "@/lib/reportFeedback";
-import { ALL_CAPABILITIES } from "@shared/capabilities";
+import { ALL_CAPABILITIES, isDeniable } from "@shared/capabilities";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import Celebration from "@/components/natural/Celebration";
 import { useMomentWindow } from "@/components/natural/moments";
@@ -51,6 +51,29 @@ const FORM_TYPES = ["work-with-us", "quest-proposal", "visit-inquiry", "membersh
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
   return { Authorization: `Bearer ${password}`, ...extra };
+}
+
+/**
+ * THE SERVER'S OWN SENTENCE, WHEN IT HAS ONE.
+ *
+ * Several editors here read `res.ok` and then threw an empty Error, so every
+ * refusal reached the admin as "Save failed". The routes behind them answer
+ * with a written reason (why a link cannot be that link, which power was
+ * missing, what a value has to be), and that reason is the only part an admin
+ * can act on. A refusal nobody can read is a wall.
+ *
+ * Falls back to the caller's own words when the body carries nothing, so a
+ * dead network still says something true.
+ */
+async function saveProblem(res: Response, fallback = ""): Promise<string> {
+  try {
+    const body = await res.json();
+    const said = String(body?.error ?? body?.message ?? "").trim();
+    if (said) return said;
+  } catch {
+    /* a non-JSON body says nothing, and the fallback below is the honest answer */
+  }
+  return fallback;
 }
 
 /**
@@ -3000,9 +3023,13 @@ function VisitAdminTab({ password }: { password: string }) {
         headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify(cfg),
       });
-      if (!res.ok) throw new Error();
+      // The server refuses a call-to-action link that points into the investor
+      // vault, and it says which door is open in a whole sentence. Throwing an
+      // empty Error here turned that sentence into "Save failed", so an admin
+      // met a wall with no reason on it and no way to guess the reason.
+      if (!res.ok) throw new Error(await saveProblem(res));
       toast.success("Saved");
-    } catch { toast.error("Save failed"); }
+    } catch (e) { toast.error(e instanceof Error && e.message ? e.message : "Save failed"); }
     setSaving(false);
   };
 
@@ -3117,9 +3144,12 @@ function InvestorSummaryAdminTab({ password }: { password: string }) {
         headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify(cfg),
       });
-      if (!res.ok) throw new Error();
+      // Same reason as VisitAdminTab above: this page is public, the server
+      // refuses a CTA that would publish a vault document, and the admin has
+      // to be able to read why.
+      if (!res.ok) throw new Error(await saveProblem(res));
       toast.success("Saved");
-    } catch { toast.error("Save failed"); }
+    } catch (e) { toast.error(e instanceof Error && e.message ? e.message : "Save failed"); }
     setSaving(false);
   };
 
@@ -7246,8 +7276,10 @@ function BadgesAdminTab({ password }: { password: string }) {
           <h2 className="text-xl font-bold text-gray-900 mb-1">Badges & Skills</h2>
           <p className="text-sm text-gray-500 max-w-xl">
             Self and hypha badges gate nothing; only warnings may deny, and a
-            deny beats role and stage grants (admins excepted). Earned badges
-            ride settled metrics only, and never applause into permissions.
+            deny beats role and stage grants (admins excepted). A warning can
+            never take away voting or vouching. A voice that was earned stays.
+            Earned badges ride settled metrics only, and never applause into
+            permissions.
           </p>
         </div>
         <button
@@ -7339,8 +7371,14 @@ function BadgesAdminTab({ password }: { password: string }) {
           {form.kind === "warning" && (
             <div>
               <p className="text-xs text-gray-500 mb-1">Denies capabilities (beats role and stage grants)</p>
+              {/*
+                0109, R65/R66: the voice keys are not offered here, because a
+                voice that was earned is never taken away. The server refuses
+                one anyway; a checkbox that always fails would be a door
+                painted on a wall.
+              */}
               <div className="flex flex-wrap gap-1.5">
-                {CAPS.map((c) => (
+                {CAPS.filter(isDeniable).map((c) => (
                   <button key={c} onClick={() => setForm({ ...form, denies: toggleIn(form.denies, c) })}
                     className={`text-xs px-2 py-1 rounded-full border ${form.denies.includes(c) ? "bg-red-600 text-white border-red-600" : "border-gray-200 text-gray-500"}`}>
                     {c}
@@ -10910,7 +10948,9 @@ function FeedbackAdminTab({ password }: { password: string }) {
         <p className="text-sm text-gray-500 mt-1">
           Bugs and ideas from your members.{" "}
           {data?.relayOn
-            ? "The platform relay is ON: a copy of each item (content only, never who) also reaches the ReGen Civics team, so a fix can ship to every village."
+            ? "The platform relay is ON: a copy of each item (content only, never who) also reaches the team who maintain this software, so a fix can ship to every village."
+            : data?.relayDialOn && data?.hubConfigured === false
+            ? "The platform relay is switched on and this server has no hub address, so nothing is being sent. Everything stays local to this village until FEEDBACK_HUB_URL is set."
             : "The platform relay is OFF: everything stays local to this village."}{" "}
           The switch lives in Game Mechanics → platform.feedback_relay.
         </p>

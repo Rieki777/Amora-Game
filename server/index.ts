@@ -18,6 +18,7 @@ import {
   ALL_CAPABILITIES,
   capabilityDecision,
   hasCapability,
+  isDeniable,
   STAGE_UNLOCKS,
   TRANSFERABLE,
   type Capability,
@@ -215,10 +216,12 @@ import {
   fileObjection,
   objectionsFor,
   openBallot,
+  openBallotFor,
   rowToBallot,
   ruleObjection,
   standingObjectionCount,
   talliesFor,
+  voteCount,
   voteOf,
   votesFor,
   withdrawBallot,
@@ -255,6 +258,14 @@ import {
   type BallotMethod,
   type BallotOutcome,
 } from "../shared/governanceEngine";
+import {
+  dialsForSubject,
+  electorateFloorProblem,
+  methodForSubject,
+  thresholdsForSubject,
+  LAUNCH_SUBJECT_REF,
+  VILLAGE_LAUNCH,
+} from "../shared/ballotSubjects";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
@@ -584,7 +595,14 @@ import {
   secretValue,
   type SecretKey,
 } from "./lib/secrets";
-import { confirmManual, launchStatus, markLaunched, type LaunchDeps } from "./lib/launch";
+import {
+  confirmManual,
+  launchStatus,
+  launchVoteBlocked,
+  recordLaunchCarried,
+  type LaunchDeps,
+} from "./lib/launch";
+import { issuanceRefusal, readGameStart, recordGameStart } from "./lib/gameStart";
 import {
   assertModuleGraph,
   attachModuleReadiness,
@@ -1232,7 +1250,24 @@ const roleHoldersRepo = dbCollection<RoleHolderRow>(getPool(), {
 // are never persisted, so forks keep inheriting future platform defaults.
 const contentRepo = dbDocument(getPool(), "content", {} as any);
 const faqsRepo = dbDocument(getPool(), "faqs", DEFAULT_FAQS as any);
-const journeyRepo = dbDocument(getPool(), "journey-state", { checkboxes: {}, copy: {}, kanban: {}, decisions: {} } as any);
+/*
+ * `resources` is the founding team's own list of working documents, and it
+ * ships EMPTY on purpose.
+ *
+ * It used to be a module constant in client/src/pages/ProjectHistory.tsx:
+ * three links to unlisted documents plus one project's own host, compiled
+ * into a lazy chunk whose filename sits in the entry bundle every anonymous
+ * visitor downloads. The page's admin gate decides who the app will draw the
+ * page for. It decides nothing about who can read the strings the page was
+ * built from, so those links were public from the day they landed.
+ *
+ * Same rule as `landFacts` in DEFAULT_SETTINGS: blank means the surface shows
+ * nothing rather than somebody else's address, a fresh village inherits no
+ * link it did not write, and the founder's own references live behind the
+ * admin gate on /api/journey/*, which is where the rest of this document
+ * already lives.
+ */
+const journeyRepo = dbDocument(getPool(), "journey-state", { checkboxes: {}, copy: {}, kanban: {}, decisions: {}, resources: [] } as any);
 const emailConfigRepo = dbDocument(getPool(), "email-config", DEFAULT_EMAIL_CONFIG as any);
 const settingsRepo = dbDocument(getPool(), "settings", DEFAULT_SETTINGS as any);
 const brandRepo = dbDocument(getPool(), "brand", DEFAULT_BRAND as any);
@@ -2703,17 +2738,23 @@ function addActivity(
 }
 
 /**
- * The cycle every acknowledgment is stamped with. LUNAR now, not calendar
- * month: budgets and per-recipient caps reset at each new moon, matching
- * regen-civics (revision 2, decision 1). Legacy "YYYY-MM" ids in old rows
- * simply never match a lunar id again, which is the correct behaviour: one
- * clean reset at changeover instead of double-counting a partial month.
+ * The cycle every acknowledgment is stamped with. Lunar: budgets and
+ * per-recipient caps reset at each new moon, matching regen-civics
+ * (revision 2, decision 1). Legacy "YYYY-MM" ids in old rows simply never
+ * match a lunar id again, which is the correct behaviour: one clean reset at
+ * changeover instead of double-counting a partial month.
+ *
+ * THERE USED TO BE A CHOICE HERE AND IT IS GONE ON PURPOSE. A
+ * `gratitude.cycle_mode` dial offered a founder "calendar month", and this
+ * function was the only code in the tree that read it. Nothing else changed
+ * when it was flipped: not the settlement, not the budgets, not the allowance
+ * windows. So the panel offered a rhythm the engine could not keep.
+ *
+ * Rye retired it rather than wiring it, 2026-08-29: "let's just stick with
+ * lunar months all around, it's good to be on our own rhythm." The moon is
+ * the clock, everywhere, and `server/lunarRhythm.test.ts` holds that shut.
  */
 function currentCycleId(): string {
-  // The rhythm is a village choice (Admin > Gratitude > Cycle rhythm).
-  if (stringVar("gratitude.cycle_mode") === "month") {
-    return new Date().toISOString().slice(0, 7);
-  }
   return cycleIdFor(new Date());
 }
 
@@ -3762,6 +3803,79 @@ function gratitudeBudget(user: any) {
 }
 
 /**
+ * WHERE THIS DEPLOYMENT ACTUALLY LIVES, and why it no longer guesses.
+ *
+ * Every absolute link this server writes into an email was built from
+ * `FRONTEND_URL || "https://<one specific project>.<tld>"`. A village that
+ * clones this platform and does not set `FRONTEND_URL` therefore sent its own
+ * members to another project's login page, in its own branded email, and the
+ * only way to notice was for somebody to click one.
+ *
+ * A default that names somebody else's address is a claim about where you
+ * live, made on your behalf, by a build. This asks two honest questions
+ * instead:
+ *
+ *   1. Did the operator say? `FRONTEND_URL` wins whenever it is set, so the
+ *      hosted deployment and any fork that configures itself are unchanged.
+ *   2. Failing that, where have people actually reached this server? The
+ *      first inbound request answers that, through the proxy headers the
+ *      sitemap and the unfurl tags already read the host from.
+ *
+ * If neither has an answer the origin is empty and the caller gets no
+ * absolute address at all, which reads as a broken link rather than as a
+ * confident wrong one. That case logs ONCE, naming the variable to set,
+ * because a fork that has served no request yet and is already sending mail
+ * is a state somebody has to be told about rather than left to discover.
+ */
+let observedOrigin = "";
+function rememberDeploymentOrigin(req: express.Request): void {
+  if (observedOrigin) return;
+  const proto = String(req.headers["x-forwarded-proto"] ?? req.protocol ?? "https")
+    .split(",")[0].trim();
+  const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "")
+    .split(",")[0].trim();
+  if (host) observedOrigin = `${proto}://${host}`.replace(/\/$/, "");
+}
+let warnedNoOrigin = false;
+function deploymentOrigin(): string {
+  const configured = String(process.env.FRONTEND_URL ?? "").trim().replace(/\/$/, "");
+  if (configured) return configured;
+  if (observedOrigin) return observedOrigin;
+  if (!warnedNoOrigin) {
+    warnedNoOrigin = true;
+    console.warn(
+      "[origin] FRONTEND_URL is not set and this server has answered no request yet, " +
+        "so links in outgoing email have no address to sit on. Set FRONTEND_URL to this village's own site.",
+    );
+  }
+  return "";
+}
+
+/**
+ * Where this village's feedback relay sends, if anywhere.
+ *
+ * Empty means nowhere. See the relay job for why the platform's own hub is no
+ * longer a default: the setting that turns the relay on ships ON, so a
+ * hardcoded destination made every fork post its members' words to one
+ * specific organisation without ever choosing to.
+ */
+function feedbackHubUrl(): string {
+  return String(process.env.FEEDBACK_HUB_URL ?? "").trim();
+}
+
+/**
+ * Whether feedback submitted right now would actually leave this village.
+ *
+ * Two things have to be true: the village left the dial on, and somebody told
+ * this deployment where the hub is. Every sentence the product says about
+ * sharing reads this, so the form, the receipt and the admin list can never
+ * promise a journey that has no destination.
+ */
+function feedbackIsShared(): boolean {
+  return numberVar("platform.feedback_relay") === 1 && feedbackHubUrl().length > 0;
+}
+
+/**
  * S16: the notification spine's dependencies. The spine never imports the
  * server; the server hands it exactly what it needs.
  */
@@ -3771,7 +3885,7 @@ const notifyDeps: NotifyDeps = {
   // The spine's contract wants `Promise<void>`; the sender now reports what it
   // did, and this caller has no use for the report.
   sendEmail: async (opts) => { await sendResendEmail(opts); },
-  origin: () => (process.env.FRONTEND_URL || "https://amora.regencivics.earth").replace(/\/$/, ""),
+  origin: deploymentOrigin,
   projectName: () => mergedConfig().project.name,
 };
 
@@ -4938,8 +5052,30 @@ async function startServer() {
   // S66: feedback relay — every 15 minutes, while the village keeps it on.
   // The hub being down costs nothing but a log line; rows wait their turn.
   registerJob("feedback-relay", 15 * 60 * 1000, async () => {
-    if (numberVar("platform.feedback_relay") !== 1) return;
-    const hubUrl = process.env.FEEDBACK_HUB_URL || "https://hub.regencivics.earth/api/feedback/ingest";
+    /*
+     * NO HUB CONFIGURED MEANS NO RELAY, and that is the change here.
+     *
+     * The relay ships up to 8000 characters of member-written detail per item
+     * to an address the deployment did not choose: the hub URL used to fall
+     * back to one specific organisation's ingest endpoint, and the setting
+     * that turns the relay on defaults to ON. A village that clones this
+     * platform and configures nothing therefore sent its members' bug reports
+     * and ideas to a third party it has never heard of, every fifteen minutes,
+     * from the first submission.
+     *
+     * The relay is a good feature and the disclosure on the form is honest.
+     * What was missing is the deployment saying WHERE. `FEEDBACK_HUB_URL` is
+     * that sentence, and without it nothing goes anywhere: rows stay in the
+     * local queue, admins still see every one in Admin then Feedback, and the
+     * form stops promising a sharing that is not happening.
+     *
+     * THE HOSTED DEPLOYMENT MUST SET `FEEDBACK_HUB_URL` or its relay stops.
+     * That is deliberate. An address this important belongs in the
+     * environment, next to the database and the mail key, rather than welded
+     * into platform code every fork inherits.
+     */
+    if (!feedbackIsShared()) return;
+    const hubUrl = feedbackHubUrl();
     const r = await relayFeedback(getPool(), hubUrl, {
       instanceId: instanceIdentity().instanceId,
       version: PLATFORM_VERSION,
@@ -6982,12 +7118,29 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     next();
   });
 
-  // CORS
-  const allowedOrigin = process.env.FRONTEND_URL || "https://amora.regencivics.earth";
-  app.use((_req, res, next) => {
-    res.header("Access-Control-Allow-Origin", allowedOrigin);
-    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  /*
+   * CORS, and the first place this server learns its own address.
+   *
+   * `Access-Control-Allow-Origin` used to fall back to one specific project's
+   * domain. That grants cross-origin reads to a site the deployment has no
+   * relationship with and grants nothing to the deployment itself, so a fork
+   * inherited a header that was wrong in both directions. Same-origin calls,
+   * which is every call the app makes, need no such header at all.
+   *
+   * So: name an allowed origin only when the operator named one. Otherwise
+   * send no grant, which refuses every cross-origin reader rather than
+   * choosing a stranger to trust.
+   */
+  const allowedOrigin = String(process.env.FRONTEND_URL ?? "").trim();
+  app.use((req, res, next) => {
+    // Every request teaches this deployment where it lives, for the links
+    // that go out in email long after the request has finished.
+    rememberDeploymentOrigin(req);
+    if (allowedOrigin) {
+      res.header("Access-Control-Allow-Origin", allowedOrigin);
+      res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+      res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
+    }
     next();
   });
 
@@ -12975,9 +13128,67 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     },
   };
 
+  /**
+   * THE LAUNCH VOTE'S OWN FACTS, beside the checklist that gates it (R74).
+   *
+   * Everything here is measured now and nothing is remembered, because all
+   * three answers move: members arrive, a vote opens, a vote closes. The page
+   * states them and offers the button when they allow it, which is the whole
+   * of R56 on this surface: a count is a fact, and a village of two reading
+   * "one more member" has been told something it could not otherwise see.
+   *
+   * `onTheRoll` is the ELECTORATE and not the member list, because that is
+   * what a 100% quorum is measured against and what R67's floor of three has
+   * to mean. A village of five where two people hold a voice would otherwise
+   * be told it could start.
+   */
+  async function launchVoteFacts() {
+    const threshold = thresholdsForSubject(VILLAGE_LAUNCH);
+    const openNow = await openBallotFor(getPool(), VILLAGE_LAUNCH, LAUNCH_SUBJECT_REF);
+    let onTheRoll: number | null = null;
+    let tooFew: string | null = null;
+    try {
+      const roll = await buildElectorate();
+      onTheRoll = roll.length;
+      tooFew = electorateFloorProblem(VILLAGE_LAUNCH, roll.length);
+    } catch (e: any) {
+      // Building the roll reads the weight mode, which can refuse (a weight
+      // token the engine may not conduct). That is a real answer about this
+      // village's settings and it belongs on the page, never as a count of
+      // zero that reads like an empty village.
+      tooFew = `The roll could not be read: ${String(e?.message ?? e).slice(0, 160)}`;
+    }
+    return {
+      onTheRoll,
+      tooFew,
+      unityPct: threshold?.minUnityPct ?? null,
+      quorumPct: threshold?.minQuorumPct ?? null,
+      minElectorate: threshold?.minElectorate ?? null,
+      why: threshold?.why ?? null,
+      openBallot: openNow
+        ? {
+            id: openNow.id,
+            title: openNow.title,
+            closesAt: openNow.closesAt,
+            electorateCount: openNow.electorateCount,
+            voted: await voteCount(getPool(), openNow.id),
+          }
+        : null,
+      /*
+       * Every launch vote this village has ever held, newest first. A vote
+       * that missed its participation is part of the journey and the page
+       * says so, so nobody has to wonder whether the last attempt happened.
+       */
+      past: (await ballotsFor(getPool(), VILLAGE_LAUNCH, LAUNCH_SUBJECT_REF))
+        .filter((b) => b.status !== "open")
+        .map((b) => ({ id: b.id, status: b.status, closedAt: b.closedAt, outcomeNote: b.outcomeNote })),
+    };
+  }
+
   app.get("/api/admin/launch", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    res.json(await launchStatus(getPool(), launchDeps));
+    const status = await launchStatus(getPool(), launchDeps);
+    res.json({ ...status, gameStart: await readGameStart(getPool()), vote: await launchVoteFacts() });
   });
 
   /** Confirm a manual (real-world) item, attributed to the admin who did it. */
@@ -12991,7 +13202,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       kind: "audit", text: `launch:confirm:${req.body?.id}:${req.body?.done !== false ? "done" : "retracted"}`,
       actorUserId: actor, entityType: "launch", entityRef: String(req.body?.id ?? ""), audience: "admin",
     });
-    res.json({ success: true, status: await launchStatus(getPool(), launchDeps) });
+    const fresh = await launchStatus(getPool(), launchDeps);
+    res.json({ success: true, status: { ...fresh, gameStart: await readGameStart(getPool()), vote: await launchVoteFacts() } });
   });
 
   /**
@@ -13555,10 +13767,18 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   // ── S66: feedback — the local queue is the feature, the relay is a copy ──
 
-  /** What the submission form needs to disclose, honestly, before anyone types. */
+  /**
+   * What the submission form needs to disclose, honestly, before anyone types.
+   *
+   * Two things decide it: the dial the village set, and whether this
+   * deployment was told where the hub is. The hub is no longer defaulted to
+   * anybody's address, so a deployment with the dial ON and `FEEDBACK_HUB_URL`
+   * unset shares nothing. Reporting the dial on its own would promise a person
+   * their words are travelling somewhere while they stay home.
+   */
   app.get("/api/feedback/config", async (_req, res) => {
     res.json({
-      relayOn: numberVar("platform.feedback_relay") === 1,
+      relayOn: feedbackIsShared(),
       villageName: mergedConfig().project.name,
     });
   });
@@ -13578,7 +13798,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const user = await authedUser(req);
     // The disclosure the form showed IS the consent, so it is recorded with
     // the item rather than re-derived from the setting at relay time.
-    const mayRelay = numberVar("platform.feedback_relay") === 1;
+    const mayRelay = feedbackIsShared();
     const r = await recordFeedback(getPool(), {
       kind, title, detail,
       pageUrl: typeof req.body?.pageUrl === "string" ? req.body.pageUrl : null,
@@ -13591,7 +13811,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     res.json({
       success: true,
       id: r.id,
-      shared: numberVar("platform.feedback_relay") === 1,
+      shared: feedbackIsShared(),
     });
   });
 
@@ -13601,7 +13821,20 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       "SELECT f.*, u.name AS submitter_name FROM feedback_items f LEFT JOIN users u ON u.id = f.submitted_by " +
         "ORDER BY f.created_at DESC LIMIT 300",
     );
-    res.json({ items: rows, relayOn: numberVar("platform.feedback_relay") === 1 });
+    /*
+     * Three facts, because two of them can disagree and an admin who cannot
+     * see the disagreement cannot fix it. `relayOn` is whether anything is
+     * actually leaving. `relayDialOn` is what the village set. `hubConfigured`
+     * is whether the server was told where to send. A dial reading ON beside a
+     * queue that is going nowhere needs a screen that says which half is
+     * missing.
+     */
+    res.json({
+      items: rows,
+      relayOn: feedbackIsShared(),
+      relayDialOn: numberVar("platform.feedback_relay") === 1,
+      hubConfigured: feedbackHubUrl().length > 0,
+    });
   });
 
   app.put("/api/admin/feedback/:id", async (req, res) => {
@@ -14447,19 +14680,152 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json({ success: true });
   });
 
-  /** The one-way founder act. Blocking items must all read ok. */
-  app.post("/api/admin/launch/launched", async (req, res) => {
+  /**
+   * ── THE BUTTON STOPS MARKING AND STARTS PROPOSING (R74, lane GAMESTART) ──
+   *
+   * This route used to write a flag. The founder ruled that it should open the
+   * village's first ballot instead: "the 'mark the village launched' button
+   * actually generates the first proposal that requires 100% unity and 100%
+   * quorum to launch and a minimum of 3 people."
+   *
+   * R54's test is the whole reason it is worth the change. Marking a village
+   * launched was the scaffolding declaring the village open. Opening a vote is
+   * the scaffolding asking, and the village answering. Setup stays solitary,
+   * which is R67; starting is collective.
+   *
+   * THE FOUNDER STILL OPENS IT, and that is not the scaffolding keeping a
+   * power. A founder builds the whole Game alone by design, so a founder is
+   * the one who knows it is built. What they get is the right to ask. The
+   * answer belongs to everybody, and there is no number of admins that can
+   * carry it without the rest of the village.
+   *
+   * The thresholds and the floor come from `shared/ballotSubjects.ts` and are
+   * not written here, so the next subject that needs its own numbers does not
+   * copy this route's judgment.
+   */
+  app.post("/api/admin/launch/propose", async (req, res) => {
     const user = await authedUser(req);
     if (!user || user.role !== "founder") {
-      return res.status(403).json({ error: "Marking the village launched is a founder's act" });
+      return res.status(403).json({ error: "Asking the village to start its Game is a founder's act" });
     }
-    const r = await markLaunched(getPool(), launchDeps, user.id);
-    if (!r.ok) return res.status(409).json({ error: r.error, open: (r as any).open });
-    void recordEvent(getPool(), {
-      kind: "audit", text: "launch:launched", actorUserId: user.id,
-      entityType: "launch", entityRef: "launched", audience: "admin",
+
+    /*
+     * CAN THIS VILLAGE HOLD A VOTE AT ALL, asked before anything else.
+     *
+     * The governance module ships OFF and is what mounts every voting route,
+     * so with it off a launch ballot would open, every member would get a 404
+     * trying to answer it, and the vote would sit unanswerable until somebody
+     * closed it. `ballot.vote` unlocks by STAGE and knows nothing about module
+     * lifecycles, so the electorate would look healthy the whole time.
+     *
+     * The rank test and not an off test, for the same reason `requireModule`
+     * uses one: at `preview` the voting routes answer admins and give every
+     * member the same 404, which is a ballot only the scaffolding can vote in.
+     */
+    if (LIFECYCLE_RANK[effectiveLifecycle("governance")] < LIFECYCLE_RANK.members) {
+      return res.status(409).json({
+        error:
+          "This village decides on Hypha today, so there is no vote to open here. Turn the governance module on for members first, and the village can hold this vote itself.",
+      });
+    }
+
+    // The journey gates the QUESTION and never the answer: a village whose
+    // exit policy is still a placeholder is not ready to be asked.
+    const blocked = await launchVoteBlocked(getPool(), launchDeps);
+    if (blocked) return res.status(409).json({ error: blocked.error, open: blocked.open });
+
+    const running = await openBallotFor(getPool(), VILLAGE_LAUNCH, LAUNCH_SUBJECT_REF);
+    if (running) {
+      return res.status(409).json({
+        error: "The village is already voting on this.",
+        ballotId: running.id,
+      });
+    }
+
+    const snapshot = weightModeNow();
+    if (snapshot.mode === "token") {
+      const problem = weightTokenProblem(snapshot.token ?? "");
+      if (problem) return res.status(409).json({ error: problem });
+    }
+    const electorate = await buildElectorate();
+
+    // R67's floor of three, asked of the ELECTORATE and not the member list. A
+    // village of five where two people hold a voice would otherwise carry a
+    // 100% ballot with two, which is not a Game with three people in it.
+    const tooFew = electorateFloorProblem(VILLAGE_LAUNCH, electorate.length);
+    if (tooFew) return res.status(409).json({ error: tooFew, onTheRoll: electorate.length });
+
+    const villageMethod = villageBallotMethod(stringVar("governance.default_method"));
+    const conducts = methodForSubject(VILLAGE_LAUNCH, villageMethod);
+    // The subject fixes this one, so `hypha` is unreachable here. The branch
+    // stays because the type says it can happen, and a cast would be a claim
+    // about a registry this route does not own.
+    if (conducts === "hypha") {
+      return res.status(409).json({ error: "This village decides on Hypha, and there is no chain leg for a village starting its own Game" });
+    }
+    const method: BallotMethod = conducts;
+    const dials = dialsForSubject(VILLAGE_LAUNCH, method, {
+      unityPct: Math.max(0, numberVar("governance.unity_pct")),
+      quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
     });
-    res.json({ success: true });
+
+    const villageName = mergedConfig().project.name;
+    const doc = [
+      `# Start the Game`,
+      "",
+      `${villageName} is built. This vote is what starts it.`,
+      "",
+      "## What changes when this carries",
+      "",
+      "Token issuance turns on. Until then this village can be set up in every other way, and nothing can be issued to anybody.",
+      "",
+      "## What this vote asks",
+      "",
+      `Everyone on the roll votes, and everyone who takes a side agrees: ${dials.quorumPct}% participation and ${dials.unityPct}% agreement. ${electorate.length} people hold a voice today, and this vote is frozen to those ${electorate.length}.`,
+      "",
+      "An abstention counts toward participation and takes no side on the agreement.",
+      "",
+      `Every item on the journey to launch read done when ${firstName(user.name)} opened this, on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ].join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: VILLAGE_LAUNCH,
+      subjectRef: LAUNCH_SUBJECT_REF,
+      title: `Start the Game in ${villageName}`,
+      docMarkdown: doc,
+      method,
+      weightMode: snapshot.mode,
+      weightToken: snapshot.token,
+      unityPct: dials.unityPct,
+      quorumPct: dials.quorumPct,
+      durationDays: Math.max(1, numberVar("governance.vote_days")),
+      openedBy: user.id,
+      electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    // A fact on the public pulse, with nothing in it about being late or
+    // early. A village of two weeks and a village of two years open this same
+    // vote and the line reads the same for both (R55).
+    await addActivity("governance", `The village is deciding whether to start its Game: ${result.ballot.title}`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void recordEvent(getPool(), {
+      kind: "audit", text: `launch:proposed:${result.ballot.id}`, actorUserId: user.id,
+      entityType: "launch", entityRef: result.ballot.id, audience: "admin",
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is deciding whether to start its Game`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. This one asks everyone on the roll, so it needs your answer to reach its participation.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
   });
 
   // â”€â”€ S53-S55: the automation pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -16343,7 +16709,52 @@ Send an empty drafts array when you are still listening. A role payload is {name
     let mine: any = null;
     if (viewer) {
       const awards = (await awardsFor(getPool(), viewer.id)).filter((a) => !a.expired);
-      mine = { awards, skills: await skillsFor(getPool(), viewer.id) };
+      /*
+       * WHO PUT THIS ON MY RECORD, AND WHEN.
+       *
+       * `awardsFor` hands back `awardedBy` as a user id and no date at all, so
+       * the member's own page could say a warning existed and nothing about
+       * where it came from. A warning is placed by a person, the route makes
+       * that person write a note because "the member deserves to know why",
+       * and then the answer to "who said this about me, and when" was a
+       * fourteen-character id the page never rendered. A record somebody
+       * cannot read is not a record.
+       *
+       * ONLY EVER THE VIEWER'S OWN AWARDS. This sits inside `if (viewer)` and
+       * keys on `viewer.id`, so the steward's name travels to the one member
+       * the note is about and to nobody else. The privacy line on warnings is
+       * unchanged: they are still absent from /api/badges/of/:userId, from
+       * /api/badges/match, and from every `holders` list.
+       *
+       * A LEFT JOIN, and a null name stays null. `awarded_by` is NULL when the
+       * earned engine granted the badge, and a member who has left takes their
+       * row with them. Inventing "a steward" for either would be a sentence
+       * the product made up. The page says the date and stays quiet about the
+       * person it cannot name.
+       *
+       * `created_at` is when it was placed and `updated_at` moves on a
+       * re-issue, so both travel: an award renewed by a second steward would
+       * otherwise pair a new name with the first date.
+       */
+      const [meta] = await getPool().query<any[]>(
+        "SELECT a.badge_id, a.created_at, a.updated_at, u.name AS awarded_by_name " +
+          "FROM badge_awards a LEFT JOIN users u ON u.id = a.awarded_by WHERE a.user_id = ?",
+        [viewer.id],
+      );
+      const iso = (v: any) => (v instanceof Date ? v.toISOString() : v ? String(v) : null);
+      const byBadge = new Map(meta.map((r) => [String(r.badge_id), r]));
+      mine = {
+        awards: awards.map((a) => {
+          const row = byBadge.get(a.badgeId);
+          return {
+            ...a,
+            awardedByName: row?.awarded_by_name ? firstName(String(row.awarded_by_name)) : null,
+            awardedAt: iso(row?.created_at),
+            lastChangedAt: iso(row?.updated_at),
+          };
+        }),
+        skills: await skillsFor(getPool(), viewer.id),
+      };
     }
     // Who holds each badge, and until when. Already public through
     // /api/badges/match and /api/badges/of/:userId, so the same privacy line
@@ -18536,6 +18947,49 @@ Send an empty drafts array when you are still listening. A role payload is {name
     res.json({ success: true });
   });
 
+  /**
+   * Journey State: the founding team's own working documents.
+   * POST /api/journey/resources  { resources: [{ label, url }] }
+   *
+   * Behind `isJourney`, which is `isAdmin`, the same gate the rest of this
+   * document reads and writes through. That matters more than it looks: the
+   * whole point of moving these links out of the client bundle is that a
+   * route guard now decides who sees them, so serving them from anything
+   * weaker than the page's own gate would move the problem rather than fix it.
+   *
+   * The list replaces wholesale, the way the admin screens edit the other
+   * config documents. Only http and https survive: a `javascript:` href in an
+   * anchor this page renders would run in the next admin's browser.
+   */
+  app.post("/api/journey/resources", async (req, res) => {
+    if (!(await isJourney(req))) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    const incoming = req.body?.resources;
+    if (!Array.isArray(incoming)) {
+      return res.status(400).json({ error: "Send a resources array" });
+    }
+    if (incoming.length > 40) {
+      return res.status(400).json({ error: "That is more than 40 links. Trim the list first" });
+    }
+    const cleaned: Array<{ label: string; url: string }> = [];
+    for (const raw of incoming) {
+      const label = String(raw?.label ?? "").trim().slice(0, 120);
+      const url = String(raw?.url ?? "").trim().slice(0, 2000);
+      if (!label && !url) continue;
+      if (!/^https?:\/\/\S/i.test(url)) {
+        return res.status(400).json({ error: `"${label || url}" needs a web address starting http:// or https://` });
+      }
+      cleaned.push({ label: label || url, url });
+    }
+    // Copied rather than mutated in place. Before any row exists, `get()`
+    // hands back the module-level default OBJECT, so writing a field onto it
+    // edits the default every later reader in this process will see.
+    const journey = { ...journeyRepo.get(), resources: cleaned };
+    await journeyRepo.put(journey);
+    res.json({ success: true, resources: cleaned });
+  });
+
   // â”€â”€ Email Config (Resend) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
 
   app.get("/api/admin/email-config", async (req, res) => {
@@ -19927,6 +20381,105 @@ ${inner}
 
   // â”€â”€ Visit Config (NEW-5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+  /**
+   * A CALL TO ACTION IS NOT A DOOR INTO THE VAULT.
+   *
+   * `GET /api/visit-config` and `GET /api/investor-summary` are both PUBLIC and
+   * both echo the whole admin-authored document back, `cta_url` and all. So
+   * pasting a vault document's link into that field published the document, to
+   * everybody, with nobody choosing to release it.
+   *
+   * That is the exact thing 0104 and PR #91 exist to stop from the other side.
+   * A vault document is private until an admin makes a per-document choice
+   * (`inPacket`), because `/api/uploads/:filename` has no authentication of its
+   * own: the link IS the credential, it never expires, and it can be forwarded.
+   * Deleting the row does not kill the file. There is no second revocation
+   * path. One paste into a text box walked around all of it.
+   *
+   * A VALIDATION, NEVER A GATE. An admin who pastes a vault link is trying to
+   * do something reasonable: point the button at the document they want people
+   * to read. So this refuses the one shape that leaks and says which door is
+   * open, in the founder's own words. Every other link still saves.
+   *
+   * The sweep is by FIELD NAME across the whole document, not by a path this
+   * function was told about. `visit_types` is an array of objects each with
+   * their own `cta_url`, and a shape that grows a third one should meet this
+   * on the day it is added instead of on the day somebody notices.
+   */
+  const UPLOADS_PATH = /^\/api\/uploads\//i;
+
+  /**
+   * The path a browser would actually ask the server for.
+   *
+   * Parsed rather than pattern-matched, and that is the second version. The
+   * first stripped an optional scheme and authority by hand, which read the
+   * three shapes an admin pastes (a bare path, a protocol-relative link, the
+   * absolute one an address bar hands over) and NOT the normalizing a browser
+   * does before it sends: `/api/./uploads/cap-table.pdf` and
+   * `/api/x/../uploads/cap-table.pdf` both arrive at the file and both slipped
+   * straight past a prefix test. A guard has to read the same path the server
+   * will be asked for, so it uses the same parser.
+   *
+   * A LINK ON SOMEBODY ELSE'S HOST WHOSE PATH IS ALSO /api/uploads/ IS
+   * REFUSED TOO, and that is the direction to be wrong in. It costs a founder
+   * one readable sentence on a link almost nobody has, and the alternative
+   * trusts a hostname comparison to decide whether to publish a cap table.
+   */
+  function linkPath(raw: string): string {
+    try {
+      return new URL(raw, "http://village.invalid").pathname;
+    } catch {
+      return raw;
+    }
+  }
+
+  function vaultLinkProblem(value: unknown): string | null {
+    if (value == null) return null;
+    // A list of links is checked link by link. My own first draft called
+    // String() on the whole array, so ["/somewhere", "/api/uploads/cap-table"]
+    // read as one string starting with "/somewhere" and sailed through, which
+    // is the shape a guard that only ever saw the happy input would keep.
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const problem = vaultLinkProblem(item);
+        if (problem) return problem;
+      }
+      return null;
+    }
+    const raw = String(value).trim();
+    if (!raw || !UPLOADS_PATH.test(linkPath(raw))) return null;
+    return (
+      "That link points into the investor vault. Files under /api/uploads/ have no sign-in in front of them, " +
+      "so anyone who opens this public page can read the document and pass the link to anybody else, forever. " +
+      "To share a document, put it in the investor packet under Admin, Investors, Documents, which is the choice " +
+      "that decides what a person receives. Then point this button at a page on the site."
+    );
+  }
+
+  /** Every call-to-action field in a document body, however deep it sits. */
+  function vaultLinkProblemIn(body: unknown): string | null {
+    const walk = (node: unknown): string | null => {
+      if (!node || typeof node !== "object") return null;
+      if (Array.isArray(node)) {
+        for (const v of node) {
+          const p = walk(v);
+          if (p) return p;
+        }
+        return null;
+      }
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        if (/^cta_?url$/i.test(key)) {
+          const p = vaultLinkProblem(value);
+          if (p) return p;
+        }
+        const deeper = walk(value);
+        if (deeper) return deeper;
+      }
+      return null;
+    };
+    return walk(body);
+  }
+
   app.get("/api/visit-config", async (_req, res) => {
     res.json(visitConfigRepo.get());
   });
@@ -19939,6 +20492,8 @@ ${inner}
   app.put("/api/admin/visit-config", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    const leak = vaultLinkProblemIn(req.body);
+    if (leak) return res.status(400).json({ error: leak });
     await visitConfigRepo.put(req.body);
     res.json({ success: true });
   });
@@ -19957,6 +20512,10 @@ ${inner}
   app.put("/api/admin/investor-summary", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    // The document this route saves is served verbatim to the public route
+    // above it. See vaultLinkProblem, in the visit-config block.
+    const leak = vaultLinkProblemIn(req.body);
+    if (leak) return res.status(400).json({ error: leak });
     await investorSummaryRepo.put(req.body);
     res.json({ success: true });
   });
@@ -22449,6 +23008,30 @@ ${inner}
         });
       }
     }
+    /*
+     * ISSUANCE WAITS FOR THE VILLAGE (R67), ASKED BEFORE THE CLAIM FLIPS.
+     *
+     * The ledger refuses a faucet posting until the launch vote carries, and
+     * every other issuing path in this file finds that out AFTER it has
+     * already changed something. Here that would be the worst version of it:
+     * the claim flips to `consented`, the credit is refused, the route answers
+     * 500, and consenting again is a 409 because the claim is no longer
+     * submitted. A member's work would be recorded as done and paid nothing,
+     * with no way to run it again.
+     *
+     * So this route asks first. `granted > 0` because a village that has opted
+     * into consenting at zero posts nothing at all, and refusing that would be
+     * withholding an acknowledgement that costs no tokens.
+     *
+     * The other faucet callers are not guarded this way and are not silent
+     * either: each one returns or logs the ledger's own sentence. This is the
+     * only one that loses a member's work by finding out late.
+     */
+    if (granted > 0) {
+      const notStarted = await issuanceRefusal(getPool());
+      if (notStarted) return res.status(409).json({ error: notStarted });
+    }
+
     // Stage depends on consented-quest count, so the snapshot must be taken
     // BEFORE the claim flips to consented; taking it after would always compare
     // equal and the advancement event would never fire.
@@ -24212,6 +24795,25 @@ ${inner}
         core: !!m.core,
       })),
       governance: mechanicsGovernanceFacts(),
+      /*
+       * HAS THIS VILLAGE'S GAME STARTED (R67), where the rest of the product
+       * can read it. Every other consumer of this fact was admin-gated, so a
+       * member had no way to learn why nothing had ever been issued to them.
+       *
+       * This route already answers "what are the rules of this village's Game",
+       * and whether it has begun is the first of those.
+       *
+       * THREE FIELDS AND NOT THE WHOLE DOCUMENT. This route is anonymous, and
+       * `startedBy` is the user id of whoever closed the vote. Nothing here
+       * needs it and a stranger has no business reading it off a rules page,
+       * so it is picked out by hand instead of spread. The ballot id stays,
+       * because it points at a decision and never at a person, and it is what
+       * makes "the Game started" checkable against the vote that started it.
+       */
+      gameStart: await (async () => {
+        const g = await readGameStart(getPool());
+        return { started: g.started, startedAt: g.startedAt, ballotId: g.ballotId };
+      })(),
     });
   });
 
@@ -24305,7 +24907,14 @@ ${inner}
     const ctx = await capabilityCtx(user);
     return proposerStanding(
       hasCapability("mechanics.propose", ctx),
-      (ctx.badgeDenies ?? []).includes("mechanics.propose"),
+      // THE SECOND READER OF A DENY, and the only one outside the gate.
+      // `isDeniable` is asked here too (0109) so this cannot drift from the
+      // gate the day somebody reclassifies a key. Byte-identical today:
+      // `mechanics.propose` is deniable, and the raw membership test that
+      // used to stand alone here is deliberately kept beside it, because it
+      // reaches an admin where the gate short-circuits and that is this
+      // function's own long-standing posture.
+      isDeniable("mechanics.propose") && (ctx.badgeDenies ?? []).includes("mechanics.propose"),
       Number(user.recognitionBalance ?? 0),
       Math.max(0, numberVar("governance.hypha_threshold")),
       ctx.isAdmin,
@@ -24995,10 +25604,32 @@ ${inner}
   /**
    * The village-wide electorate, built through the ONE gate: every real,
    * sign-in-able member for whom hasCapability("ballot.vote") answers true.
-   * Example users are excluded; a warning badge's deny suspends voting; the
-   * admin shortcut and role/badge grants all ride the gate's own order.
+   * The admin shortcut and role/badge grants all ride the gate's own order.
    * Weight per the current mode — the caller freezes the result into the
    * ballot, after which nothing here matters to that vote again.
+   *
+   * A WARNING BADGE NO LONGER SUSPENDS VOTING HERE (0109, R65/R66). Denying a
+   * voice is not a power anyone holds, so `DENIABLE` marks `ballot.vote` as a
+   * key no deny reaches and the gate ignores one. Nothing about this function
+   * changed; what changed is the answer the gate gives it.
+   *
+   * WHO LEAVING TAKES OUT OF THE POOL, WHICH IS THE OTHER HALF AND IS
+   * LEGITIMATE. The `passwordHash` filter is doing that work and it is
+   * load-bearing rather than a tidy-up: `anonymizeMember` clears the hash when
+   * a member leaves through either door (`DELETE /api/admin/players/:id` or
+   * `POST /api/profile/delete-account`), so a departed member is not a
+   * candidate for any roll built afterwards. That matters because quorum is
+   * measured against `ballots.total_weight`, the sum of the roll frozen at
+   * open: a departed member left in the pool would count toward quorum
+   * forever and every proposal would get harder to pass as the village aged.
+   * `seatRecord.routes.e2e.test.ts` measures the drop against a control.
+   *
+   * The gap that is NOT covered: a member who stops taking part but keeps
+   * their account is still in the pool, because "left the village" has no
+   * representation here other than deleting the account. Confirming a
+   * departure by vote is a separate piece of work.
+   *
+   * Example users are excluded: they are content, never people.
    */
   async function buildElectorate(): Promise<Array<{ userId: string; weight: number }>> {
     const candidates = (await members.all()).filter((u: any) => !isExampleUser(u) && u.passwordHash);
@@ -25544,6 +26175,134 @@ ${inner}
         actorUserId: actorId,
         entityType: "capability",
         entityRef: b.subjectRef,
+        audience: "admin",
+      });
+      return out;
+    },
+
+    /*
+     * ── THE GAME STARTS (lane GAMESTART, R67 and R74) ───────────────────────
+     *
+     * The rarest close a village will ever run, and the only one that turns a
+     * power on for everybody at once. What it does is small on purpose: it
+     * records two facts and issues nothing itself.
+     *
+     *   `recordGameStart`      token issuance opens (server/lib/gameStart.ts)
+     *   `recordLaunchCarried`  the launch journey has its answer, and the
+     *                          ballot that gave it
+     *
+     * TWO WRITES AND NOT ONE, and the reason is the deployment that already
+     * exists. Going forwards they are the same event, and this executor is the
+     * only thing that ever writes both. Looking back they are not: every
+     * village running today has been issuing for months without ever holding
+     * this vote, and migration 0112 records only the issuance half for them,
+     * with no ballot behind it. One flag for both would have had to either
+     * turn a live village dark or claim a vote nobody held.
+     *
+     * IDEMPOTENT TWICE OVER, like every executor here. `closeBallot` is a
+     * guarded `UPDATE ... WHERE status='open'`, so a second close returns
+     * `alreadyClosed` and never reaches this; and both writes are INSERT
+     * IGNORE or a read-then-skip on a row that already stands, so a run that
+     * did reach here twice leaves the first instant and the first ballot.
+     *
+     * A FAILURE TO REACH EVERYONE IS NOT A NO. At 100% participation, a
+     * village where one person never voted closes as `no_quorum`, and that
+     * branch says exactly that and leaves everything where it was. The vote
+     * can be asked again the same hour: `closeBallot` frees the open key, so a
+     * new ballot opens with a NEW freeze, and the one that missed stays closed
+     * and immutable with its own roll.
+     */
+    [VILLAGE_LAUNCH]: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? "Not everyone answered, so the Game has not started yet"
+              : "The village did not start its Game",
+          body:
+            outcome === "no_quorum"
+              ? "This vote asks for everyone on the roll. Nothing has changed and nothing is lost, and it can be asked again whenever the village is more gathered."
+              : `${outcomeNote}\n\nEverything stays as it was, and the village can be asked again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          // Keyed on the BALLOT: the same village can ask more than once, and
+          // whoever asked has to hear about each answer.
+          dedupeKey: `bal:${b.id}:launch-not-started`,
+        });
+        return out;
+      }
+
+      const started = await recordGameStart(getPool(), {
+        ballotId: b.id,
+        startedBy: actorId,
+        note: "The village voted to start its Game.",
+      });
+      await recordLaunchCarried(getPool(), { ballotId: b.id, closedBy: actorId });
+      if (!started.started) {
+        /*
+         * A refusal is held, never swallowed. Nothing today can reach this,
+         * because `recordGameStart` writes the row and reads it straight back
+         * in the same call, so the only way here is the write failing silently.
+         * A village whose vote carried is owed the reason instead of a page
+         * that says a Game started while nothing can be issued.
+         */
+        out.held = "The vote carried and this build could not record the Game as started. Report this.";
+        await notifyAdmins("governance", `A carried launch vote could not land: ${b.title}`, `bal:${b.id}:launch-held`);
+        return out;
+      }
+
+      /*
+       * `applied` STAYS EMPTY, and that is a decision rather than an omission.
+       *
+       * "What changed" on the outcome card renders each applied key as
+       * "<key> now holds the value the village voted for", which is written
+       * for a mechanics amendment. Starting a Game sets no dial to a value, so
+       * a key here would render a sentence that is false about the most
+       * consequential decision a village ever takes. The handover ballots hit
+       * the same wall and answered it the same way (`ballot.transfer` on
+       * client/src/pages/Decision.tsx suppresses the block and the ceremony
+       * says what moved, in the power's own words).
+       *
+       * The record does not go quiet. The outcome sentence is the heading of
+       * that card, the title says what was decided, the public pulse carries
+       * its own line, and `app_config['game-start']` holds this ballot's id
+       * permanently. What is genuinely missing is a durable line ON the
+       * decision page reading "this is the vote that started the Game", the
+       * way `crossedHere` reads a handover off its own row. That is a UI
+       * addition and it is named here instead of faked with a key.
+       */
+      out.applied = [];
+      out.proposerTold = b.openedBy;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village started its Game: ${b.title}`,
+        body: "Token issuance is open from today, by a vote every member on the roll took part in.",
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:launch-carried`,
+      });
+      /*
+       * ON THE PUBLIC PULSE, and phrased as a fact about the village and not
+       * about whoever closed the vote. This is the one line in the feed that a
+       * village will still be reading in five years.
+       */
+      await addActivity("governance", `The village started its Game, by a vote of everyone on the roll.`, {
+        actorUserId: actorId,
+        entityType: "ballot",
+        entityRef: b.id,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `launch:started-by-ballot:${b.id}`,
+        actorUserId: actorId,
+        entityType: "launch",
+        entityRef: b.id,
         audience: "admin",
       });
       return out;
@@ -26177,12 +26936,16 @@ ${inner}
    *
    * THE GATE IS READ HERE SO THE REFUSAL CAN SAY WHY. Somebody who is not on
    * the roll used to be told, always, that "who may vote froze when it
-   * opened". That is true of the member who joined after the vote started and
-   * false of the member a warning badge is holding back: `buildElectorate`
-   * runs the one gate at open and `capabilityDecision` refuses a warning's
-   * deny before it looks at any grant, so she is left off every roll built
-   * afterwards, and the product named the freeze and hid the cause. The
-   * sentence itself lives with the rule, in `offRollSentence`.
+   * opened", and that is true of the member who joined after the vote started
+   * while naming timing as the cause for everybody else. The sentence itself
+   * lives with the rule, in `offRollSentence`.
+   *
+   * `deniedByWarning` CAN NO LONGER BE TRUE, and it is left in place rather
+   * than deleted (0109, R65/R66). A warning badge naming `ballot.vote` is
+   * ignored by the gate now, so this reads false for everybody and the
+   * warning branch of `offRollSentence` has no caller. It stays because the
+   * shape is the fail-safe: any later reason the gate refuses this key gets a
+   * sentence of its own instead of borrowing the freeze's.
    *
    * A LOOK AND NEVER AN ACT (R53): `capabilityCtx` is the pure gate with no
    * break-glass in it, exactly as `/api/governance/standing` reads it. Asking
@@ -26273,6 +27036,58 @@ ${inner}
         // back as a Date already read as UTC. Handing a STRING to `new Date`
         // instead would parse it in the app machine's own zone and move the
         // instant, which is how a decision's date drifts by a working day.
+        closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : r.closed_at ? String(r.closed_at) : null,
+      })),
+    );
+  });
+
+  /**
+   * WHICH OBJECTIONS A NEW PROPOSAL MAY SAY IT ANSWERS (0102, the proposer's side).
+   *
+   * `answersObjectionId` shipped on the open-ballot route with no sender
+   * anywhere in the client, so the only way to reach the feature was to call
+   * the API by hand. This is the read the picker is built from.
+   *
+   * IT OFFERS ONLY WHAT `objectionLineageProblem` WILL ACCEPT, and the three
+   * conditions are the same three, in the same order that function asks them:
+   * no successor yet, the objection has been ruled in a way that means a
+   * proposal changed, and the vote it was raised on has finished. A picker
+   * that offered anything else would walk a proposer into a refusal they could
+   * not have seen coming, and finding out by being told no is not how anybody
+   * should learn what they are allowed to do.
+   *
+   * The two statuses are named rather than excluded, so this is a SUBSET of
+   * what the route accepts and never a superset. If a sixth ruling is ever
+   * added, a proposer simply is not offered it until somebody decides whether
+   * "the proposal changed after this" is a true reading of it.
+   *
+   * IT NAMES NO PERSON, for the same reason the lineage route does not.
+   * `objectionLineageShape.test.ts` holds every query that touches this column
+   * to that line: lineage is a fact about a decision, and one member-shaped
+   * column here is all it takes to turn it into a scoreboard. The proposer
+   * needs the objection's words and the decision it was raised on. Who raised
+   * it is on that decision's own page, beside the objection, where it belongs.
+   */
+  const ANSWERABLE_CAP = 50;
+  app.get("/api/governance/objections/answerable", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT o.id, o.text, o.status, o.created_at, b.id AS ballot_id, b.title AS ballot_title, " +
+        "b.closed_at FROM ballot_objections o JOIN ballots b ON b.id = o.ballot_id " +
+        "WHERE o.led_to_ballot_id IS NULL AND o.status IN ('integrated','concern') " +
+        `AND b.status <> 'open' ORDER BY b.closed_at DESC, o.created_at DESC LIMIT ${ANSWERABLE_CAP}`,
+    );
+    res.json(
+      rows.map((r) => ({
+        id: String(r.id),
+        text: String(r.text),
+        status: String(r.status),
+        ballotId: String(r.ballot_id),
+        ballotTitle: String(r.ballot_title),
+        // Same spelling and the same reason as the lineage route above: mysql2
+        // runs with timezone "Z", so a datetime arrives as a Date already read
+        // as UTC, and handing a string to `new Date` would move the instant.
         closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : r.closed_at ? String(r.closed_at) : null,
       })),
     );
@@ -27564,7 +28379,12 @@ ${inner}
       token: snapshot.token,
       tokenName,
       eligible,
-      /** Set only when a warning badge is the thing refusing the vote. */
+      /**
+       * Always false since 0109: a warning badge can no longer take a voice
+       * away, so this key never reaches the deny step. Served rather than
+       * dropped so the client contract holds while the surfaces that read it
+       * catch up.
+       */
       deniedByWarning: voteGate.source === "denied by warning badge",
       weight,
       why,
@@ -27659,7 +28479,6 @@ ${inner}
         baseBudget: numberVar("gratitude.base_budget"),
         maxPerRecipientPerCycle: numberVar("gratitude.max_per_recipient_per_cycle"),
         requireMessage: boolVar("gratitude.require_message"),
-        cycleMode: stringVar("gratitude.cycle_mode"),
         // The ReGen pool model: the community can always see how big the pool
         // is and what it pays — but a member's SHARE is unknowable before
         // close, and that indeterminacy is the design, not a gap.

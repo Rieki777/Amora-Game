@@ -7,7 +7,9 @@
  *              quests, posted ledger rows, settled cycle distributions).
  *   granted  — an admin's act, with a note.
  *   warning  — an admin's act that DENIES capabilities. Deny beats role and
- *              stage in the gate (Gate E); only admin outranks it.
+ *              stage in the gate (Gate E); only admin outranks it. It reaches
+ *              only the keys `DENIABLE` marks: a voice is never one of them
+ *              (0109, R65/R66).
  *   hypha    — a mirror of an external fact. Display only (caps must be []).
  *
  * The recognition firewall: a capability-bearing EARNED badge may never ride
@@ -21,7 +23,7 @@
  * from raw sends.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { ALL_CAPABILITIES, type Capability } from "../../shared/capabilities";
+import { ALL_CAPABILITIES, capabilityLabel, isDeniable, type Capability } from "../../shared/capabilities";
 import { CAPABILITY_CONSEQUENCE } from "../../shared/draftKinds";
 
 export const BADGE_KINDS = ["self", "earned", "granted", "warning", "hypha"] as const;
@@ -123,6 +125,18 @@ export function badgeProblem(b: {
   }
   for (const d of b.denies) {
     if (!known.has(d)) return `unknown capability key "${d}" in denies`;
+    /*
+     * R65/R66 (0109): a voice is not a thing anybody may take away. The gate
+     * already ignores a deny naming one of these, so this is the second of
+     * three locks on the same door, and it is the one that speaks: an admin
+     * who tries gets told why instead of watching a badge save and do
+     * nothing. `drizzle/0109` is the third, clearing the rows already stored,
+     * and it runs at boot BEFORE `assertBadgeInvariants` reaches this line,
+     * so an existing warning badge cannot refuse the boot.
+     */
+    if (!isDeniable(d)) {
+      return `a warning badge cannot take away "${capabilityLabel(d)}". A voice that was earned is never taken away, and this is one`;
+    }
   }
   if ((b.kind === "self" || b.kind === "hypha") && b.capabilities.length) {
     return `${b.kind} badges gate nothing. Self-declarations and external mirrors cannot carry capabilities`;

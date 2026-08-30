@@ -60,6 +60,44 @@ function kindMeta(kind: string): { label: string; icon: React.ElementType; cls: 
   return KIND_META[kind] ?? { ...UNKNOWN_KIND, label: String(kind || "unknown") };
 }
 
+const longDate = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+
+/**
+ * WHO PUT THIS ON MY RECORD, AND WHEN.
+ *
+ * A warning is placed by a person, and the award route makes that person write
+ * a note because "the member deserves to know why". The note rendered here and
+ * the rest of the record did not: no name, no date, nothing to say where the
+ * sentence came from. A record somebody cannot read is not a record.
+ *
+ * `awardedByName` is null on purpose in two real cases: the earned engine
+ * granted it, and the person who placed it has left the village. Neither gets
+ * a stand-in. The line says the date and stays quiet about the name it does
+ * not have, because inventing "a steward" would be the product making up a
+ * fact about a person.
+ *
+ * A re-issue is its own fact and it moves the record's date, so a renewed
+ * warning says so. An indefinitely renewed one then leaves a trail the member
+ * can read for herself.
+ */
+export function badgeProvenanceLine(
+  kind: string,
+  award: { awardedByName?: string | null; awardedAt?: string | null; lastChangedAt?: string | null; reissueCount?: number },
+): string | null {
+  if (!award?.awardedAt) return null;
+  const when = longDate(award.awardedAt);
+  const who = award.awardedByName;
+  const opening = who
+    ? `${who} ${kind === "warning" ? "placed this" : "gave you this"} on ${when}.`
+    : `Recorded on ${when}.`;
+  const again = Number(award.reissueCount ?? 0);
+  if (again > 0 && award.lastChangedAt) {
+    return `${opening} Renewed ${again === 1 ? "once" : `${again} times`}, last on ${longDate(award.lastChangedAt)}.`;
+  }
+  return opening;
+}
+
 export default function Badges() {
   const modules = useModules();
   const badgesModule = useModule("badges");
@@ -183,12 +221,34 @@ export default function Badges() {
                         <p className="text-xs text-red-600 mt-1">Suspends: {b.denies.join(", ")}</p>
                       )}
                       {mine?.note && <p className="text-xs text-muted-foreground italic mt-1">“{mine.note}”</p>}
+                      {/* Where the sentence above came from. Only ever on the
+                          member's own award: the server sends `mine` for the
+                          signed-in reader alone, so a steward's name reaches
+                          the one person the note is about. */}
+                      {mine && badgeProvenanceLine(String(b.kind ?? ""), mine) && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {badgeProvenanceLine(String(b.kind ?? ""), mine)}
+                        </p>
+                      )}
+                      {/* R56: state what it is and get out of the way. A count
+                          is a fact and a warning is an argument, so this says
+                          what the record is and who can change it, and it says
+                          nothing about what she should do with it. */}
+                      {mine && b.kind === "warning" && !mine.expiresAt && (
+                        <p className="text-xs text-stone-600 mt-1">
+                          This is a note on your record. It stays until a steward takes it off.
+                        </p>
+                      )}
                       {/* Trust can be lent for a season. Until this shipped, a
                           member holding a badge that lapses next week saw
-                          nothing to tell them so. */}
+                          nothing to tell them so. A warning is the other
+                          direction: what lapses is the note, so "yours until"
+                          was the wrong sentence on the one kind nobody wants. */}
                       {mine?.expiresAt && (
                         <p className="text-xs text-amber-700 mt-1">
-                          Yours until {new Date(mine.expiresAt).toLocaleDateString()}.
+                          {b.kind === "warning"
+                            ? `This lifts on ${new Date(mine.expiresAt).toLocaleDateString()}.`
+                            : `Yours until ${new Date(mine.expiresAt).toLocaleDateString()}.`}
                         </p>
                       )}
                       {(b.holders ?? []).length > 0 && (
