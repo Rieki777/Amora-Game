@@ -52,8 +52,15 @@ interface PoolPayload {
 const num = (n: number) => n.toLocaleString();
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
+/*
+ * OWED, never "paid". Nothing in this codebase can move a token, and no
+ * distribution has ever been made, so a label reading "Paid to the builder"
+ * would be the product asserting an event that did not happen. `payable` and
+ * `accrued` are both owed; what separates them is whether there is an account
+ * to settle against, which is what these two sentences say.
+ */
 const WHERE_IT_GOES: Record<PoolModule["settlement"], string> = {
-  payable: "Paid to the builder",
+  payable: "Owed to the builder",
   accrued: "Held for the builder",
   recycled: "Back into the pool",
 };
@@ -89,7 +96,7 @@ export default function PoolStatement() {
         The builders&rsquo; pool this cycle{" "}
         <InfoTip
           label="What this statement is"
-          tip="Every module earns a share of the $ReGen pool from how many members open it. A module somebody outside the platform built is paid its share. A module the platform built earns its share the same way, and that share goes back into the pool to be given out again next cycle."
+          tip="Every module earns a share of the $ReGen pool from how many members open it. A module somebody outside the platform built is owed its share. A module the platform built earns its share the same way, and that share goes back into the pool to be given out again next cycle."
         />
       </h2>
       <p className="text-sm text-muted-foreground mt-1">

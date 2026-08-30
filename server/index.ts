@@ -741,6 +741,7 @@ import {
   type ModuleLifecycle,
 } from "../shared/modules";
 import { poolStatus } from "../shared/modulePool";
+import { MODULE_USAGE_PROTOCOL } from "../shared/moduleProvenance";
 import { computeModulePoolShares, MODULE_POOL_PER_CYCLE, nextCyclePool } from "../shared/modulePoolShares";
 import { initModuleUsage, villageUsageReport } from "./lib/moduleUsage";
 import { BUILD_A_MODULE_URL, BUILDERS_POOL_URL, MODULE_CATALOG, MODULE_GROUPS } from "../shared/moduleCatalog";
@@ -8168,6 +8169,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         basis: "village-reading",
         cycle: report.cycleId,
         sealed: report.sealed,
+        // When these numbers stopped moving, or null while the cycle is open.
+        // A statement about a finished cycle that cannot say when it finished
+        // is a receipt with no date on it.
+        sealedAt: report.sealedAt,
         activeMembers: report.activeMembers,
         totals: {
           pool: split.pool,
@@ -8206,14 +8211,35 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   /*
-   * The hub's pull. Aggregate counts and an instance id, and no member ever.
-   * A pull rather than a push for the reason the feedback relay is queue-and-
-   * forget: the hub is a listener and never a dependency, so a village whose
-   * hub is unreachable keeps its own books and loses nothing.
+   * WHOEVER IS COUNTING PULLS THIS. Aggregate counts, the credits that travel
+   * with each module, an instance id, and no member ever.
+   *
+   * A PULL rather than a push, for the reason the feedback relay is
+   * queue-and-forget: a counter is a listener and never a dependency, so a
+   * village whose counter is unreachable keeps its own books and loses nothing.
+   * R72 and R64 make that the fork-safe shape as well as the resilient one.
+   * A push would need every deployment to hold an address, which is one
+   * organisation written into every fork, and a fork that changed counters
+   * would need a code change to be counted by anybody else. A pull needs
+   * nothing: this village names nobody, and any counter that can read
+   * `/.well-known/village.json` can find this endpoint, read it, verify the
+   * signature against the key that document publishes, and decide for itself
+   * whether to count what it says. A village that reports to nobody still keeps
+   * its own honest numbers, because the numbers were never for anybody else.
+   *
+   * SIGNED, and signed at a chosen moment rather than at now. A SEALED cycle
+   * cannot change again, so it signs at its seal time and two fetches of it are
+   * byte identical and verify to the same signature: a counter can cache one,
+   * relay it, compare two copies, and settle from a document whose integrity
+   * survived leaving this server. An OPEN cycle is still moving, so it signs at
+   * now, which is the honest statement that this is a reading taken at a moment
+   * rather than a record of anything finished. `/api/public/org.json` makes the
+   * same distinction for the same reason.
    */
   app.get("/api/platform/module-usage", async (req, res) => {
     try {
-      res.json(await villageUsageReport(requestedCycle(req)));
+      const report = await villageUsageReport(requestedCycle(req));
+      res.json(signDocument(report, signingKey(), report.sealedAt ?? new Date().toISOString()));
     } catch (e) {
       reportError(e, { where: "the module usage report" });
       res.status(500).json({ error: "usage_unavailable" });
@@ -29080,13 +29106,27 @@ ${inner}
       location: cfg.project.location ?? null,
       platform: { name: "custom-game-foundation", version: PLATFORM_VERSION, build: BUILD_MARKER },
       publicKey: publicKeyBlock(signingKey()),
-      // Only what this deployment actually answers. Announcing `org/1` while
-      // the org export is dark would send every reader to a 404 and teach them
-      // this village is broken instead of private.
-      supports: live ? ["org/1"] : [],
+      /*
+       * Only what this deployment actually answers. Announcing `org/1` while
+       * the org export is dark would send every reader to a 404 and teach them
+       * this village is broken instead of private.
+       *
+       * `module-usage/1` is UNCONDITIONAL, and the difference is worth reading.
+       * `org/1` is a village's own structure, published only once the village
+       * has said its structure may be public, so it is a choice. The usage
+       * report is counts of people and never a person, it is served to anybody
+       * already, and the meter runs whether or not anybody is listening. So
+       * announcing it says nothing a village did not already publish, and it is
+       * the one thing R72's third clause needs to survive a fork: a counter
+       * that has never heard of this deployment reads this document, finds the
+       * report, and learns both the numbers and who built each module without
+       * holding a list of its own.
+       */
+      supports: [...(live ? ["org/1"] : []), MODULE_USAGE_PROTOCOL],
       links: {
         humanHome: "/",
         platformInfo: "/api/platform/info",
+        moduleUsage: "/api/platform/module-usage",
         ...(live ? { org: "/api/public/org.json", orgMarkdown: "/org/index.md" } : {}),
       },
       // Same lifecycle floor as /api/platform/info: a module in `preview` is

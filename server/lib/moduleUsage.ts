@@ -112,6 +112,13 @@
  * month, which is less than this platform writes for notifications in a day.
  */
 import type { Pool } from "mysql2/promise";
+import {
+  buildModuleUsageReport,
+  moduleUsageReportProblems,
+  reachOf,
+  type ModuleUsageReport,
+} from "../../shared/moduleProvenance";
+import { MODULES } from "../../shared/modules";
 import { cycleIdFor } from "./gratitude-cycles";
 import { instanceIdentity } from "./identity";
 import { registerJob } from "./scheduler";
@@ -224,54 +231,59 @@ export function markModuleUse(moduleId: string, rawUserId: string | null): void 
 export function reachWeights(usage: CycleUsage): Map<string, number> {
   const weights = new Map<string, number>();
   if (usage.activeMembers <= 0) return weights;
+  // CLAMPED by `reachOf`, and the clamp is load-bearing. The cap at one
+  // village, one vote is the whole anti-inflation argument in this file's
+  // header. It lives in `shared/moduleProvenance.ts` so that the report a
+  // counter reads and the weights this village computes for itself can never
+  // disagree about it: two copies of a cap is two places for it to go missing.
   for (const m of usage.modules) {
-    // CLAMPED, and the clamp is load-bearing. The cap at one village, one vote
-    // is the whole anti-inflation argument in this file's header, and until
-    // this line nothing enforced it: it was a property of how the numerator and
-    // denominator are normally computed, which is a different thing from a rule.
-    // A partial re-seal, or a numerator and denominator read a moment apart,
-    // can put reach above 1, and a claim that is true by habit is the kind that
-    // stops being true without anybody noticing.
-    weights.set(m.moduleId, Math.min(1, m.membersReached / usage.activeMembers));
+    weights.set(m.moduleId, reachOf(m.membersReached, usage.activeMembers));
   }
   return weights;
 }
 
-export interface VillageUsageReport {
-  /** Which deployment is claiming this. The hub decides whether it counts. */
-  instanceId: string;
-  cycleId: string;
-  sealed: boolean;
-  activeMembers: number;
-  modules: Array<{ moduleId: string; membersReached: number; reach: number }>;
-}
-
 /**
- * The report a hub reads, and the only shape usage leaves this deployment in.
+ * The report a counter reads, and the only shape usage leaves this deployment
+ * in.
  *
- * Carries no member id, by construction: it is built from counts. `reach` is
- * pre-divided so the hub is never handed a numerator it could combine with
- * anything else, and `sealed` is here because an open cycle's numbers are still
- * moving and must never be settled against.
+ * THE SHAPE IS NOT DECIDED HERE. `shared/moduleProvenance.ts` holds it, holds
+ * the reasoning behind it, and holds the check a counter runs on a report it
+ * did not build. This function is the adapter: it reads the counts, hands them
+ * over with the registry, and refuses to hand back anything the shared check
+ * calls wrong.
+ *
+ * Carries no member id, by construction: every field is built from counts.
+ * `reach` is pre-divided so a counter is never handed a numerator it could
+ * combine with anything else, and `sealed` is here because an open cycle's
+ * numbers are still moving and must never be settled against.
+ *
+ * IT THROWS RATHER THAN SERVING A REPORT THAT FAILS ITS OWN CHECK. The route
+ * above turns that into a 500 and a member loses nothing, because nothing a
+ * member does depends on this. The alternative is publishing a number somebody
+ * else settles money from, with the defect already inside it and a signature
+ * over the top saying the bytes are genuine. A guarded value that looks right
+ * is worse than a loud refusal, which is the standing rule here.
  */
-export async function villageUsageReport(cycleId?: string): Promise<VillageUsageReport> {
+export async function villageUsageReport(cycleId?: string): Promise<ModuleUsageReport> {
   const open = cycleIdFor();
   const id = cycleId ?? open;
   const usage = await cycleUsage(id);
-  const weights = reachWeights(usage);
-  return {
-    instanceId: instanceIdentity().instanceId,
-    cycleId: id,
-    sealed: usage.sealed,
-    activeMembers: usage.activeMembers,
-    modules: usage.modules
-      .map((m) => ({
-        moduleId: m.moduleId,
-        membersReached: m.membersReached,
-        reach: weights.get(m.moduleId) ?? 0,
-      }))
-      .sort((a, b) => b.reach - a.reach || (a.moduleId < b.moduleId ? -1 : 1)),
-  };
+  const report = buildModuleUsageReport(
+    {
+      cycleId: id,
+      sealed: usage.sealed,
+      sealedAt: usage.sealedAt,
+      activeMembers: usage.activeMembers,
+      modules: usage.modules.map((m) => ({ moduleId: m.moduleId, membersReached: m.membersReached })),
+    },
+    instanceIdentity().instanceId,
+    MODULES,
+  );
+  const problems = moduleUsageReportProblems(report);
+  if (problems.length) {
+    throw new Error(`this village will not publish a usage report it cannot stand behind: ${problems.join("; ")}`);
+  }
+  return report;
 }
 
 /**
@@ -281,7 +293,7 @@ export async function villageUsageReport(cycleId?: string): Promise<VillageUsage
  * final numbers, even in the moment before the marks are gone.
  */
 export async function cycleUsage(cycleId: string): Promise<CycleUsage> {
-  if (!pool) return { cycleId, activeMembers: 0, sealed: false, modules: [] };
+  if (!pool) return { cycleId, activeMembers: 0, sealed: false, sealedAt: null, modules: [] };
   const sealed = await sealedCycleUsage(pool, cycleId);
   if (sealed.sealed) return sealed;
   return openCycleUsage(pool, cycleId);

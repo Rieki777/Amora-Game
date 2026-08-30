@@ -1,13 +1,17 @@
 # The Module Library Contract
 
-**Version 1.1. 2026-08-15.** Supersedes version 1.0 of 2026-08-14.
+**Version 1.2. 2026-08-29.** Supersedes version 1.1 of 2026-08-15.
 
 This is the standard a module meets to be listed in the module library. It is written to be read by
 somebody outside this repository, and to be sent to a builder unchanged.
 
 Every listing is stamped with the contract version it was accepted under, so a later version is a
-re-acceptance and never a silent rewrite. Nothing in 1.1 applies retroactively to a listing accepted
-under 1.0.
+re-acceptance and never a silent rewrite. Nothing in 1.2 applies retroactively to a listing accepted
+under 1.1 or 1.0.
+
+**What changed in 1.2 is clause 14, and it is the clause about your money.** Read
+[What changed, version by version](#what-changed-version-by-version) before you read anything else if
+you already hold a listing.
 
 **Read the appendix before you read anything else.** It says, clause by clause, which parts of this
 document are machinery that already runs, which are being built, and which are policy a human
@@ -149,22 +153,36 @@ what you will be reviewed against before you write a line.
 The automated half is deliberately narrow and honest about it: it checks the listing's shape, the
 documentation it must carry, and a set of statically detectable code patterns. It cannot read intent.
 
-**14. The builders' pool, and what a price costs you.** New in 1.1.
+**14. The builders' pool, and what a price costs you.** New in 1.1, and rewritten in 1.2.
 
 Every **free** third-party module is included in a recurring $ReGen distribution to its builder,
-proportional to how many members open it. This is the primary way a builder is paid here, and it
-is deliberately not a per-village invoice: it pays for adoption instead of for negotiation.
+sized by **how many members open it**. This is the primary way a builder is paid here, and it is
+deliberately not a per-village invoice: it pays for adoption instead of for negotiation.
+
+**Your share depends on how many members open your module, and never on how many villages installed
+it.** Version 1.1 said the same thing and the machinery behind the money did something else: it split
+by how many villages listed a module, which is a yes-or-no per village. Under that count a module
+twelve villages enabled and nobody opened out-earned a module one village lives inside. Version 1.2
+says what will actually happen, and the code was changed to match rather than the sentence softened
+to fit. If you built for the old count, this changes what you earn.
 
 The measure is **reach, and it saturates**: one member opening a module during a lunar cycle counts
 once for that cycle however often they return and however much they write. A village contributes the
 share of its active members who opened the module, capped at one, so a large village cannot outvote a
-small one and a module cannot earn by being noisy or by nagging.
+small one and a module cannot earn by being noisy or by nagging. Writing in a module earns nothing.
+Asking the same member again earns nothing. The one thing that moves your number is more different
+people opening it.
 
-**The platform's own modules and the four core modules are IN the pool, and are paid to nobody**
-(R59). They earn a share on the same measure and that share returns to the pool for the next cycle.
-Excluding them would split a fixed sum among whoever remained, which pays third-party builders for
-the platform's usage as well as their own; including them and recycling keeps the measurement honest
-without the platform paying itself. A village's pool statement shows the returning amount as a number.
+**The platform's own modules and the four core modules are IN the pool, on the same measure as you,
+and are paid to nobody** (R59, and R64 in 1.2). They earn a share the same way and that share returns
+to the pool for the next cycle. Excluding them would split a fixed sum among whoever remained, which
+pays third-party builders for the platform's usage as well as their own; including them and recycling
+keeps the measurement honest without the platform paying itself. A village's pool statement shows the
+returning amount as a number, and every report a village publishes marks which shares recycle.
+
+That footing runs both ways and is meant to. The founder's words: "One day a new organisation could
+spin up and have created more modules in the Games than groups are using than us and get more of the
+revenue." You out-earning the platform is a success condition of this design.
 
 **A module that charges is out of the pool by construction.** This is not a penalty. A paid module is
 already being paid by the villages that run it, and paying it a second time out of a common pool would
@@ -174,13 +192,62 @@ are two ways of being paid for the same work, and a listing picks one.
 The rule is mechanical: **a listing that declares `pricing` is not pool-eligible.** The listing lint
 checks it, so you find out when you run the lint and never after a distribution.
 
-To receive a share you need a ReGen Civics account and a Hypha account with a linked Base address, set
-up through the normal profile setup. The pool pays an account and never a raw address pasted into a
-registry file, because a payout identity that lives in a code file is one that nobody can rotate,
-recover, or prove belongs to them.
+**Your payout identity is a handle plus the account system that asserts it, and never an address.**
+New in 1.2. Your registry entry carries `builtByAccount`, the handle you hold, and `builtByNamespace`,
+the host of the system that holds it. One without the other is refused by the listing lint and at
+boot. You link your own Base address inside your own profile on that system, and whoever settles a
+cycle reads the address there at the moment they write the statement.
 
-The pool's mechanics, including the cadence and how running villages are counted, are built and
-documented separately. What this contract fixes is the eligibility rule.
+Two reasons, and the second is new. An address written into a registry file is asserted by whoever
+edits the file, in a public repository, for a payment somebody else receives, and nobody can rotate
+it, recover it or prove it belongs to them. And a bare handle only resolves while everybody shares one
+account system, which stopped being safe to assume the moment a second organisation ran this code:
+`alice` on one system is a different person from `alice` on another, so the handle now carries the
+name of the system that asserts it.
+
+**How usage reaches whoever is counting.** Every village serves its own cycle report at
+`/api/platform/module-usage`, announces it from its village discovery document at /.well-known/village.json as `module-usage/1`,
+and signs it with the key that document publishes. The report carries, per cycle and per module:
+members reached, active members, the reach fraction, your credit line, your handle, your namespace,
+whether the platform built it, whether the module may draw from the pool at all, where the share
+goes, and the time the cycle was sealed. The shape, and the checks a counter runs on a report before
+settling anything against it, are `shared/moduleProvenance.ts`, which is the authority over this
+paragraph.
+
+Two properties of that report are worth knowing before you rely on it.
+
+**A report carries every module it measured, including the ones that earn nothing.** A priced
+listing and a withdrawn one both appear with their real usage on them, and both are marked as out of
+the pool. A counter that ignored that mark would put them in the split and take a share off you for
+a module the villages running it already pay for. The mark is a field and not an omission, because a
+fork counting itself needs the whole picture whether or not anybody is settling from it.
+
+**Being named in a report does not get you paid, and it is not meant to.** A village saying "the
+platform built this" costs whoever says it a payment, so it is believed. A village saying "pay this
+outside person" is a name and never a payment instruction: whoever settles the cycle holds that
+share until a human confirms the listing is yours. The village's job is to make the claim legible.
+The gate on money is somewhere else on purpose, because the alternative is a payment that anybody
+running a fork could redirect by editing a file.
+
+Three consequences worth stating for a builder outside this repository:
+
+- **Nothing central holds the list of who built what.** Your credit travels inside the module, in its
+  registry entry, and every village republishes it. A counter that has never heard of a deployment
+  learns the credits from that deployment's own report.
+- **A village names no counter.** Anybody may read a village's report, and a village that reports to
+  nobody still keeps its own honest numbers. That is what lets a fork with no relationship to this
+  platform run the same machinery and be counted by whoever it chooses.
+- **After a cycle closes, nobody can say which member opened which module.** The per-member records
+  are deleted at the seal and only counts survive. That is a privacy guarantee rather than a storage
+  decision, and it is why every number you are paid on is a count of people and never a list of them.
+
+**What is NOT built, said plainly, because the rest of this clause reads like a live payment rail and
+it is not one yet.** As of version 1.2 the measurement runs, the report is served and signed,
+eligibility and the payout identity are checked, and a village's own statement closes to the unit.
+Beyond that: **nothing has ever been paid out.** There is no wallet in this codebase, no automated
+transfer, and the last step is a person reading a statement and sending $ReGen by hand. No module in
+the registry names a builder today, so nothing is owed to anybody today. The appendix tracks this
+line by line and moves when the code moves.
 
 **15. Change of control is a reviewable event.** If the person or organisation behind a listing
 changes, that is a pull request against the registry entry, reviewed like any other, and announced to
@@ -320,12 +387,63 @@ Outside these three, a listing is withdrawn by its builder or by the orderly pro
 
 ---
 
+## What changed, version by version
+
+Kept here so a builder can see what moved without diffing a repository, and so a re-acceptance is a
+decision somebody makes rather than a version number they notice later. A new version is offered to
+existing listings as a re-acceptance and does not apply retroactively.
+
+### 1.2, 2026-08-29
+
+**One clause changed, and it is clause 14, the one about your money.**
+
+- **A share is sized by how many members open your module.** It was already written that way in 1.1
+  and the machinery split by how many villages listed a module, which is a yes-or-no per village.
+  The machinery now reads the same reach the clause describes. **If you built for the village count,
+  this changes what you earn**: a module a dozen villages enabled and nobody opened earns close to
+  nothing, and a module one village lives inside earns what that village's own members say it is
+  worth.
+- **The platform's own modules compete on the same measure.** They already did in 1.1. What is new
+  is that their share is now marked as recycling in what every village publishes, so you can see it
+  going back into the pool rather than take our word for it.
+- **A payout identity is a handle plus the account system that asserts it.** `builtByNamespace` is
+  new and required alongside `builtByAccount`. A listing carrying one without the other is refused.
+  If you hold a listing with a handle and no namespace, add the host of the system that holds your
+  account. Nothing else about the payout identity changed, and it is still never an address.
+- **Usage is published per village and readable by anybody**, signed, at a link every village
+  announces in its discovery document. No central list holds who built what any more, because your
+  credit travels inside the module and every village republishes it.
+- **The appendix now says out loud that nothing has ever been paid out.** That was true under 1.1 and
+  1.0 as well. It is stated in the clause itself now instead of only in the table.
+
+### 1.1, 2026-08-15
+
+- **Anyone may build a module.** Version 1.0 required a legal entity for every listing, which filtered
+  out the individual contributor a library needs first. Clause 1 became tiered: a free module touching
+  no member personal data needs a name and a contact address.
+- **Clause 13, gates plus a human security review before merge.** The clause that makes the rest of
+  the document safe to offer, because contributed code runs inside every fork's own server process.
+- **Clause 14, the builders' pool**, and the rule that a listing declaring a price is out of it.
+- **A price is shown to members**, where 1.0 kept it to admins.
+- **The appendix.** Version 1.0 was held back from publication because it described unbuilt
+  machinery. The remedy was to say which clauses are machinery and which are policy, on the page.
+
+### 1.0, 2026-08-14
+
+The first version. Never published, for the reason the appendix records.
+
+---
+
 ## Appendix: the status of each clause
 
 Version 1.0 was held back from publication on the reasoning that clauses describing unbuilt machinery
 should not be offered to a vendor as though they were live. That reasoning was right about the problem
 and wrong about the remedy: the fix for a promise that is not yet machinery is to say so on the page,
 not to withhold the page.
+
+**Clause 14 is split into four rows in 1.2 because one row could not tell the truth about it.** Three
+of the four are machinery today and the fourth is the one a builder cares about most, so collapsing
+them into a single "Built, partly" invited exactly the wrong reading.
 
 So this is the honest state of every clause, at the commit this document is read at. Run
 `node scripts/module-facts.mjs` for the numbers that go stale.
@@ -348,12 +466,15 @@ So this is the honest state of every clause, at the commit this document is read
 | 11 · Correlation id | **Built** on our side | Every outbound call through the vendor wrapper mints and sends one. That you log it is **policy**. |
 | 12 · Liveness | **Built**, partly | Declared, validated, and five verdicts exist in which "never confirmed" cannot collapse into "working". **The probe itself does not exist**, so a declared window is currently a promise nothing measures. |
 | 13 · Gates plus human security review | **Built** | The gates run on every pull request and block. The intake workflow posts the first blocking stage within minutes. The human review is the published checklist, and it is a required approval rather than a suggestion. |
-| 14 · Builders' pool | **Built**, partly | Eligibility is a registry field with five stated reasons, the listing lint prints each module's status and refuses a listing that charges while claiming the pool, and the payout identity is validated as a ReGen Civics handle rather than an address. The distribution itself, and reading a linked Base address from the hub, are a separate build. |
+| 14 · Builders' pool, measured | **Built** | The meter runs on every module route, the unit saturates at one member per module per lunar cycle, admin routes and refused requests are excluded, and a village's contribution to any module is capped at one. `/api/modules/pool` splits a pool on that reach and closes to the unit. |
+| 14 · Builders' pool, reported | **Built** | Every village serves a signed per-cycle report at `/api/platform/module-usage`, announced in the village discovery document at /.well-known/village.json as `module-usage/1`, carrying each module's credit line, payout handle, namespace, whether the platform built it and where its share goes. `shared/moduleProvenance.ts` holds the shape and the checks a counter runs before settling. Nothing central holds a builder list any more. |
+| 14 · Builders' pool, eligibility and identity | **Built** | Eligibility is derived from the registry with five stated reasons, the listing lint prints each module's status and refuses a listing that charges while claiming the pool, and the payout identity is refused unless it is a handle plus the account system that asserts it. An address in that field is refused by name. |
+| 14 · Builders' pool, paying anybody | **NOT BUILT** | **Nothing has ever been paid out and no code here can move a token.** There is no wallet in this repository. Somebody reads a statement and sends $ReGen by hand. Three things stand between a green report and a paid builder, and only the first two are ours to close: a settlement that sums every village's report and reads a linked Base address off the named account system; a funded pool with an amount somebody set; and a transfer. No module in the registry names a builder today, so nothing is owed today. |
 | 15 · Change of control | **Built** by construction | A builder change is a diff against the registry entry, so it is reviewable inherently. The announcement to running villages is **policy**. |
 | Money terms | **Built** by absence | Zero revenue share, no listing fee and no payment processing are true because no billing rail exists. There is nothing to enforce. |
 | Review SLA | **Built**, partly | The automated first response is a workflow and runs in minutes. The ten working days for human judgement is a commitment. |
 | Withdrawal | **Built**, partly | The withdrawn state, the refusal of new enables, the banner and the orphan guarantee are machinery. The notice period and the data return are commitments. |
 | Takeover triggers | **Policy** | Three named triggers, exercised by a human, recorded as a pull request like anything else. |
 
-*Contract version 1.1. Listings are accepted against a version. A new version is offered to existing
+*Contract version 1.2. Listings are accepted against a version. A new version is offered to existing
 listings as a re-acceptance and does not apply retroactively.*

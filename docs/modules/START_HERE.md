@@ -69,19 +69,25 @@ you read them there so you read the current version.
 
 ## How you get paid, and how a price changes that
 
-Every **free** third-party module is in a recurring $ReGen distribution to its builder, proportional to
-how many known villages run it. That is the primary way a builder is paid here, and it pays for
-adoption instead of for negotiation.
+Every **free** third-party module is in a recurring $ReGen distribution to its builder, sized by **how
+many members open it**. That is the primary way a builder is paid here, and it pays for adoption
+instead of for negotiation. One member opening your module during a lunar cycle counts once for that
+cycle, so writing in it earns nothing and asking the same member again earns nothing.
 
 **Declaring a price takes you out of the pool.** A paid module is already paid by the villages running
 it, and drawing from a common pool as well would have every village funding a product only some of them
 use. The listing lint checks this, so you find out when you run the lint.
 
-To receive a share, create your ReGen Civics account and link your Hypha account with a Base address in
-profile setup. The pool pays an account and never a raw address written into a registry file, because a
-payout identity in a code file is one nobody can rotate or recover.
+To receive a share, your registry entry carries `builtByAccount`, the handle you hold, and
+`builtByNamespace`, the host of the system that holds it. One without the other is refused. You link
+your Base address in your own profile there. The pool pays an account and never a raw address written
+into a registry file, because a payout identity in a code file is one nobody can rotate or recover.
 
-Clause 14 of `docs/MODULE_LIBRARY_CONTRACT.md` is the binding text.
+**Nothing has been paid out yet.** The counting runs and every village publishes a signed report of
+it; there is no wallet in this repository and the sending is still done by a person.
+
+Clause 14 of `docs/MODULE_LIBRARY_CONTRACT.md` is the binding text, and
+`shared/moduleProvenance.ts` is the authority on what a report carries.
 
 ## How a module ships
 

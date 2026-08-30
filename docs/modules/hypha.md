@@ -215,11 +215,12 @@ case than plain functions are.
 v1.0 shape the founder set (R58c): modules earn `$ReGen` from the builders' pool and cost a village
 nothing. A `pricing` block would be refused at `included` anyway, and the absence is the statement.
 
-Note for whoever builds usage metering: `shared/modulePool.ts` decides pool ELIGIBILITY from the
-registry and says in its own header that it deliberately does not know whether a village is
-running a module, because that is per-village state and hub arithmetic. Nothing in this repository
-counts module usage today. `module_events` records lifecycle, config and listing acceptances only;
-`integration_health` records whether an integration's last call worked and carries no call count.
+Note on usage metering, which now exists: `shared/modulePool.ts` still decides pool ELIGIBILITY from
+the registry alone and still learns nothing about villages. The counting lives beside it.
+`drizzle/0101_module_usage.sql` holds the tables, `server/lib/moduleUsage.ts` holds the unit, and
+`shared/moduleProvenance.ts` holds the report a village publishes. `module_events` records lifecycle,
+config and listing acceptances only; `integration_health` records whether an integration's last call
+worked and carries no call count. Neither of those is the meter.
 
 ## Tables
 

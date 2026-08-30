@@ -4387,9 +4387,10 @@ function ModulesTab({ password }: { password: string }) {
             <p className="text-sm sm:text-xs text-gray-600 leading-relaxed">
               Anyone can build a module for this platform. One guide covers all of it: what to read,
               what to run, and how a finished module reaches other villages. Every free module earns a
-              share of the ReGen builders' pool, sized by how many villages run it. To receive your
-              share, create your ReGen Civics account and link your Hypha account with a Base address
-              in profile setup.
+              share of the ReGen builders' pool, sized by how many members open it. A share is
+              recorded against the account named in the module's own entry, and the builder links
+              their Base address in their own profile there. Nothing has been paid out yet: the
+              counting runs, and the sending is still done by a person.
             </p>
             {/* The explainer sits here once, beside the link that acts on it,
                 instead of repeating per card. Every module card carries its own
@@ -4397,7 +4398,7 @@ function ModulesTab({ password }: { password: string }) {
                 mean something, and a founder needs it once. */}
             <p className="text-sm sm:text-xs text-gray-600 leading-relaxed mt-2">
               ReGen Civics shares a pool of $ReGen every lunar cycle across the free modules that
-              villages are running. A module that charges a price is paid by the villages using it.
+              members are opening. A module that charges a price is paid by the villages using it.
             </p>
             <a
               href={BUILDER_GUIDE_URL}
