@@ -32,6 +32,7 @@ import {
   walkFor,
 } from "./wizardWalk";
 import { WIZARD_TYPES as SERVER_WIZARD_TYPES } from "../../../../server/lib/proposalDrafts";
+import { MINT_RULE, SUBJECT_THRESHOLDS, VILLAGE_LAUNCH } from "../../../../shared/ballotSubjects";
 
 /** Answers that satisfy every validator a type declares, built from the config
  *  itself so a new required field fails this suite instead of shipping. */
@@ -65,6 +66,27 @@ describe("the wizard config", () => {
     }
     // An id from a lane that has not landed still renders something readable.
     expect(subjectNoun("something_new")).toBe("Decision");
+  });
+
+  /**
+   * THE SUBJECT TYPES THAT ARE NOT WIZARD TYPES, which the loop above cannot
+   * see. `ballots.subject_type` carries these too, and each one reached the
+   * decision card reading "Decision" until somebody noticed: the advisory
+   * vote did, and `mint_rule` did again the moment minting became a thing the
+   * village votes on.
+   *
+   * Bound to `SUBJECT_THRESHOLDS` rather than to a hand-copied list, so a
+   * subject type that arrives with its own threshold has to arrive with a
+   * name as well. `advisory` sets no threshold of its own, so it is named
+   * here on purpose.
+   */
+  it("names the subject types that never pass through the wizard", () => {
+    for (const id of Object.keys(SUBJECT_THRESHOLDS)) {
+      expect(subjectNoun(id), id).not.toBe("Decision");
+    }
+    expect(subjectNoun(VILLAGE_LAUNCH)).toBe("Starting the Game");
+    expect(subjectNoun(MINT_RULE)).toBe("Minting rule change");
+    expect(subjectNoun("advisory")).toBe("Advisory vote");
   });
 
   it("puts every type in a group the type step renders", () => {

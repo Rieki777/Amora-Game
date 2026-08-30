@@ -14,6 +14,7 @@ import type { Pool } from "mysql2/promise";
 import { boolVar, numberVar } from "./variables";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { isExampleUser } from "./examples";
+import { issuanceRefusal } from "./gameStart";
 import { memberAccount, postTransfer, RECOGNITION_FAUCET } from "./ledger";
 import type { GratitudeLogRepo, GratitudeEntry } from "../repos/gratitude";
 import type { UsersRepo } from "../repos/users";
@@ -90,7 +91,9 @@ export type SendOutcome =
 /**
  * The one send path. Order of refusals is part of the contract (the loop test
  * asserts the guard messages): bad input → unknown recipient → self-send →
- * no budget → over budget → heart tap count → per-recipient share. Then: log
+ * no budget → over budget → heart tap count → per-recipient share → whether
+ * this village may issue at all (R67, and see the block above that check for
+ * why it is last of the reads and first of everything else). Then: log
  * row (the heart index may refuse a duplicate), ledger post (recognition
  * issues from the faucet — the sender spends BUDGET, not balance), recipient
  * cache update.
@@ -165,6 +168,45 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
         `That leaves ${left} for them (gratitude.max_share_per_recipient)`,
     };
   }
+
+  /*
+   * ── CAN THIS VILLAGE ISSUE AT ALL? ASKED BEFORE THE NOTE IS TAKEN (R67) ───
+   *
+   * The log row below IS the spend: `budgetFor` sums `gratitude_log` for the
+   * cycle, so writing it charges the allowance. The ledger post that follows
+   * is what puts anything in the recipient's hands, and `postTransfer`
+   * refuses every faucet posting until the village's launch vote carries.
+   *
+   * Asked in that order, the refusal arrived too late to matter. The note was
+   * committed, the allowance was spent, the route answered with the ledger's
+   * sentence, and the recipient received nothing. A retry does not heal it
+   * either: a retry runs this function again and mints a new entry id, so it
+   * is a new row and a second charge. For a village setting itself up, which
+   * under R67 is every village until its launch ballot carries, that fired on
+   * every heart and every acknowledgement anybody sent.
+   *
+   * So the question is asked first, and the whole act is refused with the
+   * gate's own sentence. Unwinding afterwards would be worse: a note is
+   * something a member wrote, and losing their words because an accounting
+   * system said no is its own kind of wrong. Found by Lane TESTRUN, fixed on
+   * the economy engine's `give` path by Lane RULES, and this is the same
+   * shape on the two gratitude doors.
+   *
+   * It sits here rather than at the top of the function so the documented
+   * order of refusals still holds: a member who forgot the recipient hears
+   * about the recipient. Nothing above this line writes anything.
+   *
+   * The answer only ever moves one way, from closed to open, so a village
+   * that launches between this line and the post below costs somebody one
+   * refused send and never a lost note.
+   *
+   * WHAT THIS DOES NOT CLOSE, said plainly: the window between the log row
+   * and the ledger post is still there, and so is any other reason the ledger
+   * might refuse. This closes the one refusal that is knowable in advance and
+   * was firing on every send in every un-launched village.
+   */
+  const closed = await issuanceRefusal(deps.pool);
+  if (closed) return { ok: false, status: 409, error: closed };
 
   const entry: GratitudeEntry = {
     id: `grat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
