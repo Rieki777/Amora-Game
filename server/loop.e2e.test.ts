@@ -5294,6 +5294,65 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
   });
 
   /*
+   * THE SAME META, AND THE OTHER THING IT COULD CARRY.
+   *
+   * The strip above names four decided-shape keys and lets everything else
+   * ride through, in its own words "an event's location, a synthesis id, a
+   * cta". `Forum.tsx` renders `meta.ctaUrl` of an event thread as the href on
+   * the Respond button, so a member holding `forum.post` could store
+   * `javascript:alert(1)` and have it run in the browser of every member who
+   * opened that thread.
+   *
+   * Same defect as the visit and investor documents carried, reached from a
+   * lower stage: those two need an admin, this one needs a member.
+   *
+   * ONLY THE SCHEME HALF APPLIES HERE. A link to a village upload is an
+   * ordinary thing in a thread, and `imageUrl` on this very route is REQUIRED
+   * to be one, so the investor vault's answer would be wrong. The last case
+   * below pins that on purpose.
+   */
+  it("a thread's cta link cannot carry a scheme that runs code", async () => {
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "public" }, founderToken);
+    const cats = await api("GET", "/api/forum/categories");
+    expect(cats.status).toBe(200);
+    const category = (Array.isArray(cats.json) ? cats.json : cats.json.categories)?.[0]?.id;
+    expect(category, "the forum has at least one category").toBeTruthy();
+
+    const event = (ctaUrl: string) => ({
+      category,
+      kind: "event",
+      title: "Come to the seed swap",
+      body: "Saturday morning at the barn.",
+      meta: { startsAt: "2030-01-01T10:00:00.000Z", ctaLabel: "Respond", ctaUrl },
+    });
+
+    /*
+     * THIS ROUTE RATE-LIMITS TO FIVE THREADS IN TEN MINUTES, and the limit is
+     * read BEFORE the body is validated, so a refused post spends budget the
+     * same as a published one. The first draft of this test walked seven
+     * spellings and the sixth came back 429, which reads exactly like the
+     * guard letting one through. Three posts here, and the LANE Q test above
+     * has already spent one of the founder's five.
+     *
+     * The full dodge matrix (uppercase, leading whitespace, tab, carriage
+     * return, data:, vbscript:) is walked in
+     * `server/investorPacket.routes.e2e.test.ts` against the same
+     * `ctaSchemeProblem`. What is worth proving HERE is that this route calls
+     * the sweep at all, so one plain spelling and one a browser has to
+     * normalise are enough.
+     */
+    for (const dodge of ["javascript:alert(1)", "java\nscript:alert(1)"]) {
+      const res = await api("POST", "/api/forum/threads", event(dodge), founderToken);
+      expect(res.status, `${JSON.stringify(dodge)} was stored: ${JSON.stringify(res.json)}`).toBe(400);
+    }
+
+    const upload = await api("POST", "/api/forum/threads", event("/api/uploads/plan.pdf"), founderToken);
+    expect(upload.status, "a village upload is an ordinary link to put in a thread").toBe(200);
+
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+  });
+
+  /*
    * G1: THE ON-SITE GOVERNANCE ENGINE (round 5). The design's own harm
    * metric, asserted end to end: a village declares a decision method and
    * the platform CONDUCTS it — stage, support, open, three members vote, a

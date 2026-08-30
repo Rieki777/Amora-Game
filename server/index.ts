@@ -8901,6 +8901,29 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const clientMeta = meta && typeof meta === "object" && !Array.isArray(meta) ? { ...(meta as any) } : null;
     if (clientMeta) for (const k of DECIDED_ONLY_META) delete clientMeta[k];
 
+    /*
+     * A THREAD'S META REACHES AN `href` TOO, and this one is member-written.
+     *
+     * The comment above says a cta "rides through untouched", and `Forum.tsx`
+     * renders `meta.ctaUrl` of an event thread as the anchor on the Respond
+     * button. So anybody holding `forum.post` could store
+     * `javascript:alert(1)` and have it run in the browser of every member who
+     * opened the thread. That is the same defect the visit and investor
+     * documents carried, reached from a lower stage.
+     *
+     * `ctaSchemeProblemIn` is the same sweep those two routes use, matching
+     * `cta_url` and `ctaUrl` alike. Only the scheme half applies here: a link
+     * to a village upload is ordinary in a thread, and `imageUrl` four lines
+     * up is REQUIRED to be one.
+     *
+     * Said out loud, unlike the decided-shape strip above it, because a
+     * member typing a link is doing something legitimate and deserves to know
+     * what the field takes. There is nothing to teach an attacker: the reply
+     * only names the shapes that work.
+     */
+    const metaLink = ctaSchemeProblemIn(clientMeta);
+    if (metaLink) return res.status(400).json({ error: metaLink });
+
     const thread = {
       id: `thr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       category,
@@ -20503,8 +20526,8 @@ ${inner}
     }
     if (ALLOWED_CTA_SCHEMES.has(parsed.protocol)) return null;
     return (
-      `That link opens with ${parsed.protocol} which this page will not publish. ${shapes} ` +
-      "A link carrying code runs inside the browser of every visitor who opens this public page."
+      `That link opens with ${parsed.protocol} which this page will not save. ${shapes} ` +
+      "A link carrying code runs inside the browser of everyone who opens it."
     );
   }
 
@@ -20527,28 +20550,56 @@ ${inner}
    * A link into the vault still gets the vault's own answer, since an
    * ordinary `/api/uploads/...` path resolves to `http:` and passes here.
    */
-  function ctaLinkProblem(value: unknown): string | null {
+  /**
+   * Run one check over a value that may be a single link or a list of them.
+   *
+   * A list is checked link by link. My own first draft called String() on the
+   * whole array, so ["/somewhere", "/api/uploads/cap-table"] read as one
+   * string starting with "/somewhere" and sailed through, which is the shape
+   * a guard that only ever saw the happy input would keep.
+   */
+  function eachLink(value: unknown, check: (raw: string) => string | null): string | null {
     if (value == null) return null;
-    // A list of links is checked link by link. My own first draft called
-    // String() on the whole array, so ["/somewhere", "/api/uploads/cap-table"]
-    // read as one string starting with "/somewhere" and sailed through, which
-    // is the shape a guard that only ever saw the happy input would keep.
     if (Array.isArray(value)) {
       for (const item of value) {
-        const problem = ctaLinkProblem(item);
+        const problem = eachLink(item, check);
         if (problem) return problem;
       }
       return null;
     }
-    // A blank field is how a founder hides the button, so it is not a link at
-    // all and neither check has anything to say about it.
+    // A blank field is how a founder hides the button, so it is no link at
+    // all and none of these checks has anything to say about it.
     const raw = String(value).trim();
     if (!raw) return null;
-    return ctaSchemeProblem(raw) ?? vaultLinkProblem(raw);
+    return check(raw);
   }
 
-  /** Every call-to-action field in a document body, however deep it sits. */
-  function ctaLinkProblemIn(body: unknown): string | null {
+  function ctaLinkProblem(value: unknown): string | null {
+    return eachLink(value, (raw) => ctaSchemeProblem(raw) ?? vaultLinkProblem(raw));
+  }
+
+  /**
+   * THE SCHEME ALONE, for a surface where the vault answer would be wrong.
+   *
+   * A village upload under `/api/uploads/` is an ordinary thing to link to
+   * from a forum thread: `imageUrl` on the same route is REQUIRED to be one.
+   * So the vault half belongs to the two investor-facing documents that
+   * publish to anybody, and the scheme half belongs everywhere a stored
+   * string reaches an `href`.
+   */
+  function ctaSchemeOnlyProblem(value: unknown): string | null {
+    return eachLink(value, ctaSchemeProblem);
+  }
+
+  /**
+   * Every call-to-action field in a document body, however deep it sits.
+   *
+   * The field name is matched `cta_url` OR `ctaUrl`, because both spellings
+   * are live in this repo: the investor and visit documents are snake_case
+   * and a forum event thread's `meta` is camelCase. One regex reaches both,
+   * which is the whole reason the sweep is by name.
+   */
+  function ctaFieldProblem(body: unknown, check: (value: unknown) => string | null): string | null {
     const walk = (node: unknown): string | null => {
       if (!node || typeof node !== "object") return null;
       if (Array.isArray(node)) {
@@ -20560,7 +20611,7 @@ ${inner}
       }
       for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
         if (/^cta_?url$/i.test(key)) {
-          const p = ctaLinkProblem(value);
+          const p = check(value);
           if (p) return p;
         }
         const deeper = walk(value);
@@ -20569,6 +20620,16 @@ ${inner}
       return null;
     };
     return walk(body);
+  }
+
+  /** The investor and visit documents: the scheme, and the vault. */
+  function ctaLinkProblemIn(body: unknown): string | null {
+    return ctaFieldProblem(body, ctaLinkProblem);
+  }
+
+  /** Anywhere else a stored call to action reaches an href: the scheme only. */
+  function ctaSchemeProblemIn(body: unknown): string | null {
+    return ctaFieldProblem(body, ctaSchemeOnlyProblem);
   }
 
   app.get("/api/visit-config", async (_req, res) => {
