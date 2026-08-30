@@ -1510,17 +1510,32 @@ export const VARIABLES: VariableDef[] = [
   },
 
   // ── Platform feedback (S66) ───────────────────────────────────────────────
+  /*
+   * R79: A DIAL SAYS WHAT IT DOES, AND NEVER WHAT ITS NUMBER MEANS.
+   *
+   * This one was `integer`, range 0 to 1, unit "on/off". Admin drew it as a
+   * number box, a founder read a bare "0", and the description then spent its
+   * first two sentences translating that number back into English. Both
+   * readers already treated it as a switch, so the type was the only part of
+   * it that was lying about what this dial is.
+   *
+   * NO MIGRATION IS NEEDED FOR CORRECTNESS, AND BOTH DEPLOY ORDERS ARE SAFE.
+   * The boolean parser reads the strings the integer form wrote ("1" is true,
+   * "0" is false) and `validateVariable` accepts all four spellings, so the
+   * live village that stores "0" here stays off through the flip. The other
+   * order is safe too: an integer parse of "false" is `Number("false") || 0`,
+   * which is 0, which is also off. `gameVariables.test.ts` pins the first
+   * half. `drizzle/0113` then rewrites the stored spelling, so the Admin
+   * switch has an option to land on and the amendment ledger reads in words.
+   */
   {
     key: "platform.feedback_relay",
     category: "Platform",
     label: "Share bug reports and ideas with the platform team",
     description:
-      "ON: a copy of each bug/idea submitted here also reaches the platform team who maintain this software, so fixes and features can ship to every village. Content only, never who said it. OFF: feedback stays entirely local; your admins still see all of it in Admin → Feedback. Disclosed on the submission form either way. Sharing also needs a hub address in the FEEDBACK_HUB_URL setting on the server. Without one this dial changes nothing, feedback stays local, and the form says so.",
-    type: "integer",
-    default: "1",
-    min: 0,
-    max: 1,
-    unit: "on/off",
+      "A copy of each bug report and idea submitted here reaches the platform team who maintain this software, so fixes and features can ship to every village. Content only, never who said it. Turn it off to keep feedback entirely local. Your admins see all of it in Admin → Feedback either way, and the submission form discloses which is happening. Sharing also needs a hub address in the FEEDBACK_HUB_URL setting on the server. Without one this dial changes nothing, feedback stays local, and the form says so.",
+    type: "boolean",
+    default: "true",
   },
 
   // ── Recognition issuance that used to hide in a content document ──────────

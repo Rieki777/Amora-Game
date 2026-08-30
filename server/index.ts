@@ -3894,7 +3894,7 @@ function feedbackHubUrl(): string {
  * promise a journey that has no destination.
  */
 function feedbackIsShared(): boolean {
-  return numberVar("platform.feedback_relay") === 1 && feedbackHubUrl().length > 0;
+  return boolVar("platform.feedback_relay") && feedbackHubUrl().length > 0;
 }
 
 /**
@@ -13854,7 +13854,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     res.json({
       items: rows,
       relayOn: feedbackIsShared(),
-      relayDialOn: numberVar("platform.feedback_relay") === 1,
+      relayDialOn: boolVar("platform.feedback_relay"),
       hubConfigured: feedbackHubUrl().length > 0,
     });
   });
