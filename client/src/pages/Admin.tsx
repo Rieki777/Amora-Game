@@ -3611,19 +3611,34 @@ function PlayersTab({ password }: { password: string }) {
   const iAmFounder = me?.role === "founder";
   const [players, setPlayers] = useState<any[]>([]);
   const [stages, setStages] = useState<{ id: string; name: string }[]>([]);
+  /*
+   * R90: THE FOUNDER ROLE ENDS WHEN THE VILLAGE STARTS ITS GAME, so who may
+   * work the control below changes at that moment and this tab has to know it.
+   * Before launch only a founder may change a role. After launch any
+   * administrator may, and no new founder can be made.
+   *
+   * Read from the server rather than inferred from the roster, because a
+   * client that guesses at a permission is a client that eventually disagrees
+   * with the gate. `/api/game/mechanics` answers strangers and already carries
+   * the fact, so this costs no new route and no token.
+   */
+  const [gameStarted, setGameStarted] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [pRes, cRes] = await Promise.all([
+      const [pRes, cRes, mRes] = await Promise.all([
         fetch(`${API_BASE}/admin/players`, { headers: authHeaders(password) }),
         fetch(`${API_BASE}/game/config`),
+        fetch(`${API_BASE}/game/mechanics`),
       ]);
       const p = await pRes.json();
       const c = await cRes.json();
+      const m = await mRes.json();
       setPlayers(Array.isArray(p) ? p : []);
       setStages(c?.stages ?? []);
+      setGameStarted(m?.gameStart?.started === true);
     } catch { setPlayers([]); }
     setLoading(false);
   }, [password]);
@@ -3711,16 +3726,27 @@ function PlayersTab({ password }: { password: string }) {
                 {stages.find((s) => s.id === p.stageComputed)?.name ?? p.stageComputed}
               </span>
               <span className="text-xs text-gray-500">{p.balance} earned</span>
-              {iAmFounder && (
+              {(gameStarted || iAmFounder) && (
                 <select
                   value={p.role}
                   onChange={(e) => setRole(p.id, e.target.value, p.name)}
-                  title="Founders run the admins: change this member's role"
+                  title={
+                    gameStarted
+                      ? "Change this member's role. The founder role ended when the village started its Game, so an administrator is the most this can set"
+                      : "Founders run the admins: change this member's role"
+                  }
                   className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
                 >
                   <option value="member">member</option>
                   <option value="admin">admin</option>
-                  <option value="founder">founder</option>
+                  {/* Only while the role still exists, or on the row of
+                      somebody who already holds it. After launch the server
+                      refuses a new one, and an option that can only ever
+                      produce a refusal is worse than no option. Dropping it
+                      from a founder's OWN row would be worse again: the select
+                      would have no option matching the value and would show
+                      that person as a member beside a badge saying founder. */}
+                  {(!gameStarted || p.role === "founder") && <option value="founder">founder</option>}
                 </select>
               )}
               <button

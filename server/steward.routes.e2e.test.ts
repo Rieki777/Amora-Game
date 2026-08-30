@@ -219,6 +219,15 @@ beforeAll(async () => {
   });
   expect(on.status, "governance must be on for this suite").toBe(200);
   await call("PUT", "/api/admin/modules/library/lifecycle", { body: { lifecycle: "public", examples: false } });
+  /*
+   * NO PROGRESSION EXAMPLES ARE ARRANGED HERE, and the reason belongs beside
+   * the attempt. The declaring executor stands the platform's example roles
+   * down the way the admin route does, and there is no case for it in this
+   * file because `progression` is a CORE module: its lifecycle cannot be set,
+   * its examples seed at boot, and every village this harness provisions comes
+   * up with none of them standing. An assertion over an empty set reads green
+   * and proves nothing.
+   */
 
   const rhoda = await register("Rhoda Vane", "rhoda");
   rhodaToken = rhoda.token; rhodaId = rhoda.id;
@@ -364,6 +373,18 @@ describe.skipIf(!DB_CONFIGURED)("the village votes a role into existence", () =>
     const pulse = await publicPulse();
     expect(pulse.some((t) => t.includes("Game Steward is one of this village's roles now"))).toBe(true);
   });
+
+  /*
+   * NOT ASSERTED HERE, AND SAID RATHER THAN LEFT OUT: the executor also calls
+   * `onRealItemPublished(pool, "progression")`, so a village declaring its own
+   * role stands the platform's example roles down exactly as an admin editing
+   * one into existence does. It has no case in this file because the premise
+   * could not be arranged: `progression` is a CORE module, so its lifecycle
+   * cannot be set and its examples seed at boot, and every village this
+   * harness provisions comes up with zero example roles standing. An assertion
+   * over an empty set would have read green while proving nothing, which is
+   * the exact shape this round keeps paying for.
+   */
 
   it("refuses a second declaration of a role that now exists", async () => {
     const again = await call("POST", "/api/governance/role-declarations", {

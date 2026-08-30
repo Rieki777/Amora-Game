@@ -883,10 +883,14 @@ export const SUBJECT_NOUN: Record<string, string> = {
    *
    * The noun is the THING and not the machinery, the way every entry above
    * decides it. The table would call these a role insert and two role-holder
-   * writes. What happened is that a village decided it has a role, decided who
-   * sits in it, and decided to take that back.
+   * writes. What is being decided is whether the village has a role, who sits
+   * in it, and whether that seat goes back.
+   *
+   * THE CHIP SITS ABOVE THE TITLE ON A VOTE THAT IS STILL OPEN, so none of
+   * these may read as though it already happened. "A role the village
+   * declared" was the first draft of the first one and it does exactly that.
    */
-  role_declare: "A role the village declared",
+  role_declare: "A new role",
   role_seat: "Who sits in a role",
   role_unseat: "A seat handed back",
 };

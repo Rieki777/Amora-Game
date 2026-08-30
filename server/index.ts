@@ -26908,6 +26908,18 @@ ${inner}
         order: rolesRepo.all().length + 1,
       } as RoleDef);
 
+      /*
+       * THE PLATFORM'S EXAMPLE ROLES STAND DOWN, exactly as they do when an
+       * admin edits a real role into existence. `PUT /api/admin/roles/:id`
+       * calls this and its comment calls itself "the only role-mutation
+       * route", which stopped being true here. Without this line a village
+       * that declares its own roles by vote would keep the platform's demo
+       * roles rendering beside them until an administrator went and touched
+       * the panel, which is R54's complaint in one sentence: the village's own
+       * act could not do what the scaffolding's act does.
+       */
+      onRealItemPublished(getPool(), "progression", actorId);
+
       out.applied = [];
       out.proposerTold = b.openedBy;
       await notify({
@@ -26996,6 +27008,23 @@ ${inner}
         out.held = "The person this vote named is no longer a member of this village, so nobody was seated.";
         await notifyAdmins("governance", `A carried seating could not land: ${b.title}`, `bal:${b.id}:seat-held`);
         return out;
+      }
+      /*
+       * THE STAGE FLOOR, ASKED AGAIN HERE. The route asks it when the vote
+       * opens, and a member can slip below it while the vote runs, so a close
+       * that skipped this would seat somebody past a ladder every other
+       * appointment path respects. It is held rather than refused silently,
+       * because a village whose vote carried is owed the reason.
+       */
+      if (role.minStage) {
+        const needed = stageIndex(role.minStage);
+        if (needed >= 0 && stageIndex(await stageOf(member)) < needed) {
+          out.held =
+            `${firstName(member.name)} has not reached the ${getStage(role.minStage)?.name ?? role.minStage} stage ` +
+            `${role.name ?? asked.roleId} asks for, so nobody was seated. The village can ask again once they have.`;
+          await notifyAdmins("governance", `A carried seating could not land: ${b.title}`, `bal:${b.id}:seat-held`);
+          return out;
+        }
       }
 
       let seatedRowId: string | null = null;
@@ -29400,15 +29429,34 @@ ${inner}
 
     /*
      * THE PAYLOAD, WRITTEN AFTER THE BALLOT EXISTS so its key can be the
-     * ballot's own id. A failure here leaves a ballot the executor cannot
-     * carry out, and the executor says exactly that instead of inventing a
-     * name, which is why that branch is written and tested rather than assumed
-     * unreachable.
+     * ballot's own id.
+     *
+     * IF IT FAILS, THE BALLOT IS CALLED OFF IN THE SAME REQUEST. A ballot with
+     * no payload is a question the village can answer and this build cannot
+     * carry out, and leaving one open would mean the whole roll voting on a
+     * role that could never be created. Nobody has voted yet, so nothing is
+     * discarded by withdrawing it. The executor still holds with its own
+     * sentence for the row that goes missing some other way, because a branch
+     * that says what happened is worth having even when nothing should reach
+     * it.
      */
-    await getPool().query(
-      "INSERT INTO role_declarations (ballot_id, role_id, name, purpose) VALUES (?, ?, ?, ?)",
-      [result.ballot.id, roleId, name, purpose],
-    );
+    try {
+      await getPool().query(
+        "INSERT INTO role_declarations (ballot_id, role_id, name, purpose) VALUES (?, ?, ?, ?)",
+        [result.ballot.id, roleId, name, purpose],
+      );
+    } catch (e) {
+      console.error("[role-declarations] could not record what the ballot would create", e);
+      await withdrawBallot(getPool(), {
+        ballotId: result.ballot.id,
+        withdrawnBy: user.id,
+        reason: "This build could not record what the role would be called, so the question was called off before anybody voted.",
+        withdrawerMayDiscardVotes: true,
+      });
+      return res.status(500).json({
+        error: "This build could not record what the role would be called, so the vote was called off. Nothing was asked of the village. Try again.",
+      });
+    }
 
     await addActivity("governance", `The village is deciding whether to declare a role: ${name}.`, {
       actorUserId: user.id,
@@ -29599,7 +29647,17 @@ ${inner}
       return res.status(409).json({ error: "Nobody by that id sits in that role, so there is no seat to take back." });
     }
     const member = await members.byId(userId);
-    if (!member) return res.status(404).json({ error: "There is no member by that id." });
+    if (!member) {
+      /*
+       * A SEAT WHOSE PERSON IS GONE, said plainly rather than as "no such
+       * member". The seat is real, this route cannot write a document about
+       * somebody it cannot name, and the remedy is a different one, so the
+       * sentence names the state instead of the lookup that failed.
+       */
+      return res.status(409).json({
+        error: "That seat is held by an account this village no longer has, so there is nobody for the village to vote about. An administrator can clear the seat.",
+      });
+    }
     const subjectRef = `${userId}@${roleId}`;
     if (subjectRef.length > 64) {
       return res.status(409).json({ error: "That role's name is too long for the record to hold beside the member. Shorten the role id first." });
