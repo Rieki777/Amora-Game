@@ -601,7 +601,7 @@ import {
   recordLaunchCarried,
   type LaunchDeps,
 } from "./lib/launch";
-import { readGameStart, recordGameStart } from "./lib/gameStart";
+import { issuanceRefusal, readGameStart, recordGameStart } from "./lib/gameStart";
 import {
   assertModuleGraph,
   attachModuleReadiness,
@@ -22632,6 +22632,30 @@ ${inner}
         });
       }
     }
+    /*
+     * ISSUANCE WAITS FOR THE VILLAGE (R67), ASKED BEFORE THE CLAIM FLIPS.
+     *
+     * The ledger refuses a faucet posting until the launch vote carries, and
+     * every other issuing path in this file finds that out AFTER it has
+     * already changed something. Here that would be the worst version of it:
+     * the claim flips to `consented`, the credit is refused, the route answers
+     * 500, and consenting again is a 409 because the claim is no longer
+     * submitted. A member's work would be recorded as done and paid nothing,
+     * with no way to run it again.
+     *
+     * So this route asks first. `granted > 0` because a village that has opted
+     * into consenting at zero posts nothing at all, and refusing that would be
+     * withholding an acknowledgement that costs no tokens.
+     *
+     * The other faucet callers are not guarded this way and are not silent
+     * either: each one returns or logs the ledger's own sentence. This is the
+     * only one that loses a member's work by finding out late.
+     */
+    if (granted > 0) {
+      const notStarted = await issuanceRefusal(getPool());
+      if (notStarted) return res.status(409).json({ error: notStarted });
+    }
+
     // Stage depends on consented-quest count, so the snapshot must be taken
     // BEFORE the claim flips to consented; taking it after would always compare
     // equal and the advancement event would never fire.

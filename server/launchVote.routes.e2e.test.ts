@@ -64,6 +64,8 @@ let wrenToken = "";
 let wrenId = "";
 let idaToken = "";
 let idaId = "";
+/** Wren's claim on a quest, carried between the first case and the last. */
+let claimId = "";
 
 interface Answer { status: number; json: any }
 
@@ -119,6 +121,12 @@ const gameStartRow = async (): Promise<any | null> => {
   );
   if (!rows[0]) return null;
   return typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
+};
+
+/** One claim's status, read from the table and never off a payload. */
+const claimStatus = async (id: string): Promise<string | null> => {
+  const [rows] = await pool.query<any[]>("SELECT status FROM quest_claims WHERE id = ?", [id]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+  return rows[0] ? String(rows[0].status) : null;
 };
 
 /** Ask the founder to hand-mint. The simplest issuance a route can be told to do. */
@@ -263,6 +271,34 @@ describe.skipIf(!DB_CONFIGURED)("a village sets itself up alone, and can issue n
     expect(anon.json?.gameStart?.ballotId).toBeNull();
   });
 
+  it("refuses to consent a quest, and leaves the claim where a later consent can find it", async () => {
+    /*
+     * THE ONE ISSUING PATH THAT COULD LOSE A MEMBER'S WORK. Every other faucet
+     * caller finds out late and says so; this one would have flipped the claim
+     * to `consented` first, and consenting again is a 409 on a claim that is
+     * no longer submitted. So the route asks before it writes, and this drives
+     * that: the refusal, and the claim still standing at `submitted`.
+     */
+    const quest = await call("POST", "/api/admin/quests", {
+      body: { title: "Clear the beck", gratitude: "10" },
+    });
+    expect(quest.status, JSON.stringify(quest.json)).toBe(200);
+    const claimed = await call("POST", `/api/game/quests/${quest.json.id}/claim`, { token: wrenToken, body: {} });
+    expect(claimed.status, JSON.stringify(claimed.json)).toBe(200);
+    claimId = String(claimed.json.id);
+    expect((await call("POST", `/api/game/quests/${quest.json.id}/submit`, {
+      token: wrenToken,
+      body: { note: "Beck cleared and the banks reseeded." },
+    })).status).toBe(200);
+
+    const consent = await call("POST", `/api/admin/quest-claims/${claimId}/consent`, {
+      body: { approve: true, amount: 10 },
+    });
+    expect(consent.status).toBe(409);
+    expect(String(consent.json?.error)).toContain("has not started its Game");
+    expect(await claimStatus(claimId)).toBe("submitted");
+  });
+
   it("will not open the vote with two people on the roll, and says how many more", async () => {
     const status = await call("GET", "/api/admin/launch");
     expect(status.status).toBe(200);
@@ -400,6 +436,16 @@ describe.skipIf(!DB_CONFIGURED)("everybody answers and everybody agrees", () => 
     const now = await tryToIssue("The village started its Game, so this can land");
     expect(now.status, JSON.stringify(now.json)).toBe(200);
     expect(now.json?.toBalance).toBe(5);
+  });
+
+  it("pays the work that was waiting, because the claim was never stranded", async () => {
+    // The other half of the guard three cases back. Wren's quest was submitted
+    // before the village started and is consented now, at full value.
+    const consent = await call("POST", `/api/admin/quest-claims/${claimId}/consent`, {
+      body: { approve: true, amount: 10 },
+    });
+    expect(consent.status, JSON.stringify(consent.json)).toBe(200);
+    expect(await claimStatus(claimId)).toBe("consented");
   });
 
   it("says so to every member, with no admin login", async () => {
