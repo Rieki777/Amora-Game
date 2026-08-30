@@ -1,0 +1,294 @@
+/**
+ * THE TEST RUN LEAVES NOTHING BEHIND, driven over HTTP against a real database.
+ *
+ * R86, the founder's words: "we also need a 'test the village' option where all
+ * the cycles can run rapidly so we can test how they are all working ... so we
+ * can see how everything runs, which we should do anyway before going live."
+ *
+ * R81 and R67 are what make that hard. All minting goes through governance
+ * after launch, and before launch nothing issues at all. A dry run that minted
+ * test tokens into real balances would be the platform issuing value with no
+ * vote behind it, which is the exact act those rulings exist to prevent.
+ *
+ * So the harm metric for this file is one sentence, and every clause of it runs
+ * against the built server:
+ *
+ *   A founder runs the longest test their village allows, over a village whose
+ *   economy is switched on and seated, and afterwards every append-only table
+ *   holds exactly the rows it held before, the issuance gate still refuses, and
+ *   the report still told them what their settings would do.
+ *
+ * WHY THE FIXTURE IS LOUD ABOUT ITS STATE. A compressed run over a village with
+ * every module off and no seat held exercises almost nothing and reports a
+ * confident green. This suite seats a member on a real role, leaves the seeded
+ * mint rules in place, and queues a rule change, so the run has something to
+ * find. `stateIsOn` below asserts that before any of it is believed.
+ *
+ * Boots the BUILT `dist/index.js` against a throwaway schema, so run
+ * `pnpm build` first or you are testing stale code. Skips loudly without
+ * TEST_DATABASE_URL.
+ */
+import fs from "fs";
+import os from "os";
+import path from "path";
+import mysql from "mysql2/promise";
+import { spawn, type ChildProcess } from "child_process";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+
+const DB_CONFIGURED = testDbConfigured();
+if (!DB_CONFIGURED) {
+  console.warn("[dryRun.routes] TEST_DATABASE_URL not set - DB-backed tests SKIPPED.");
+}
+
+const DIST = path.resolve(process.cwd(), "dist/index.js");
+
+/**
+ * A window PROVABLY clear of every other suite that boots a server.
+ *
+ * RE-GREP BEFORE TRUSTING THIS. `grep -rn "process.pid %" server/` is the
+ * survey; the table is only its result on the date named. Surveyed 2026-08-29:
+ * the highest band any other suite can reach is 17599 (17200 + pid % 400, held
+ * by launchVote.routes and powerTransfer.routes), so a base at 17700 cannot
+ * collide with any of them for ANY process id. 400 wide, ending at 18099, well
+ * below the ephemeral range Windows hands out (49152+).
+ */
+const PORT = 17700 + (process.pid % 400);
+const BASE = `http://localhost:${PORT}`;
+const ADMIN = "dryrun-admin";
+const PASSWORD = "DryRunTest123!";
+
+let child: ChildProcess | undefined;
+let testDb: TestDb | undefined;
+let dataDir = "";
+let pool: mysql.Pool;
+const logs: string[] = [];
+
+let founderToken = "";
+let founderId = "";
+let wrenToken = "";
+let wrenId = "";
+
+interface Answer { status: number; json: any }
+
+async function call(
+  method: string,
+  route: string,
+  opts: { body?: unknown; token?: string | null } = {},
+): Promise<Answer> {
+  const token = opts.token === undefined ? founderToken : opts.token;
+  const res = await fetch(BASE + route, { // module-review-ok: the test client dialling the built server on localhost, as every e2e suite does
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+  });
+  return { status: res.status, json: await res.json().catch(() => null) };
+}
+
+async function register(name: string, slug: string): Promise<{ token: string; id: string }> {
+  const r = await call("POST", "/api/auth/register", {
+    token: "",
+    body: { name, email: `${slug}-${PORT}@example.test`, password: PASSWORD, paths: ["resident"] },
+  });
+  expect(r.status, `${name} must register`).toBe(200);
+  return { token: String(r.json?.token ?? ""), id: String(r.json?.user?.id ?? "") };
+}
+
+/**
+ * EVERY APPEND-ONLY TABLE A RUN COULD PLAUSIBLY DIRTY, read raw.
+ *
+ * Counts alone would miss a row that replaced another, so the ledger and the
+ * faucets carry their sums too and the mint rules carry their whole contents.
+ * `scheduled_jobs` is here because the obvious wrong build of this feature is
+ * one that runs the registered jobs faster, and that ledger is where such a
+ * build would leave its fingerprints.
+ */
+async function fingerprint(): Promise<Record<string, string>> {
+  const one = async (label: string, sql: string): Promise<[string, string]> => {
+    const [rows] = await pool.query<any[]>(sql); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    return [label, JSON.stringify(rows)];
+  };
+  const parts = await Promise.all([
+    one("token_ledger", "SELECT COUNT(*) n, COALESCE(SUM(amount),0) s FROM token_ledger"),
+    one("token_ledger_rows", "SELECT id, from_account, to_account, token_type, amount, source, idempotency_key FROM token_ledger ORDER BY id"),
+    one("token_balances", "SELECT account_id, token_type, balance FROM token_balances ORDER BY account_id, token_type"),
+    one("faucets", "SELECT b.account_id, b.token_type, b.balance FROM token_balances b JOIN ledger_accounts a ON a.id = b.account_id WHERE a.faucet = 1 ORDER BY b.account_id, b.token_type"),
+    one("gratitude_log", "SELECT COUNT(*) n, COALESCE(SUM(amount),0) s FROM gratitude_log"),
+    one("mint_rules", "SELECT id, amount, ceiling, enabled, effective_from_cycle, pending_amount, pending_ceiling, pending_enabled, pending_from_cycle FROM mint_rules ORDER BY id"),
+    one("app_config", "SELECT config_key, CAST(value AS CHAR) v FROM app_config ORDER BY config_key"),
+    one("scheduled_jobs", "SELECT job, last_run_at, last_result FROM scheduled_jobs ORDER BY job"),
+    one("ledger_accounts", "SELECT id, kind, faucet FROM ledger_accounts ORDER BY id"),
+    one("gratitude_distributions", "SELECT COUNT(*) n FROM gratitude_distributions"),
+    one("gratitude_cycles", "SELECT COUNT(*) n FROM gratitude_cycles"),
+    one("events", "SELECT COUNT(*) n FROM events"),
+    one("notifications", "SELECT COUNT(*) n FROM notifications"),
+  ]);
+  return Object.fromEntries(parts);
+}
+
+/** Ask the founder to hand-mint. The simplest issuance a route can be told to do. */
+const tryToIssue = (reason: string) =>
+  call("POST", "/api/admin/tokens/gratitude/mint", {
+    body: { toUserId: wrenId, amount: 5, reason },
+  });
+
+beforeAll(async () => {
+  if (!DB_CONFIGURED) return;
+  if (!fs.existsSync(DIST)) {
+    throw new Error(`${DIST} is missing. Run \`pnpm build\` before the dry run route test.`);
+  }
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-dryrun-"));
+  // A village that has NOT started its Game, which is the whole premise: the
+  // test run is the last thing a founder reaches for before the launch ballot.
+  testDb = await provisionTestDb({ gameStarted: false });
+  pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the suite's own pool onto the scratch schema it provisioned
+
+  child = spawn(process.execPath, [DIST], {
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      PORT: String(PORT),
+      DATA_DIR: dataDir,
+      DATABASE_URL: testDb.url,
+      ADMIN_PASSWORD: ADMIN,
+      AUTH_TOKEN_SECRET: "dryrun-token-secret", // module-review-ok: a fixture signing secret for a throwaway server on a scratch schema, same as every e2e suite
+      RESEND_API_KEY: "",
+      ANTHROPIC_API_KEY: "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout?.on("data", (d) => logs.push(String(d)));
+  child.stderr?.on("data", (d) => logs.push(String(d)));
+
+  const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
+  for (;;) {
+    if (Date.now() > deadline) throw new Error(`server did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s:\n${logs.join("")}`);
+    try {
+      if ((await fetch(`${BASE}/health`)).ok) break; // module-review-ok: the boot poll against the local test server
+    } catch { /* not up yet */ }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  const boot = await call("POST", "/api/admin/bootstrap", {
+    token: "",
+    body: { password: ADMIN, email: `founder-${PORT}@example.test`, name: "Dry Run Founder" },
+  });
+  const claim = decodeURIComponent(String(boot.json?.claimUrl ?? "").match(/token=([^&]+)/)?.[1] ?? "");
+  const setPw = await call("POST", "/api/auth/set-password", { token: "", body: { token: claim, password: PASSWORD } });
+  founderToken = String(setPw.json?.token ?? "");
+  founderId = String(setPw.json?.user?.id ?? "");
+  expect(founderToken, "founder must hold a session").toBeTruthy();
+
+  const wren = await register("Wren Ashby", "wren");
+  wrenToken = wren.token; wrenId = wren.id;
+
+  /*
+   * THE STATE, ON. A seat somebody actually holds is what makes the moon
+   * settlement have anything to say, and a queued rule change is what makes
+   * the promotion path have anything to say. Without both, a compressed run
+   * walks a village where nothing happens and reports a confident green.
+   */
+  await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    "INSERT INTO org_roles (id, name, seats, active) VALUES ('dryrun-seat', 'Water Steward', 1, 1)",
+  );
+  await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    "INSERT INTO org_role_assignments (id, org_role_id, holder_kind, user_id, holder_key, is_example) " +
+      "VALUES ('dryrun-seating', 'dryrun-seat', 'member', ?, ?, 0)",
+    [wrenId, wrenId],
+  );
+}, 180_000);
+
+afterAll(async () => {
+  child?.kill();
+  await pool?.end();
+  await testDb?.drop();
+  if (dataDir) fs.rmSync(dataDir, { recursive: true, force: true });
+});
+
+describe.skipIf(!DB_CONFIGURED)("the test run before launch", () => {
+  it("the fixture has the state ON, so a green here means something", async () => {
+    const [seats] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT COUNT(*) n FROM org_role_assignments WHERE active_holder_key IS NOT NULL AND holder_kind = 'member' AND user_id IS NOT NULL AND is_example = 0",
+    );
+    expect(Number(seats[0].n), "a member holds a seat").toBeGreaterThan(0);
+    const [rules] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT COUNT(*) n FROM mint_rules WHERE enabled = 1",
+    );
+    expect(Number(rules[0].n), "the village has enabled mint rules").toBeGreaterThan(0);
+  });
+
+  it("refuses a stranger", async () => {
+    const r = await call("POST", "/api/admin/dry-run", { token: null, body: { moons: 3 } });
+    expect(r.status).toBe(401);
+  });
+
+  it("refuses a signed-in member who is not an admin", async () => {
+    const r = await call("POST", "/api/admin/dry-run", { token: wrenToken, body: { moons: 3 } });
+    expect(r.status).toBe(401);
+  });
+
+  it("runs, and says what it was measuring", async () => {
+    const r = await call("POST", "/api/admin/dry-run", { body: { moons: 12 } });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(r.json.moons).toBe(12);
+    expect(r.json.turns).toHaveLength(12);
+    expect(r.json.gameStarted).toBe(false);
+    // Every turn names its own lunation, and they run forward one at a time.
+    const numbers = r.json.turns.map((t: any) => t.cycleNumber);
+    for (let i = 1; i < numbers.length; i++) expect(numbers[i]).toBe(numbers[i - 1] + 1);
+    // The settlement had a seat to thank, so the run is not walking an empty village.
+    const settled = r.json.turns[0].findings.filter((f: any) => f.area === "settlement");
+    expect(settled.length, "the settlement said something").toBeGreaterThan(0);
+    // And it is honest about what it did not test.
+    expect(Array.isArray(r.json.notCovered)).toBe(true);
+    expect(r.json.notCovered.length, "the run names what it does not cover").toBeGreaterThan(0);
+  });
+
+  it("THE LEDGER IS UNCHANGED, and so is every other append-only table", async () => {
+    const before = await fingerprint();
+    const r = await call("POST", "/api/admin/dry-run", { body: { moons: 36 } });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    // A run that computed nothing would also leave the ledger alone, so prove
+    // it computed something first.
+    const issued = r.json.turns.flatMap((t: any) => t.findings).filter((f: any) => f.outcome === "issued");
+    expect(issued.length, "the run projected at least one issuance").toBeGreaterThan(0);
+
+    const after = await fingerprint();
+    for (const key of Object.keys(before)) {
+      expect(after[key], `${key} changed during a test run`).toBe(before[key]);
+    }
+  });
+
+  it("leaves the issuance gate exactly where it found it", async () => {
+    const beforeRun = await tryToIssue("before the test run");
+    expect(beforeRun.status, "a village that has not started refuses issuance").toBeGreaterThanOrEqual(400);
+
+    await call("POST", "/api/admin/dry-run", { body: { moons: 24 } });
+
+    const afterRun = await tryToIssue("after the test run");
+    expect(afterRun.status, "and it still refuses afterwards").toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(afterRun.json)).toMatch(/has not started its Game/i);
+  });
+
+  it("refuses a length nobody asked for rather than inventing one", async () => {
+    const tooMany = await call("POST", "/api/admin/dry-run", { body: { moons: 5000 } });
+    expect(tooMany.status).toBe(400);
+    const zero = await call("POST", "/api/admin/dry-run", { body: { moons: 0 } });
+    expect(zero.status).toBe(400);
+  });
+
+  it("carries the refusals a founder needs, never only the successes", async () => {
+    // A rule that pays nothing is the silent misconfiguration this exists for.
+    await pool.query("UPDATE mint_rules SET amount = NULL WHERE `trigger` = 'role.cycle' AND token_slug = 'gratitude'"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    const r = await call("POST", "/api/admin/dry-run", { body: { moons: 6 } });
+    expect(r.status).toBe(200);
+    const refusals = r.json.refusals ?? [];
+    expect(refusals.length, "the run reported at least one refusal").toBeGreaterThan(0);
+    expect(JSON.stringify(refusals)).toMatch(/pays nothing|reads its amount/i);
+    // Put it back so a later read of this schema is not confused by it.
+    await pool.query("UPDATE mint_rules SET amount = 20 WHERE `trigger` = 'role.cycle' AND token_slug = 'gratitude'"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+  });
+});

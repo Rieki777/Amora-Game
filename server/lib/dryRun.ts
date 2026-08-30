@@ -1,0 +1,577 @@
+/**
+ * THE TEST RUN (R86): watch a whole cycle turn before you bet a village on it.
+ *
+ * Rye: "we also need a 'test the village' option where all the cycles can run
+ * rapidly so we can test how they are all working ... so we can see how
+ * everything runs, which we should do anyway before going live. So the 'journey
+ * to launch' has this as the second to last button to run a quick test over all
+ * settings to see if they would work in production or break in some way."
+ *
+ * The button after this one opens the launch ballot, which needs every member
+ * to agree and turns on token issuance for good. This is the last moment
+ * anybody can find out that a setting breaks.
+ *
+ * ── WHY THIS COMPUTES INSTEAD OF RUNNING ────────────────────────────────────
+ *
+ * R81 puts all minting behind governance. R67 says a village that has not
+ * started its Game issues nothing at all, and `server/lib/gameStart.ts` enforces
+ * that inside `postTransfer`, on `ledger_accounts.faucet`, under the lock. A
+ * test run that minted into real balances would be the platform issuing value
+ * with no vote behind it, which is the exact act those rulings exist to prevent.
+ *
+ * Two facts settle the design between them:
+ *
+ *  1. Before launch, every faucet posting is already refused. Driving the real
+ *     write paths on a village that has not started would exercise the gate and
+ *     tell the founder nothing about their economy. Turning the gate off to
+ *     learn something would remove the gate.
+ *
+ *  2. `give` in `server/lib/economy.ts` commits its `gratitude_log` row and
+ *     THEN posts to the ledger, on purpose, so the allowance is spent before
+ *     the mint is attempted. On a village that has not started, calling it
+ *     leaves a permanent recognition row, spends a real allowance, and mints
+ *     nothing. That row is history a later reader would count.
+ *
+ * So this module takes no pool, opens no connection and writes no row. It reads
+ * the village's own dials through the synchronous variables cache, takes a
+ * snapshot of the few facts that live in tables, and computes what each moon
+ * would do. `mintView`'s `settlementPreview` and `/api/admin/cycles/pending`
+ * already work this way for one cycle each; this is the same idea walked
+ * forward over many.
+ *
+ * WHAT IT COSTS, stated here and repeated to the founder in `notCovered`: a
+ * computation cannot catch a bug that only appears when the real write path
+ * runs. It catches a setting that cannot work, which is what the founder asked
+ * to see.
+ *
+ * ── THE CLOCK ───────────────────────────────────────────────────────────────
+ *
+ * Nothing here speeds a timer up. The lunar math in `shared/lunar.ts` is pure
+ * and takes an instant, so a compressed run is a walk over cycle numbers with
+ * the instant supplied, one turn per lunation. That is why the answers are the
+ * ones production would give: the same functions, the same table of true new
+ * moons, a different argument.
+ */
+import { GAME_CONFIG } from "../../shared/gameConfig";
+import { cycleBoundsByNumber, cycleBoundsFor } from "../../shared/lunar";
+import { formatCycleId } from "./gratitude-cycles";
+import { cyclePoolProblem } from "./cyclePool";
+import { faucetFor, toLedgerUnits, VILLAGE_VOICE } from "./economy";
+import { shareCapFor } from "./gratitude";
+import { tokenDef } from "./ledger";
+import { numberVar, stringVar } from "./variables";
+import { claimsWindow } from "./voiceClaim";
+
+/** The longest run the page offers. Three lunar years of turns. */
+export const MAX_MOONS = 40;
+
+/**
+ * One mint rule as the run needs it, including whatever is queued against it.
+ *
+ * `pending` mirrors the four `pending_*` columns `applyPendingRules` promotes,
+ * because a founder who has queued a change wants to see the moon it lands in.
+ */
+export interface DryRunRule {
+  id: string;
+  trigger: string;
+  tokenSlug: string;
+  amount: number | null;
+  ceiling: number;
+  enabled: boolean;
+  effectiveFromCycle: number;
+  pending: null | { amount: number | null; ceiling: number; enabled: boolean; fromCycle: number };
+}
+
+/**
+ * A registered scheduler job, exactly as `registeredJobs()` reports it.
+ *
+ * There is deliberately no job-to-module map here. Several jobs open with
+ * `if (effectiveLifecycle("x") === "off") return`, and that check lives inside
+ * the job's own function where nothing can read it. A hand-kept map naming
+ * which job belongs to which module would be right on the day it was written
+ * and wrong the first time somebody added a job, so the report names the
+ * modules that are off as its own fact and leaves the founder to join them.
+ */
+export interface DryRunJob {
+  name: string;
+  everyMs: number;
+}
+
+/**
+ * The handful of facts that live in tables. Everything else the run needs is a
+ * dial, and dials are read through the in-memory variables cache.
+ */
+export interface DryRunSnapshot {
+  gameStarted: boolean;
+  startedAt: string | null;
+  /** Live member seatings: what the moon settlement would thank. */
+  seatCount: number;
+  rules: DryRunRule[];
+  jobs: DryRunJob[];
+  /** Modules this village has switched off, by their own names. */
+  modulesOff: string[];
+}
+
+export type Outcome = "issued" | "refused" | "idle";
+
+export interface Finding {
+  /** settlement, rules, claims, pool, issuance. */
+  area: string;
+  outcome: Outcome;
+  /** What happened, in the words the report shows. */
+  sentence: string;
+}
+
+export interface DryRunTurn {
+  cycleNumber: number;
+  cycleKey: string;
+  startsAt: string;
+  endsAt: string;
+  findings: Finding[];
+}
+
+export interface DryRunAllowance {
+  stageId: string;
+  stageName: string;
+  multiplier: number;
+  allowance: number;
+  shareCap: number;
+  /** How many different people it takes to spend a whole allowance. */
+  spreadsAcross: number;
+  heartsSendable: boolean;
+  note: string;
+}
+
+export interface DryRunJobLine {
+  name: string;
+  everyHours: number;
+  runsInSpan: number;
+  note: string;
+}
+
+export interface DryRunReport {
+  ranAt: string;
+  moons: number;
+  spanDays: number;
+  firstCycle: number;
+  lastCycle: number;
+  gameStarted: boolean;
+  /** What this run touched, said before anything else. */
+  isolation: string;
+  turns: DryRunTurn[];
+  allowances: DryRunAllowance[];
+  jobs: DryRunJobLine[];
+  /** Every refusal from every turn, gathered once, deduplicated by sentence. */
+  refusals: Finding[];
+  covered: string[];
+  notCovered: string[];
+}
+
+export interface DryRunOptions {
+  moons: number;
+  /** The instant the first simulated moon contains. Injected for the suite. */
+  from?: Date;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Which rules are in force at a cycle, as `runSettlement` would see them.
+ *
+ * The order matters and it is the order settlement uses: promote every queued
+ * change whose moon has come, THEN read the rules. A change stamped for this
+ * cycle governs this settlement. Reading first would pay the old rate and apply
+ * the new one a moon late, which is the deferral working backwards.
+ */
+function rulesInForce(rules: readonly DryRunRule[], cycle: number): DryRunRule[] {
+  const promoted = rules.map((r) => {
+    if (r.pending && r.pending.fromCycle <= cycle) {
+      return {
+        ...r,
+        amount: r.pending.amount,
+        ceiling: r.pending.ceiling,
+        enabled: r.pending.enabled,
+        effectiveFromCycle: r.pending.fromCycle,
+        pending: null,
+      };
+    }
+    return r;
+  });
+  return promoted.filter((r) => r.enabled && r.effectiveFromCycle <= cycle);
+}
+
+/** Whether any claims window opens inside a lunation. */
+function claimsOpenInside(startsAt: Date, endsAt: Date): { open: boolean; opensAt: Date | null } {
+  const atStart = claimsWindow(startsAt);
+  if (atStart.open) return { open: true, opensAt: startsAt };
+  const next = atStart.nextOpens;
+  if (next && next < endsAt) return { open: true, opensAt: next };
+  return { open: false, opensAt: null };
+}
+
+/**
+ * The allowance table, one row per stage of the ladder.
+ *
+ * R73 made a member's per-cycle budget `gratitude.base_budget` times their
+ * stage multiplier, with a per-recipient ceiling that is a SHARE of that
+ * budget, counted across written acknowledgments and feed hearts together. A
+ * compressed run turns cycles over quickly and exercises that ceiling far
+ * harder than a real month would, so the refusals it produces belong on the
+ * report where a founder can read them before launch.
+ *
+ * The two failures this catches, both reachable with dials that each read as a
+ * sane number on their own:
+ *
+ *   a multiplier of 0, or a base budget of 0, so members at that stage cannot
+ *   give anything and the page never says why;
+ *
+ *   a heart worth more than the whole per-person share, so every tap on the
+ *   feed is refused while the acknowledgment page still works.
+ */
+function allowanceTable(): DryRunAllowance[] {
+  const base = numberVar("gratitude.base_budget");
+  const heart = numberVar("feed.heart_amount");
+  return GAME_CONFIG.stages.map((s) => {
+    const multiplier = Math.max(0, numberVar(`progression.multiplier.${s.id}`));
+    const allowance = Math.round(base * multiplier);
+    const cap = shareCapFor(allowance);
+    const spreadsAcross = cap > 0 ? Math.ceil(allowance / cap) : 0;
+    const heartsSendable = allowance > 0 && heart <= cap;
+    let note: string;
+    if (allowance <= 0) {
+      note = `Members at ${s.name} can give nothing. Their sending budget is ${base} times ${multiplier}, which comes to zero.`;
+    } else if (!heartsSendable) {
+      note =
+        `A heart is worth ${heart} and one person may receive ${cap} from a member at ${s.name}, ` +
+        `so every tap on the feed would be refused. Raise the share, or lower what a heart is worth.`;
+    } else {
+      note =
+        `A member at ${s.name} gives ${allowance} a moon and up to ${cap} of it to any one person, ` +
+        `so it takes ${spreadsAcross} people to spend a whole allowance.`;
+    }
+    return {
+      stageId: s.id,
+      stageName: s.name,
+      multiplier,
+      allowance,
+      shareCap: cap,
+      spreadsAcross,
+      heartsSendable,
+      note,
+    };
+  });
+}
+
+/**
+ * What the moon settlement would do in one cycle.
+ *
+ * This mirrors `runSettlement` exactly, guard for guard, and each guard that
+ * fires becomes a sentence. The three silent ones are the reason the function
+ * exists: a `role.cycle` rule whose amount is null reads its amount from a
+ * source a seat does not have, so it pays nothing forever; a rule for a token
+ * with no faucet can never pay; and a rule whose amount rounds to zero ledger
+ * units pays nothing while showing a number on the dial.
+ */
+function settlementFindings(
+  snapshot: DryRunSnapshot,
+  cycle: number,
+  rules: readonly DryRunRule[],
+): Finding[] {
+  const out: Finding[] = [];
+  const cycleRules = rules.filter((r) => r.trigger === "role.cycle");
+
+  if (rules.length === 0) {
+    out.push({
+      area: "settlement",
+      outcome: "refused",
+      sentence: "No mint rule is switched on for this village, so a moon settlement would pay nobody.",
+    });
+    return out;
+  }
+  if (cycleRules.length === 0) {
+    out.push({
+      area: "settlement",
+      outcome: "refused",
+      sentence: "No rule is set for holding a seat through a moon, so the settlement has nothing to pay.",
+    });
+    return out;
+  }
+  if (snapshot.seatCount === 0) {
+    out.push({
+      area: "settlement",
+      outcome: "idle",
+      sentence: "Nobody holds a seat this moon, so the settlement thanks nobody. It has a rule ready when somebody does.",
+    });
+    return out;
+  }
+
+  for (const r of cycleRules) {
+    const token = tokenDef(r.tokenSlug);
+    const tokenName = token?.name ?? r.tokenSlug;
+    if (r.amount === null) {
+      out.push({
+        area: "settlement",
+        outcome: "refused",
+        sentence: `The ${tokenName} rule for holding a seat reads its amount from the work, and a seat has no amount to read, so it pays nothing.`,
+      });
+      continue;
+    }
+    if (r.amount <= 0) {
+      out.push({
+        area: "settlement",
+        outcome: "refused",
+        sentence: `The ${tokenName} rule for holding a seat is set to ${r.amount}, so it pays nothing.`,
+      });
+      continue;
+    }
+    const faucet = faucetFor(r.tokenSlug);
+    if (!faucet) {
+      out.push({
+        area: "settlement",
+        outcome: "refused",
+        sentence: `${tokenName} has no faucet, so the seat rule can never issue it. A token the ledger cannot mint needs a different rule.`,
+      });
+      continue;
+    }
+    if (!token) {
+      out.push({
+        area: "settlement",
+        outcome: "refused",
+        sentence: `The seat rule pays "${r.tokenSlug}", which is not a registered token here.`,
+      });
+      continue;
+    }
+    if (token.governance !== "platform") {
+      out.push({
+        area: "settlement",
+        outcome: "refused",
+        sentence: `${tokenName} is ${token.governance}-governed and is mirrored here, so this village cannot issue it.`,
+      });
+      continue;
+    }
+    const units = toLedgerUnits(r.tokenSlug, r.amount);
+    if (units <= 0) {
+      out.push({
+        area: "settlement",
+        outcome: "refused",
+        sentence: `The ${tokenName} seat rule is set to ${r.amount}, which rounds to nothing at this token's precision, so it pays nothing.`,
+      });
+      continue;
+    }
+    out.push({
+      area: "settlement",
+      outcome: "issued",
+      sentence: `${snapshot.seatCount} seat holder(s) each thanked ${r.amount} ${tokenName}, which comes to ${snapshot.seatCount * r.amount} for the moon.`,
+    });
+  }
+  void cycle;
+  return out;
+}
+
+/** Queued dial changes that land in this cycle, named one by one. */
+function promotionFindings(rules: readonly DryRunRule[], cycle: number): Finding[] {
+  const out: Finding[] = [];
+  for (const r of rules) {
+    if (!r.pending || r.pending.fromCycle !== cycle) continue;
+    const tokenName = tokenDef(r.tokenSlug)?.name ?? r.tokenSlug;
+    const from = r.amount === null ? "read from the work" : String(r.amount);
+    const to = r.pending.amount === null ? "read from the work" : String(r.pending.amount);
+    out.push({
+      area: "rules",
+      outcome: "issued",
+      sentence: `The queued change to the ${tokenName} rule for ${r.trigger} lands this moon: ${from} becomes ${to}.`,
+    });
+  }
+  return out;
+}
+
+/**
+ * The whole run.
+ *
+ * Takes a snapshot and returns a report. No pool, no connection, no write. A
+ * reader who wants to be sure of that can check the imports at the top of this
+ * file: none of them can reach a database.
+ */
+export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRunReport {
+  const from = options.from ?? new Date();
+  const moons = Math.max(1, Math.min(MAX_MOONS, Math.trunc(options.moons)));
+  const firstCycle = cycleBoundsFor(from).cycleNumber;
+
+  const turns: DryRunTurn[] = [];
+  for (let i = 0; i < moons; i++) {
+    const cycle = firstCycle + i;
+    const bounds = cycleBoundsByNumber(cycle);
+    const inForce = rulesInForce(snapshot.rules, cycle);
+    const findings: Finding[] = [
+      ...promotionFindings(snapshot.rules, cycle),
+      ...settlementFindings(snapshot, cycle, inForce),
+    ];
+
+    const claims = claimsOpenInside(bounds.startsAt, bounds.endsAt);
+    findings.push(
+      claims.open
+        ? {
+            area: "claims",
+            outcome: "issued",
+            sentence: `Claims Week opens on ${claims.opensAt!.toISOString().slice(0, 10)}, so voice gathered by then can be carried to Hypha.`,
+          }
+        : {
+            area: "claims",
+            outcome: "idle",
+            sentence: "No Claims Week falls in this moon, so voice keeps gathering.",
+          },
+    );
+
+    turns.push({
+      cycleNumber: cycle,
+      cycleKey: formatCycleId(cycle),
+      startsAt: bounds.startsAt.toISOString(),
+      endsAt: bounds.endsAt.toISOString(),
+      findings,
+    });
+  }
+
+  // ── Run-level findings, appended to the first turn's neighbours ───────────
+  const runFindings: Finding[] = [];
+
+  const poolSize = numberVar("gratitude.pool_per_cycle");
+  const poolToken = stringVar("gratitude.pool_token");
+  const poolProblem = cyclePoolProblem(poolSize, poolToken);
+  if (poolProblem) {
+    runFindings.push({ area: "pool", outcome: "refused", sentence: poolProblem });
+  } else if (poolSize > 0) {
+    const name = tokenDef(poolToken)?.name ?? poolToken;
+    runFindings.push({
+      area: "pool",
+      outcome: "issued",
+      sentence: `Each close would share ${poolSize} ${name} among the people recognised that moon, in proportion to what they received.`,
+    });
+  } else {
+    runFindings.push({
+      area: "pool",
+      outcome: "idle",
+      sentence: "No value pool is set for a cycle close, so closing a moon records the totals and releases nothing.",
+    });
+  }
+
+  const hyphaSpace = stringVar("economy.hypha_space").trim();
+  if (!hyphaSpace) {
+    runFindings.push({
+      area: "claims",
+      outcome: "refused",
+      sentence:
+        "No Hypha space is set, so voice gathers correctly and nobody can claim it. Members are told exactly that.",
+    });
+  }
+
+  // How long a seat holder waits for their voice to reach the claim threshold,
+  // at the rates the seat rules actually carry. A threshold nobody reaches in
+  // three lunar years is a loop that never visibly closes.
+  const threshold = numberVar("economy.voice_claim_threshold");
+  const voicePerMoon = rulesInForce(snapshot.rules, firstCycle)
+    .filter((r) => r.trigger === "role.cycle" && r.tokenSlug === VILLAGE_VOICE)
+    .reduce((n, r) => n + (r.amount ?? 0), 0);
+  if (voicePerMoon > 0) {
+    const moonsToClaim = Math.ceil(threshold / voicePerMoon);
+    runFindings.push({
+      area: "claims",
+      outcome: moonsToClaim <= moons ? "issued" : "refused",
+      sentence:
+        moonsToClaim <= moons
+          ? `A seat holder gathers ${voicePerMoon} voice a moon and reaches the claim threshold of ${threshold} after ${moonsToClaim} moons, inside this run.`
+          : `A seat holder gathers ${voicePerMoon} voice a moon, so reaching the claim threshold of ${threshold} takes ${moonsToClaim} moons. This run covers ${moons}.`,
+    });
+  } else {
+    runFindings.push({
+      area: "claims",
+      outcome: "refused",
+      sentence: `No rule issues voice for holding a seat, so a seat holder never reaches the claim threshold of ${threshold}.`,
+    });
+  }
+
+  if (snapshot.modulesOff.length > 0) {
+    runFindings.push({
+      area: "jobs",
+      outcome: "idle",
+      sentence:
+        `${snapshot.modulesOff.length} module(s) are off in this village: ${snapshot.modulesOff.join(", ")}. ` +
+        "The background jobs that belong to them ask on their usual cadence and then sit out.",
+    });
+  }
+
+  runFindings.push(
+    snapshot.gameStarted
+      ? {
+          area: "issuance",
+          outcome: "idle",
+          sentence: `This village started its Game on ${String(snapshot.startedAt ?? "").slice(0, 10)}. This run still wrote nothing: every figure above is what the rules would pay.`,
+        }
+      : {
+          area: "issuance",
+          outcome: "idle",
+          sentence:
+            "This village has not started its Game, so nothing above was issued. Every figure is what the rules would pay once the launch vote carries.",
+        },
+  );
+
+  if (turns[0]) turns[0].findings.push(...runFindings);
+
+  // ── The jobs, counted and never run ──────────────────────────────────────
+  const spanDays = moons > 0
+    ? (cycleBoundsByNumber(firstCycle + moons - 1).endsAt.getTime() - cycleBoundsByNumber(firstCycle).startsAt.getTime()) / DAY_MS
+    : 0;
+  const jobs: DryRunJobLine[] = snapshot.jobs
+    .map((j) => {
+      const everyHours = Math.round((j.everyMs / 3_600_000) * 10) / 10;
+      const runsInSpan = j.everyMs > 0 ? Math.floor((spanDays * DAY_MS) / j.everyMs) : 0;
+      return {
+        name: j.name,
+        everyHours,
+        runsInSpan,
+        note: `Asks every ${everyHours} hour(s), so about ${runsInSpan} times across this span.`,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Every refusal, once each, in the order they first appeared.
+  const seen = new Set<string>();
+  const refusals: Finding[] = [];
+  for (const t of turns) {
+    for (const f of t.findings) {
+      if (f.outcome !== "refused" || seen.has(f.sentence)) continue;
+      seen.add(f.sentence);
+      refusals.push(f);
+    }
+  }
+
+  return {
+    ranAt: new Date().toISOString(),
+    moons,
+    spanDays: Math.round(spanDays),
+    firstCycle,
+    lastCycle: firstCycle + moons - 1,
+    gameStarted: snapshot.gameStarted,
+    isolation:
+      "This run wrote nothing. It read your settings and worked out what each moon would do, " +
+      "so no balance moved, no recognition was recorded, and nothing was issued.",
+    turns,
+    allowances: allowanceTable(),
+    jobs,
+    refusals,
+    covered: [
+      "The moon settlement: which rules pay, to how many seat holders, and how much.",
+      "Queued dial changes, and the moon each one lands in.",
+      "Claims Week, and whether one opens inside the span you ran.",
+      "The giving allowance and the per-person share, at every stage of the path.",
+      "The value pool a cycle close would release.",
+      "The background jobs, their cadence, and which ones sit out while a module is off.",
+    ],
+    notCovered: [
+      "Real sending. Nothing was given, so this cannot tell you what a specific member would meet on a specific day.",
+      "The ledger itself. This works out what the rules would pay, and it does not post to the ledger or read balances back.",
+      "Quests, gatherings, badges and seasons. Their timing is driven by what people do, and a run with nobody in it has nothing to drive.",
+      "Anything a background job does. The jobs are listed and counted here, and none of them was run.",
+      "Third party services. Nothing was sent to Hypha, Resend, or any other outside service.",
+    ],
+  };
+}
