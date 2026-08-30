@@ -465,3 +465,33 @@ describe("numbers said the way a person would say them", () => {
     expect(by("retention-sweep").runsInSpan).toBe("354");
   });
 });
+
+describe("a window that never arrives", () => {
+  it("names a Claims Week nobody will ever reach", async () => {
+    // A full ISO date is the single most likely thing to paste into a field
+    // labelled with dates, and `claimsWindow` refuses it and shuts the window
+    // rather than reading a typo as permission. Every turn then says something
+    // reassuring about voice gathering, forever.
+    await setDial("economy.claims_week_starts", "2026-06-21");
+    try {
+      const r = dryRun(snapshot(), { moons: 12, from: FROM });
+      const f = r.runFindings.find((x) => x.area === "claims" && /No Claims Week opens/.test(x.sentence))!;
+      expect(f.outcome).toBe("refused");
+      expect(f.sentence).toContain("2026-06-21");
+      expect(f.sentence).toMatch(/a month and a day like 06-21/i);
+    } finally {
+      await setDial("economy.claims_week_starts", "03-21,06-21,09-23,12-21");
+    }
+  });
+
+  it("says nothing about it when the windows do open", () => {
+    const r = dryRun(snapshot(), { moons: 12, from: FROM });
+    expect(r.runFindings.some((f) => /No Claims Week opens/.test(f.sentence))).toBe(false);
+  });
+
+  it("survives a moon count that is not a number", () => {
+    const r = dryRun(snapshot(), { moons: Number.NaN, from: FROM });
+    expect(r.moons).toBe(1);
+    expect(r.turns).toHaveLength(1);
+  });
+});

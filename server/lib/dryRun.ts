@@ -524,7 +524,11 @@ function promotionFindings(
  */
 export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRunReport {
   const from = options.from ?? new Date();
-  const moons = Math.max(1, Math.min(MAX_MOONS, Math.trunc(options.moons)));
+  // NaN survives Math.min and Math.max, and a NaN moon count runs zero turns
+  // while the report still says how many moons it covered. The route validates
+  // before it gets here; this is so the function is safe on its own terms.
+  const asked = Math.trunc(Number(options.moons));
+  const moons = Number.isFinite(asked) ? Math.max(1, Math.min(MAX_MOONS, asked)) : 1;
   const firstCycle = cycleBoundsFor(from).cycleNumber;
 
   const turns: DryRunTurn[] = [];
@@ -581,6 +585,31 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
       area: "pool",
       outcome: "idle",
       sentence: "No value pool is set for a cycle close, so closing a moon records the totals and releases nothing.",
+    });
+  }
+
+  /*
+   * A CLAIMS WEEK THAT NEVER ARRIVES, which the per-moon lines cannot show.
+   *
+   * "No Claims Week falls in this moon" is true on every turn in two very
+   * different villages: one whose window is a few moons away, and one whose
+   * dates were typed wrong. `claimsWindow` refuses a value it cannot parse and
+   * shuts the window rather than reading a typo as permission, so a village
+   * that set "2026-06-21" instead of "06-21" has claims closed forever and
+   * every turn says something reassuring about gathering.
+   */
+  const claimsWeekDates = stringVar("economy.claims_week_starts").trim();
+  const claimsEverOpen = turns.some((t) =>
+    t.findings.some((f) => f.area === "claims" && f.outcome === "issued"),
+  );
+  if (claimsWeekDates && !claimsEverOpen) {
+    runFindings.push({
+      area: "claims",
+      outcome: "refused",
+      sentence:
+        `No Claims Week opens in the ${moons} moons this run covers. The dates set are ` +
+        `"${claimsWeekDates}", and each one is a month and a day like 06-21. A date this ` +
+        "cannot read closes claims rather than being ignored.",
     });
   }
 
