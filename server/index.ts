@@ -26817,6 +26817,344 @@ ${inner}
     },
 
     /*
+     * ── THE VILLAGE DECLARES A ROLE (this lane, R90) ────────────────────────
+     *
+     * R90, in the founder's words: "eventually a village will be able to vote
+     * the 'Game Steward' role or choose to not vote for this role at all ...
+     * they can optionally vote in a steward role and give various powers to
+     * this steward to immediately act."
+     *
+     * Three verbs are in that sentence and the village holds none of them
+     * today. It can vote a power ONTO a role (`power_grant`), and that is the
+     * whole of it: the roles themselves come from `roles-seed.json` or from an
+     * admin accepting a draft, and who sits in one is an admin act or a
+     * `proposal.decide` act with an admin standing behind its removals. So the
+     * runway's own words apply one level up: a role a village can only have
+     * when an admin makes it is scaffolding wearing a job title.
+     *
+     * WHY A ROLE AND NOT A "STEWARD". Nothing here knows the word steward, and
+     * that is the ruling being obeyed rather than an omission. R90 says a
+     * village may choose never to have one and that a mature village may not
+     * need one at all, so a seeded Game Steward row, a steward flag or a
+     * steward-shaped route would each be the platform assuming the thing the
+     * ruling says may never exist. A village that wants one declares a role
+     * and calls it Game Steward. A village that wants two calls them something
+     * else. Neither is a special case here.
+     *
+     * IT CREATES A ROLE THAT CARRIES NOTHING, and that is the safest write in
+     * this table. A role with an empty capability list changes no gate for
+     * anybody, so the vote that makes it cannot hand anybody a power by
+     * accident. Powers arrive afterwards, one `power_grant` ballot at a time,
+     * each named in its own document and voted on its own merits.
+     *
+     * IDEMPOTENT on the role id, which is the subject ref. A second close
+     * cannot reach here (`closeBallot` guards on `status='open'`), and a run
+     * that did would find the role already there and leave it alone.
+     */
+    role_declare: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const roleId = b.subjectRef;
+      const asked = await roleDeclarationPayload(b.id);
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? `Too few of the village voted: ${b.title}`
+              : `The village did not carry this one: ${b.title}`,
+          body:
+            outcome === "no_quorum"
+              ? "Nothing has changed and nothing is lost. The ask can go to the village again whenever it is more gathered."
+              : `${outcomeNote}\n\nThe village has the roles it had before, and this can be asked again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          dedupeKey: `bal:${b.id}:role-not-declared`,
+        });
+        return out;
+      }
+
+      if (!asked || asked.roleId !== roleId) {
+        out.held = "This build has no record of what this role would be called, so nothing was created. Report this.";
+        await notifyAdmins("governance", `A carried role declaration could not land: ${b.title}`, `bal:${b.id}:declare-held`);
+        return out;
+      }
+      const existing = rolesRepo.all().find((r: any) => r.id === roleId) as any;
+      if (existing) {
+        out.held = `${existing.name ?? roleId} already exists in this village, so there was nothing to create.`;
+        return out;
+      }
+
+      await rolesRepo.insert({
+        id: roleId,
+        name: asked.name,
+        description: asked.purpose,
+        // EMPTY, and this is the load-bearing value in the row.
+        capabilities: [],
+        minStage: null,
+        // `seats` is NOT NULL and the repo writes every column in its spec, so
+        // an omitted field lands as NULL and the insert is refused.
+        seats: 1,
+        circleId: null,
+        isExample: false,
+        order: rolesRepo.all().length + 1,
+      } as RoleDef);
+
+      out.applied = [];
+      out.proposerTold = b.openedBy;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village carried this: ${b.title}`,
+        body: `${asked.name} is one of this village's roles from today. It carries no powers yet, and the village decides each one it gets.`,
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:role-declared`,
+      });
+      await addActivity("governance", `${asked.name} is one of this village's roles now, by a vote of the whole village.`, {
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: roleId,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `role:declared-by-ballot:${roleId}:${b.id}`,
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: roleId,
+        audience: "admin",
+      });
+      return out;
+    },
+
+    /*
+     * ── THE VILLAGE SEATS SOMEBODY (this lane, R90) ─────────────────────────
+     *
+     * The second missing verb. `POST /api/admin/roles/:id/holders` seats
+     * people and its own header says appointment is a governance act, but the
+     * act it moved was an ADMIN's: a `proposal.decide` holder may appoint, may
+     * not appoint themselves, and may not remove anybody. So the village had
+     * no way to put somebody in a seat by voting, which is the plain reading
+     * of "they can optionally vote in a steward role".
+     *
+     * WHAT MAKES IT ACT IMMEDIATELY, which is the property R90 names. Nothing
+     * extra. `roleCapabilitiesFor` reads the holder rows and the role's
+     * capability list on every request, `capabilityCtx` folds that into the
+     * one gate, and there is no cache between them. So the moment this row
+     * lands the person holds every power the village had already voted onto
+     * that role, with no further vote and nobody to ask.
+     *
+     * READ THE ROLE AND THE MEMBER AT CLOSE, never at open, for the reason the
+     * grant executor states: a role retired or a member departed between the
+     * two is a real state, and a village whose vote carried is owed the reason
+     * rather than a silent nothing.
+     */
+    role_seat: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const asked = parseSeatRef(b.subjectRef);
+      if (!asked) {
+        out.held = "the ballot does not name a seating this build can read";
+        return out;
+      }
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? `Too few of the village voted: ${b.title}`
+              : `The village did not carry this one: ${b.title}`,
+          body:
+            outcome === "no_quorum"
+              ? "Nothing has changed and nothing is lost. The ask can go to the village again whenever it is more gathered."
+              : `${outcomeNote}\n\nThe seat is held by whoever held it before, and the village can ask again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          dedupeKey: `bal:${b.id}:seat-not-carried`,
+        });
+        return out;
+      }
+
+      const role = rolesRepo.all().find((r: any) => r.id === asked.roleId) as any;
+      if (!role) {
+        out.held = `The role "${asked.roleId}" is no longer one of this village's roles, so there was no seat to fill.`;
+        await notifyAdmins("governance", `A carried seating could not land: ${b.title}`, `bal:${b.id}:seat-held`);
+        return out;
+      }
+      const member = await members.byId(asked.userId);
+      if (!member) {
+        out.held = "The person this vote named is no longer a member of this village, so nobody was seated.";
+        await notifyAdmins("governance", `A carried seating could not land: ${b.title}`, `bal:${b.id}:seat-held`);
+        return out;
+      }
+
+      let seatedRowId: string | null = null;
+      await withRoleHolderLock(async () => {
+        const holders = loadRoleHolders();
+        if (holders.some((h) => h.roleId === role.id && h.userId === member.id)) return;
+        const row = {
+          id: `rh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          roleId: role.id,
+          userId: member.id,
+          /*
+           * THE BALLOT IS THE GRANTOR, because the village seated them.
+           * Naming the person who closed the vote would say somebody
+           * appointed what a vote decided, which is the sentence this whole
+           * lane exists to stop a village having to read.
+           *
+           * SO `role_holders.granted_by` NOW HOLDS TWO KINDS OF ID: a user id
+           * from the admin and decider path, and a ballot id from here. That
+           * is stated rather than left to be discovered, because nothing
+           * reads this column today and the first reader will be writing a
+           * sentence about who appointed somebody. Ballot ids are prefixed
+           * and user ids are prefixed, so they can be told apart; a reader
+           * that cannot tell them apart must say it cannot rather than guess.
+           */
+          grantedBy: b.id,
+          grantedAt: new Date().toISOString(),
+        };
+        holders.push(row);
+        seatedRowId = row.id;
+        await roleHoldersRepo.replaceAll(holders);
+      });
+
+      out.applied = [];
+      out.proposerTold = b.openedBy;
+      const who = role.name ?? asked.roleId;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village carried this: ${b.title}`,
+        body: `${firstName(member.name)} sits in ${who} from today.`,
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:seated`,
+      });
+      if (seatedRowId) {
+        await notify({
+          userId: member.id,
+          type: "role_appointed",
+          title: `The village voted you into the ${who}`,
+          body: role.description ? String(role.description).slice(0, 140) : null,
+          link: "/roles",
+          actorUserId: actorId,
+          dedupeKey: `role:${seatedRowId}`,
+        });
+      }
+      await addActivity("governance", `${firstName(member.name)} sits in ${who}, by a vote of the whole village.`, {
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: role.id,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `role:seated-by-ballot:${role.id}:${member.id}:${b.id}`,
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: role.id,
+        audience: "admin",
+      });
+      return out;
+    },
+
+    /*
+     * ── THE VILLAGE TAKES A SEAT BACK (this lane, R90) ──────────────────────
+     *
+     * The third verb, and the one the ruling makes non-optional: "voted in"
+     * has to mean "voteable out" or the vote that seated somebody is the last
+     * one the village ever gets on the subject. Un-seating was written down as
+     * an admin act in as many words, with a stated reason that still holds for
+     * the route it sits on: a captured `proposal.decide` account clearing the
+     * room is a real attack, and the whole roll voting is not that.
+     *
+     * WHAT IT DOES NOT DO. It does not touch the role, its powers or anybody
+     * else sitting in it. A village that wants the role gone can leave it
+     * empty, which is a role that grants nobody anything, and a village that
+     * wants the POWER gone votes a `power_return`. Three separate questions,
+     * three separate votes, and this one answers only the one it names.
+     */
+    role_unseat: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const asked = parseSeatRef(b.subjectRef);
+      if (!asked) {
+        out.held = "the ballot does not name a seating this build can read";
+        return out;
+      }
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? `Too few of the village voted: ${b.title}`
+              : `The village did not carry this one: ${b.title}`,
+          body:
+            outcome === "no_quorum"
+              ? "Nothing has changed and nothing is lost. The ask can go to the village again whenever it is more gathered."
+              : `${outcomeNote}\n\nThe seat is held exactly as it was, and the village can ask again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          dedupeKey: `bal:${b.id}:unseat-not-carried`,
+        });
+        return out;
+      }
+
+      let removed = false;
+      await withRoleHolderLock(async () => {
+        const holders = loadRoleHolders();
+        const keep = holders.filter((h) => !(h.roleId === asked.roleId && h.userId === asked.userId));
+        if (keep.length === holders.length) return;
+        removed = true;
+        await roleHoldersRepo.replaceAll(keep);
+      });
+
+      const role = rolesRepo.all().find((r: any) => r.id === asked.roleId) as any;
+      const who = role?.name ?? asked.roleId;
+      const member = await members.byId(asked.userId);
+      if (!removed) {
+        /*
+         * The seat emptied between open and close: an admin removed it, or the
+         * person left. The vote is not wrong and nothing is broken, so this is
+         * a plain statement of where things stand and never a failure.
+         */
+        out.held = "That seat was already empty when the vote closed, so there was nothing to take back.";
+        return out;
+      }
+
+      out.applied = [];
+      out.proposerTold = b.openedBy;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village carried this: ${b.title}`,
+        body: `${member ? firstName(member.name) : "That member"} no longer sits in ${who}.`,
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:unseated`,
+      });
+      await addActivity("governance", `${member ? firstName(member.name) : "A member"} no longer sits in ${who}, by a vote of the whole village.`, {
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: asked.roleId,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `role:unseated-by-ballot:${asked.roleId}:${asked.userId}:${b.id}`,
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: asked.roleId,
+        audience: "admin",
+      });
+      return out;
+    },
+
+    /*
      * ── THE GAME STARTS (lane GAMESTART, R67 and R74) ───────────────────────
      *
      * The rarest close a village will ever run, and the only one that turns a
@@ -26983,6 +27321,47 @@ ${inner}
     const roleId = subjectRef.slice(at + 1);
     if (!ALL_CAPABILITIES.includes(capability as Capability)) return null;
     return { capability, roleId };
+  }
+
+  /**
+   * WHO AND WHICH SEAT, read off a seating ballot's frozen subject ref.
+   *
+   * `<userId>@<roleId>`, the same shape and the same reasons as the transfer
+   * ref above: two facts in one column because `ballots` has no room for a
+   * third, and the `@` cannot appear in either half because user ids are
+   * generated as `usr-<epoch>-<suffix>` and role ids are slugs. The routes
+   * refuse anything else rather than storing a ref they could not read back.
+   *
+   * It cannot validate either half against the world, and deliberately does
+   * not try. A member can leave and a role can be retired between a vote
+   * opening and closing, and the executors have their own sentence for each of
+   * those. What this answers is only whether the column is readable at all.
+   */
+  function parseSeatRef(subjectRef: string): { userId: string; roleId: string } | null {
+    const at = subjectRef.indexOf("@");
+    if (at <= 0 || at === subjectRef.length - 1) return null;
+    return { userId: subjectRef.slice(0, at), roleId: subjectRef.slice(at + 1) };
+  }
+
+  /**
+   * The words a village typed when it asked to declare a role.
+   *
+   * Read from `role_declarations` (0120) and never from the frozen document,
+   * for the reason `parseTransferRef` states one function up: an executor that
+   * recovers a value by reading prose is an executor that can invent one. A
+   * missing row is a real answer here and the executor says so rather than
+   * naming a role something nobody chose.
+   */
+  async function roleDeclarationPayload(
+    ballotId: string,
+  ): Promise<{ roleId: string; name: string; purpose: string } | null> {
+    const [rows] = await getPool().query<any[]>(
+      "SELECT role_id, name, purpose FROM role_declarations WHERE ballot_id = ?",
+      [ballotId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { roleId: String(row.role_id), name: String(row.name), purpose: String(row.purpose) };
   }
 
   /**
@@ -28844,6 +29223,442 @@ ${inner}
       keySuffix: "open",
       except: [user.id],
       roll: electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /*
+   * ══ THE VILLAGE'S OWN ROLES (lane STEWARD, R90) ═══════════════════════════
+   *
+   * R90 answers "can a village decide who its admins are" with a shape rather
+   * than a yes: "eventually a village will be able to vote the 'Game Steward'
+   * role or choose to not vote for this role at all ... they can optionally
+   * vote in a steward role and give various powers to this steward to
+   * immediately act, and when the game is mature enough they may not even need
+   * to vote this role in."
+   *
+   * Read the verbs. DECLARE a role, GIVE it powers, SEAT somebody in it, and
+   * every one of them optional. The village already held exactly one of the
+   * four: `power_grant` writes a role's capability list from a carried ballot,
+   * with no admin in the chain. The other three were admin acts, and un-seating
+   * was written down as one in as many words.
+   *
+   * So these three routes are the missing verbs and nothing else. Everything
+   * downstream of them already exists: the same `openBallot`, the same frozen
+   * roll, the same `SUBJECT_CLOSERS` table, the same `ballotBinds` derived off
+   * it, the same decision page. A village that votes a role in and hands it a
+   * power is composing four ballots out of parts that were already here.
+   *
+   * ── THE THREE PROPERTIES THE RULING NAMES, AND WHERE EACH ONE LIVES ───────
+   *
+   *  OPTIONAL. Nothing in the platform knows the word steward, nothing seeds
+   *  one, and no surface asks after one. A village that never opens any of
+   *  these three votes behaves exactly as it does today, which is the property
+   *  a test in `steward.routes.e2e.test.ts` drives rather than asserts.
+   *
+   *  ACTS IMMEDIATELY. `roleCapabilitiesFor` reads the holder rows and the
+   *  role's capabilities on every request, through the one gate, with no cache
+   *  in between. A seated member holds the role's powers on their next call.
+   *
+   *  REVOCABLE. `role_unseat` is the third route, and it exists because "voted
+   *  in" has to mean "voteable out" or the first vote is the last one the
+   *  village gets.
+   *
+   * ── WHAT IS DELIBERATELY NOT HERE ────────────────────────────────────────
+   *
+   * No steward type, no steward flag, no steward column. R90 says a mature
+   * village may need no steward at all, so anything named after one would be
+   * the platform assuming the thing the ruling says may never exist. A village
+   * that wants one declares a role and calls it Game Steward.
+   *
+   * No route that retires a role, and none that takes a capability off one.
+   * A role nobody sits in grants nobody anything, which is what a village that
+   * has finished with one is left holding, and stripping a capability by
+   * ballot is a second way to undo a handover without the return ceremony
+   * built for it (`power_return` above says the same about its own half).
+   */
+
+  /**
+   * The dials, the weight snapshot, the roll and the window, gathered once.
+   *
+   * The three routes below would otherwise each carry the same fifteen lines
+   * the power ballots already carry three times over, and a village-wide vote
+   * whose threshold arithmetic is copied is a village-wide vote whose
+   * threshold arithmetic eventually differs by a copy.
+   */
+  async function roleBallotSetup() {
+    const villageMethod = villageBallotMethod(stringVar("governance.default_method"));
+    const method: BallotMethod = villageMethod === "hypha" ? "custom" : villageMethod;
+    const dials = dialsForMethod(method, {
+      unityPct: Math.max(0, numberVar("governance.unity_pct")),
+      quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
+    });
+    const snapshot = weightModeNow();
+    const tokenProblem = snapshot.mode === "token" ? weightTokenProblem(snapshot.token ?? "") : null;
+    return {
+      method,
+      dials,
+      snapshot,
+      tokenProblem,
+      electorate: await buildElectorate(),
+      durationDays: Math.max(
+        1,
+        numberVar(method === "consent" ? "governance.consent_window_days" : "governance.vote_days"),
+      ),
+    };
+  }
+
+  /** What a role can do today, in the words every other ceremony uses. */
+  function roleConsequences(role: any): string[] {
+    return ((role?.capabilities ?? []) as string[])
+      .filter((c) => ALL_CAPABILITIES.includes(c as Capability))
+      .map((c) => CAPABILITY_CONSEQUENCE[c as Capability]);
+  }
+
+  /**
+   * ── DECLARE A ROLE ─────────────────────────────────────────────────────────
+   *
+   * It creates a role that carries NOTHING. That is the whole safety argument
+   * and it is a structural one rather than a promise: an empty capability list
+   * changes no gate for anybody, so this vote cannot hand out a power however
+   * it is worded. Powers arrive afterwards, one `power_grant` at a time.
+   *
+   * The name and what it is for go to `role_declarations` (0120) rather than
+   * into the document, so the executor reads a column instead of parsing the
+   * prose members were shown.
+   */
+  app.post("/api/governance/role-declarations", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    if (await refuseUnlessMemberMayOpen(req, res, ctx, "Declaring a role")) return;
+
+    const name = String(req.body?.name ?? "").trim().slice(0, 120);
+    const purpose = String(req.body?.purpose ?? "").trim().slice(0, 20000);
+    if (name.length < 2) {
+      return res.status(400).json({ error: "Give the role a name the village will recognise it by." });
+    }
+    if (purpose.length < 40) {
+      return res.status(400).json({
+        error: "Say what this role is for. The whole roll reads this before voting, and it becomes the role's own description.",
+      });
+    }
+    const roleId = slugify(name, "").slice(0, 64);
+    if (!roleId) {
+      return res.status(400).json({ error: "That name has no letters or numbers in it, so there is nothing to call the role." });
+    }
+    if (rolesRepo.all().some((r: any) => r.id === roleId)) {
+      return res.status(409).json({ error: "This village already has a role by that name." });
+    }
+
+    const setup = await roleBallotSetup();
+    if (setup.tokenProblem) return res.status(409).json({ error: setup.tokenProblem });
+
+    const title = `Declare a role: ${name}`;
+    const doc = [
+      `# ${title}`,
+      "",
+      `## What this vote does`,
+      "",
+      `It makes ${name} one of this village's roles. Nothing else. A role the village has just declared carries no powers at all, so nobody can do anything today that they could not do yesterday.`,
+      "",
+      `## What it is for`,
+      "",
+      purpose,
+      "",
+      `## What happens after`,
+      "",
+      `Two more things can happen and both are the village's own votes. The village can give ${name} a power, one power per vote, each one naming what a holder would be able to do. The village can seat somebody in it. Either can wait, and neither has to happen at all.`,
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "role_declare",
+      subjectRef: roleId,
+      title,
+      docMarkdown: doc,
+      method: setup.method,
+      weightMode: setup.snapshot.mode,
+      weightToken: setup.snapshot.token,
+      unityPct: setup.dials.unityPct,
+      quorumPct: setup.dials.quorumPct,
+      durationDays: setup.durationDays,
+      openedBy: user.id,
+      electorate: setup.electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    /*
+     * THE PAYLOAD, WRITTEN AFTER THE BALLOT EXISTS so its key can be the
+     * ballot's own id. A failure here leaves a ballot the executor cannot
+     * carry out, and the executor says exactly that instead of inventing a
+     * name, which is why that branch is written and tested rather than assumed
+     * unreachable.
+     */
+    await getPool().query(
+      "INSERT INTO role_declarations (ballot_id, role_id, name, purpose) VALUES (?, ?, ?, ?)",
+      [result.ballot.id, roleId, name, purpose],
+    );
+
+    await addActivity("governance", `The village is deciding whether to declare a role: ${name}.`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is asked to declare a role: ${name}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. A role the village declares carries no powers until the village votes it some.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: setup.electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /**
+   * ── SEAT SOMEBODY IN A ROLE ────────────────────────────────────────────────
+   *
+   * WHY THIS ONE REFUSES THE TWO KEYS THAT MAKE AN ELECTORATE, and the reason
+   * is `power_grant`'s reason one step further along. That route refuses to
+   * vote `ballot.vote` or `member.vouch` onto a role because "a role is a set
+   * of PEOPLE through its seats", so granting the vote to a role and then
+   * seating three people in it is a small group choosing who else gets a say.
+   * This route is the seating half of exactly that path. Granting is fenced
+   * and seating was not, because until now seating by vote did not exist.
+   *
+   * TRANSFERABLE excludes both keys today and `power_grant` refuses them by
+   * name, so nothing a village can do reaches this refusal. It is written for
+   * the same reason the grant's is: the day an admin route or a later lane
+   * puts one of those keys on a role, this path would otherwise widen in a
+   * commit about something else.
+   *
+   * R54 IS NOT BEING FENCED OFF. A village widening its own roll is the
+   * destination, and the way there is `progression.unlock.ballot.vote`, a
+   * mechanic the whole roll changes in one vote about a rule.
+   */
+  app.post("/api/governance/role-seats", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    if (await refuseUnlessMemberMayOpen(req, res, ctx, "Seating somebody in a role")) return;
+
+    const userId = String(req.body?.userId ?? "").trim();
+    const roleId = String(req.body?.roleId ?? "").trim();
+    const reason = String(req.body?.reason ?? "").trim().slice(0, 20000);
+
+    const role = rolesRepo.all().find((r: any) => r.id === roleId) as any;
+    if (!role) return res.status(404).json({ error: "There is no role by that name." });
+    if (role.isExample) {
+      return res.status(409).json({ error: "That is one of the platform's example roles, not one of this village's. Declare a role of your own first." });
+    }
+    const carried = ((role.capabilities ?? []) as string[]).filter((c) =>
+      ["ballot.vote", "member.vouch"].includes(c),
+    );
+    if (carried.length) {
+      return res.status(409).json({
+        error:
+          `${role.name ?? roleId} carries ${carried.join(" and ")}, so seating somebody in it would be a few members choosing who else gets a say. ` +
+          "Who votes here is a rule of the game, and the village changes it the way it changes any rule: open a rule change on the rung that decides who is on the roll, and the whole roll decides it.",
+      });
+    }
+    const member = await members.byId(userId);
+    if (!member) return res.status(404).json({ error: "There is no member by that id." });
+    if (isExampleUser(member)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (loadRoleHolders().some((h) => h.roleId === roleId && h.userId === userId)) {
+      return res.status(409).json({
+        error: `${firstName(member.name)} already sits in ${role.name ?? roleId}. There is nothing for the village to decide here.`,
+      });
+    }
+    // A role can require a minimum stage, and an appointment made by the whole
+    // village respects the ladder the same way an admin's does. Asked again at
+    // close, because a member can slip below it while the vote runs.
+    if (role.minStage) {
+      const needed = stageIndex(role.minStage);
+      if (needed >= 0 && stageIndex(await stageOf(member)) < needed) {
+        return res.status(409).json({
+          error: `${firstName(member.name)} has not reached the ${getStage(role.minStage)?.name ?? role.minStage} stage this role asks for.`,
+          minStage: role.minStage,
+        });
+      }
+    }
+    if (userId.includes("@") || roleId.includes("@")) {
+      return res.status(400).json({ error: "A member and a role are both named without an @ in them." });
+    }
+    const subjectRef = `${userId}@${roleId}`;
+    if (subjectRef.length > 64) {
+      return res.status(409).json({ error: "That role's name is too long for the record to hold beside the member. Shorten the role id first." });
+    }
+    if (reason.length < 40) {
+      return res.status(400).json({
+        error: "Say why this person for this role. The whole roll reads this before voting.",
+      });
+    }
+
+    const setup = await roleBallotSetup();
+    if (setup.tokenProblem) return res.status(409).json({ error: setup.tokenProblem });
+
+    const can = roleConsequences(role);
+    const who = role.name ?? roleId;
+    const title = `${who}: the village asks ${firstName(member.name)} to sit in it`;
+    const doc = [
+      `# ${title}`,
+      "",
+      `## The role`,
+      "",
+      `${who}. ${String(role.description ?? "").trim()}`.trim(),
+      "",
+      `## What ${firstName(member.name)} would be able to do`,
+      "",
+      can.length
+        ? `From the day this carries, with no further vote:\n\n${can.map((c) => `- ${c}`).join("\n")}`
+        : `${who} carries no powers today, so this seats somebody in a role that grants nothing yet. If the village later votes ${who} a power, whoever is sitting in it holds that power from that day.`,
+      "",
+      `## Why this person`,
+      "",
+      reason,
+      "",
+      `## Taking it back`,
+      "",
+      `The village can vote this seat back at any time, and that vote is an ordinary one.`,
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "role_seat",
+      subjectRef,
+      title,
+      docMarkdown: doc,
+      method: setup.method,
+      weightMode: setup.snapshot.mode,
+      weightToken: setup.snapshot.token,
+      unityPct: setup.dials.unityPct,
+      quorumPct: setup.dials.quorumPct,
+      durationDays: setup.durationDays,
+      openedBy: user.id,
+      electorate: setup.electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    await addActivity("governance", `The village is deciding whether ${firstName(member.name)} sits in ${who}.`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is asked whether ${firstName(member.name)} sits in ${who}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: setup.electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /**
+   * ── TAKE A SEAT BACK ───────────────────────────────────────────────────────
+   *
+   * R90 makes this one non-optional. A village that can vote somebody into a
+   * role and cannot vote them out of it has held one vote on the subject and
+   * will never hold another, and the powers that role carries stay where the
+   * first vote put them for as long as the person stays a member.
+   *
+   * The copy carries what `power_return` carries: this is an ordinary act of a
+   * village deciding something, and not a failure of anybody's. Nothing here
+   * reads as a dismissal, nothing scores anybody, and the record should read
+   * the same way in five years as it does on the day.
+   */
+  app.post("/api/governance/role-unseats", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    if (await refuseUnlessMemberMayOpen(req, res, ctx, "Taking a seat back")) return;
+
+    const userId = String(req.body?.userId ?? "").trim();
+    const roleId = String(req.body?.roleId ?? "").trim();
+    const reason = String(req.body?.reason ?? "").trim().slice(0, 20000);
+
+    const role = rolesRepo.all().find((r: any) => r.id === roleId) as any;
+    if (!role) return res.status(404).json({ error: "There is no role by that name." });
+    if (!loadRoleHolders().some((h) => h.roleId === roleId && h.userId === userId)) {
+      return res.status(409).json({ error: "Nobody by that id sits in that role, so there is no seat to take back." });
+    }
+    const member = await members.byId(userId);
+    if (!member) return res.status(404).json({ error: "There is no member by that id." });
+    const subjectRef = `${userId}@${roleId}`;
+    if (subjectRef.length > 64) {
+      return res.status(409).json({ error: "That role's name is too long for the record to hold beside the member. Shorten the role id first." });
+    }
+    if (reason.length < 40) {
+      return res.status(400).json({
+        error: "Say what the village is deciding and why now. The whole roll reads this before voting.",
+      });
+    }
+
+    const setup = await roleBallotSetup();
+    if (setup.tokenProblem) return res.status(409).json({ error: setup.tokenProblem });
+
+    const can = roleConsequences(role);
+    const who = role.name ?? roleId;
+    const title = `${who}: the village asks to take the seat back from ${firstName(member.name)}`;
+    const doc = [
+      `# ${title}`,
+      "",
+      `## What changes if this carries`,
+      "",
+      can.length
+        ? `${firstName(member.name)} stops sitting in ${who}, and stops being able to:\n\n${can.map((c) => `- ${c}`).join("\n")}`
+        : `${firstName(member.name)} stops sitting in ${who}. The role carries no powers today, so nothing anybody can do changes.`,
+      "",
+      `${who} keeps everything it carries, and anybody else sitting in it is untouched.`,
+      "",
+      `## Why now`,
+      "",
+      reason,
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "role_unseat",
+      subjectRef,
+      title,
+      docMarkdown: doc,
+      method: setup.method,
+      weightMode: setup.snapshot.mode,
+      weightToken: setup.snapshot.token,
+      unityPct: setup.dials.unityPct,
+      quorumPct: setup.dials.quorumPct,
+      durationDays: setup.durationDays,
+      openedBy: user.id,
+      electorate: setup.electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    await addActivity("governance", `The village is deciding whether ${firstName(member.name)} keeps the seat in ${who}.`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is asked whether ${firstName(member.name)} keeps the seat in ${who}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: setup.electorate.map((e) => e.userId),
     });
     res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
   });

@@ -875,6 +875,20 @@ export const SUBJECT_NOUN: Record<string, string> = {
    * same register as `mechanics` above it, one word narrower.
    */
   mint_rule: "Minting rule change",
+  /*
+   * ALSO NOT WIZARD TYPES. The three verbs R90 hands a village over its own
+   * roles: declare one, seat somebody in it, take the seat back. Each opens
+   * from its own route rather than from the wizard, and `ballots.subject_type`
+   * carries them here like every other.
+   *
+   * The noun is the THING and not the machinery, the way every entry above
+   * decides it. The table would call these a role insert and two role-holder
+   * writes. What happened is that a village decided it has a role, decided who
+   * sits in it, and decided to take that back.
+   */
+  role_declare: "A role the village declared",
+  role_seat: "Who sits in a role",
+  role_unseat: "A seat handed back",
 };
 
 export const subjectNoun = (subjectType: string): string => SUBJECT_NOUN[subjectType] ?? "Decision";
