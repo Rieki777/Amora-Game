@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { parseHyphaProposalId, proposerStanding, validateChangeSet, proposalMarkdown, displayChangeValue } from "./mechanics";
+import { VARIABLES_BY_KEY } from "../../shared/gameVariables";
 
 // validateChangeSet only touches the pool for the cooldown query; with
 // cooldownDays 0 it never dials out, so a throwing stub proves that too.
@@ -115,7 +116,14 @@ describe("the proposal document", () => {
       createdAt: "2026-07-31T00:00:00.000Z",
     });
     expect(md).toContain("[gm:gmp-test-1]");
-    expect(md).toContain("| Base sending budget per cycle (`gratitude.base_budget`) | 100 Gratitude | **150 Gratitude** |");
+    // The row carries the dial's OWN label, read from the registry, so a
+    // rename of the label is a rename in one place. Hard-coding the string
+    // here pinned "Base sending budget per cycle" and went red when R73
+    // renamed the dial to an allowance, which is a copy edit reported as a
+    // behaviour failure. The shape of the row is what this asserts.
+    const label = VARIABLES_BY_KEY["gratitude.base_budget"].label;
+    expect(label.length).toBeGreaterThan(0);
+    expect(md).toContain(`| ${label} (\`gratitude.base_budget\`) | 100 Gratitude | **150 Gratitude** |`);
     expect(md).toContain('"marker": "gm:gmp-test-1"');
     expect(md).toContain("4 member(s) supported it");
     // The machine block round-trips.
