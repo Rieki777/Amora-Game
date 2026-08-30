@@ -9,11 +9,11 @@
  * that fixes it. When every blocking item reads done, a founder — and only
  * a founder — marks the village launched, once.
  *
- * The page this replaced was Amora's six-week build tracker; it lives on,
- * whole, at /project-history. The split is the point: a village's launch
- * readiness is generic and alive, a project's delivery history is specific
- * and finished, and merging them is how the old page drifted into being
- * neither.
+ * The page this replaced was Amora's six-week build tracker. It lives on,
+ * whole, as the Command Centre at /project-history (R82 item 5 settled that
+ * name). The split is the point: a village's launch readiness is generic and
+ * alive, a project's delivery history is specific and finished, and merging
+ * them is how the old page drifted into being neither.
  */
 import Layout from "@/components/Layout";
 import MicButton from "@/components/MicButton";

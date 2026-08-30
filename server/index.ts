@@ -1620,9 +1620,13 @@ function adminActor(req: express.Request): { id: string; name?: string } | null 
 }
 
 /**
- * S2: the Command Centre is a founder surface, gated by the same admin
- * identities as everything else. The second shared password is retired —
- * two shared secrets was one more than zero too many.
+ * S2: Journey to Launch is a founder surface, gated by the same admin
+ * identities as everything else. The second shared password is retired: two
+ * shared secrets was one more than zero too many.
+ *
+ * This docblock used to call the page the Command Centre. R82 item 5 gave that
+ * name to `/project-history`, so the two pages are named apart now. Journey to
+ * Launch is the live readiness checklist and the vote that starts the Game.
  */
 const isJourney = isAdmin;
 
@@ -18696,13 +18700,22 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   /**
-   * S48: founder economics for the ONE command centre (/journey-to-launch —
-   * "never a second command centre"). One aggregate read: the settlement
+   * S48: founder economics, read by the Command Centre (`/project-history`)
+   * and by the Village economics tab on Journey to Launch.
+   *
+   * THE NAME MOVED, AND THE RULE DID NOT. This block used to call
+   * `/journey-to-launch` "the ONE command centre" and "never a second command
+   * centre". R82 item 5 gave that name to `/project-history`, so the claim is
+   * wrong twice over now: it names the wrong page, and it argues by denial.
+   * What it was defending is still right and is stated below as a rule about
+   * this route instead of a claim about a page.
+   *
+   * ONE AGGREGATE READ, AND EVERY ACTION LIVES ELSEWHERE. The settlement
    * report the founders carry to Hypha (hearts and acknowledgments NEVER
    * blended into one number), module health, the work waiting on the human
    * gate, milestones going quiet, and the same ledger invariants boot
-   * enforces — on the founder's desk instead of in a crash log. Read-only:
-   * every ACTION lives on its existing admin surface.
+   * enforces, on the founder's desk instead of in a crash log. Read-only, so
+   * a surface that reads this can never become the place a decision is made.
    */
   app.get("/api/admin/command-centre", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
