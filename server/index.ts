@@ -193,6 +193,8 @@ import {
   proposalMarkdown,
   proposalsOpenedSince,
   proposerStanding,
+  currentMintRuleValue,
+  mintRuleLabel,
   rowToProposal,
   validateChangeSet,
   type MintRuleValues,
@@ -25053,6 +25055,15 @@ ${inner}
   ) => {
     const proposer = await members.byId(p.proposerUserId);
     const b = backers.get(p.id) ?? { supports: 0, sponsors: [] };
+    /*
+     * The minting rules this proposal names, when it names any. Read here so
+     * the card can say what a rule PAYS FOR instead of printing its key. The
+     * query only runs for a proposal that names one.
+     */
+    const mintIds = (p.changeSet as any[])
+      .map((c: any) => parseMintRuleKey(String(c.key))?.ruleId ?? "")
+      .filter(Boolean);
+    const mintRules = mintIds.length > 0 ? await mintRulesByIds(getPool(), mintIds) : new Map();
     return {
       id: p.id,
       title: p.title,
@@ -25071,17 +25082,37 @@ ${inner}
       sponsors: b.sponsors.length,
       changes: p.changeSet.map((c: any) => {
         const def = VARIABLES_BY_KEY[c.key];
+        const mint = parseMintRuleKey(String(c.key));
+        const rule = mint ? mintRules.get(mint.ruleId) : null;
         return {
           key: c.key,
-          label: def?.label ?? c.key,
+          label: mint ? (rule ? mintRuleLabel(rule, mint.field) : c.key) : def?.label ?? c.key,
           from: c.from,
           fromDisplay: displayChangeValue(c.key, c.from),
           to: c.to,
           toDisplay: displayChangeValue(c.key, c.to),
-          applyTiming: def ? applyTimingOf(def) : "instant",
+          /*
+           * A MINTING RULE IS ALWAYS DEFERRED, AND "instant" WOULD BE A LIE.
+           *
+           * This used to fall to "instant" for anything without a registry
+           * entry, and the card shows its "at next cycle close" note only for
+           * a cycle-close change. So a carried mint would have rendered with
+           * no note at all, telling a voter the village starts paying the new
+           * amount the moment the vote closes. It does not: `queueRuleChange`
+           * stamps the next cycle and settlement promotes it (0075). The card
+           * already has the right sentence, so this hands it the right value.
+           */
+          applyTiming: mint ? "cycle-close" : def ? applyTimingOf(def) : "instant",
           // Honest context for voters: the baseline can move under an open
           // proposal (another proposal passed, an admin acted). Show it.
-          currentValue: def ? rawValue(c.key) : null,
+          // For a minting rule it is the rule's live value, read the same way.
+          currentValue: mint
+            ? rule
+              ? currentMintRuleValue(rule, mint.field)
+              : null
+            : def
+              ? rawValue(c.key)
+              : null,
         };
       }),
     };

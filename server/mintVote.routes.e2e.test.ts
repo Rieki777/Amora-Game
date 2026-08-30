@@ -290,6 +290,25 @@ describe.skipIf(!DB_CONFIGURED)("the village votes on what it mints", () => {
     proposalId = String(made.json?.id ?? "");
     expect(proposalId).toBeTruthy();
     expect(made.json?.status).toBe("open");
+
+    /*
+     * THE CARD MUST NOT SAY THE VILLAGE STARTS PAYING THIS ON THE DAY.
+     *
+     * `applyTiming` used to fall to "instant" for any key with no registry
+     * entry, and the proposal card shows its deferral note only for a
+     * cycle-close change, so a minting change would have rendered with no note
+     * at all. A minting rule is ALWAYS deferred.
+     */
+    const list = await call("GET", "/api/game/mechanics/proposals");
+    expect(list.status).toBe(200);
+    const card = (list.json ?? []).find((x: any) => x.id === proposalId);
+    expect(card, "the proposal must be on the public list").toBeTruthy();
+    expect(card.changes.length).toBe(1);
+    expect(card.changes[0].applyTiming, "a minting rule is never instant").toBe("cycle-close");
+    expect(card.changes[0].label).toContain("role.cycle in gratitude");
+    expect(card.changes[0].label).not.toContain("mint:");
+    expect(card.changes[0].toDisplay).toBe("35");
+    expect(Number(card.changes[0].currentValue)).toBe(Number(liveAmountBefore));
   });
 
   it("REFUSES a set that mixes dials with minting rules: two subjects have no one price", async () => {
