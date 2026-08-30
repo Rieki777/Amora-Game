@@ -567,7 +567,19 @@ function TestRun() {
             </ul>
           </div>
 
-          {/* What the run did not look at. Said plainly, every time. */}
+          {/* What it looked at, then what it did not. Both, every time. */}
+          <div>
+            <h3 className="text-sm font-semibold text-stone-900">What this run looked at</h3>
+            <ul className="mt-2 space-y-1.5">
+              {report.covered.map((s, i) => (
+                <li key={i} className="flex gap-2 text-xs text-stone-600">
+                  <OutcomeDot outcome="issued" />
+                  <span>{s}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
           <div>
             <h3 className="text-sm font-semibold text-stone-900">What this run did not test</h3>
             <ul className="mt-2 space-y-1.5">
