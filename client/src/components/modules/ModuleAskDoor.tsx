@@ -212,8 +212,12 @@ export default function ModuleAskDoor({ module: m }: { module: AskDoorModule }) 
         Ask the village for this
       </h2>
       <p className="mt-2 text-sm text-stone-700 leading-relaxed">
-        Nobody has turned this one on here. You can put it to the whole village as a question, on the real roll with the
-        weights your village uses. Closing the vote records the answer. Turning a module on is still done by hand by
+        {/* True in every state that reaches here, which the older wording was
+            not: a module in PREVIEW has been turned on for admins, so "nobody
+            has turned this on" would have been false on an admin's own screen
+            while the pill beside it said Preview. */}
+        Your village is not running this one. You can put it to the whole village as a question, on the real roll with
+        the weights your village uses. Closing the vote records the answer. Turning a module on is still done by hand by
         somebody with admin, and this is how they hear that the village wants it.
       </p>
       {door.prior && (
