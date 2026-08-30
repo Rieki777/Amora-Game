@@ -609,7 +609,7 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
       sentence:
         `No Claims Week opens in the ${moons} moons this run covers. The dates set are ` +
         `"${claimsWeekDates}", and each one is a month and a day like 06-21. A date this ` +
-        "cannot read closes claims rather than being ignored.",
+        "cannot read closes claims for good, so a full year in one of them shuts the window.",
     });
   }
 
