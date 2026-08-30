@@ -223,7 +223,12 @@ export async function photosAcrossPlaces(
   villageId: string,
   opts: { includeHidden?: boolean; before?: PhotoCursor | null; limit?: number } = {},
 ): Promise<PhotoPage> {
-  const limit = Math.max(1, opts.limit ?? INDEX_PAGE_SIZE);
+  // Clamped at both ends, and the ceiling matters more than the floor. No
+  // caller passes `limit` today and the route does not forward one from the
+  // query string, so this is not guarding a live path. It guards the next
+  // hand: wiring `req.query.limit` through without a ceiling is a one-line
+  // change that would let a caller ask for the whole table in one read.
+  const limit = Math.min(INDEX_PAGE_SIZE, Math.max(1, opts.limit ?? INDEX_PAGE_SIZE));
   const hidden = opts.includeHidden ? "" : " AND p.hidden_at IS NULL";
   const params: unknown[] = [villageId];
   let keyset = "";

@@ -156,6 +156,21 @@ function PhotographsPage() {
           </nav>
         </header>
 
+        {/* A visitor sees the pictures and none of the controls, because
+            asking for a photograph of you to come down needs an account. The
+            page says so here rather than leaving somebody scrolling past
+            their own face wondering where the button is. The sentence is the
+            server's own refusal, so the two never say different things. */}
+        {head && !head.signedIn && (
+          <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+            <Link href={`/login?next=${encodeURIComponent("/photographs")}`} className="text-teal-deep underline">
+              Sign in
+            </Link>{" "}
+            to ask for a photograph of you to come down. A request needs an account, because one press from a signed
+            out stranger would be enough to darken any picture here and leave nobody to talk to about it afterwards.
+          </p>
+        )}
+
         <p role="status" aria-live="polite" className="text-sm text-teal-deep min-h-[20px]">{say}</p>
 
         {failed ? (
