@@ -377,6 +377,36 @@ function WaitingNote({ proposal, gov }: { proposal: Proposal; gov: MechanicsGove
   );
 }
 
+/**
+ * Does this dial answer what somebody typed?
+ *
+ * R79's second half. The Dials list is every tunable rule in the Game, grouped
+ * into categories that all start shut, and until now there was no way to look
+ * anything up. A founder setting up a Game opens drawers hunting for a switch
+ * whose key they have never seen.
+ *
+ * THE DESCRIPTION IS PART OF THE HAYSTACK, and that is the whole design.
+ * Somebody looking for the feedback switch types "bug report" or "sharing" or
+ * "platform team". The key is `platform.feedback_relay`, and "relay" is the one
+ * word a founder has no reason to know. Every sentence that would help them
+ * lives in the description, so searching only the key and the label would find
+ * the dials whose names already gave them away and miss the rest.
+ *
+ * Every word has to land somewhere, so adding a word narrows the list. Order
+ * does not matter, because nobody types a description back in sequence.
+ *
+ * Exported so `gameMechanicsStates.test.ts` can hold that line.
+ */
+export function dialMatches(
+  v: { key: string; label: string; description: string; category: string },
+  query: string,
+): boolean {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const hay = `${v.key} ${v.label} ${v.description} ${v.category}`.toLowerCase();
+  return words.every((w) => hay.includes(w));
+}
+
 function displayValue(v: MechanicsVariable, raw: string): string {
   if (v.type === "boolean") return raw === "true" || raw === "1" ? "On" : "Off";
   if (v.type === "choice") {
@@ -494,6 +524,7 @@ export default function GameMechanics() {
   const [history, setHistory] = useState<Amendment[] | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
+  const [dialQuery, setDialQuery] = useState("");
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [standing, setStanding] = useState<Standing | null>(null);
   const [staged, setStaged] = useState<Record<string, string>>({});
@@ -730,7 +761,33 @@ export default function GameMechanics() {
   };
 
   const villageName = cfg?.project?.name ?? "";
-  const categories = snapshot ? Array.from(new Set(snapshot.variables.map((v) => v.category))) : [];
+  const allDials = snapshot?.variables ?? [];
+  /**
+   * An amendment's before and after, in the words its dial uses.
+   *
+   * `mechanics_changes` stores raw strings, and the page printed them raw, so
+   * the one amendment the live village has ever recorded reads `1 -> 0` on a
+   * public page. That is the same decoding R79 took out of the dial itself,
+   * and it survives the flip because the ledger keeps what was stored.
+   *
+   * The registry is already loaded here, so the type is there to read and the
+   * row can say "On" and "Off" the way the dial above it does.
+   *
+   * A key the snapshot does not carry (a dial belonging to a module this
+   * village keeps in preview, which the route hides) falls back to the stored
+   * string. That is the literal truth of what was recorded, and never a value
+   * this page made up.
+   */
+  const amendmentValue = (key: string, raw: string | null): string => {
+    if (raw == null) return "default";
+    const def = allDials.find((v) => v.key === key);
+    return def ? displayValue(def, raw) : raw;
+  };
+
+  const dialSearch = dialQuery.trim();
+  const matchedDials = allDials.filter((v) => dialMatches(v, dialSearch));
+  const categories = Array.from(new Set(matchedDials.map((v) => v.category)));
+  const allCategoryCount = new Set(allDials.map((v) => v.category)).size;
   const backedIds = new Set((standing?.backed ?? []).filter((b) => b.kind === "support").map((b) => b.proposalId));
   const isAdminViewer = user?.role === "admin" || user?.role === "founder";
   const gov = snapshot?.governance ?? null;
@@ -859,10 +916,50 @@ export default function GameMechanics() {
                       ` Full standing takes ${standing.recognitionRequired} earned recognition (you have ${standing.recognitionHeld}).`}
                   </p>
                 )}
+                {/*
+                  * FINDING A DIAL YOU CANNOT NAME (R79).
+                  *
+                  * THE COLLAPSE DEFAULT IS DELIBERATE AND IT STAYS SHUT. This
+                  * list holds every tunable rule in the Game, spread over more
+                  * than two dozen categories. Opening them all makes the
+                  * headings scenery to scroll past. Shut, they are a map of
+                  * the Game a founder can steer by.
+                  *
+                  * TYPING IS THE FOUNDER'S INTENT, SO THE SEARCH MOVES THE
+                  * DEFAULT FOR THEM. A category holding a match opens itself,
+                  * and the header button still wins if they want it closed.
+                  * Every match is really rendered, so Tab walks the results
+                  * and nobody has to find a control and press it first.
+                  */}
+                <div className="mb-4 max-w-md">
+                  <label htmlFor="dial-search" className="sr-only">
+                    Search the dials
+                  </label>
+                  <input
+                    id="dial-search"
+                    type="search"
+                    value={dialQuery}
+                    onChange={(e) => setDialQuery(e.target.value)}
+                    placeholder="Search dials by name, key, or what they do"
+                    className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-deep"
+                  />
+                  <p aria-live="polite" className="text-xs text-stone-500 mt-1">
+                    {dialSearch
+                      ? `${matchedDials.length} of ${allDials.length} dials match.`
+                      : `${allDials.length} dials in ${allCategoryCount} categories.`}
+                  </p>
+                </div>
+                {dialSearch && categories.length === 0 && (
+                  <p className="text-sm text-stone-500">
+                    No dial matches that. The search reads each dial's name, its key, its
+                    category, and the description under it.
+                  </p>
+                )}
                 <div className="space-y-3">
                   {categories.map((cat) => {
-                    const vars = snapshot.variables.filter((v) => v.category === cat);
-                    const open = !!openCategories[cat];
+                    const vars = matchedDials.filter((v) => v.category === cat);
+                    // A search opens what it found; an explicit toggle still wins.
+                    const open = dialSearch ? (openCategories[cat] ?? true) : !!openCategories[cat];
                     const tuned = vars.filter((v) => !v.isDefault).length;
                     const stagedHere = vars.filter((v) => staged[v.key] !== undefined).length;
                     return (
@@ -876,7 +973,7 @@ export default function GameMechanics() {
                           <span className="font-semibold text-stone-900">
                             {cat}
                             <span className="ml-2 text-xs font-normal text-stone-400">
-                              {vars.length} dial{vars.length === 1 ? "" : "s"}
+                              {vars.length} {dialSearch ? "matching " : ""}dial{vars.length === 1 ? "" : "s"}
                               {tuned > 0 ? ` · ${tuned} village-tuned` : ""}
                               {stagedHere > 0 ? ` · ${stagedHere} staged` : ""}
                             </span>
@@ -1279,10 +1376,10 @@ export default function GameMechanics() {
                             </div>
                             <p className="text-sm text-stone-600 mt-0.5">
                               <span className="line-through text-stone-400">
-                                {h.from ?? "default"}
+                                {amendmentValue(h.key, h.from)}
                                 {h.fromWasDefault ? " (default)" : ""}
                               </span>{" "}
-                              → <span className="font-semibold text-teal-deep">{h.to ?? "default"}</span>
+                              → <span className="font-semibold text-teal-deep">{amendmentValue(h.key, h.to)}</span>
                               {h.toIsDefault ? " (back to default)" : ""}
                               {h.by ? ` · by ${h.by}` : ""}
                               {h.source === "governance" ? " · by passed proposal" : ""}

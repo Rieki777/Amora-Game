@@ -15,7 +15,9 @@
 import { describe, expect, it } from "vitest";
 import {
   applyTimingOf,
+  parseVariable,
   ringOf,
+  validateVariable,
   VARIABLES,
   VARIABLES_BY_KEY,
 } from "./gameVariables";
@@ -123,5 +125,73 @@ describe("the gate with per-village unlock overrides", () => {
         stageUnlockOverrides,
       }),
     ).toBe(false);
+  });
+});
+
+describe("a dial states its effect, and never its number", () => {
+  /*
+   * R79. `platform.feedback_relay` was typed `integer` with a range of 0 to 1
+   * and a unit of "on/off", so Admin drew it as a number box and a founder
+   * read a bare "0". The description then spent its first two sentences
+   * translating that number back into English. Every reader already treated
+   * the dial as a switch, so the type was the only thing that was lying.
+   *
+   * THE NO-MIGRATION DECISION RESTS ON THE TWO PARSE ASSERTIONS BELOW. The
+   * live village stores the string "0" for this key (measured on the public
+   * mechanics route, 2026-08-29, the one non-default row besides the RPC
+   * URL). If the boolean parser ever stops reading "0" as false, that village
+   * gets the relay switched back on by a deploy it did not ask for, and
+   * members' words start leaving it. So this is pinned rather than reasoned.
+   */
+  const relay = VARIABLES_BY_KEY["platform.feedback_relay"];
+
+  it("the feedback relay is a switch, with no bounds and no unit to decode", () => {
+    expect(relay.type).toBe("boolean");
+    expect(relay.default).toBe("true");
+    expect(relay.min).toBeUndefined();
+    expect(relay.max).toBeUndefined();
+    expect(relay.unit).toBeUndefined();
+  });
+
+  it("a value stored in the old integer spelling still reads the same", () => {
+    expect(parseVariable(relay, "0")).toBe(false); // what the live village holds
+    expect(parseVariable(relay, "1")).toBe(true);
+    expect(parseVariable(relay, "false")).toBe(false);
+    expect(parseVariable(relay, "true")).toBe(true);
+    expect(parseVariable(relay, undefined)).toBe(true); // untouched village
+  });
+
+  it("a value stored in the old integer spelling still validates", () => {
+    for (const stored of ["0", "1", "true", "false"]) {
+      expect(validateVariable(relay, stored), stored).toBeNull();
+    }
+  });
+
+  /*
+   * THE SHAPE OF THE DEFECT, so a future dial cannot wear the same clothes.
+   * A dial that only accepts 0 or 1 is a switch, and typing it as a number
+   * forces its description to explain what each number means. Both guards are
+   * exact: at the ref this was written, `platform.feedback_relay` was the only
+   * def in the whole registry matching either one.
+   */
+  it("no dial is a number whose only two values are 0 and 1", () => {
+    const twoValued = VARIABLES.filter(
+      (v) => v.type !== "boolean" && v.min === 0 && v.max === 1,
+    ).map((v) => `${v.key} (${v.type})`);
+    expect(twoValued).toEqual([]);
+  });
+
+  it("no dial carries an on/off unit unless it is a boolean", () => {
+    const onOff = VARIABLES.filter(
+      (v) => (v.unit ?? "").replace(/[^a-z]/gi, "").toLowerCase() === "onoff" && v.type !== "boolean",
+    ).map((v) => `${v.key} (${v.type})`);
+    expect(onOff).toEqual([]);
+  });
+
+  it("a boolean has no bounds to show, because it has no range", () => {
+    const bounded = VARIABLES.filter(
+      (v) => v.type === "boolean" && (v.min !== undefined || v.max !== undefined),
+    ).map((v) => v.key);
+    expect(bounded).toEqual([]);
   });
 });
