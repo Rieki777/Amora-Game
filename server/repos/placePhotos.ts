@@ -146,6 +146,112 @@ export async function placesWithPhotos(pool: Pool, villageId: string): Promise<P
 }
 
 /**
+ * How many photographs one press of the whole-village index asks for.
+ *
+ * Sixty is twenty rows of a three-across grid, and everything below the fold
+ * waits for a scroll before it fetches any bytes, so a bigger page costs a
+ * reader nothing until they reach it. A village at the per-place ceiling of
+ * 500 across a handful of places is a few thousand pictures, which is sixteen
+ * presses of "Show older". That is the honest number, and the way to shorten
+ * it later is to narrow by date, which is a fact the page already prints under
+ * every picture. Narrowing by who is in a photograph is the thing this whole
+ * surface exists instead of.
+ */
+export const INDEX_PAGE_SIZE = 60;
+
+/** Where a page of the index stopped, so the next one can start there. */
+export interface PhotoCursor {
+  at: Date;
+  id: string;
+}
+
+export interface PhotoPage {
+  photos: PlacePhoto[];
+  /** The cursor for the next press, or null when there is nothing older. */
+  nextBefore: string | null;
+}
+
+/** The wire form of a cursor: the row's own timestamp and id, joined. */
+export function photoCursor(photo: Pick<PlacePhoto, "createdAt" | "id">): string {
+  return `${photo.createdAt}|${photo.id}`;
+}
+
+/**
+ * A cursor off the wire, or null when it is not one.
+ *
+ * Null means REFUSE, and the route answers 400. Reading a broken cursor as
+ * "start from the top" would hand somebody scrolling for a picture of
+ * themselves the newest page again while looking like the older one, and they
+ * would have no way to tell.
+ */
+export function parsePhotoCursor(raw: unknown): PhotoCursor | null {
+  if (typeof raw !== "string" || !raw) return null;
+  const bar = raw.lastIndexOf("|");
+  if (bar <= 0 || bar === raw.length - 1) return null;
+  const at = new Date(raw.slice(0, bar));
+  if (Number.isNaN(at.getTime())) return null;
+  return { at, id: raw.slice(bar + 1) };
+}
+
+/**
+ * Every photograph in the village, newest first, across every place.
+ *
+ * ── WHY THIS IS FLAT AND NOT `orderPhotos` ───────────────────────────────
+ *
+ * A place leads with its hero, because a hero answers "what is this place".
+ * Across every place there is no such question to answer, and hero-first would
+ * float every pinned picture to the top of a page that says it is newest
+ * first. So the order here is `created_at DESC` with the id breaking ties, and
+ * it is total for the same reason the gallery's is: a page that reshuffles
+ * under a person's thumb reads as broken.
+ *
+ * ── WHY A CURSOR AND NOT AN OFFSET ───────────────────────────────────────
+ *
+ * OFFSET counts rows at read time, so a photograph coming down between two
+ * presses shifts everything after it up by one and the next page skips a row.
+ * On the one page whose whole purpose is somebody finding a picture of
+ * themselves, a skipped row is the failure. A keyset cursor names the exact
+ * row the last page ended on, so nothing between the two presses can move it.
+ *
+ * `includeHidden` carries the SAME rule `photosForPlace` carries and is passed
+ * the same value: a hidden row reaches a curator and nobody else. An index
+ * that aggregated past that would show a member here what its own sources
+ * refuse them.
+ */
+export async function photosAcrossPlaces(
+  pool: Pool,
+  villageId: string,
+  opts: { includeHidden?: boolean; before?: PhotoCursor | null; limit?: number } = {},
+): Promise<PhotoPage> {
+  // Clamped at both ends, and the ceiling matters more than the floor. No
+  // caller passes `limit` today and the route does not forward one from the
+  // query string, so this is not guarding a live path. It guards the next
+  // hand: wiring `req.query.limit` through without a ceiling is a one-line
+  // change that would let a caller ask for the whole table in one read.
+  const limit = Math.min(INDEX_PAGE_SIZE, Math.max(1, opts.limit ?? INDEX_PAGE_SIZE));
+  const hidden = opts.includeHidden ? "" : " AND p.hidden_at IS NULL";
+  const params: unknown[] = [villageId];
+  let keyset = "";
+  if (opts.before) {
+    keyset = " AND (p.created_at < ? OR (p.created_at = ? AND p.id > ?))";
+    params.push(opts.before.at, opts.before.at, opts.before.id);
+  }
+  // One more than the page, which is how the end is KNOWN rather than
+  // guessed. A short page is not proof of the end when a row was hidden
+  // between the count and the read.
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT ${PHOTO_COLUMNS} FROM place_photos p LEFT JOIN users u ON u.id = p.contributor_id ` +
+      `WHERE p.village_id = ? AND p.removed_at IS NULL${hidden}${keyset} ` +
+      "ORDER BY p.created_at DESC, p.id ASC LIMIT ?",
+    [...params, limit + 1],
+  );
+  const photos = rows.slice(0, limit).map(rowToPhoto);
+  const more = rows.length > limit;
+  const last = photos[photos.length - 1];
+  return { photos, nextBefore: more && last ? photoCursor(last) : null };
+}
+
+/**
  * A few photographs for every place at once, for the living map's own panel.
  *
  * ONE query and not one per place: the map opens with every structure on
@@ -248,7 +354,29 @@ export async function setHero(pool: Pool, villageId: string, structureKey: strin
   }
 }
 
-/** Reversible. Returns false when the row was already hidden or is gone. */
+/**
+ * Reversible. Returns false when the row was already hidden or is gone.
+ *
+ * ── WHY THIS ONE WITHHOLDS THE WORDS AND DOES NOT ERASE THEM ─────────────
+ *
+ * Hiding is the state a photograph sits in while somebody decides. The row
+ * stops reaching every reader who is not a curator, description included,
+ * because the whole row stops reaching them: `photosForPlace` and
+ * `photosAcrossPlaces` both take `includeHidden` and both are passed the same
+ * curate answer. So the words are already withheld from everyone the takedown
+ * was for.
+ *
+ * Erasing them here as well would destroy a description on an action a curator
+ * is expected to reverse. A photograph put back with an empty `alt_text` is a
+ * picture a member who cannot see it is told nothing about, which is the exact
+ * failure the required column in 0093 was added to end. The community
+ * threshold reaches this same function, so a mistaken pile-on would spend a
+ * real description to say nothing.
+ *
+ * A curator keeps both the picture and the words while the decision is still
+ * theirs to make, and loses both the moment it is made: `removePhoto` erases.
+ * The window is exactly as wide as the decision.
+ */
 export async function hidePhoto(pool: Pool, id: string, by: string, reason: string | null): Promise<boolean> {
   const [r] = await pool.query<ResultSetHeader>(
     "UPDATE place_photos SET hidden_at = CURRENT_TIMESTAMP(3), hidden_by = ?, hidden_reason = ?, hero_at = NULL " +
@@ -267,10 +395,35 @@ export async function restorePhoto(pool: Pool, id: string): Promise<boolean> {
   return r.affectedRows > 0;
 }
 
-/** Irreversible. The caller unlinks the file; the row stays as a tombstone. */
+/**
+ * Irreversible. The caller unlinks the file; the row stays as a tombstone.
+ *
+ * ── THE WORDS COME DOWN WITH THE PICTURE ─────────────────────────────────
+ *
+ * A description of a photograph is still a description of the person in it.
+ * A takedown that unlinks the file and leaves "Rye and two neighbours planting
+ * the north terrace" on the row has removed the picture and kept the sentence
+ * about the people, which is not what anybody asking for a takedown meant.
+ *
+ * So the description is ERASED here, in the same statement that sets
+ * `removed_at`, and erasing is the honest choice on this path precisely
+ * because this path is the one that cannot be undone. `hidePhoto` is the
+ * reversible sibling and does NOT erase, for the reason written over it.
+ *
+ * What stays, and why each one has to: the id, because a resolved report names
+ * it; the url, because the retention sweep unlinks the file by that address;
+ * `contributor_id` and the timestamps, because they say a takedown happened
+ * rather than that a photograph never existed. None of those is a sentence
+ * about a person in a picture.
+ *
+ * `alt_text` is NOT NULL, so the erased value is the empty string. Nothing
+ * renders it: every gallery read filters `removed_at IS NULL`, and the one
+ * surface that reads a removed row, the curator's queue, nulls the field.
+ */
 export async function removePhoto(pool: Pool, id: string, by: string): Promise<boolean> {
   const [r] = await pool.query<ResultSetHeader>(
-    "UPDATE place_photos SET removed_at = CURRENT_TIMESTAMP(3), removed_by = ?, hero_at = NULL WHERE id = ? AND removed_at IS NULL",
+    "UPDATE place_photos SET removed_at = CURRENT_TIMESTAMP(3), removed_by = ?, hero_at = NULL, " +
+      "alt_text = '', caption = NULL WHERE id = ? AND removed_at IS NULL",
     [by, id],
   );
   return r.affectedRows > 0;
@@ -380,7 +533,10 @@ export async function listReports(pool: Pool, status: ReportStatus): Promise<Pla
     photoId: String(r.photo_id),
     structureKey: r.structure_key ? String(r.structure_key) : "",
     photoUrl: r.removed_at || !r.url ? null : String(r.url),
-    photoAltText: r.alt_text ? String(r.alt_text) : null,
+    // Nulled on a takedown for the same reason the picture is. `removePhoto`
+    // has already erased the column; this says so at the surface as well, so
+    // the rule is readable here and does not rest on '' being falsy.
+    photoAltText: r.removed_at || !r.alt_text ? null : String(r.alt_text),
     photoRemoved: !!r.removed_at,
     photoHidden: !!r.hidden_at,
     kind: (String(r.kind) === "subject" ? "subject" : "concern") as ReportKind,

@@ -41,6 +41,7 @@ const PORT = 11900 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "places-admin";
 const PLACE = "community-kitchen";
+const OTHER_PLACE = "north-terrace";
 
 let child: ChildProcess | undefined;
 let testDb: TestDb | undefined;
@@ -221,6 +222,7 @@ describe.skipIf(!DB_CONFIGURED)("photographs of a place", () => {
   let solPhotoUrl = "";
   let solThumbUrl = "";
   let wrenPhotoId = "";
+  let terracePhotoId = "";
 
   it("takes a member's photograph and gives it back with attribution", async () => {
     const up = await upload(solToken, await geotagged(200), {
@@ -283,6 +285,42 @@ describe.skipIf(!DB_CONFIGURED)("photographs of a place", () => {
     const place = shelf.json.places.find((p: any) => p.structureKey === PLACE);
     expect(place.coverUrl).toBe(solPhotoUrl);
     expect(place.photoCount).toBe(2);
+  });
+
+  it("puts every photograph on one page, newest first, whatever place it is filed under", async () => {
+    // A second place, so the index is proving it crosses places rather than
+    // repeating one gallery.
+    const up = await upload(wrenToken, await geotagged(120), { altText: "The north terrace, newly dug" }, OTHER_PLACE);
+    expect(up.status, up.text).toBe(200);
+    terracePhotoId = String(up.json?.photo?.id ?? "");
+    expect(terracePhotoId).toBeTruthy();
+
+    const index = await call("GET", "/api/places/photos", undefined, solToken);
+    expect(index.status, index.text).toBe(200);
+    // Strictly newest first. The hero pinned two tests ago leads its own
+    // place and must NOT float to the top of a page that says newest first.
+    expect(index.json.photos.map((p: any) => p.id)).toEqual([terracePhotoId, wrenPhotoId, solPhotoId]);
+    expect(index.json.photos[0].structureKey).toBe(OTHER_PLACE);
+    expect(index.json.photos[1].structureKey).toBe(PLACE);
+    // Three photographs is well under one page, so there is nothing older.
+    expect(index.json.nextBefore).toBeNull();
+  });
+
+  it("carries on from the exact row the last page ended on", async () => {
+    const index = await call("GET", "/api/places/photos", undefined, solToken);
+    const first = index.json.photos[0];
+    const cursor = `${first.createdAt}|${first.id}`;
+    const older = await call("GET", `/api/places/photos?before=${encodeURIComponent(cursor)}`, undefined, solToken);
+    expect(older.status, older.text).toBe(200);
+    expect(older.json.photos.map((p: any) => p.id)).toEqual([wrenPhotoId, solPhotoId]);
+  });
+
+  it("refuses a cursor it cannot read instead of quietly starting again at the top", async () => {
+    const broken = await call("GET", "/api/places/photos?before=not-a-cursor", undefined, solToken);
+    expect(broken.status).toBe(400);
+    // The failure this refusal prevents: a person scrolling for a picture of
+    // themselves being handed the newest page dressed as the older one.
+    expect(broken.json.photos).toBeUndefined();
   });
 
   it("refuses a photograph with no description of what is in it", async () => {
@@ -349,6 +387,44 @@ describe.skipIf(!DB_CONFIGURED)("photographs of a place", () => {
     expect(hidden.hiddenBy).toBe("subject");
   });
 
+  it("KEEPS THE INDEX INSIDE THE PLACE PAGE PERMISSION: a hidden photograph reaches a curator and nobody else", async () => {
+    // The claim under test. An index aggregates, and the classic way an index
+    // leaks is by showing in one list what each of its sources refuses.
+    // solPhotoId is hidden by the subject request in the test above.
+    const inPlace = await call("GET", `/api/places/${PLACE}/photos`, undefined, solToken);
+    expect(inPlace.json.photos.some((p: any) => p.id === solPhotoId), "the place page must already refuse it").toBe(false);
+
+    const mine = await call("GET", "/api/places/photos", undefined, solToken);
+    expect(mine.status, mine.text).toBe(200);
+    expect(mine.json.photos.some((p: any) => p.id === solPhotoId), "the index must refuse it too").toBe(false);
+    // Wren filed the request and still cannot see it here.
+    const theirs = await call("GET", "/api/places/photos", undefined, wrenToken);
+    expect(theirs.json.photos.some((p: any) => p.id === solPhotoId)).toBe(false);
+
+    // And a curator, who CAN see it in its place, sees it here. An index
+    // stricter than the place page would hide a decision from the person
+    // whose job it is to make it.
+    const curator = await call("GET", "/api/places/photos", undefined, talToken);
+    const seen = curator.json.photos.find((p: any) => p.id === solPhotoId);
+    expect(seen, "a curator sees the hidden row on the index as they do in the place").toBeTruthy();
+    expect(seen.hiddenBy).toBe("subject");
+  });
+
+  it("closes the index to a visitor exactly when the map closes to one", async () => {
+    // Anonymous reading rides `map.public_structure`, the same dial the place
+    // page rides. On by default, so the visitor reads it.
+    const open = await call("GET", "/api/places/photos", undefined, "");
+    expect(open.status).toBe(200);
+    expect(open.json.signedIn).toBe(false);
+
+    expect((await call("PUT", "/api/admin/variables/map.public_structure", { value: "false" })).status).toBe(200);
+    expect((await call("GET", "/api/places/photos", undefined, "")).status).toBe(401);
+    // The place page and the index answer a visitor the same way.
+    expect((await call("GET", `/api/places/${PLACE}/photos`, undefined, "")).status).toBe(401);
+    expect((await call("GET", "/api/places/photos", undefined, solToken)).status).toBe(200);
+    expect((await call("PUT", "/api/admin/variables/map.public_structure", { value: "true" })).status).toBe(200);
+  });
+
   it("shows the hidden bytes to a curator and to nobody else", async () => {
     // The one exception to the suppression, and the reason it exists: a report
     // card that cannot show the photograph is a card nobody can decide.
@@ -397,6 +473,49 @@ describe.skipIf(!DB_CONFIGURED)("photographs of a place", () => {
     expect(card, "the subject's request survives the takedown as a record").toBeTruthy();
     expect(card.photoRemoved).toBe(true);
     expect(card.photoUrl).toBeNull();
+  });
+
+  it("TAKES THE WORDS DOWN WITH THE PICTURE: a photograph taken down for good keeps no description", async () => {
+    // A description of a photograph is still a description of the person in
+    // it. A takedown that leaves "The north wall of the community kitchen"
+    // attached to a gone picture has removed the image and kept the sentence
+    // about the people. solPhotoId was taken down for good two tests ago.
+    const [rows]: any = await pool.query("SELECT alt_text, caption, url FROM place_photos WHERE id = ?", [solPhotoId]);
+    expect(rows.length, "the tombstone row survives, because a closed report names it").toBe(1);
+    expect(rows[0].alt_text, "the description is erased, not merely withheld").toBe("");
+    expect(rows[0].caption).toBeNull();
+    // The address stays, because the retention sweep still has to find the
+    // file it unlinks. `removed_at` is what decides whether bytes are served.
+    expect(String(rows[0].url).startsWith("/api/uploads/")).toBe(true);
+
+    // And no surface a reader can reach carries it either. The curator queue
+    // is the last one that held it: it nulls the picture on a takedown and
+    // used to keep the sentence.
+    const handled = await call("GET", "/api/places/reports?status=resolved", undefined, talToken);
+    const cards = handled.json.reports.filter((r: any) => r.photoId === solPhotoId);
+    expect(cards.length, "the takedown left records behind to check").toBeGreaterThan(0);
+    for (const card of cards) {
+      expect(card.photoRemoved).toBe(true);
+      expect(card.photoAltText, "a curator reads no description of a picture that is gone").toBeNull();
+    }
+    // Not on the index for anybody, curator included.
+    for (const token of [solToken, wrenToken, talToken]) {
+      const index = await call("GET", "/api/places/photos", undefined, token);
+      expect(index.json.photos.some((p: any) => p.id === solPhotoId)).toBe(false);
+    }
+  });
+
+  it("gives a restored photograph its description back, because hiding withholds and does not erase", async () => {
+    // The other half of the decision. Hiding is reversible, so it must not
+    // destroy the words: a photograph put back with an empty description is a
+    // picture a member who cannot see it is told nothing about.
+    const hidden = await call("POST", `/api/places/photo/${terracePhotoId}/hide`, { reason: "checking" }, talToken);
+    expect(hidden.status, hidden.text).toBe(200);
+    expect((await call("POST", `/api/places/photo/${terracePhotoId}/restore`, {}, talToken)).status).toBe(200);
+    const index = await call("GET", "/api/places/photos", undefined, solToken);
+    const back = index.json.photos.find((p: any) => p.id === terracePhotoId);
+    expect(back, "a restored photograph comes back to the index").toBeTruthy();
+    expect(back.altText).toBe("The north terrace, newly dug");
   });
 
   it("counts a place against the village's per-place dial, and 0 means zero", async () => {
