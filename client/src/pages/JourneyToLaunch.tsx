@@ -393,7 +393,7 @@ interface DryRunReport {
   turns: DryRunTurn[];
   runFindings: DryRunFinding[];
   allowances: Array<{ stageId: string; stageName: string; allowance: number; shareCap: number; heartsSendable: boolean; note: string }>;
-  jobs: Array<{ name: string; everyHours: number; runsInSpan: number; note: string }>;
+  jobs: Array<{ name: string; cadence: string; runsInSpan: string; note: string }>;
   refusals: DryRunFinding[];
   covered: string[];
   notCovered: string[];
@@ -476,9 +476,11 @@ function TestRun() {
           {/* The refusals. This is the part a founder came for. */}
           <div>
             <h3 className="text-sm font-semibold text-stone-900">
-              {report.refusals.length > 0
-                ? `${report.refusals.length} thing(s) would not work as set`
-                : "Nothing refused across the whole run"}
+              {report.refusals.length === 1
+                ? "One thing would not work as set"
+                : report.refusals.length > 1
+                  ? `${report.refusals.length} things would not work as set`
+                  : "Nothing refused across the whole run"}
             </h3>
             {report.refusals.length > 0 ? (
               <ul className="mt-2 space-y-1.5">
@@ -558,7 +560,7 @@ function TestRun() {
             <ul className="mt-2 grid gap-1 sm:grid-cols-2">
               {report.jobs.map((j) => (
                 <li key={j.name} className="text-xs text-stone-600">
-                  <span className="font-medium text-stone-800">{j.name}</span>: every {j.everyHours}h,
+                  <span className="font-medium text-stone-800">{j.name}</span>: {j.cadence},
                   about {j.runsInSpan} times
                 </li>
               ))}

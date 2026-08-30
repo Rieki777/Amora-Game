@@ -338,8 +338,10 @@ describe.skipIf(!DB_CONFIGURED)("the test run before launch", () => {
     }
     for (const j of r.json.jobs) {
       expect(j.name).toBeTruthy();
-      expect(Number.isFinite(j.everyHours)).toBe(true);
-      expect(Number.isFinite(j.runsInSpan)).toBe(true);
+      // Both are strings on purpose: a cadence a person would say, and a count
+      // at the precision it deserves.
+      expect(j.cadence, `${j.name} has no cadence`).toMatch(/^every |^once a day$/);
+      expect(typeof j.runsInSpan).toBe("string");
     }
   });
 

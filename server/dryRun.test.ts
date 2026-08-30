@@ -257,8 +257,9 @@ describe("the run-level facts", () => {
   it("counts how often each job would ask, and runs none of them", () => {
     const r = dryRun(snapshot(), { moons: 2, from: FROM });
     const job = r.jobs.find((j) => j.name === "moon-settlement")!;
-    expect(job.everyHours).toBe(1);
-    expect(job.runsInSpan).toBeGreaterThan(24 * 58);
+    expect(job.cadence).toBe("every hour");
+    // Two lunations is about 1416 hours, said at the precision it deserves.
+    expect(job.runsInSpan).toBe("1.4 thousand");
     expect(r.notCovered.join(" ")).toMatch(/none of them was run/i);
   });
 });
@@ -436,5 +437,28 @@ describe("a queued change is four columns, never one", () => {
       .toContain("45 Gratitude");
     // Said once, on the first moon, and never again.
     expect(r.turns.filter((t) => t.findings.some((x) => x.area === "rules"))).toHaveLength(1);
+  });
+});
+
+describe("numbers said the way a person would say them", () => {
+  it("names a five minute job in minutes, never in tenths of an hour", () => {
+    const r = dryRun(
+      snapshot({
+        jobs: [
+          { name: "agent-inbox-drain", everyMs: 5 * 60 * 1000 },
+          { name: "seat-fee-settle", everyMs: 6 * 60 * 60 * 1000 },
+          { name: "retention-sweep", everyMs: 24 * 60 * 60 * 1000 },
+        ],
+      }),
+      { moons: 12, from: FROM },
+    );
+    const by = (n: string) => r.jobs.find((j) => j.name === n)!;
+    expect(by("agent-inbox-drain").cadence).toBe("every 5 minutes");
+    expect(by("seat-fee-settle").cadence).toBe("every 6 hours");
+    expect(by("retention-sweep").cadence).toBe("once a day");
+    // A lunar year of five minute ticks is about 102,000, and the last four
+    // digits of that are noise dressed as measurement.
+    expect(by("agent-inbox-drain").runsInSpan).toMatch(/thousand$/);
+    expect(by("retention-sweep").runsInSpan).toBe("354");
   });
 });

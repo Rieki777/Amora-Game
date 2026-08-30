@@ -154,8 +154,10 @@ export interface DryRunAllowance {
 
 export interface DryRunJobLine {
   name: string;
-  everyHours: number;
-  runsInSpan: number;
+  /** How often it asks, in the units a person would say it in. */
+  cadence: string;
+  /** About how many times across the span, rounded to something readable. */
+  runsInSpan: string;
   note: string;
 }
 
@@ -191,6 +193,35 @@ export interface DryRunOptions {
 }
 
 const DAY_MS = 86_400_000;
+
+/**
+ * A cadence in the units somebody would say it in.
+ *
+ * The first draft printed every job as a number of hours to one decimal, so a
+ * job that asks every five minutes read "every 0.1 hour(s)". A figure nobody
+ * would say out loud is a figure nobody checks.
+ */
+function cadenceOf(everyMs: number): string {
+  const minutes = Math.round(everyMs / 60_000);
+  if (minutes < 60) return `every ${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  if (hours === 1) return "every hour";
+  if (hours === 24) return "once a day";
+  if (hours % 24 === 0) return `every ${hours / 24} days`;
+  return `every ${hours} hours`;
+}
+
+/**
+ * A count at the precision it deserves.
+ *
+ * A background job asking every five minutes for a lunar year comes to 101,980,
+ * and the last four digits of that are noise dressed as measurement.
+ */
+function roughly(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10_000) return `${Math.round(n / 100) / 10} thousand`;
+  return `${Math.round(n / 1000)} thousand`;
+}
 
 /**
  * Which rules are in force at a cycle, as `runSettlement` would see them.
@@ -624,13 +655,14 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
     : 0;
   const jobs: DryRunJobLine[] = snapshot.jobs
     .map((j) => {
-      const everyHours = Math.round((j.everyMs / 3_600_000) * 10) / 10;
-      const runsInSpan = j.everyMs > 0 ? Math.floor((spanDays * DAY_MS) / j.everyMs) : 0;
+      const cadence = cadenceOf(j.everyMs);
+      const times = j.everyMs > 0 ? Math.floor((spanDays * DAY_MS) / j.everyMs) : 0;
+      const runsInSpan = roughly(times);
       return {
         name: j.name,
-        everyHours,
+        cadence,
         runsInSpan,
-        note: `Asks every ${everyHours} hour(s), so about ${runsInSpan} times across this span.`,
+        note: `Asks ${cadence}, so about ${runsInSpan} times across this span.`,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
