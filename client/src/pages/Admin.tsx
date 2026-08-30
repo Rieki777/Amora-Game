@@ -11,6 +11,7 @@ import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
 import { ExampleChip, ExamplesBanner, forgetExamplesCache } from "@/components/ExamplesBanner";
+import { linesToList, listToLines } from "@/lib/questBoard";
 const FORM_TYPES = ["work-with-us", "quest-proposal", "investor", "steward", "resident", "prosperity", "contact"] as const;
 
 function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
@@ -2686,9 +2687,25 @@ function QuestsTab({ password }: { password: string }) {
       ) : (
         <div className="space-y-3">
           {quests.map((q: any) => {
-            const d = draft[q.id] ?? q;
-            const dirty = JSON.stringify({ t: d.title, de: d.description, g: d.gratitude, s: d.status })
-              !== JSON.stringify({ t: q.title, de: q.description, g: q.gratitude, s: q.status });
+            const d = draft[q.id] ?? {
+              ...q,
+              stepsText: listToLines(q.steps),
+              tipsText: listToLines(q.tips),
+            };
+            // The dirty check projects every editable field, story layer
+            // included, so a change buried in a collapsed section still
+            // lights the Save button.
+            const proj = (x: any, stepsText: string, tipsText: string) =>
+              JSON.stringify({
+                t: x.title, de: x.description, g: x.gratitude, s: x.status,
+                su: x.subtitle ?? "", st: x.story ?? "", fs: x.firstStep ?? "",
+                dv: x.deliverable ?? "", iu: x.imageUrl ?? "", ci: x.circle ?? "",
+                di: x.difficulty ?? "", du: x.duration ?? "", im: x.impact ?? "",
+                sl: stepsText, tl: tipsText,
+              });
+            const dirty =
+              proj(d, d.stepsText ?? "", d.tipsText ?? "") !==
+              proj(q, listToLines(q.steps), listToLines(q.tips));
             return (
               <div key={q.id} className="bg-white border border-gray-100 rounded-xl p-4">
                 {/* On a fresh fork the whole board is examples. Without the
@@ -2714,12 +2731,68 @@ function QuestsTab({ password }: { password: string }) {
                     </select>
                   </label>
                 </div>
+
+                {/* The story layer (0068): everything a member reads on the
+                    quest's own page. Collapsed by default so the board list
+                    stays scannable; every field is optional and an empty one
+                    simply does not render. */}
+                <details className="mt-3 rounded-lg border border-gray-100 bg-gray-50/50 px-3 py-2">
+                  <summary className="text-xs font-semibold text-gray-600 cursor-pointer select-none">
+                    Story, steps, and poster
+                  </summary>
+                  <div className="grid sm:grid-cols-2 gap-2 mt-3">
+                    <label className="text-xs text-gray-500">Subtitle
+                      <input value={d.subtitle ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, subtitle: e.target.value } })} className={`${inputCls} w-full mt-1`} placeholder="One line in the quest's own voice" />
+                    </label>
+                    <label className="text-xs text-gray-500">First step
+                      <input value={d.firstStep ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, firstStep: e.target.value } })} className={`${inputCls} w-full mt-1`} placeholder="One small act, fifteen minutes or less" />
+                    </label>
+                    <label className="text-xs text-gray-500 sm:col-span-2">Why it matters
+                      <textarea value={d.story ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, story: e.target.value } })} rows={3} className={`${inputCls} w-full mt-1 resize-y`} placeholder="The story a member reads on the quest's page. Leave blank and the description stands in." />
+                    </label>
+                    <label className="text-xs text-gray-500">Steps, one per line
+                      <textarea value={d.stepsText ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, stepsText: e.target.value } })} rows={4} className={`${inputCls} w-full mt-1 resize-y`} />
+                    </label>
+                    <label className="text-xs text-gray-500">Tips, one per line
+                      <textarea value={d.tipsText ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, tipsText: e.target.value } })} rows={4} className={`${inputCls} w-full mt-1 resize-y`} />
+                    </label>
+                    <label className="text-xs text-gray-500">What they'll share
+                      <input value={d.deliverable ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, deliverable: e.target.value } })} className={`${inputCls} w-full mt-1`} placeholder="What a finished submission looks like" />
+                    </label>
+                    <label className="text-xs text-gray-500">Poster image URL
+                      <input value={d.imageUrl ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, imageUrl: e.target.value } })} className={`${inputCls} w-full mt-1`} placeholder="Blank paints a scene from the circle" />
+                    </label>
+                    <label className="text-xs text-gray-500">Circle
+                      <input value={d.circle ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, circle: e.target.value } })} className={`${inputCls} w-full mt-1`} />
+                    </label>
+                    <label className="text-xs text-gray-500">Difficulty
+                      <select value={d.difficulty ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, difficulty: e.target.value } })} className={`${inputCls} w-full mt-1`}>
+                        <option value="">Unset</option>
+                        <option value="Beginner">Beginner</option>
+                        <option value="Intermediate">Intermediate</option>
+                        <option value="Advanced">Advanced</option>
+                      </select>
+                    </label>
+                    <label className="text-xs text-gray-500">Duration
+                      <input value={d.duration ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, duration: e.target.value } })} className={`${inputCls} w-full mt-1`} placeholder="Half day, per event, 2-3 hrs" />
+                    </label>
+                    <label className="text-xs text-gray-500">Impact line
+                      <input value={d.impact ?? ""} onChange={(e) => setDraft({ ...draft, [q.id]: { ...d, impact: e.target.value } })} className={`${inputCls} w-full mt-1`} placeholder="Quoted on the quest's page" />
+                    </label>
+                  </div>
+                </details>
+
                 <div className="flex items-center gap-3 mt-3">
                   <button
                     disabled={!dirty}
                     onClick={async () => {
                       const r = await call(`/admin/quests/${q.id}`, {
                         title: d.title, description: d.description, gratitude: d.gratitude, status: d.status,
+                        subtitle: d.subtitle ?? "", story: d.story ?? "", firstStep: d.firstStep ?? "",
+                        deliverable: d.deliverable ?? "", imageUrl: d.imageUrl ?? "",
+                        circle: d.circle ?? "", difficulty: d.difficulty ?? "", duration: d.duration ?? "",
+                        impact: d.impact ?? "",
+                        steps: linesToList(d.stepsText ?? ""), tips: linesToList(d.tipsText ?? ""),
                       }, "PUT");
                       if (r) { toast.success("Saved"); setDraft({ ...draft, [q.id]: undefined }); load(); }
                     }}

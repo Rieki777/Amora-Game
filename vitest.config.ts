@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -10,6 +11,19 @@ import { defineConfig } from "vitest/config";
  * API of the real built server, not React components.
  */
 export default defineConfig({
+  /*
+   * The same aliases vite.config.ts builds with. Without them a client module
+   * that imports `@shared/...` typechecks (tsconfig paths) and builds (vite)
+   * and then fails to COLLECT under vitest, which reports as "no tests" rather
+   * than as a resolution error. Keep this list in step with vite.config.ts.
+   */
+  resolve: {
+    alias: {
+      "@": path.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path.resolve(import.meta.dirname, "shared"),
+      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+    },
+  },
   test: {
     environment: "node",
     // S5: load .env so TEST_DATABASE_URL reaches the DB-backed suites locally
@@ -21,7 +35,22 @@ export default defineConfig({
     include: ["server/**/*.test.ts", "shared/**/*.test.ts", "client/**/*.test.ts"],
     // The end-to-end loop test builds and boots the server, so it needs room.
     testTimeout: 120_000,
-    hookTimeout: 180_000,
+    /*
+     * 300s, and it must stay comfortably ABOVE the e2e boot deadline.
+     *
+     * The e2e hooks do two slow things in series: provision a scratch schema
+     * (drop, create, ~50 migrations) and then wait for the server to answer
+     * /health. Against a hosted MySQL the round trip is ~130ms, so provisioning
+     * alone can run a minute or more.
+     *
+     * When the boot deadline was raised from 60s to 120s, the two together
+     * started clearing the old 180s ceiling, and this timeout fired FIRST. That
+     * is the worse failure: the boot deadline reports the server's own log and
+     * says what it was doing, while this one says only "Hook timed out" and
+     * throws that log away. Keep the headroom so the informative error is
+     * always the one that wins.
+     */
+    hookTimeout: 300_000,
     // One server process per file, no parallel port fights.
     fileParallelism: false,
   },

@@ -108,11 +108,20 @@ export default function GameDashboard() {
           ) : (
             <ul className="space-y-2 mb-4">
               {[...activeQuests, ...doneQuests].slice(0, 4).map((q) => (
-                <li key={q.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="text-stone-700 truncate">{q.questTitle}</span>
-                  <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${CLAIM_STATUS[q.status]?.cls ?? ""}`}>
-                    {CLAIM_STATUS[q.status]?.label ?? q.status}
-                  </span>
+                <li key={q.id}>
+                  {/* Each row links to the quest's own page, where submitting
+                      and the story live — the same door the board opens. */}
+                  <Link
+                    href={`/quests/${q.questId}`}
+                    className="flex items-center justify-between gap-2 text-sm group"
+                  >
+                    <span className="text-stone-700 truncate group-hover:text-teal-deep transition-colors">
+                      {q.questTitle}
+                    </span>
+                    <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${CLAIM_STATUS[q.status]?.cls ?? ""}`}>
+                      {CLAIM_STATUS[q.status]?.label ?? q.status}
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>

@@ -123,10 +123,16 @@ beforeAll(async () => {
   child.stdout?.on("data", (d) => logs.push(String(d)));
   child.stderr?.on("data", (d) => logs.push(String(d)));
 
-  const deadline = Date.now() + 60_000;
+  // 120s, not 60s: boot runs every SQL migration, the seeds and the data
+  // migrations, and TEST_DATABASE_URL usually points at a hosted MySQL behind
+  // a proxy. Measured round-trip there is about 130ms, so a few hundred boot
+  // queries clear a minute on their own and this deadline fired on a server
+  // that was making normal progress. Vitest's 180s hookTimeout is still the
+  // backstop for a boot that is genuinely wedged.
+  const deadline = Date.now() + 120_000;
   for (;;) {
     if (Date.now() > deadline) {
-      throw new Error(`server did not start in 60s. Output:\n${logs.join("")}`);
+      throw new Error(`server did not start in 120s. Output:\n${logs.join("")}`);
     }
     try {
       const res = await fetch(`${BASE}/health`);

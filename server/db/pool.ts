@@ -49,6 +49,23 @@ export function getPool(): mysql.Pool {
    */
   _pool.on("connection", (c) => {
     c.query("SET time_zone = '+00:00'");
+    /*
+     * A dropped connection belongs to NO awaited query. It happens between
+     * requests, the connection emits 'error', and an EventEmitter 'error' with
+     * no listener THROWS. That reaches installCrashHandlers as an uncaught
+     * exception, which deliberately exits the process, so a village's server
+     * dies on a transient blip from a hosted MySQL behind a proxy. In
+     * production the platform restarts it and nobody learns why; in an
+     * eight-minute end-to-end run it is a wall of ECONNRESET.
+     *
+     * mysql2 already discards the broken connection and dials a new one. The
+     * only thing missing was somewhere for the event to land. Logged, never
+     * alerted: a redial is normal, and an admin alert per reconnect would
+     * train everyone to ignore the channel that matters.
+     */
+    c.on("error", (err: any) => {
+      console.error(`[pool] connection dropped, the pool will redial: ${err?.code ?? ""} ${err?.message ?? err}`);
+    });
   });
   return _pool;
 }
