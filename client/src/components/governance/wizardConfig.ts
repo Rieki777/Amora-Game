@@ -862,6 +862,19 @@ export const SUBJECT_NOUN: Record<string, string> = {
    * decided to start playing.
    */
   village_launch: "Starting the Game",
+  /*
+   * ALSO NOT A WIZARD TYPE. A proposal whose change set names a minting rule
+   * opens under `mint_rule` instead of `mechanics` (R81, R84), because the
+   * subject type is what carries the threshold. Everything else about it is a
+   * mechanics proposal, so without an entry here it fell through to
+   * "Decision" while the ordinary rule change beside it read "Rule change".
+   *
+   * The village's own words for the thing are "minting rule": that is what
+   * the frozen document calls it, what the refusals call it, and what the
+   * amendment ledger records. So the noun says the same, and it stays in the
+   * same register as `mechanics` above it, one word narrower.
+   */
+  mint_rule: "Minting rule change",
 };
 
 export const subjectNoun = (subjectType: string): string => SUBJECT_NOUN[subjectType] ?? "Decision";
