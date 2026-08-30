@@ -23440,6 +23440,11 @@ ${inner}
    * a flag somebody flips, and a sweep of every other route that treats
    * `role === "founder"` as a standing power. Do not infer it from anything
    * already in the tree.
+   *
+   * R89 makes that TODO a step on a committed path rather than a loose end.
+   * The stated end state is a village that governs itself with NO admins, on
+   * its own voice rules, minting eternally. This branch is the last thing
+   * standing between the mint and that, and it is meant to be removed.
    */
   app.patch("/api/admin/economy/rules/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
@@ -26924,6 +26929,17 @@ ${inner}
      * ballot to say which threshold it should have had. `dialsForSubject`
      * calls `dialsForMethod` itself and then raises it to the subject's floor,
      * so this route answers for both kinds with one call and cannot forget.
+     *
+     * ── A THIRD KIND OF RULE COSTS FOUR EDITS, NAMED HERE (R89) ────────────
+     *
+     * The end state is a village that votes on everything, so the next lane
+     * that wants a second kind of rule inside a change set needs: a key
+     * namespace of its own beside `shared/mintRuleKeys.ts`, an entry in
+     * `SUBJECT_THRESHOLDS`, a branch in `validateChangeSet`, and an apply in
+     * `applyMechanicsProposal`. This ternary becomes a lookup, and the
+     * one-vocabulary-per-proposal rule in `validateChangeSet` generalises with
+     * it: a proposal names one kind of rule, because the threshold is priced
+     * per subject and a proposal that is two subjects has no honest price.
      */
     const subjectType = p.changeSet.some((c: any) => isMintRuleKey(c.key)) ? MINT_RULE : "mechanics";
     const dials = dialsForSubject(subjectType, method, {
