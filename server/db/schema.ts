@@ -189,7 +189,17 @@ export const gratitudeLog = mysqlTable("gratitude_log", {
   toName: varchar("to_name", { length: 255 }),
   amount: int("amount").notNull(),
   message: text("message"),
-  /** Calendar month, e.g. "2026-07". Caps one acknowledgement per pair, per cycle. */
+  /**
+   * The lunation this acknowledgement fell in, e.g. "lunar-000329", made only
+   * by `cycleIdFor` in server/lib/gratitude-cycles.ts. Caps one acknowledgement
+   * per pair, per cycle.
+   *
+   * This comment said "Calendar month, e.g. 2026-07" until 2026-08-29, which
+   * was the scheme before the lunar one and had been wrong here for months.
+   * Rows written under it keep their old ids and are refused by name at
+   * settlement rather than remapped, because a lunation cannot be computed
+   * from a calendar month.
+   */
   cycleId: varchar("cycle_id", { length: 16 }).notNull(),
   at: timestamp("at").defaultNow().notNull(),
 });

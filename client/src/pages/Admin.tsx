@@ -54,6 +54,29 @@ function authHeaders(password: string, extra: Record<string, string> = {}): Reco
 }
 
 /**
+ * THE SERVER'S OWN SENTENCE, WHEN IT HAS ONE.
+ *
+ * Several editors here read `res.ok` and then threw an empty Error, so every
+ * refusal reached the admin as "Save failed". The routes behind them answer
+ * with a written reason (why a link cannot be that link, which power was
+ * missing, what a value has to be), and that reason is the only part an admin
+ * can act on. A refusal nobody can read is a wall.
+ *
+ * Falls back to the caller's own words when the body carries nothing, so a
+ * dead network still says something true.
+ */
+async function saveProblem(res: Response, fallback = ""): Promise<string> {
+  try {
+    const body = await res.json();
+    const said = String(body?.error ?? body?.message ?? "").trim();
+    if (said) return said;
+  } catch {
+    /* a non-JSON body says nothing, and the fallback below is the honest answer */
+  }
+  return fallback;
+}
+
+/**
  * One locale decision for the moderation queues, so a card and the line under
  * it never disagree about how a date looks.
  */
@@ -3000,9 +3023,13 @@ function VisitAdminTab({ password }: { password: string }) {
         headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify(cfg),
       });
-      if (!res.ok) throw new Error();
+      // The server refuses a call-to-action link that points into the investor
+      // vault, and it says which door is open in a whole sentence. Throwing an
+      // empty Error here turned that sentence into "Save failed", so an admin
+      // met a wall with no reason on it and no way to guess the reason.
+      if (!res.ok) throw new Error(await saveProblem(res));
       toast.success("Saved");
-    } catch { toast.error("Save failed"); }
+    } catch (e) { toast.error(e instanceof Error && e.message ? e.message : "Save failed"); }
     setSaving(false);
   };
 
@@ -3117,9 +3144,12 @@ function InvestorSummaryAdminTab({ password }: { password: string }) {
         headers: authHeaders(password, { "Content-Type": "application/json" }),
         body: JSON.stringify(cfg),
       });
-      if (!res.ok) throw new Error();
+      // Same reason as VisitAdminTab above: this page is public, the server
+      // refuses a CTA that would publish a vault document, and the admin has
+      // to be able to read why.
+      if (!res.ok) throw new Error(await saveProblem(res));
       toast.success("Saved");
-    } catch { toast.error("Save failed"); }
+    } catch (e) { toast.error(e instanceof Error && e.message ? e.message : "Save failed"); }
     setSaving(false);
   };
 

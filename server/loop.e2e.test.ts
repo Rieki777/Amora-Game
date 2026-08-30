@@ -670,7 +670,10 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const rules = await api("GET", "/api/game/rules");
     expect(rules.status).toBe(200);
     expect(rules.json.gratitude.baseBudget).toBe(100);
-    expect(rules.json.gratitude.cycleMode).toBe("lunar");
+    // The rhythm is no longer a field here. It was a dial nothing honoured, so
+    // the client is told the budget and the caps and nothing about a choice
+    // the engine cannot make. server/lunarRhythm.test.ts holds that shut.
+    expect(rules.json.gratitude).not.toHaveProperty("cycleMode");
     expect(rules.json.governance.voiceWeighting).toBe("equal");
     // Operational values are NOT exposed to the public surface.
     expect(JSON.stringify(rules.json)).not.toContain("base_rpc_url");

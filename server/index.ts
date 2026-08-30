@@ -2720,17 +2720,23 @@ function addActivity(
 }
 
 /**
- * The cycle every acknowledgment is stamped with. LUNAR now, not calendar
- * month: budgets and per-recipient caps reset at each new moon, matching
- * regen-civics (revision 2, decision 1). Legacy "YYYY-MM" ids in old rows
- * simply never match a lunar id again, which is the correct behaviour: one
- * clean reset at changeover instead of double-counting a partial month.
+ * The cycle every acknowledgment is stamped with. Lunar: budgets and
+ * per-recipient caps reset at each new moon, matching regen-civics
+ * (revision 2, decision 1). Legacy "YYYY-MM" ids in old rows simply never
+ * match a lunar id again, which is the correct behaviour: one clean reset at
+ * changeover instead of double-counting a partial month.
+ *
+ * THERE USED TO BE A CHOICE HERE AND IT IS GONE ON PURPOSE. A
+ * `gratitude.cycle_mode` dial offered a founder "calendar month", and this
+ * function was the only code in the tree that read it. Nothing else changed
+ * when it was flipped: not the settlement, not the budgets, not the allowance
+ * windows. So the panel offered a rhythm the engine could not keep.
+ *
+ * Rye retired it rather than wiring it, 2026-08-29: "let's just stick with
+ * lunar months all around, it's good to be on our own rhythm." The moon is
+ * the clock, everywhere, and `server/lunarRhythm.test.ts` holds that shut.
  */
 function currentCycleId(): string {
-  // The rhythm is a village choice (Admin > Gratitude > Cycle rhythm).
-  if (stringVar("gratitude.cycle_mode") === "month") {
-    return new Date().toISOString().slice(0, 7);
-  }
   return cycleIdFor(new Date());
 }
 
@@ -16468,7 +16474,52 @@ Send an empty drafts array when you are still listening. A role payload is {name
     let mine: any = null;
     if (viewer) {
       const awards = (await awardsFor(getPool(), viewer.id)).filter((a) => !a.expired);
-      mine = { awards, skills: await skillsFor(getPool(), viewer.id) };
+      /*
+       * WHO PUT THIS ON MY RECORD, AND WHEN.
+       *
+       * `awardsFor` hands back `awardedBy` as a user id and no date at all, so
+       * the member's own page could say a warning existed and nothing about
+       * where it came from. A warning is placed by a person, the route makes
+       * that person write a note because "the member deserves to know why",
+       * and then the answer to "who said this about me, and when" was a
+       * fourteen-character id the page never rendered. A record somebody
+       * cannot read is not a record.
+       *
+       * ONLY EVER THE VIEWER'S OWN AWARDS. This sits inside `if (viewer)` and
+       * keys on `viewer.id`, so the steward's name travels to the one member
+       * the note is about and to nobody else. The privacy line on warnings is
+       * unchanged: they are still absent from /api/badges/of/:userId, from
+       * /api/badges/match, and from every `holders` list.
+       *
+       * A LEFT JOIN, and a null name stays null. `awarded_by` is NULL when the
+       * earned engine granted the badge, and a member who has left takes their
+       * row with them. Inventing "a steward" for either would be a sentence
+       * the product made up. The page says the date and stays quiet about the
+       * person it cannot name.
+       *
+       * `created_at` is when it was placed and `updated_at` moves on a
+       * re-issue, so both travel: an award renewed by a second steward would
+       * otherwise pair a new name with the first date.
+       */
+      const [meta] = await getPool().query<any[]>(
+        "SELECT a.badge_id, a.created_at, a.updated_at, u.name AS awarded_by_name " +
+          "FROM badge_awards a LEFT JOIN users u ON u.id = a.awarded_by WHERE a.user_id = ?",
+        [viewer.id],
+      );
+      const iso = (v: any) => (v instanceof Date ? v.toISOString() : v ? String(v) : null);
+      const byBadge = new Map(meta.map((r) => [String(r.badge_id), r]));
+      mine = {
+        awards: awards.map((a) => {
+          const row = byBadge.get(a.badgeId);
+          return {
+            ...a,
+            awardedByName: row?.awarded_by_name ? firstName(String(row.awarded_by_name)) : null,
+            awardedAt: iso(row?.created_at),
+            lastChangedAt: iso(row?.updated_at),
+          };
+        }),
+        skills: await skillsFor(getPool(), viewer.id),
+      };
     }
     // Who holds each badge, and until when. Already public through
     // /api/badges/match and /api/badges/of/:userId, so the same privacy line
@@ -20095,6 +20146,105 @@ ${inner}
 
   // â”€â”€ Visit Config (NEW-5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+  /**
+   * A CALL TO ACTION IS NOT A DOOR INTO THE VAULT.
+   *
+   * `GET /api/visit-config` and `GET /api/investor-summary` are both PUBLIC and
+   * both echo the whole admin-authored document back, `cta_url` and all. So
+   * pasting a vault document's link into that field published the document, to
+   * everybody, with nobody choosing to release it.
+   *
+   * That is the exact thing 0104 and PR #91 exist to stop from the other side.
+   * A vault document is private until an admin makes a per-document choice
+   * (`inPacket`), because `/api/uploads/:filename` has no authentication of its
+   * own: the link IS the credential, it never expires, and it can be forwarded.
+   * Deleting the row does not kill the file. There is no second revocation
+   * path. One paste into a text box walked around all of it.
+   *
+   * A VALIDATION, NEVER A GATE. An admin who pastes a vault link is trying to
+   * do something reasonable: point the button at the document they want people
+   * to read. So this refuses the one shape that leaks and says which door is
+   * open, in the founder's own words. Every other link still saves.
+   *
+   * The sweep is by FIELD NAME across the whole document, not by a path this
+   * function was told about. `visit_types` is an array of objects each with
+   * their own `cta_url`, and a shape that grows a third one should meet this
+   * on the day it is added instead of on the day somebody notices.
+   */
+  const UPLOADS_PATH = /^\/api\/uploads\//i;
+
+  /**
+   * The path a browser would actually ask the server for.
+   *
+   * Parsed rather than pattern-matched, and that is the second version. The
+   * first stripped an optional scheme and authority by hand, which read the
+   * three shapes an admin pastes (a bare path, a protocol-relative link, the
+   * absolute one an address bar hands over) and NOT the normalizing a browser
+   * does before it sends: `/api/./uploads/cap-table.pdf` and
+   * `/api/x/../uploads/cap-table.pdf` both arrive at the file and both slipped
+   * straight past a prefix test. A guard has to read the same path the server
+   * will be asked for, so it uses the same parser.
+   *
+   * A LINK ON SOMEBODY ELSE'S HOST WHOSE PATH IS ALSO /api/uploads/ IS
+   * REFUSED TOO, and that is the direction to be wrong in. It costs a founder
+   * one readable sentence on a link almost nobody has, and the alternative
+   * trusts a hostname comparison to decide whether to publish a cap table.
+   */
+  function linkPath(raw: string): string {
+    try {
+      return new URL(raw, "http://village.invalid").pathname;
+    } catch {
+      return raw;
+    }
+  }
+
+  function vaultLinkProblem(value: unknown): string | null {
+    if (value == null) return null;
+    // A list of links is checked link by link. My own first draft called
+    // String() on the whole array, so ["/somewhere", "/api/uploads/cap-table"]
+    // read as one string starting with "/somewhere" and sailed through, which
+    // is the shape a guard that only ever saw the happy input would keep.
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const problem = vaultLinkProblem(item);
+        if (problem) return problem;
+      }
+      return null;
+    }
+    const raw = String(value).trim();
+    if (!raw || !UPLOADS_PATH.test(linkPath(raw))) return null;
+    return (
+      "That link points into the investor vault. Files under /api/uploads/ have no sign-in in front of them, " +
+      "so anyone who opens this public page can read the document and pass the link to anybody else, forever. " +
+      "To share a document, put it in the investor packet under Admin, Investors, Documents, which is the choice " +
+      "that decides what a person receives. Then point this button at a page on the site."
+    );
+  }
+
+  /** Every call-to-action field in a document body, however deep it sits. */
+  function vaultLinkProblemIn(body: unknown): string | null {
+    const walk = (node: unknown): string | null => {
+      if (!node || typeof node !== "object") return null;
+      if (Array.isArray(node)) {
+        for (const v of node) {
+          const p = walk(v);
+          if (p) return p;
+        }
+        return null;
+      }
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        if (/^cta_?url$/i.test(key)) {
+          const p = vaultLinkProblem(value);
+          if (p) return p;
+        }
+        const deeper = walk(value);
+        if (deeper) return deeper;
+      }
+      return null;
+    };
+    return walk(body);
+  }
+
   app.get("/api/visit-config", async (_req, res) => {
     res.json(visitConfigRepo.get());
   });
@@ -20107,6 +20257,8 @@ ${inner}
   app.put("/api/admin/visit-config", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    const leak = vaultLinkProblemIn(req.body);
+    if (leak) return res.status(400).json({ error: leak });
     await visitConfigRepo.put(req.body);
     res.json({ success: true });
   });
@@ -20125,6 +20277,10 @@ ${inner}
   app.put("/api/admin/investor-summary", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Body required" });
+    // The document this route saves is served verbatim to the public route
+    // above it. See vaultLinkProblem, in the visit-config block.
+    const leak = vaultLinkProblemIn(req.body);
+    if (leak) return res.status(400).json({ error: leak });
     await investorSummaryRepo.put(req.body);
     res.json({ success: true });
   });
@@ -26480,6 +26636,58 @@ ${inner}
   });
 
   /**
+   * WHICH OBJECTIONS A NEW PROPOSAL MAY SAY IT ANSWERS (0102, the proposer's side).
+   *
+   * `answersObjectionId` shipped on the open-ballot route with no sender
+   * anywhere in the client, so the only way to reach the feature was to call
+   * the API by hand. This is the read the picker is built from.
+   *
+   * IT OFFERS ONLY WHAT `objectionLineageProblem` WILL ACCEPT, and the three
+   * conditions are the same three, in the same order that function asks them:
+   * no successor yet, the objection has been ruled in a way that means a
+   * proposal changed, and the vote it was raised on has finished. A picker
+   * that offered anything else would walk a proposer into a refusal they could
+   * not have seen coming, and finding out by being told no is not how anybody
+   * should learn what they are allowed to do.
+   *
+   * The two statuses are named rather than excluded, so this is a SUBSET of
+   * what the route accepts and never a superset. If a sixth ruling is ever
+   * added, a proposer simply is not offered it until somebody decides whether
+   * "the proposal changed after this" is a true reading of it.
+   *
+   * IT NAMES NO PERSON, for the same reason the lineage route does not.
+   * `objectionLineageShape.test.ts` holds every query that touches this column
+   * to that line: lineage is a fact about a decision, and one member-shaped
+   * column here is all it takes to turn it into a scoreboard. The proposer
+   * needs the objection's words and the decision it was raised on. Who raised
+   * it is on that decision's own page, beside the objection, where it belongs.
+   */
+  const ANSWERABLE_CAP = 50;
+  app.get("/api/governance/objections/answerable", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const [rows] = await getPool().query<any[]>(
+      "SELECT o.id, o.text, o.status, o.created_at, b.id AS ballot_id, b.title AS ballot_title, " +
+        "b.closed_at FROM ballot_objections o JOIN ballots b ON b.id = o.ballot_id " +
+        "WHERE o.led_to_ballot_id IS NULL AND o.status IN ('integrated','concern') " +
+        `AND b.status <> 'open' ORDER BY b.closed_at DESC, o.created_at DESC LIMIT ${ANSWERABLE_CAP}`,
+    );
+    res.json(
+      rows.map((r) => ({
+        id: String(r.id),
+        text: String(r.text),
+        status: String(r.status),
+        ballotId: String(r.ballot_id),
+        ballotTitle: String(r.ballot_title),
+        // Same spelling and the same reason as the lineage route above: mysql2
+        // runs with timezone "Z", so a datetime arrives as a Date already read
+        // as UTC, and handing a string to `new Date` would move the instant.
+        closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : r.closed_at ? String(r.closed_at) : null,
+      })),
+    );
+  });
+
+  /**
    * Rule an objection: integrated (it stands, the proposal must change),
    * concern (recorded, does not block), or withdrawn. The facilitator is a
    * proposal.decide holder or an admin; an objector may withdraw their own.
@@ -27865,7 +28073,6 @@ ${inner}
         baseBudget: numberVar("gratitude.base_budget"),
         maxPerRecipientPerCycle: numberVar("gratitude.max_per_recipient_per_cycle"),
         requireMessage: boolVar("gratitude.require_message"),
-        cycleMode: stringVar("gratitude.cycle_mode"),
         // The ReGen pool model: the community can always see how big the pool
         // is and what it pays — but a member's SHARE is unknowable before
         // close, and that indeterminacy is the design, not a gap.

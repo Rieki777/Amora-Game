@@ -264,19 +264,21 @@ export const VARIABLES: VariableDef[] = [
     type: "boolean",
     default: "true",
   },
-  {
-    key: "gratitude.cycle_mode",
-    category: "Gratitude",
-    label: "Cycle rhythm",
-    description:
-      "Lunar cycles reset budgets at each new moon, matching ReGen Civics. Calendar months reset on the 1st. Lunar is the default because it gives the village a natural rhythm that is not the accounting calendar.",
-    type: "choice",
-    default: "lunar",
-    choices: [
-      { value: "lunar", label: "Lunar (new moon to new moon)", hint: "About 29.5 days. Matches ReGen Civics." },
-      { value: "month", label: "Calendar month", hint: "Resets on the 1st of each month." },
-    ],
-  },
+  /*
+   * THERE IS NO RHYTHM DIAL, AND THAT IS THE DECISION.
+   *
+   * `gratitude.cycle_mode` used to sit here offering "lunar" or "month". It
+   * was live in the admin panel and reported to every client, and one branch
+   * inside `currentCycleId()` was the only code that ever read it, so a
+   * founder could switch the village's whole gratitude rhythm to calendar
+   * months and nothing changed anywhere.
+   *
+   * Rye retired it rather than wiring it, 2026-08-29: "let's just stick with
+   * lunar months all around, it's good to be on our own rhythm." The moon is
+   * the clock this platform keeps. If you are here because a lunar-only
+   * economy looked like an oversight, it is a choice, and `shared/lunar.ts`
+   * is where it lives.
+   */
 
   // ── The org chart and its seasons ─────────────────────────────────────────
   {
@@ -1776,7 +1778,6 @@ const CYCLE_APPLY_KEYS = new Set([
   "gratitude.base_budget",
   "gratitude.pool_per_cycle",
   "gratitude.pool_token",
-  "gratitude.cycle_mode",
   "gratitude.max_per_recipient_per_cycle",
   "feed.heart_amount",
   "feed.max_hearts_per_recipient_per_cycle",

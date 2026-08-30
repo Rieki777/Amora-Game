@@ -1,0 +1,34 @@
+-- 0108: retire the `gratitude.cycle_mode` dial from live data.
+--
+-- The dial offered a founder "lunar" or "calendar month" for the whole
+-- gratitude rhythm. It was live in the admin panel and reported to every
+-- client at /api/game/rules, and exactly one line of code read it: a branch
+-- inside currentCycleId(). Nothing else changed when it was flipped, so a
+-- village could switch its rhythm and the settlement, the budgets and the
+-- allowance windows all carried on lunar. The panel stated a rhythm the
+-- engine did not keep.
+--
+-- Rye retired it rather than wiring it, 2026-08-29: "leave it off and retire
+-- it. let's just stick with lunar months all around, it's good to be on our
+-- own rhythm." The code drops the key in the same change.
+--
+-- WHAT THIS ROW WAS. game_variables holds DELTAS ONLY: setVariable DELETEs the
+-- row when a value returns to its default, so a `gratitude.cycle_mode` row can
+-- only exist where a village explicitly chose "month". After the code change
+-- that key is unknown to the registry, and an unknown key is never read (the
+-- boot load takes every row into a map and `variable()` throws only when
+-- something asks for a key by name). So the row is inert either way; deleting
+-- it stops it sitting in the table as a setting nobody can see or clear.
+--
+-- WHAT THIS DELIBERATELY DOES NOT DO. It does not touch a single gratitude
+-- row. A village that ran on calendar months has "YYYY-MM" ids in
+-- `gratitude_log`, and 0105 decided those are NOT remapped, because there is
+-- no honest way to compute a lunation from a calendar month. Those rows still
+-- meet `unreadableCycleProblem`, which stops the settlement and names the ids,
+-- and that refusal is the point: retiring the dial must not turn a loud
+-- refusal into a silently wrong total. New acknowledgements get lunar ids from
+-- here on, which is what the village was being shown all along.
+--
+-- Idempotent, and a no-op on every village that never changed the dial.
+
+DELETE FROM `game_variables` WHERE `config_key` = 'gratitude.cycle_mode';

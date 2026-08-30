@@ -141,6 +141,40 @@ describe("the mechanics page speaks every state the server can send", () => {
     expect(doors, "no file in client/src calls the open-ballot route").toBeGreaterThan(0);
   });
 
+  /**
+   * AND THE FIELD WITH NO SENDER, which is the same defect one layer in.
+   *
+   * PR #93 shipped `answersObjectionId` on the open-ballot route: a proposer
+   * naming the objection their amended proposal answers, so the objection's own
+   * page can say "the proposal changed after this". The route reads it, refuses
+   * a name it cannot honour with a sentence, and writes the edge. Nothing in
+   * the client ever sent it, so the only way to reach the feature was curl.
+   *
+   * A route with no caller and a field with no sender fail the same way and are
+   * invisible to the same gates, so they are asserted the same way, side by
+   * side, off the server's own text.
+   */
+  it("gives the objection field a sender, and not only a reader", () => {
+    const server = fs.readFileSync(path.join(ROOT, "server/index.ts"), "utf8");
+    expect(server, "the route must still read the field").toContain("req.body?.answersObjectionId");
+    const senders = clientSources().filter((s) => s.includes("answersObjectionId")).length;
+    expect(senders, "no file in client/src sends answersObjectionId").toBeGreaterThan(0);
+  });
+
+  /**
+   * A PICKER MAY ONLY OFFER WHAT THE SERVER WILL ACCEPT. Naming an objection
+   * the route refuses walks a proposer into a refusal they could not have seen
+   * coming, and the route's own comment says naming one is optional precisely
+   * so a proposer who names nothing still opens. So the choices come from a
+   * server route, never from a filter the page keeps in its head.
+   */
+  it("reads the answerable objections from the server", () => {
+    const server = fs.readFileSync(path.join(ROOT, "server/index.ts"), "utf8");
+    expect(server).toContain('app.get("/api/governance/objections/answerable"');
+    const readers = clientSources().filter((s) => s.includes("/api/governance/objections/answerable")).length;
+    expect(readers, "nothing in client/src asks which objections may be named").toBeGreaterThan(0);
+  });
+
   it("has a reading for every way a ballot can end", () => {
     const statuses = ballotStatusesFromSource();
     expect(statuses).toContain("no_quorum");
