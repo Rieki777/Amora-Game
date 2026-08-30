@@ -609,7 +609,7 @@ import {
   recordLaunchCarried,
   type LaunchDeps,
 } from "./lib/launch";
-import { issuanceRefusal, readGameStart, recordGameStart } from "./lib/gameStart";
+import { founderPowerStands, issuanceRefusal, readGameStart, recordGameStart } from "./lib/gameStart";
 import {
   assertModuleGraph,
   attachModuleReadiness,
@@ -4022,6 +4022,73 @@ function notify(input: Parameters<typeof insertNotification>[1]) {
  * the vote closed, which is a reminder that exists to look busy.
  */
 const BALLOT_CLOSING_NOTICE_HOURS = 48;
+
+/**
+ * CAN AN ACCOUNT ON THIS ROLE REACH THE ADMIN PANEL, said once (R90).
+ *
+ * `isAdmin` answers it for a request. This answers it for a role string, which
+ * is what the two guards that must never strand a deployment need: the role
+ * route asking what a change would leave behind, and the exit routes asking
+ * whether the person leaving is the last way in.
+ *
+ * It is the same pair of role names `isAdmin` reads, on purpose. The moment
+ * these two disagree, a guard would refuse a demotion the panel still allows,
+ * or allow one that locks everybody out.
+ */
+function adminReaches(role: unknown): boolean {
+  return role === "admin" || role === "founder";
+}
+
+/**
+ * Every account that can administer this village, examples excluded.
+ *
+ * R90 ends the founder role at launch, and the last-founder guard was the one
+ * thing standing between a launched village and nobody being able to reach the
+ * panel. After launch there is no founder tier to count, so the guarantee has
+ * to be counted over the set that actually holds the reach.
+ *
+ * Standing examples are filtered for the reason bootstrap already filters
+ * them: they have an empty password hash and can never sign in, so counting
+ * one would let the real last administrator be stood down behind a person who
+ * does not exist.
+ */
+async function accountsWithAdminReach(): Promise<any[]> {
+  return (await members.all()).filter((u: any) => adminReaches(u?.role) && !isExampleUser(u));
+}
+
+/**
+ * WHY THIS ACCOUNT MAY NOT LEAVE THE VILLAGE YET, or null when it may.
+ *
+ * Four routes ask it: a member opening their own departure, an admin opening
+ * one for somebody, the account-deletion pair beneath them. All four carried
+ * the same rule inline, and all four stated it as "a founder must hand off
+ * first" because the founder was the account a deployment could not afford to
+ * lose.
+ *
+ * R90 ends the founder role at launch, so after that moment the sentence names
+ * an account tier that no longer decides anything, and the guarantee under it
+ * would quietly stop holding: a founder who stood themselves down to
+ * administrator could then walk out of a village where nobody else could reach
+ * the panel. The rule the routes were always making is that the LAST way in
+ * cannot leave, so after launch that is what it counts.
+ *
+ * Before launch nothing moves. The founder sentence is the one a founder has
+ * always read, and the last-founder guard on the role route means the set is
+ * never empty, so the two halves cannot both refuse the same person.
+ */
+async function departureStrandingRefusal(target: any, self: boolean): Promise<string | null> {
+  if (await founderPowerStands(getPool())) {
+    if (target?.role !== "founder") return null;
+    return self
+      ? "A founder must hand off the village before leaving. Demote yourself first"
+      : "Demote the founder first. A deployment must never strand itself";
+  }
+  if (!adminReaches(target?.role)) return null;
+  if ((await accountsWithAdminReach()).length > 1) return null;
+  return self
+    ? "You are the last account that can administer this village. Hand the panel to somebody else first, and a deployment never strands itself"
+    : "This is the last account that can administer this village. A deployment must never strand itself";
+}
 
 /**
  * S32 ops rider: one alert to EVERY admin/founder. The shared dedupeKey is
@@ -8043,15 +8110,23 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * click, so returning it in the response would make every admin able to
    * become any member with one request and no trace on the member's side.
    *
-   * A plain admin may not target a founder — otherwise the weaker role resets
-   * the stronger one's password and inherits the deployment.
+   * WHILE THE FOUNDER ROLE STANDS, a plain admin may not target a founder,
+   * because otherwise the weaker role resets the stronger one's password and
+   * inherits the deployment.
+   *
+   * AFTER LAUNCH THERE IS NO STRONGER ROLE (R90). The founder's powers end
+   * when the village starts its Game, so from that moment an administrator and
+   * a founder reach exactly the same surfaces and this fence protects a
+   * difference that no longer exists. A personal immunity that outlived the
+   * power it guarded is a standing personal power of its own, which is the
+   * thing R90 removes.
    */
   app.post("/api/admin/users/:id/send-password-link", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (req as any).adminUser;
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
-    if (target.role === "founder" && actor?.role !== "founder") {
+    if (target.role === "founder" && actor?.role !== "founder" && (await founderPowerStands(getPool()))) {
       return res.status(403).json({ error: "Only a founder can send a founder a password link" });
     }
     if (!target.email) return res.status(409).json({ error: "That account has no address to send to" });
@@ -8094,16 +8169,48 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   /**
-   * Role management (S2). Admins run the village; founders run the admins:
-   * only a founder may change roles, a founder can only be demoted by a
-   * founder (structurally: by the actor rule), and the LAST founder cannot be
-   * demoted at all — a deployment must never strand itself without a master
-   * admin, because bootstrap is spent.
+   * Role management (S2), and the one route where R90 has the most to say.
+   *
+   * ── BEFORE LAUNCH: UNCHANGED ────────────────────────────────────────────
+   *
+   * Admins run the village and founders run the admins. Only a founder may
+   * change roles, a founder can only be demoted by a founder (structurally, by
+   * the actor rule), and the LAST founder cannot be demoted at all, because a
+   * deployment must never strand itself without a master admin and the shared
+   * bootstrap password is spent.
+   *
+   * ── AFTER LAUNCH: THERE IS NO FOUNDER TO ASK (R90) ──────────────────────
+   *
+   * "The founder role disappears once the game starts." A tier that can name
+   * every other tier is the strongest standing personal power in this file, so
+   * it is the one R90 most clearly ends. Three things change at that moment
+   * and each is chosen against a specific way of getting this wrong:
+   *
+   *  1. THE ACTOR TEST BECOMES `isAdmin`, which the line above already
+   *     applied. Refusing every actor instead would read stricter and would
+   *     brick the village: the exit routes tell a founder to demote themselves
+   *     before leaving, so a frozen roster is a village nobody can leave, and
+   *     no rogue account could ever be stood down again.
+   *  2. NOBODY MAY BE MADE A FOUNDER. Minting a new holder of a role that has
+   *     ended is the one change that would put the power back, and it is the
+   *     change a captured admin account would reach for first.
+   *  3. THE LAST-FOUNDER GUARD BECOMES A LAST-ADMIN GUARD. Its stated reason
+   *     was never the founder tier, it was that a deployment must never strand
+   *     itself. After launch the accounts that can administer the village are
+   *     admins and founders together, so the guard counts that set. Restating
+   *     it is what keeps the guarantee true once the tier it named is gone.
+   *
+   * WHAT THIS IS NOT. It is not the village deciding who its admins are. R90
+   * says that arrives with the Game Steward, and a village votes powers onto a
+   * role rather than voting somebody an account tier. Until a key exists for
+   * this route, an administrator still holds it, and that is stated here
+   * rather than dressed up.
    */
   app.put("/api/admin/users/:id/role", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = (req as any).adminUser;
-    if (actor.role !== "founder") {
+    const founderStands = await founderPowerStands(getPool());
+    if (founderStands && actor.role !== "founder") {
       return res.status(403).json({ error: "Only a founder can change roles" });
     }
     const { role } = req.body ?? {};
@@ -8116,12 +8223,33 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // already refuses: a founder the roster hides (it filters examples), that
     // the last-founder guard counts as a person, and that retirement
     // hard-DELETEs. The ids are fixed and public in every fork.
+    //
+    // IT IS ASKED BEFORE THE R90 REFUSAL BELOW, and the order is a decision. A
+    // request naming an example identity is refused for being about an example
+    // identity whatever else is wrong with it, and every caller reads that
+    // refusal off its shared `code`. Answering the launch-state refusal first
+    // would hand one of them a 409 carrying a different sentence and no code.
     if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (!founderStands && role === "founder") {
+      return res.status(409).json({
+        error:
+          "The founder role ended when this village started its Game, so nobody new can be made one. An administrator is the most this can set.",
+      });
+    }
     const fromRole = target.role ?? "member";
-    if (fromRole === "founder" && role !== "founder") {
-      const founders = (await members.all()).filter((u: any) => u.role === "founder");
-      if (founders.length <= 1) {
-        return res.status(409).json({ error: "The last founder cannot be demoted" });
+    if (founderStands) {
+      if (fromRole === "founder" && role !== "founder") {
+        const founders = (await members.all()).filter((u: any) => u.role === "founder");
+        if (founders.length <= 1) {
+          return res.status(409).json({ error: "The last founder cannot be demoted" });
+        }
+      }
+    } else if (adminReaches(fromRole) && !adminReaches(role)) {
+      const reach = await accountsWithAdminReach();
+      if (reach.length <= 1) {
+        return res.status(409).json({
+          error: "This is the last account that can administer this village, so it cannot be stood down. A deployment must never strand itself",
+        });
       }
     }
     await members.update(target.id, (u: any) => { u.role = role; });
@@ -13163,9 +13291,30 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       },
       "founder-appointed": async () => {
         const founders = (await members.all()).filter((u: any) => u.role === "founder" && u.passwordHash);
-        return founders.length > 0
-          ? { state: "ok" as const, detail: `Founder: ${founders.map((f: any) => f.name ?? f.handle ?? f.id).slice(0, 3).join(", ")}` }
-          : { state: "missing" as const, detail: "Nobody holds the founder role with their own login" };
+        if (founders.length > 0) {
+          return { state: "ok" as const, detail: `Founder: ${founders.map((f: any) => f.name ?? f.handle ?? f.id).slice(0, 3).join(", ")}` };
+        }
+        /*
+         * AFTER LAUNCH, HAVING NO FOUNDER IS THE POINT (R90).
+         *
+         * "The founder role disappears once the game starts." This item asks
+         * whether a village on its way to launch has somebody who can build
+         * it, so on a launched village with no founder left the honest reading
+         * is a journey finished rather than a requirement missed. Reporting
+         * `missing` there would put a permanent red line on the operator's own
+         * dashboard for doing exactly what the ruling asks.
+         *
+         * The other half of the guarantee is `admin-identities` directly
+         * above, which asks whether anybody at all can reach the panel with
+         * their own credential, and that item keeps its meaning forever.
+         */
+        if (!(await founderPowerStands(getPool()))) {
+          return {
+            state: "ok" as const,
+            detail: "The founder role ended when this village started its Game",
+          };
+        }
+        return { state: "missing" as const, detail: "Nobody holds the founder role with their own login" };
       },
       "brand-basics": () => {
         const b = getBrand();
@@ -14962,6 +15111,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * answer belongs to everybody, and there is no number of admins that can
    * carry it without the rest of the village.
    *
+   * R90 leaves that untouched, because it is a power exercised entirely before
+   * launch and the founder role ends at launch. What R90 does add is the line
+   * below: this route must read the fact that gates issuance, and not only the
+   * journey document.
+   *
+   * WHY BOTH, AND IT IS NOT BELT AND BRACES. `launchVoteBlocked` refuses a
+   * second vote by reading `launch-state.launchedAt`, which only this vote
+   * writes. Migration 0112 recorded `game-start` for every village that was
+   * already issuing before the vote existed, and wrote no launch state for
+   * them, on purpose. So on those villages the journey reads "never launched"
+   * while the Game has been running for months, and a founder could open a
+   * launch ballot on a Game that already started. The two facts are the same
+   * event going forwards and different events looking back, so the route that
+   * must never run twice reads the one that looks back correctly.
+   *
    * The thresholds and the floor come from `shared/ballotSubjects.ts` and are
    * not written here, so the next subject that needs its own numbers does not
    * copy this route's judgment.
@@ -14970,6 +15134,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const user = await authedUser(req);
     if (!user || user.role !== "founder") {
       return res.status(403).json({ error: "Asking the village to start its Game is a founder's act" });
+    }
+    if ((await readGameStart(getPool())).started) {
+      return res.status(409).json({ error: "This village has already started its Game." });
     }
 
     /*
@@ -15590,7 +15757,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     });
   });
 
-  /** A member opens their own departure. Password-confirmed, founder-guarded. */
+  /** A member opens their own departure. Password-confirmed, stranding-guarded. */
   app.post("/api/profile/request-exit", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
@@ -15598,9 +15765,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!password || !(await verifyPassword(String(password), user.passwordHash))) {
       return res.status(403).json({ error: "Confirm with your password" });
     }
-    if (user.role === "founder") {
-      return res.status(409).json({ error: "A founder must hand off the village before leaving. Demote yourself first" });
-    }
+    const stranding = await departureStrandingRefusal(user, true);
+    if (stranding) return res.status(409).json({ error: stranding });
     const policy: any = exitPolicyRepo.get();
     const r = await createExit(getPool(), {
       userId: user.id,
@@ -15628,9 +15794,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // row would outlive the identities (retirement deletes users, not exits)
     // and the notify below is addressed to an account nobody can sign in to.
     if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
-    if (target.role === "founder") {
-      return res.status(409).json({ error: "Demote the founder first. A deployment must never strand itself" });
-    }
+    const stranding = await departureStrandingRefusal(target, false);
+    if (stranding) return res.status(409).json({ error: stranding });
     const policy: any = exitPolicyRepo.get();
     const r = await createExit(getPool(), {
       userId: target.id,
@@ -23838,58 +24003,41 @@ ${inner}
   /**
    * Queue a change. It lands at the next moon and says so in the response.
    *
-   * ── AFTER THE GAME STARTS, THIS IS A FOUNDER'S KEY (R81, R85, R68) ────────
+   * ── AFTER THE GAME STARTS, NOBODY HAS A KEY (R81, R90) ────────────────────
    *
    * R81: "all minting of tokens go through the governance process" once the
    * village has voted to start its Game. R84 says which reading that is: the
    * village votes on the RULES. So after launch this route stops being an
-   * ordinary admin act, and the way an ordinary admin changes a minting rule
-   * is to put it to the village, which they can now do
-   * (`shared/mintRuleKeys.ts`).
+   * ordinary admin act, and the way an administrator changes a minting rule is
+   * to put it to the village, which they can do (`shared/mintRuleKeys.ts`).
    *
    * BEFORE LAUNCH NOTHING CHANGES. R67: a founder builds the whole Game alone,
    * and nothing issues until the launch vote carries, so an unrestricted
    * editor before that moment creates no value and takes nothing from anybody.
    *
-   * R85 IS WHY THE DOOR IS NOT SIMPLY SHUT. In the founder's words: "all named
-   * founders have this back door ability until it is taken away." So a village
-   * has three stages and not two. Setup, launched, and a second handover after
-   * which the key is gone. THAT SECOND EVENT DOES NOT EXIST YET, and this
-   * route is where it will attach: see the TODO below.
+   * ── THE FOUNDER KEY THAT USED TO BE HERE, AND WHY IT IS GONE ──────────────
    *
-   * "Named founders" is a SET and not a person, which is what the `founder`
-   * account role already is, and the last-founder guard on
-   * `PUT /api/admin/users/:id/role` means the set is never empty. So a founder
-   * key can never strand a village that cannot assemble its quorum.
+   * R85 asked for one: "all named founders have this back door ability until
+   * it is taken away", with a second handover event that would take it. This
+   * route carried that key for a few hours. R90 SUPERSEDES R85 and removes the
+   * second event: "The founder role disappears once the game starts and a
+   * minimum of 3 people vote the game to start."
    *
-   * R68 IS WHY IT IS LOUD. After launch, every admin action is available to be
-   * seen by all members. A back door nobody can see would contradict that
-   * directly, so a founder's use of this writes a line on the PUBLIC pulse
-   * saying what changed and that no vote decided it, beside the admin trail
-   * row that was already here.
+   * So there is one moment and not two, the moment is launch, and after it
+   * every actor takes the same 403 on this route. Nothing is stranded by that.
+   * The governed path already exists and a member opens it, so a village that
+   * wants a different minting rule after launch has a way to have one that
+   * does not run through anybody's account.
    *
-   * TODO (R85, the second handover): when the handover event lands, it records
-   * one dated fact the way `app_config['game-start']` records the launch, and
-   * this route reads it beside `readGameStart`. After it, the founder branch
-   * below goes away and every actor takes the same 403. The event needs three
-   * things and none of them exist today: a record with a date and the ballot
-   * or ceremony behind it, a surface that makes it a deliberate act instead of
-   * a flag somebody flips, and a sweep of every other route that treats
-   * `role === "founder"` as a standing power. Do not infer it from anything
-   * already in the tree.
-   *
-   * R89 makes that TODO a step on a committed path rather than a loose end.
-   * The stated end state is a village that governs itself with NO admins, on
-   * its own voice rules, minting eternally. This branch is the last thing
-   * standing between the mint and that, and it is meant to be removed.
+   * The public pulse line that announced a founder's use of this key went with
+   * it. It said "without a village vote", and after R90 there is no such
+   * change to announce.
    */
   app.patch("/api/admin/economy/rules/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const actorUser = (req as any).adminUser;
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
     const started = await readGameStart(getPool());
-    const isNamedFounder = actorUser?.role === "founder";
-    if (started.started && !isNamedFounder) {
+    if (started.started) {
       return res.status(403).json({
         error:
           "This village decides what it mints. Put the change up on the Game Mechanics page and the village votes on it.",
@@ -23900,13 +24048,6 @@ ${inner}
     if ("amount" in body) change.amount = body.amount === null ? null : Number(body.amount);
     if ("ceiling" in body) change.ceiling = Number(body.ceiling);
     if ("enabled" in body) change.enabled = body.enabled === true;
-
-    /*
-     * Read BEFORE the write, so the public line can say what the rule is for
-     * in the village's own words. After the write the row still carries them,
-     * and reading first keeps the sentence and the refusal on one code path.
-     */
-    const before = (await mintRulesByIds(getPool(), [req.params.id])).get(req.params.id) ?? null;
 
     const out = await queueRuleChange(getPool(), req.params.id, change, actor);
     if (!out.ok) return res.status(400).json({ error: out.error });
@@ -23920,21 +24061,13 @@ ${inner}
       audience: "admin",
     });
     /*
-     * THE BACK DOOR IS VISIBLE (R68, R85). Only after launch, because before
-     * it there is no village governing anything and a line per dial edit
-     * during setup would be noise in a feed nobody is reading yet. It names
-     * the fact and stops: what changed, that no vote decided it, and when it
-     * lands. R56 says state what is true and then get out of the way, so there
-     * is no warning attached and nothing asking anyone to feel a way about it.
+     * NOTHING GOES ON THE PUBLIC PULSE FROM HERE ANY MORE. R68 asked for a
+     * visible line because a back door nobody can see would contradict the
+     * rule that after launch every admin action is available to be seen. R90
+     * closed the door instead, so the only edits this route can now make are
+     * the ones a founder makes during setup, before the village exists to read
+     * a feed. The admin trail row above still records every one of them.
      */
-    if (started.started) {
-      const what = before ? `${before.trigger} in ${before.tokenSlug}` : "one of the village's minting rules";
-      await addActivity(
-        "governance",
-        `A founder changed what the village mints for ${what}, without a village vote. It takes effect at the next moon.`,
-        { actorUserId: actor, entityType: "mint_rule", entityRef: req.params.id },
-      );
-    }
     res.json({ success: true, fromCycle: out.fromCycle, view: await mintView(getPool()) });
   });
 
@@ -26827,6 +26960,373 @@ ${inner}
     },
 
     /*
+     * ── THE VILLAGE DECLARES A ROLE (this lane, R90) ────────────────────────
+     *
+     * R90, in the founder's words: "eventually a village will be able to vote
+     * the 'Game Steward' role or choose to not vote for this role at all ...
+     * they can optionally vote in a steward role and give various powers to
+     * this steward to immediately act."
+     *
+     * Three verbs are in that sentence and the village holds none of them
+     * today. It can vote a power ONTO a role (`power_grant`), and that is the
+     * whole of it: the roles themselves come from `roles-seed.json` or from an
+     * admin accepting a draft, and who sits in one is an admin act or a
+     * `proposal.decide` act with an admin standing behind its removals. So the
+     * runway's own words apply one level up: a role a village can only have
+     * when an admin makes it is scaffolding wearing a job title.
+     *
+     * WHY A ROLE AND NOT A "STEWARD". Nothing here knows the word steward, and
+     * that is the ruling being obeyed rather than an omission. R90 says a
+     * village may choose never to have one and that a mature village may not
+     * need one at all, so a seeded Game Steward row, a steward flag or a
+     * steward-shaped route would each be the platform assuming the thing the
+     * ruling says may never exist. A village that wants one declares a role
+     * and calls it Game Steward. A village that wants two calls them something
+     * else. Neither is a special case here.
+     *
+     * IT CREATES A ROLE THAT CARRIES NOTHING, and that is the safest write in
+     * this table. A role with an empty capability list changes no gate for
+     * anybody, so the vote that makes it cannot hand anybody a power by
+     * accident. Powers arrive afterwards, one `power_grant` ballot at a time,
+     * each named in its own document and voted on its own merits.
+     *
+     * IDEMPOTENT on the role id, which is the subject ref. A second close
+     * cannot reach here (`closeBallot` guards on `status='open'`), and a run
+     * that did would find the role already there and leave it alone.
+     */
+    role_declare: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const roleId = b.subjectRef;
+      const asked = await roleDeclarationPayload(b.id);
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? `Too few of the village voted: ${b.title}`
+              : `The village did not carry this one: ${b.title}`,
+          body:
+            outcome === "no_quorum"
+              ? "Nothing has changed and nothing is lost. The ask can go to the village again whenever it is more gathered."
+              : `${outcomeNote}\n\nThe village has the roles it had before, and this can be asked again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          dedupeKey: `bal:${b.id}:role-not-declared`,
+        });
+        return out;
+      }
+
+      if (!asked || asked.roleId !== roleId) {
+        out.held = "This build has no record of what this role would be called, so nothing was created. Report this.";
+        await notifyAdmins("governance", `A carried role declaration could not land: ${b.title}`, `bal:${b.id}:declare-held`);
+        return out;
+      }
+      const existing = rolesRepo.all().find((r: any) => r.id === roleId) as any;
+      if (existing) {
+        out.held = `${existing.name ?? roleId} already exists in this village, so there was nothing to create.`;
+        return out;
+      }
+
+      await rolesRepo.insert({
+        id: roleId,
+        name: asked.name,
+        description: asked.purpose,
+        // EMPTY, and this is the load-bearing value in the row.
+        capabilities: [],
+        minStage: null,
+        // `seats` is NOT NULL and the repo writes every column in its spec, so
+        // an omitted field lands as NULL and the insert is refused.
+        seats: 1,
+        circleId: null,
+        isExample: false,
+        order: rolesRepo.all().length + 1,
+      } as RoleDef);
+
+      /*
+       * THE PLATFORM'S EXAMPLE ROLES STAND DOWN, exactly as they do when an
+       * admin edits a real role into existence. `PUT /api/admin/roles/:id`
+       * calls this and its comment calls itself "the only role-mutation
+       * route", which stopped being true here. Without this line a village
+       * that declares its own roles by vote would keep the platform's demo
+       * roles rendering beside them until an administrator went and touched
+       * the panel, which is R54's complaint in one sentence: the village's own
+       * act could not do what the scaffolding's act does.
+       */
+      onRealItemPublished(getPool(), "progression", actorId);
+
+      out.applied = [];
+      out.proposerTold = b.openedBy;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village carried this: ${b.title}`,
+        body: `${asked.name} is one of this village's roles from today. It carries no powers yet, and the village decides each one it gets.`,
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:role-declared`,
+      });
+      await addActivity("governance", `${asked.name} is one of this village's roles now, by a vote of the whole village.`, {
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: roleId,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `role:declared-by-ballot:${roleId}:${b.id}`,
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: roleId,
+        audience: "admin",
+      });
+      return out;
+    },
+
+    /*
+     * ── THE VILLAGE SEATS SOMEBODY (this lane, R90) ─────────────────────────
+     *
+     * The second missing verb. `POST /api/admin/roles/:id/holders` seats
+     * people and its own header says appointment is a governance act, but the
+     * act it moved was an ADMIN's: a `proposal.decide` holder may appoint, may
+     * not appoint themselves, and may not remove anybody. So the village had
+     * no way to put somebody in a seat by voting, which is the plain reading
+     * of "they can optionally vote in a steward role".
+     *
+     * WHAT MAKES IT ACT IMMEDIATELY, which is the property R90 names. Nothing
+     * extra. `roleCapabilitiesFor` reads the holder rows and the role's
+     * capability list on every request, `capabilityCtx` folds that into the
+     * one gate, and there is no cache between them. So the moment this row
+     * lands the person holds every power the village had already voted onto
+     * that role, with no further vote and nobody to ask.
+     *
+     * READ THE ROLE AND THE MEMBER AT CLOSE, never at open, for the reason the
+     * grant executor states: a role retired or a member departed between the
+     * two is a real state, and a village whose vote carried is owed the reason
+     * rather than a silent nothing.
+     */
+    role_seat: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const asked = parseSeatRef(b.subjectRef);
+      if (!asked) {
+        out.held = "the ballot does not name a seating this build can read";
+        return out;
+      }
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? `Too few of the village voted: ${b.title}`
+              : `The village did not carry this one: ${b.title}`,
+          body:
+            outcome === "no_quorum"
+              ? "Nothing has changed and nothing is lost. The ask can go to the village again whenever it is more gathered."
+              : `${outcomeNote}\n\nThe seat is held by whoever held it before, and the village can ask again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          dedupeKey: `bal:${b.id}:seat-not-carried`,
+        });
+        return out;
+      }
+
+      const role = rolesRepo.all().find((r: any) => r.id === asked.roleId) as any;
+      if (!role) {
+        out.held = `The role "${asked.roleId}" is no longer one of this village's roles, so there was no seat to fill.`;
+        await notifyAdmins("governance", `A carried seating could not land: ${b.title}`, `bal:${b.id}:seat-held`);
+        return out;
+      }
+      const member = await members.byId(asked.userId);
+      if (!member) {
+        out.held = "The person this vote named is no longer a member of this village, so nobody was seated.";
+        await notifyAdmins("governance", `A carried seating could not land: ${b.title}`, `bal:${b.id}:seat-held`);
+        return out;
+      }
+      /*
+       * THE STAGE FLOOR, ASKED AGAIN HERE. The route asks it when the vote
+       * opens, and a member can slip below it while the vote runs, so a close
+       * that skipped this would seat somebody past a ladder every other
+       * appointment path respects. It is held rather than refused silently,
+       * because a village whose vote carried is owed the reason.
+       */
+      if (role.minStage) {
+        const needed = stageIndex(role.minStage);
+        if (needed >= 0 && stageIndex(await stageOf(member)) < needed) {
+          out.held =
+            `${firstName(member.name)} has not reached the ${getStage(role.minStage)?.name ?? role.minStage} stage ` +
+            `${role.name ?? asked.roleId} asks for, so nobody was seated. The village can ask again once they have.`;
+          await notifyAdmins("governance", `A carried seating could not land: ${b.title}`, `bal:${b.id}:seat-held`);
+          return out;
+        }
+      }
+
+      let seatedRowId: string | null = null;
+      await withRoleHolderLock(async () => {
+        const holders = loadRoleHolders();
+        if (holders.some((h) => h.roleId === role.id && h.userId === member.id)) return;
+        const row = {
+          id: `rh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          roleId: role.id,
+          userId: member.id,
+          /*
+           * THE BALLOT IS THE GRANTOR, because the village seated them.
+           * Naming the person who closed the vote would say somebody
+           * appointed what a vote decided, which is the sentence this whole
+           * lane exists to stop a village having to read.
+           *
+           * SO `role_holders.granted_by` NOW HOLDS TWO KINDS OF ID: a user id
+           * from the admin and decider path, and a ballot id from here. That
+           * is stated rather than left to be discovered, because nothing
+           * reads this column today and the first reader will be writing a
+           * sentence about who appointed somebody. Ballot ids are prefixed
+           * and user ids are prefixed, so they can be told apart; a reader
+           * that cannot tell them apart must say it cannot rather than guess.
+           */
+          grantedBy: b.id,
+          grantedAt: new Date().toISOString(),
+        };
+        holders.push(row);
+        seatedRowId = row.id;
+        await roleHoldersRepo.replaceAll(holders);
+      });
+
+      out.applied = [];
+      out.proposerTold = b.openedBy;
+      const who = role.name ?? asked.roleId;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village carried this: ${b.title}`,
+        body: `${firstName(member.name)} sits in ${who} from today.`,
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:seated`,
+      });
+      if (seatedRowId) {
+        await notify({
+          userId: member.id,
+          type: "role_appointed",
+          title: `The village voted you into the ${who}`,
+          body: role.description ? String(role.description).slice(0, 140) : null,
+          link: "/roles",
+          actorUserId: actorId,
+          dedupeKey: `role:${seatedRowId}`,
+        });
+      }
+      await addActivity("governance", `${firstName(member.name)} sits in ${who}, by a vote of the whole village.`, {
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: role.id,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `role:seated-by-ballot:${role.id}:${member.id}:${b.id}`,
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: role.id,
+        audience: "admin",
+      });
+      return out;
+    },
+
+    /*
+     * ── THE VILLAGE TAKES A SEAT BACK (this lane, R90) ──────────────────────
+     *
+     * The third verb, and the one the ruling makes non-optional: "voted in"
+     * has to mean "voteable out" or the vote that seated somebody is the last
+     * one the village ever gets on the subject. Un-seating was written down as
+     * an admin act in as many words, with a stated reason that still holds for
+     * the route it sits on: a captured `proposal.decide` account clearing the
+     * room is a real attack, and the whole roll voting is not that.
+     *
+     * WHAT IT DOES NOT DO. It does not touch the role, its powers or anybody
+     * else sitting in it. A village that wants the role gone can leave it
+     * empty, which is a role that grants nobody anything, and a village that
+     * wants the POWER gone votes a `power_return`. Three separate questions,
+     * three separate votes, and this one answers only the one it names.
+     */
+    role_unseat: async (b, outcome, outcomeNote, actorId) => {
+      const out: CloseRouting = { applied: [], held: null, proposerTold: null };
+      const asked = parseSeatRef(b.subjectRef);
+      if (!asked) {
+        out.held = "the ballot does not name a seating this build can read";
+        return out;
+      }
+
+      if (outcome !== "passed") {
+        out.proposerTold = b.openedBy;
+        await notify({
+          userId: b.openedBy,
+          type: "governance",
+          title:
+            outcome === "no_quorum"
+              ? `Too few of the village voted: ${b.title}`
+              : `The village did not carry this one: ${b.title}`,
+          body:
+            outcome === "no_quorum"
+              ? "Nothing has changed and nothing is lost. The ask can go to the village again whenever it is more gathered."
+              : `${outcomeNote}\n\nThe seat is held exactly as it was, and the village can ask again.`,
+          link: ballotLink(b),
+          actorUserId: actorId,
+          dedupeKey: `bal:${b.id}:unseat-not-carried`,
+        });
+        return out;
+      }
+
+      let removed = false;
+      await withRoleHolderLock(async () => {
+        const holders = loadRoleHolders();
+        const keep = holders.filter((h) => !(h.roleId === asked.roleId && h.userId === asked.userId));
+        if (keep.length === holders.length) return;
+        removed = true;
+        await roleHoldersRepo.replaceAll(keep);
+      });
+
+      const role = rolesRepo.all().find((r: any) => r.id === asked.roleId) as any;
+      const who = role?.name ?? asked.roleId;
+      const member = await members.byId(asked.userId);
+      if (!removed) {
+        /*
+         * The seat emptied between open and close: an admin removed it, or the
+         * person left. The vote is not wrong and nothing is broken, so this is
+         * a plain statement of where things stand and never a failure.
+         */
+        out.held = "That seat was already empty when the vote closed, so there was nothing to take back.";
+        return out;
+      }
+
+      out.applied = [];
+      out.proposerTold = b.openedBy;
+      await notify({
+        userId: b.openedBy,
+        type: "governance",
+        title: `The village carried this: ${b.title}`,
+        body: `${member ? firstName(member.name) : "That member"} no longer sits in ${who}.`,
+        link: ballotLink(b),
+        actorUserId: actorId,
+        dedupeKey: `bal:${b.id}:unseated`,
+      });
+      await addActivity("governance", `${member ? firstName(member.name) : "A member"} no longer sits in ${who}, by a vote of the whole village.`, {
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: asked.roleId,
+      });
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text: `role:unseated-by-ballot:${asked.roleId}:${asked.userId}:${b.id}`,
+        actorUserId: actorId,
+        entityType: "role",
+        entityRef: asked.roleId,
+        audience: "admin",
+      });
+      return out;
+    },
+
+    /*
      * ── THE GAME STARTS (lane GAMESTART, R67 and R74) ───────────────────────
      *
      * The rarest close a village will ever run, and the only one that turns a
@@ -26993,6 +27493,47 @@ ${inner}
     const roleId = subjectRef.slice(at + 1);
     if (!ALL_CAPABILITIES.includes(capability as Capability)) return null;
     return { capability, roleId };
+  }
+
+  /**
+   * WHO AND WHICH SEAT, read off a seating ballot's frozen subject ref.
+   *
+   * `<userId>@<roleId>`, the same shape and the same reasons as the transfer
+   * ref above: two facts in one column because `ballots` has no room for a
+   * third, and the `@` cannot appear in either half because user ids are
+   * generated as `usr-<epoch>-<suffix>` and role ids are slugs. The routes
+   * refuse anything else rather than storing a ref they could not read back.
+   *
+   * It cannot validate either half against the world, and deliberately does
+   * not try. A member can leave and a role can be retired between a vote
+   * opening and closing, and the executors have their own sentence for each of
+   * those. What this answers is only whether the column is readable at all.
+   */
+  function parseSeatRef(subjectRef: string): { userId: string; roleId: string } | null {
+    const at = subjectRef.indexOf("@");
+    if (at <= 0 || at === subjectRef.length - 1) return null;
+    return { userId: subjectRef.slice(0, at), roleId: subjectRef.slice(at + 1) };
+  }
+
+  /**
+   * The words a village typed when it asked to declare a role.
+   *
+   * Read from `role_declarations` (0120) and never from the frozen document,
+   * for the reason `parseTransferRef` states one function up: an executor that
+   * recovers a value by reading prose is an executor that can invent one. A
+   * missing row is a real answer here and the executor says so rather than
+   * naming a role something nobody chose.
+   */
+  async function roleDeclarationPayload(
+    ballotId: string,
+  ): Promise<{ roleId: string; name: string; purpose: string } | null> {
+    const [rows] = await getPool().query<any[]>(
+      "SELECT role_id, name, purpose FROM role_declarations WHERE ballot_id = ?",
+      [ballotId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { roleId: String(row.role_id), name: String(row.name), purpose: String(row.purpose) };
   }
 
   /**
@@ -28854,6 +29395,471 @@ ${inner}
       keySuffix: "open",
       except: [user.id],
       roll: electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /*
+   * ══ THE VILLAGE'S OWN ROLES (lane STEWARD, R90) ═══════════════════════════
+   *
+   * R90 answers "can a village decide who its admins are" with a shape rather
+   * than a yes: "eventually a village will be able to vote the 'Game Steward'
+   * role or choose to not vote for this role at all ... they can optionally
+   * vote in a steward role and give various powers to this steward to
+   * immediately act, and when the game is mature enough they may not even need
+   * to vote this role in."
+   *
+   * Read the verbs. DECLARE a role, GIVE it powers, SEAT somebody in it, and
+   * every one of them optional. The village already held exactly one of the
+   * four: `power_grant` writes a role's capability list from a carried ballot,
+   * with no admin in the chain. The other three were admin acts, and un-seating
+   * was written down as one in as many words.
+   *
+   * So these three routes are the missing verbs and nothing else. Everything
+   * downstream of them already exists: the same `openBallot`, the same frozen
+   * roll, the same `SUBJECT_CLOSERS` table, the same `ballotBinds` derived off
+   * it, the same decision page. A village that votes a role in and hands it a
+   * power is composing four ballots out of parts that were already here.
+   *
+   * ── THE THREE PROPERTIES THE RULING NAMES, AND WHERE EACH ONE LIVES ───────
+   *
+   *  OPTIONAL. Nothing in the platform knows the word steward, nothing seeds
+   *  one, and no surface asks after one. A village that never opens any of
+   *  these three votes behaves exactly as it does today, which is the property
+   *  a test in `steward.routes.e2e.test.ts` drives rather than asserts.
+   *
+   *  ACTS IMMEDIATELY. `roleCapabilitiesFor` reads the holder rows and the
+   *  role's capabilities on every request, through the one gate, with no cache
+   *  in between. A seated member holds the role's powers on their next call.
+   *
+   *  REVOCABLE. `role_unseat` is the third route, and it exists because "voted
+   *  in" has to mean "voteable out" or the first vote is the last one the
+   *  village gets.
+   *
+   * ── WHAT IS DELIBERATELY NOT HERE ────────────────────────────────────────
+   *
+   * No steward type, no steward flag, no steward column. R90 says a mature
+   * village may need no steward at all, so anything named after one would be
+   * the platform assuming the thing the ruling says may never exist. A village
+   * that wants one declares a role and calls it Game Steward.
+   *
+   * No route that retires a role, and none that takes a capability off one.
+   * A role nobody sits in grants nobody anything, which is what a village that
+   * has finished with one is left holding, and stripping a capability by
+   * ballot is a second way to undo a handover without the return ceremony
+   * built for it (`power_return` above says the same about its own half).
+   */
+
+  /**
+   * The dials, the weight snapshot, the roll and the window, gathered once.
+   *
+   * The three routes below would otherwise each carry the same fifteen lines
+   * the power ballots already carry three times over, and a village-wide vote
+   * whose threshold arithmetic is copied is a village-wide vote whose
+   * threshold arithmetic eventually differs by a copy.
+   */
+  async function roleBallotSetup() {
+    const villageMethod = villageBallotMethod(stringVar("governance.default_method"));
+    const method: BallotMethod = villageMethod === "hypha" ? "custom" : villageMethod;
+    const dials = dialsForMethod(method, {
+      unityPct: Math.max(0, numberVar("governance.unity_pct")),
+      quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
+    });
+    const snapshot = weightModeNow();
+    const tokenProblem = snapshot.mode === "token" ? weightTokenProblem(snapshot.token ?? "") : null;
+    return {
+      method,
+      dials,
+      snapshot,
+      tokenProblem,
+      electorate: await buildElectorate(),
+      durationDays: Math.max(
+        1,
+        numberVar(method === "consent" ? "governance.consent_window_days" : "governance.vote_days"),
+      ),
+    };
+  }
+
+  /** What a role can do today, in the words every other ceremony uses. */
+  function roleConsequences(role: any): string[] {
+    return ((role?.capabilities ?? []) as string[])
+      .filter((c) => ALL_CAPABILITIES.includes(c as Capability))
+      .map((c) => CAPABILITY_CONSEQUENCE[c as Capability]);
+  }
+
+  /**
+   * ── DECLARE A ROLE ─────────────────────────────────────────────────────────
+   *
+   * It creates a role that carries NOTHING. That is the whole safety argument
+   * and it is a structural one rather than a promise: an empty capability list
+   * changes no gate for anybody, so this vote cannot hand out a power however
+   * it is worded. Powers arrive afterwards, one `power_grant` at a time.
+   *
+   * The name and what it is for go to `role_declarations` (0120) rather than
+   * into the document, so the executor reads a column instead of parsing the
+   * prose members were shown.
+   */
+  app.post("/api/governance/role-declarations", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    if (await refuseUnlessMemberMayOpen(req, res, ctx, "Declaring a role")) return;
+
+    const name = String(req.body?.name ?? "").trim().slice(0, 120);
+    const purpose = String(req.body?.purpose ?? "").trim().slice(0, 20000);
+    if (name.length < 2) {
+      return res.status(400).json({ error: "Give the role a name the village will recognise it by." });
+    }
+    if (purpose.length < 40) {
+      return res.status(400).json({
+        error: "Say what this role is for. The whole roll reads this before voting, and it becomes the role's own description.",
+      });
+    }
+    const roleId = slugify(name, "").slice(0, 64);
+    if (!roleId) {
+      return res.status(400).json({ error: "That name has no letters or numbers in it, so there is nothing to call the role." });
+    }
+    if (rolesRepo.all().some((r: any) => r.id === roleId)) {
+      return res.status(409).json({ error: "This village already has a role by that name." });
+    }
+
+    const setup = await roleBallotSetup();
+    if (setup.tokenProblem) return res.status(409).json({ error: setup.tokenProblem });
+
+    const title = `Declare a role: ${name}`;
+    const doc = [
+      `# ${title}`,
+      "",
+      `## What this vote does`,
+      "",
+      `It makes ${name} one of this village's roles. Nothing else. A role the village has just declared carries no powers at all, so nobody can do anything today that they could not do yesterday.`,
+      "",
+      `## What it is for`,
+      "",
+      purpose,
+      "",
+      `## What happens after`,
+      "",
+      `Two more things can happen and both are the village's own votes. The village can give ${name} a power, one power per vote, each one naming what a holder would be able to do. The village can seat somebody in it. Either can wait, and neither has to happen at all.`,
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "role_declare",
+      subjectRef: roleId,
+      title,
+      docMarkdown: doc,
+      method: setup.method,
+      weightMode: setup.snapshot.mode,
+      weightToken: setup.snapshot.token,
+      unityPct: setup.dials.unityPct,
+      quorumPct: setup.dials.quorumPct,
+      durationDays: setup.durationDays,
+      openedBy: user.id,
+      electorate: setup.electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    /*
+     * THE PAYLOAD, WRITTEN AFTER THE BALLOT EXISTS so its key can be the
+     * ballot's own id.
+     *
+     * IF IT FAILS, THE BALLOT IS CALLED OFF IN THE SAME REQUEST. A ballot with
+     * no payload is a question the village can answer and this build cannot
+     * carry out, and leaving one open would mean the whole roll voting on a
+     * role that could never be created. Nobody has voted yet, so nothing is
+     * discarded by withdrawing it. The executor still holds with its own
+     * sentence for the row that goes missing some other way, because a branch
+     * that says what happened is worth having even when nothing should reach
+     * it.
+     */
+    try {
+      await getPool().query(
+        "INSERT INTO role_declarations (ballot_id, role_id, name, purpose) VALUES (?, ?, ?, ?)",
+        [result.ballot.id, roleId, name, purpose],
+      );
+    } catch (e) {
+      console.error("[role-declarations] could not record what the ballot would create", e);
+      await withdrawBallot(getPool(), {
+        ballotId: result.ballot.id,
+        withdrawnBy: user.id,
+        reason: "This build could not record what the role would be called, so the question was called off before anybody voted.",
+        withdrawerMayDiscardVotes: true,
+      });
+      return res.status(500).json({
+        error: "This build could not record what the role would be called, so the vote was called off. Nothing was asked of the village. Try again.",
+      });
+    }
+
+    await addActivity("governance", `The village is deciding whether to declare a role: ${name}.`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is asked to declare a role: ${name}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}. A role the village declares carries no powers until the village votes it some.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: setup.electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /**
+   * ── SEAT SOMEBODY IN A ROLE ────────────────────────────────────────────────
+   *
+   * WHY THIS ONE REFUSES THE TWO KEYS THAT MAKE AN ELECTORATE, and the reason
+   * is `power_grant`'s reason one step further along. That route refuses to
+   * vote `ballot.vote` or `member.vouch` onto a role because "a role is a set
+   * of PEOPLE through its seats", so granting the vote to a role and then
+   * seating three people in it is a small group choosing who else gets a say.
+   * This route is the seating half of exactly that path. Granting is fenced
+   * and seating was not, because until now seating by vote did not exist.
+   *
+   * TRANSFERABLE excludes both keys today and `power_grant` refuses them by
+   * name, so nothing a village can do reaches this refusal. It is written for
+   * the same reason the grant's is: the day an admin route or a later lane
+   * puts one of those keys on a role, this path would otherwise widen in a
+   * commit about something else.
+   *
+   * R54 IS NOT BEING FENCED OFF. A village widening its own roll is the
+   * destination, and the way there is `progression.unlock.ballot.vote`, a
+   * mechanic the whole roll changes in one vote about a rule.
+   */
+  app.post("/api/governance/role-seats", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    if (await refuseUnlessMemberMayOpen(req, res, ctx, "Seating somebody in a role")) return;
+
+    const userId = String(req.body?.userId ?? "").trim();
+    const roleId = String(req.body?.roleId ?? "").trim();
+    const reason = String(req.body?.reason ?? "").trim().slice(0, 20000);
+
+    const role = rolesRepo.all().find((r: any) => r.id === roleId) as any;
+    if (!role) return res.status(404).json({ error: "There is no role by that name." });
+    if (role.isExample) {
+      return res.status(409).json({ error: "That is one of the platform's example roles, not one of this village's. Declare a role of your own first." });
+    }
+    const carried = ((role.capabilities ?? []) as string[]).filter((c) =>
+      ["ballot.vote", "member.vouch"].includes(c),
+    );
+    if (carried.length) {
+      return res.status(409).json({
+        error:
+          `${role.name ?? roleId} carries ${carried.join(" and ")}, so seating somebody in it would be a few members choosing who else gets a say. ` +
+          "Who votes here is a rule of the game, and the village changes it the way it changes any rule: open a rule change on the rung that decides who is on the roll, and the whole roll decides it.",
+      });
+    }
+    const member = await members.byId(userId);
+    if (!member) return res.status(404).json({ error: "There is no member by that id." });
+    if (isExampleUser(member)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (loadRoleHolders().some((h) => h.roleId === roleId && h.userId === userId)) {
+      return res.status(409).json({
+        error: `${firstName(member.name)} already sits in ${role.name ?? roleId}. There is nothing for the village to decide here.`,
+      });
+    }
+    // A role can require a minimum stage, and an appointment made by the whole
+    // village respects the ladder the same way an admin's does. Asked again at
+    // close, because a member can slip below it while the vote runs.
+    if (role.minStage) {
+      const needed = stageIndex(role.minStage);
+      if (needed >= 0 && stageIndex(await stageOf(member)) < needed) {
+        return res.status(409).json({
+          error: `${firstName(member.name)} has not reached the ${getStage(role.minStage)?.name ?? role.minStage} stage this role asks for.`,
+          minStage: role.minStage,
+        });
+      }
+    }
+    if (userId.includes("@") || roleId.includes("@")) {
+      return res.status(400).json({ error: "A member and a role are both named without an @ in them." });
+    }
+    const subjectRef = `${userId}@${roleId}`;
+    if (subjectRef.length > 64) {
+      return res.status(409).json({ error: "That role's name is too long for the record to hold beside the member. Shorten the role id first." });
+    }
+    if (reason.length < 40) {
+      return res.status(400).json({
+        error: "Say why this person for this role. The whole roll reads this before voting.",
+      });
+    }
+
+    const setup = await roleBallotSetup();
+    if (setup.tokenProblem) return res.status(409).json({ error: setup.tokenProblem });
+
+    const can = roleConsequences(role);
+    const who = role.name ?? roleId;
+    const title = `${who}: the village asks ${firstName(member.name)} to sit in it`;
+    const doc = [
+      `# ${title}`,
+      "",
+      `## The role`,
+      "",
+      `${who}. ${String(role.description ?? "").trim()}`.trim(),
+      "",
+      `## What ${firstName(member.name)} would be able to do`,
+      "",
+      can.length
+        ? `From the day this carries, with no further vote:\n\n${can.map((c) => `- ${c}`).join("\n")}`
+        : `${who} carries no powers today, so this seats somebody in a role that grants nothing yet. If the village later votes ${who} a power, whoever is sitting in it holds that power from that day.`,
+      "",
+      `## Why this person`,
+      "",
+      reason,
+      "",
+      `## Taking it back`,
+      "",
+      `The village can vote this seat back at any time, and that vote is an ordinary one.`,
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "role_seat",
+      subjectRef,
+      title,
+      docMarkdown: doc,
+      method: setup.method,
+      weightMode: setup.snapshot.mode,
+      weightToken: setup.snapshot.token,
+      unityPct: setup.dials.unityPct,
+      quorumPct: setup.dials.quorumPct,
+      durationDays: setup.durationDays,
+      openedBy: user.id,
+      electorate: setup.electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    await addActivity("governance", `The village is deciding whether ${firstName(member.name)} sits in ${who}.`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is asked whether ${firstName(member.name)} sits in ${who}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: setup.electorate.map((e) => e.userId),
+    });
+    res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
+  });
+
+  /**
+   * ── TAKE A SEAT BACK ───────────────────────────────────────────────────────
+   *
+   * R90 makes this one non-optional. A village that can vote somebody into a
+   * role and cannot vote them out of it has held one vote on the subject and
+   * will never hold another, and the powers that role carries stay where the
+   * first vote put them for as long as the person stays a member.
+   *
+   * The copy carries what `power_return` carries: this is an ordinary act of a
+   * village deciding something, and not a failure of anybody's. Nothing here
+   * reads as a dismissal, nothing scores anybody, and the record should read
+   * the same way in five years as it does on the day.
+   */
+  app.post("/api/governance/role-unseats", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "auth_required" });
+    const ctx = await capabilityCtx(user);
+    if (await refuseUnlessMemberMayOpen(req, res, ctx, "Taking a seat back")) return;
+
+    const userId = String(req.body?.userId ?? "").trim();
+    const roleId = String(req.body?.roleId ?? "").trim();
+    const reason = String(req.body?.reason ?? "").trim().slice(0, 20000);
+
+    const role = rolesRepo.all().find((r: any) => r.id === roleId) as any;
+    if (!role) return res.status(404).json({ error: "There is no role by that name." });
+    if (!loadRoleHolders().some((h) => h.roleId === roleId && h.userId === userId)) {
+      return res.status(409).json({ error: "Nobody by that id sits in that role, so there is no seat to take back." });
+    }
+    const member = await members.byId(userId);
+    if (!member) {
+      /*
+       * A SEAT WHOSE PERSON IS GONE, said plainly rather than as "no such
+       * member". The seat is real, this route cannot write a document about
+       * somebody it cannot name, and the remedy is a different one, so the
+       * sentence names the state instead of the lookup that failed.
+       */
+      return res.status(409).json({
+        error: "That seat is held by an account this village no longer has, so there is nobody for the village to vote about. An administrator can clear the seat.",
+      });
+    }
+    const subjectRef = `${userId}@${roleId}`;
+    if (subjectRef.length > 64) {
+      return res.status(409).json({ error: "That role's name is too long for the record to hold beside the member. Shorten the role id first." });
+    }
+    if (reason.length < 40) {
+      return res.status(400).json({
+        error: "Say what the village is deciding and why now. The whole roll reads this before voting.",
+      });
+    }
+
+    const setup = await roleBallotSetup();
+    if (setup.tokenProblem) return res.status(409).json({ error: setup.tokenProblem });
+
+    const can = roleConsequences(role);
+    const who = role.name ?? roleId;
+    const title = `${who}: the village asks to take the seat back from ${firstName(member.name)}`;
+    const doc = [
+      `# ${title}`,
+      "",
+      `## What changes if this carries`,
+      "",
+      can.length
+        ? `${firstName(member.name)} stops sitting in ${who}, and stops being able to:\n\n${can.map((c) => `- ${c}`).join("\n")}`
+        : `${firstName(member.name)} stops sitting in ${who}. The role carries no powers today, so nothing anybody can do changes.`,
+      "",
+      `${who} keeps everything it carries, and anybody else sitting in it is untouched.`,
+      "",
+      `## Why now`,
+      "",
+      reason,
+      "",
+      `Asked by ${firstName(user.name)} on ${new Date().toISOString().slice(0, 10)}.`,
+      "",
+    ]
+      .filter((line, i, all) => !(line === "" && all[i - 1] === ""))
+      .join("\n");
+
+    const result = await openBallot(getPool(), {
+      subjectType: "role_unseat",
+      subjectRef,
+      title,
+      docMarkdown: doc,
+      method: setup.method,
+      weightMode: setup.snapshot.mode,
+      weightToken: setup.snapshot.token,
+      unityPct: setup.dials.unityPct,
+      quorumPct: setup.dials.quorumPct,
+      durationDays: setup.durationDays,
+      openedBy: user.id,
+      electorate: setup.electorate,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error, ballotId: result.alreadyOpen?.id ?? null });
+
+    await addActivity("governance", `The village is deciding whether ${firstName(member.name)} keeps the seat in ${who}.`, {
+      actorUserId: user.id,
+      entityType: "ballot",
+      entityRef: result.ballot.id,
+    });
+    void notifyRoll(result.ballot, {
+      type: "ballot_opened",
+      title: `The village is asked whether ${firstName(member.name)} keeps the seat in ${who}`,
+      body: `Voting is open until ${new Date(result.ballot.closesAt).toLocaleDateString()}.`,
+      keySuffix: "open",
+      except: [user.id],
+      roll: setup.electorate.map((e) => e.userId),
     });
     res.json({ success: true, ballot: await serveBallot(result.ballot, user.id) });
   });
@@ -30799,9 +31805,8 @@ ${inner}
     // thread and feed post would carry that byline — worse than the "(example)"
     // suffix it replaced, and permanent. Retirement is the way examples go.
     if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
-    if (target.role === "founder") {
-      return res.status(409).json({ error: "Demote the founder first. A deployment must never strand itself" });
-    }
+    const stranding = await departureStrandingRefusal(target, false);
+    if (stranding) return res.status(409).json({ error: stranding });
     // S52: a tombstone must never strand open economic state (an unsettled
     // loan would break escrow reconciliation at the next boot). The exit
     // flow is the front door; this back door keeps the same lock.
@@ -30823,9 +31828,8 @@ ${inner}
     if (!password || !(await verifyPassword(String(password), user.passwordHash))) {
       return res.status(403).json({ error: "Confirm with your password to delete your account" });
     }
-    if (user.role === "founder") {
-      return res.status(409).json({ error: "A founder must hand off the village before leaving. Demote yourself first" });
-    }
+    const stranding = await departureStrandingRefusal(user, true);
+    if (stranding) return res.status(409).json({ error: stranding });
     // S52: same lock as the admin path — settle blocking state first. The
     // 409 names each domain so the member knows exactly what remains.
     const blocking = blockingStates(await exitOpenState(getPool(), user.id, roleIdsFor(user.id)));

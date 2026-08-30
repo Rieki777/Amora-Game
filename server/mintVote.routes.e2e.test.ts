@@ -481,29 +481,54 @@ describe.skipIf(!DB_CONFIGURED)("the village votes on what it mints", () => {
     expect(view.status).toBe(200);
   });
 
-  it("A NAMED FOUNDER STILL CAN (R85), and the whole village can see that they did (R68)", async () => {
-    const key = await call("PATCH", `/api/admin/economy/rules/${questVoice}`, { body: { amount: 12 } });
-    expect(key.status, JSON.stringify(key.json)).toBe(200);
+  /*
+   * ── THE CASE THAT USED TO STAND HERE (R85), AND WHY IT DOES NOT ──────────
+   *
+   * This file shipped with "A NAMED FOUNDER STILL CAN", driven against the
+   * back door R85 asked for: "all named founders have this back door ability
+   * until it is taken away", with a second handover event that would take it.
+   * It passed, it was right about the ruling it was written against, and it
+   * was correct for a few hours.
+   *
+   * R90 SUPERSEDES R85 and removes the second event: "The founder role
+   * disappears once the game starts and a minimum of 3 people vote the game to
+   * start." So there is one moment and not two, the moment is launch, and
+   * after it a founder is an administrator and nothing more.
+   *
+   * The public pulse assertion went with it. It read "A founder changed what
+   * the village mints ... without a village vote", and after R90 no such
+   * change can happen, so a line announcing one would be the product saying
+   * something that did not occur.
+   */
+  it("A NAMED FOUNDER TAKES THE SAME REFUSAL (R90), and nothing is written either way", async () => {
+    const before = await ruleRow(questVoice);
 
+    const key = await call("PATCH", `/api/admin/economy/rules/${questVoice}`, { body: { amount: 12 } });
+    expect(key.status, JSON.stringify(key.json)).toBe(403);
+    expect(String(key.json?.error)).toContain("Put the change up on the Game Mechanics page");
+
+    // The refusal is the whole of it. A 403 that had already queued the change
+    // would be the worst of both, and it is exactly what an actor-shaped guard
+    // gets wrong when it is moved.
     const after = await ruleRow(questVoice);
-    expect(Number(after.pending_amount)).toBe(12);
-    expect(String(after.pending_by)).toBe(founderId);
+    expect(after.pending_amount).toEqual(before.pending_amount);
+    expect(after.pending_from_cycle).toEqual(before.pending_from_cycle);
+    expect(after.pending_by).toEqual(before.pending_by);
 
     /*
-     * THE BACK DOOR IS LOUD. R68 rules that after launch every admin action is
-     * available to be seen by all members, and a key nobody can see would
-     * contradict that directly. The line names what changed, says no vote
-     * decided it, and says when it lands.
+     * AND THE VILLAGE IS TOLD NOTHING, because nothing happened. The pulse
+     * lines about this rule are the ones the CARRIED VOTE put there earlier in
+     * this file, and no line anywhere says a founder changed the mint.
      */
     const pulse = await pulseFor(questVoice);
-    const seen = pulse.find((p) => p.kind === "governance");
-    expect(seen, "a founder's use of the back door must reach the public pulse").toBeTruthy();
-    expect(seen!.text).toContain("A founder changed what the village mints");
-    expect(seen!.text).toContain("without a village vote");
-    expect(seen!.text).toContain("next moon");
-    // The public pulse, never the admin-only trail.
-    expect(seen!.audience).not.toBe("admin");
-    // And the admin trail still has its own row beside it.
-    expect(pulse.some((p) => p.kind === "audit" && p.audience === "admin")).toBe(true);
+    expect(pulse.some((p) => p.text.includes("A founder changed what the village mints"))).toBe(false);
+    expect(pulse.some((p) => p.text.includes("without a village vote"))).toBe(false);
+  });
+
+  it("and the founder reads the mint the same way an ordinary member does", async () => {
+    // R84 keeps the surface readable after launch. Only the WRITE moved, and
+    // it moved for everybody rather than for everybody except one account.
+    const view = await call("GET", "/api/admin/economy");
+    expect(view.status).toBe(200);
   });
 });
