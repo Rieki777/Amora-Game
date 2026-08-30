@@ -92,12 +92,24 @@ export interface AskDoorBallot {
 
 export interface PriorAsk {
   id: string;
+  /** The ballot status the record carries: `passed`, `failed`, and so on. */
   status: string;
 }
 
+/**
+ * Why the door offered nothing.
+ *
+ * `loading` covers every case where the answer is NOT KNOWN YET, including a
+ * read that failed. A caller must never turn "I could not ask" into a sentence
+ * about the member: telling somebody their account does not open votes,
+ * because a request was dropped, is a claim, and a claim is worse than
+ * silence.
+ */
+export type AskQuiet = "core" | "already-on" | "withdrawn" | "signed-out" | "no-governance" | "loading";
+
 export type AskDoor =
   /** Offer nothing, and `why` says which of the reasons it was. */
-  | { kind: "quiet"; why: "core" | "already-on" | "withdrawn" | "signed-out" | "no-governance" | "loading" }
+  | { kind: "quiet"; why: AskQuiet }
   /** Signed in, and this account cannot open a vote. Never show them the door. */
   | { kind: "cannotOpen" }
   /** The door. `prior` is the last time the village answered this same ask. */
@@ -110,9 +122,11 @@ export type AskDoor =
  *
  * ORDER MATTERS in two places and both are deliberate:
  *
- *  - A running ask is reported BEFORE the permission check, because knowing
- *    the village is already deciding this is a LOOK and every signed-in member
- *    is entitled to it. Only the door itself is gated.
+ *  - A running ask is reported BEFORE anything about the viewer's standing,
+ *    because knowing the village is already deciding this is a LOOK and every
+ *    signed-in member is entitled to it. Only the door itself is gated, and a
+ *    standing that could not be READ gates it quietly rather than by telling
+ *    somebody they lack a permission nobody checked.
  *  - `withdrawn` is checked before anything about the viewer, because asking
  *    a village to turn on a module the platform no longer offers would walk
  *    the whole roll toward a switch nobody will throw.
@@ -121,8 +135,13 @@ export function askDoor(input: {
   module: AskDoorModule;
   signedIn: boolean;
   governanceOn: boolean;
-  /** `proposal.open`, as the server reports it on `/api/governance/wizard`. */
-  mayOpen: boolean;
+  /**
+   * `proposal.open`, as the server reports it on `/api/governance/wizard`, or
+   * null while that answer is unknown. Null is NOT false: false says this
+   * member does not open votes, and saying that on a dropped request would be
+   * the surface inventing a fact about somebody.
+   */
+  mayOpen: boolean | null;
   /** The village's recent decisions, or null while they are still loading. */
   ballots: AskDoorBallot[] | null;
 }): AskDoor {
@@ -141,6 +160,11 @@ export function askDoor(input: {
   const running = mine.find((b) => b.status === "open");
   if (running) return { kind: "running", ballotId: running.id, question };
 
+  // Standing is read AFTER the running ask and never before it. A member whose
+  // own standing could not be read still deserves to be told the village is
+  // deciding this, and an unknown standing is not a refusal: `null` stays
+  // quiet, `false` says so.
+  if (mayOpen === null) return { kind: "quiet", why: "loading" };
   if (!mayOpen) return { kind: "cannotOpen" };
 
   // The most recent answered ask, so a member about to ask again knows the

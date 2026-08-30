@@ -43,6 +43,7 @@ import { MessageCircleQuestion } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModule } from "@/modules/ModuleProvider";
 import { fetchBallots, fetchWizardFacts } from "@/components/governance/governanceApi";
+import type { BallotCard } from "@/components/governance/governanceApi";
 import { askDoor, type AskDoor, type AskDoorBallot, type AskDoorModule } from "./askDoor";
 
 /**
@@ -78,24 +79,28 @@ export function useAskDoor(m: AskDoorModule | null): AskDoor {
     void (async () => {
       const [facts, list] = await Promise.all([fetchWizardFacts(), fetchBallots({ limit: BALLOT_WINDOW })]);
       if (!alive) return;
-      // A refused or dropped read leaves the answer UNKNOWN rather than
-      // guessing a permissive one. `mayOpen` false and `ballots` null both
-      // keep the door shut, which is the safe direction: a door drawn on a
-      // failed read is a walk that ends in a 403 or a second vote.
-      setMayOpen(facts.ok ? facts.data.mayOpenBallot : false);
+      // A refused or dropped read leaves both answers NULL, and null is not
+      // false. Setting `mayOpen` false here would have printed "this account
+      // does not open votes" at a member whose request was simply dropped,
+      // which is the surface inventing a fact about a person. Null keeps the
+      // door quiet, which is the only honest thing to draw on a read that did
+      // not answer.
+      if (facts.ok) setMayOpen(facts.data.mayOpenBallot);
       if (list.ok) setBallots(list.data.map((b) => ({ id: b.id, subjectType: b.subjectType, title: b.title, status: b.status })));
     })();
     return () => {
       alive = false;
     };
-  }, [worthAsking]);
+    // `m?.id` is in the deps so a page that swaps modules under one mounted
+    // component re-reads rather than answering about the module before it.
+  }, [worthAsking, m?.id]);
 
   if (!m) return { kind: "quiet", why: "loading" };
   return askDoor({
     module: m,
     signedIn: !loading && !!user,
     governanceOn: !!governance,
-    mayOpen: mayOpen === true,
+    mayOpen,
     ballots,
   });
 }
@@ -106,8 +111,15 @@ export const askHref = (moduleId: string) => `/propose?module=${encodeURICompone
 const CARD = "mt-8 rounded-xl border border-teal-deep/30 bg-teal-deep/5 p-5";
 const HEADING = "flex items-center gap-2 text-base font-bold text-stone-900";
 
-/** What the village decided last time, in the words the record uses. */
-const PRIOR_LINE: Record<string, string> = {
+/**
+ * What the village decided last time, in the words the record uses.
+ *
+ * Keyed by the ballot status union so a typo cannot ship a line nobody sees,
+ * and PARTIAL on purpose: `open` never reaches here (a running ask is its own
+ * panel), and a status the server grows tomorrow falls to the sentence below,
+ * which is true whatever the answer was.
+ */
+const PRIOR_LINE: Partial<Record<BallotCard["status"], string>> = {
   passed: "The village said yes to this before.",
   failed: "The village said no to this before.",
   no_quorum: "This was asked before and not enough of the roll voted.",
@@ -121,6 +133,16 @@ const PRIOR_LINE: Record<string, string> = {
  * and must say the same thing: a second vote about one switch spends the
  * village's attention twice and splits the answer.
  */
+/**
+ * The line for one prior answer.
+ *
+ * The cast is at this ONE edge and the fallback is true whatever the status
+ * turns out to be, so a status the record grows tomorrow reads as a fact
+ * rather than as a blank.
+ */
+const priorLine = (status: string): string =>
+  PRIOR_LINE[status as BallotCard["status"]] ?? "The village has been asked this before.";
+
 export function AskAlreadyRunning({ ballotId }: { ballotId: string }) {
   return (
     <section className={CARD}>
@@ -196,7 +218,7 @@ export default function ModuleAskDoor({ module: m }: { module: AskDoorModule }) 
       </p>
       {door.prior && (
         <p className="mt-2 text-sm text-stone-600 leading-relaxed">
-          {PRIOR_LINE[door.prior.status] ?? "The village has been asked this before."}{" "}
+          {priorLine(door.prior.status)}{" "}
           <Link href={`/decisions/${door.prior.id}`} className="font-medium text-teal-deep underline">
             Read what happened
           </Link>

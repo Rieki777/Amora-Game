@@ -100,6 +100,7 @@ export default function PracticeVote({
   /** Present when the module library opened this with the question written. */
   asking?: FixedAsk;
 }) {
+  const Heading = asking ? "h2" : "h3";
   const noun = about ? subjectNoun(about) : "";
   const [question, setQuestion] = useState(asking?.question ?? "");
   const [detail, setDetail] = useState("");
@@ -132,14 +133,18 @@ export default function PracticeVote({
 
   return (
     <section className="rounded-xl border-2 border-teal-deep bg-white p-5">
-      <h3 className="flex items-center gap-2 text-lg font-bold text-stone-900">
+      {/* A fixed ask is the main thing on its own page, under that page's h1.
+          The free practice vote is nested inside the wizard's type step, which
+          already carries an h2, so the two states take different levels rather
+          than one of them skipping one. */}
+      <Heading className="flex items-center gap-2 text-lg font-bold text-stone-900">
         <MessageCircleQuestion className="w-5 h-5 text-teal-deep" aria-hidden="true" />
         {asking ? asking.heading : "Ask the village about this"}
         <InfoTip
           tip="A practice vote runs on the same engine a binding one does: the same roll, the same weights, the same turnout to reach. Closing it records the answer and changes nothing on its own."
           label="What a practice vote is"
         />
-      </h3>
+      </Heading>
       {/* The type is named as a CHIP and never inside a sentence. The wizard
           cards are verb phrases ("Write an agreement"), so folding one into
           prose produced "does not carry write an agreement by vote today",

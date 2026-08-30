@@ -26,11 +26,18 @@ import { Link, useLocation } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import { authToken } from "@/lib/gameApi";
 import PracticeVote from "@/components/governance/PracticeVote";
-import { askQuestion, type AskDoorModule } from "./askDoor";
+import { askQuestion, type AskDoorModule, type AskQuiet } from "./askDoor";
 import { AskAlreadyRunning, AskCannotOpen, useAskDoor } from "./ModuleAskDoor";
 
-/** The one line each quiet reason says out loud on this page. */
-const NOTHING_TO_ASK: Record<string, string> = {
+/**
+ * The one line each quiet reason says out loud on this page.
+ *
+ * TOTAL over the reasons that reach here, so a reason added to `AskQuiet`
+ * tomorrow fails the typecheck instead of rendering an empty paragraph.
+ * `loading` is excluded because it is answered above, by a spinner rather
+ * than by a sentence.
+ */
+const NOTHING_TO_ASK: Record<Exclude<AskQuiet, "loading">, string> = {
   core: "This one is always on. Every village has it from the day it opens.",
   "already-on": "Your village already runs this one.",
   withdrawn: "This one is no longer offered, so there is nothing to ask for. A village already running it keeps it.",
@@ -41,7 +48,14 @@ const NOTHING_TO_ASK: Record<string, string> = {
 export default function ModuleAsk({ moduleId }: { moduleId: string }) {
   const [, navigate] = useLocation();
   const [m, setM] = useState<AskDoorModule | null>(null);
-  const [missing, setMissing] = useState(false);
+  /**
+   * Which of the two failures this was, kept apart on purpose.
+   *
+   * "There is no module by that name" is a FACT about the catalog. A dropped
+   * request is a fact about the network, and printing the first one on the
+   * second would tell a member their village does not have something it does.
+   */
+  const [problem, setProblem] = useState<"none" | "unknown-module" | "no-answer">("none");
 
   useEffect(() => {
     let alive = true;
@@ -53,10 +67,10 @@ export default function ModuleAsk({ moduleId }: { moduleId: string }) {
         const found = (Array.isArray(d?.modules) ? d.modules : []).find((x: any) => x?.id === moduleId);
         // An id the catalog does not answer for is a dead link and says so.
         // It is never turned into an ask about a name the URL supplied.
-        if (!found) setMissing(true);
+        if (!found) setProblem("unknown-module");
         else setM({ id: found.id, name: found.name, core: !!found.core, on: !!found.on, withdrawn: found.withdrawn ?? null });
       })
-      .catch(() => alive && setMissing(true));
+      .catch(() => alive && setProblem("no-answer"));
     return () => {
       alive = false;
     };
@@ -74,29 +88,33 @@ export default function ModuleAsk({ moduleId }: { moduleId: string }) {
     </Link>
   );
 
-  if (missing) {
+  if (problem !== "none") {
     return (
       <div>
         {back}
         <p className="mt-4 text-sm text-stone-600 leading-relaxed">
-          There is no module here by that name. The library has every one this platform offers.
+          {problem === "unknown-module"
+            ? "There is no module here by that name. The library has every one this platform offers."
+            : "The library did not answer just now. Try again in a moment."}
         </p>
       </div>
     );
   }
 
-  if (!m || (door.kind === "quiet" && door.why === "loading")) {
-    return <p className="text-sm text-stone-600">Loading…</p>;
-  }
+  const loading = <p className="text-sm text-stone-600">Loading…</p>;
 
   if (door.kind === "quiet") {
+    if (door.why === "loading" || !m) return loading;
+    // Total over the reasons that reach here, so there is no `?? ""` and no
+    // way to render an empty paragraph where a sentence belongs.
     return (
       <div>
         {back}
-        <p className="mt-4 text-sm text-stone-700 leading-relaxed">{NOTHING_TO_ASK[door.why] ?? ""}</p>
+        <p className="mt-4 text-sm text-stone-700 leading-relaxed">{NOTHING_TO_ASK[door.why]}</p>
       </div>
     );
   }
+  if (!m) return loading;
 
   if (door.kind === "running") {
     return (

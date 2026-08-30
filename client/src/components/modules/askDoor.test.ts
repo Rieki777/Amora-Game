@@ -30,7 +30,7 @@ const base = {
   module: OFF,
   signedIn: true,
   governanceOn: true,
-  mayOpen: true,
+  mayOpen: true as boolean | null,
   ballots: [] as AskDoorBallot[] | null,
 };
 
@@ -73,6 +73,19 @@ describe("a member who cannot open a vote is not shown a door that refuses them"
 
   it("offers the door to a member who can open one", () => {
     expect(askDoor(base)).toEqual({ kind: "ask", question: askQuestion("Tool Library"), prior: null });
+  });
+
+  it("says nothing at all when their standing is UNKNOWN, rather than saying they lack it", () => {
+    // A dropped or refused read of /api/governance/wizard must never become
+    // the sentence "this account does not open votes". That is a claim about
+    // a person, invented from a failed request, and it would be wrong for
+    // every member whose network hiccuped.
+    expect(askDoor({ ...base, mayOpen: null })).toEqual({ kind: "quiet", why: "loading" });
+  });
+
+  it("still finds a running ask before it needs their standing at all", () => {
+    const answer = askDoor({ ...base, mayOpen: null, ballots: [ballot({ id: "b9" })] });
+    expect(answer.kind === "running" && answer.ballotId).toBe("b9");
   });
 });
 
