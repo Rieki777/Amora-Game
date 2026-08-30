@@ -1508,7 +1508,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Platform",
     label: "Share bug reports and ideas with the platform team",
     description:
-      "ON: a copy of each bug/idea submitted here also reaches the ReGen Civics platform team, so fixes and features can ship to every village. Content only, never who said it. OFF: feedback stays entirely local; your admins still see all of it in Admin → Feedback. Disclosed on the submission form either way.",
+      "ON: a copy of each bug/idea submitted here also reaches the platform team who maintain this software, so fixes and features can ship to every village. Content only, never who said it. OFF: feedback stays entirely local; your admins still see all of it in Admin → Feedback. Disclosed on the submission form either way. Sharing also needs a hub address in the FEEDBACK_HUB_URL setting on the server. Without one this dial changes nothing, feedback stays local, and the form says so.",
     type: "integer",
     default: "1",
     min: 0,

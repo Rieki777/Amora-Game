@@ -1231,7 +1231,24 @@ const roleHoldersRepo = dbCollection<RoleHolderRow>(getPool(), {
 // are never persisted, so forks keep inheriting future platform defaults.
 const contentRepo = dbDocument(getPool(), "content", {} as any);
 const faqsRepo = dbDocument(getPool(), "faqs", DEFAULT_FAQS as any);
-const journeyRepo = dbDocument(getPool(), "journey-state", { checkboxes: {}, copy: {}, kanban: {}, decisions: {} } as any);
+/*
+ * `resources` is the founding team's own list of working documents, and it
+ * ships EMPTY on purpose.
+ *
+ * It used to be a module constant in client/src/pages/ProjectHistory.tsx:
+ * three links to unlisted documents plus one project's own host, compiled
+ * into a lazy chunk whose filename sits in the entry bundle every anonymous
+ * visitor downloads. The page's admin gate decides who the app will draw the
+ * page for. It decides nothing about who can read the strings the page was
+ * built from, so those links were public from the day they landed.
+ *
+ * Same rule as `landFacts` in DEFAULT_SETTINGS: blank means the surface shows
+ * nothing rather than somebody else's address, a fresh village inherits no
+ * link it did not write, and the founder's own references live behind the
+ * admin gate on /api/journey/*, which is where the rest of this document
+ * already lives.
+ */
+const journeyRepo = dbDocument(getPool(), "journey-state", { checkboxes: {}, copy: {}, kanban: {}, decisions: {}, resources: [] } as any);
 const emailConfigRepo = dbDocument(getPool(), "email-config", DEFAULT_EMAIL_CONFIG as any);
 const settingsRepo = dbDocument(getPool(), "settings", DEFAULT_SETTINGS as any);
 const brandRepo = dbDocument(getPool(), "brand", DEFAULT_BRAND as any);
@@ -3761,6 +3778,79 @@ function gratitudeBudget(user: any) {
 }
 
 /**
+ * WHERE THIS DEPLOYMENT ACTUALLY LIVES, and why it no longer guesses.
+ *
+ * Every absolute link this server writes into an email was built from
+ * `FRONTEND_URL || "https://<one specific project>.<tld>"`. A village that
+ * clones this platform and does not set `FRONTEND_URL` therefore sent its own
+ * members to another project's login page, in its own branded email, and the
+ * only way to notice was for somebody to click one.
+ *
+ * A default that names somebody else's address is a claim about where you
+ * live, made on your behalf, by a build. This asks two honest questions
+ * instead:
+ *
+ *   1. Did the operator say? `FRONTEND_URL` wins whenever it is set, so the
+ *      hosted deployment and any fork that configures itself are unchanged.
+ *   2. Failing that, where have people actually reached this server? The
+ *      first inbound request answers that, through the proxy headers the
+ *      sitemap and the unfurl tags already read the host from.
+ *
+ * If neither has an answer the origin is empty and the caller gets no
+ * absolute address at all, which reads as a broken link rather than as a
+ * confident wrong one. That case logs ONCE, naming the variable to set,
+ * because a fork that has served no request yet and is already sending mail
+ * is a state somebody has to be told about rather than left to discover.
+ */
+let observedOrigin = "";
+function rememberDeploymentOrigin(req: express.Request): void {
+  if (observedOrigin) return;
+  const proto = String(req.headers["x-forwarded-proto"] ?? req.protocol ?? "https")
+    .split(",")[0].trim();
+  const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "")
+    .split(",")[0].trim();
+  if (host) observedOrigin = `${proto}://${host}`.replace(/\/$/, "");
+}
+let warnedNoOrigin = false;
+function deploymentOrigin(): string {
+  const configured = String(process.env.FRONTEND_URL ?? "").trim().replace(/\/$/, "");
+  if (configured) return configured;
+  if (observedOrigin) return observedOrigin;
+  if (!warnedNoOrigin) {
+    warnedNoOrigin = true;
+    console.warn(
+      "[origin] FRONTEND_URL is not set and this server has answered no request yet, " +
+        "so links in outgoing email have no address to sit on. Set FRONTEND_URL to this village's own site.",
+    );
+  }
+  return "";
+}
+
+/**
+ * Where this village's feedback relay sends, if anywhere.
+ *
+ * Empty means nowhere. See the relay job for why the platform's own hub is no
+ * longer a default: the setting that turns the relay on ships ON, so a
+ * hardcoded destination made every fork post its members' words to one
+ * specific organisation without ever choosing to.
+ */
+function feedbackHubUrl(): string {
+  return String(process.env.FEEDBACK_HUB_URL ?? "").trim();
+}
+
+/**
+ * Whether feedback submitted right now would actually leave this village.
+ *
+ * Two things have to be true: the village left the dial on, and somebody told
+ * this deployment where the hub is. Every sentence the product says about
+ * sharing reads this, so the form, the receipt and the admin list can never
+ * promise a journey that has no destination.
+ */
+function feedbackIsShared(): boolean {
+  return numberVar("platform.feedback_relay") === 1 && feedbackHubUrl().length > 0;
+}
+
+/**
  * S16: the notification spine's dependencies. The spine never imports the
  * server; the server hands it exactly what it needs.
  */
@@ -3770,7 +3860,7 @@ const notifyDeps: NotifyDeps = {
   // The spine's contract wants `Promise<void>`; the sender now reports what it
   // did, and this caller has no use for the report.
   sendEmail: async (opts) => { await sendResendEmail(opts); },
-  origin: () => (process.env.FRONTEND_URL || "https://amora.regencivics.earth").replace(/\/$/, ""),
+  origin: deploymentOrigin,
   projectName: () => mergedConfig().project.name,
 };
 
@@ -4937,8 +5027,30 @@ async function startServer() {
   // S66: feedback relay — every 15 minutes, while the village keeps it on.
   // The hub being down costs nothing but a log line; rows wait their turn.
   registerJob("feedback-relay", 15 * 60 * 1000, async () => {
-    if (numberVar("platform.feedback_relay") !== 1) return;
-    const hubUrl = process.env.FEEDBACK_HUB_URL || "https://hub.regencivics.earth/api/feedback/ingest";
+    /*
+     * NO HUB CONFIGURED MEANS NO RELAY, and that is the change here.
+     *
+     * The relay ships up to 8000 characters of member-written detail per item
+     * to an address the deployment did not choose: the hub URL used to fall
+     * back to one specific organisation's ingest endpoint, and the setting
+     * that turns the relay on defaults to ON. A village that clones this
+     * platform and configures nothing therefore sent its members' bug reports
+     * and ideas to a third party it has never heard of, every fifteen minutes,
+     * from the first submission.
+     *
+     * The relay is a good feature and the disclosure on the form is honest.
+     * What was missing is the deployment saying WHERE. `FEEDBACK_HUB_URL` is
+     * that sentence, and without it nothing goes anywhere: rows stay in the
+     * local queue, admins still see every one in Admin then Feedback, and the
+     * form stops promising a sharing that is not happening.
+     *
+     * THE HOSTED DEPLOYMENT MUST SET `FEEDBACK_HUB_URL` or its relay stops.
+     * That is deliberate. An address this important belongs in the
+     * environment, next to the database and the mail key, rather than welded
+     * into platform code every fork inherits.
+     */
+    if (!feedbackIsShared()) return;
+    const hubUrl = feedbackHubUrl();
     const r = await relayFeedback(getPool(), hubUrl, {
       instanceId: instanceIdentity().instanceId,
       version: PLATFORM_VERSION,
@@ -6981,12 +7093,29 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     next();
   });
 
-  // CORS
-  const allowedOrigin = process.env.FRONTEND_URL || "https://amora.regencivics.earth";
-  app.use((_req, res, next) => {
-    res.header("Access-Control-Allow-Origin", allowedOrigin);
-    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  /*
+   * CORS, and the first place this server learns its own address.
+   *
+   * `Access-Control-Allow-Origin` used to fall back to one specific project's
+   * domain. That grants cross-origin reads to a site the deployment has no
+   * relationship with and grants nothing to the deployment itself, so a fork
+   * inherited a header that was wrong in both directions. Same-origin calls,
+   * which is every call the app makes, need no such header at all.
+   *
+   * So: name an allowed origin only when the operator named one. Otherwise
+   * send no grant, which refuses every cross-origin reader rather than
+   * choosing a stranger to trust.
+   */
+  const allowedOrigin = String(process.env.FRONTEND_URL ?? "").trim();
+  app.use((req, res, next) => {
+    // Every request teaches this deployment where it lives, for the links
+    // that go out in email long after the request has finished.
+    rememberDeploymentOrigin(req);
+    if (allowedOrigin) {
+      res.header("Access-Control-Allow-Origin", allowedOrigin);
+      res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+      res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
+    }
     next();
   });
 
@@ -13529,10 +13658,18 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
 
   // ── S66: feedback — the local queue is the feature, the relay is a copy ──
 
-  /** What the submission form needs to disclose, honestly, before anyone types. */
+  /**
+   * What the submission form needs to disclose, honestly, before anyone types.
+   *
+   * Two things decide it: the dial the village set, and whether this
+   * deployment was told where the hub is. The hub is no longer defaulted to
+   * anybody's address, so a deployment with the dial ON and `FEEDBACK_HUB_URL`
+   * unset shares nothing. Reporting the dial on its own would promise a person
+   * their words are travelling somewhere while they stay home.
+   */
   app.get("/api/feedback/config", async (_req, res) => {
     res.json({
-      relayOn: numberVar("platform.feedback_relay") === 1,
+      relayOn: feedbackIsShared(),
       villageName: mergedConfig().project.name,
     });
   });
@@ -13552,7 +13689,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     const user = await authedUser(req);
     // The disclosure the form showed IS the consent, so it is recorded with
     // the item rather than re-derived from the setting at relay time.
-    const mayRelay = numberVar("platform.feedback_relay") === 1;
+    const mayRelay = feedbackIsShared();
     const r = await recordFeedback(getPool(), {
       kind, title, detail,
       pageUrl: typeof req.body?.pageUrl === "string" ? req.body.pageUrl : null,
@@ -13565,7 +13702,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     res.json({
       success: true,
       id: r.id,
-      shared: numberVar("platform.feedback_relay") === 1,
+      shared: feedbackIsShared(),
     });
   });
 
@@ -13575,7 +13712,20 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
       "SELECT f.*, u.name AS submitter_name FROM feedback_items f LEFT JOIN users u ON u.id = f.submitted_by " +
         "ORDER BY f.created_at DESC LIMIT 300",
     );
-    res.json({ items: rows, relayOn: numberVar("platform.feedback_relay") === 1 });
+    /*
+     * Three facts, because two of them can disagree and an admin who cannot
+     * see the disagreement cannot fix it. `relayOn` is whether anything is
+     * actually leaving. `relayDialOn` is what the village set. `hubConfigured`
+     * is whether the server was told where to send. A dial reading ON beside a
+     * queue that is going nowhere needs a screen that says which half is
+     * missing.
+     */
+    res.json({
+      items: rows,
+      relayOn: feedbackIsShared(),
+      relayDialOn: numberVar("platform.feedback_relay") === 1,
+      hubConfigured: feedbackHubUrl().length > 0,
+    });
   });
 
   app.put("/api/admin/feedback/:id", async (req, res) => {
@@ -18508,6 +18658,49 @@ Send an empty drafts array when you are still listening. A role payload is {name
     journey.decisions[id] = { status, chosen: chosen ?? "", notes: notes ?? "" };
     await journeyRepo.put(journey);
     res.json({ success: true });
+  });
+
+  /**
+   * Journey State: the founding team's own working documents.
+   * POST /api/journey/resources  { resources: [{ label, url }] }
+   *
+   * Behind `isJourney`, which is `isAdmin`, the same gate the rest of this
+   * document reads and writes through. That matters more than it looks: the
+   * whole point of moving these links out of the client bundle is that a
+   * route guard now decides who sees them, so serving them from anything
+   * weaker than the page's own gate would move the problem rather than fix it.
+   *
+   * The list replaces wholesale, the way the admin screens edit the other
+   * config documents. Only http and https survive: a `javascript:` href in an
+   * anchor this page renders would run in the next admin's browser.
+   */
+  app.post("/api/journey/resources", async (req, res) => {
+    if (!(await isJourney(req))) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    const incoming = req.body?.resources;
+    if (!Array.isArray(incoming)) {
+      return res.status(400).json({ error: "Send a resources array" });
+    }
+    if (incoming.length > 40) {
+      return res.status(400).json({ error: "That is more than 40 links. Trim the list first" });
+    }
+    const cleaned: Array<{ label: string; url: string }> = [];
+    for (const raw of incoming) {
+      const label = String(raw?.label ?? "").trim().slice(0, 120);
+      const url = String(raw?.url ?? "").trim().slice(0, 2000);
+      if (!label && !url) continue;
+      if (!/^https?:\/\/\S/i.test(url)) {
+        return res.status(400).json({ error: `"${label || url}" needs a web address starting http:// or https://` });
+      }
+      cleaned.push({ label: label || url, url });
+    }
+    // Copied rather than mutated in place. Before any row exists, `get()`
+    // hands back the module-level default OBJECT, so writing a field onto it
+    // edits the default every later reader in this process will see.
+    const journey = { ...journeyRepo.get(), resources: cleaned };
+    await journeyRepo.put(journey);
+    res.json({ success: true, resources: cleaned });
   });
 
   // â”€â”€ Email Config (Resend) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─

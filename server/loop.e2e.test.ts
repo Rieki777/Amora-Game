@@ -1004,6 +1004,55 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(state.json).toHaveProperty("checkboxes");
   });
 
+  it("the tracker's working documents start empty and live behind the same gate", async () => {
+    /*
+     * These links used to be a module constant in the tracker page, so they
+     * shipped inside a chunk any stranger could download while the route that
+     * renders them was admin-only. `server/trackerPrivacy.test.ts` holds the
+     * bundle half of that. This holds the other half: the place they moved to
+     * has to be at least as closed as the page they left, and it has to start
+     * empty so a fork inherits nobody else's address.
+     */
+    const fresh = await api("GET", "/api/journey/state", undefined, founderToken);
+    expect(fresh.status).toBe(200);
+    expect(
+      fresh.json.resources ?? [],
+      "a village that has written no links has none",
+    ).toEqual([]);
+
+    const anon = await api("POST", "/api/journey/resources", { resources: [] });
+    expect(anon.status, "a stranger may not write the founders' references").toBe(401);
+    const asMember = await api("POST", "/api/journey/resources", { resources: [] }, doerToken);
+    expect(asMember.status, "nor may a plain member").toBe(401);
+
+    // A refusal that says what was wrong with it, rather than a status alone.
+    const bad = await api(
+      "POST",
+      "/api/journey/resources",
+      { resources: [{ label: "Notes", url: "javascript:alert(1)" }] },
+      founderToken,
+    );
+    expect(bad.status, "only a web address may become an anchor here").toBe(400);
+    expect(String(bad.json?.error ?? ""), "and it says so").toMatch(/https?/i);
+
+    const wrote = await api(
+      "POST",
+      "/api/journey/resources",
+      { resources: [{ label: "Build notes", url: "https://notes.example.test/build" }] },
+      founderToken,
+    );
+    expect(wrote.status, "the founder may write their own references").toBe(200);
+
+    const back = await api("GET", "/api/journey/state", undefined, founderToken);
+    expect(
+      (back.json.resources ?? []).map((r: any) => r.url),
+      "and read them back",
+    ).toEqual(["https://notes.example.test/build"]);
+
+    const stranger = await api("GET", "/api/journey/state");
+    expect(stranger.status, "while a stranger still cannot read them").toBe(401);
+  });
+
   it("S9: admins name tokens (Gate D), and the registry refuses re-denomination", async () => {
     const anon = await api("GET", "/api/admin/tokens");
     expect(anon.status).toBe(401);
