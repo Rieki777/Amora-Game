@@ -328,10 +328,11 @@ describe.skipIf(!DB_CONFIGURED)("the builders' pool, driven", () => {
       activeMembers: 4,
       reach: 1,
       builtBy: null,
-      builderHandle: null,
-      builderNamespace: null,
+      builtByAccount: null,
+      builtByNamespace: null,
       platformBuilt: true,
       // R59 made visible on the wire: the platform's share goes back in.
+      poolEligible: true,
       disposition: "recycled",
     });
   });

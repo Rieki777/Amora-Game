@@ -73,6 +73,14 @@
  * disagrees with itself, a sealed report with no seal time, a payout handle
  * with nowhere to resolve it, an address where a handle goes.
  *
+ * PROVENANCE IS TRUSTED IN ONE DIRECTION ONLY, and this file is built for
+ * that. "The platform built this" costs whoever says it a payment, so it can be
+ * believed. "Pay this outside person" is a NAME and never a payment
+ * instruction: a counter holds that share until a human confirms the listing.
+ * So nothing here is designed to move money on a village's word, and a village
+ * naming a builder does not get that builder paid. What this makes is a claim
+ * legible enough to check.
+ *
  * It cannot catch a village that simply invents an honest-looking number, and
  * nothing running inside a village ever could. What limits that is the CAP: a
  * village contributes at most 1.0 to any module, so inflating members inflates
@@ -100,9 +108,9 @@ export interface ModuleProvenance {
   /** The credit line a reader sees. Null when the platform wrote it. */
   builtBy: string | null;
   /** The account a share is settled against. Null when nobody is owed. */
-  builderHandle: string | null;
+  builtByAccount: string | null;
   /** The system that asserts the handle. Null exactly when the handle is. */
-  builderNamespace: string | null;
+  builtByNamespace: string | null;
   /**
    * Nobody outside the platform is credited, so the share is owed to nobody
    * and returns to the pool (R59). Core modules are platform built too: they
@@ -110,10 +118,33 @@ export interface ModuleProvenance {
    */
   platformBuilt: boolean;
   /**
+   * May this module draw from the pool at all, from `poolStatus`.
+   *
+   * A LINE THAT SAYS FALSE MUST NOT ENTER A DENOMINATOR. A module that charges
+   * a price is paid by the villages running it and is out of the pool by
+   * construction (contract clause 14); a withdrawn module left the pool when it
+   * stopped being offered. This report deliberately drops nothing it measured,
+   * because a fork counting itself needs the whole picture, so without this
+   * field a counter summing reach would put both into the split and dilute
+   * every free builder's share, including the platform's recycled one.
+   *
+   * ELIGIBILITY AND NOT PRICE, and the difference is the reason for the name. A
+   * `priced` flag answers a narrower question than the one a counter is asking:
+   * a withdrawn module is not priced and is still out, so a counter reading
+   * `priced === false` would let it dilute. This says what the counter needs to
+   * know, which is whether the line belongs in the split.
+   */
+  poolEligible: boolean;
+  /**
    * Where an eligible module's share goes, from `poolStatus`. Carried so the
    * RECYCLING is visible in what a village publishes rather than only on its
    * own page, which is what R59 asks for: an author or a village should see
    * the platform's share going back in.
+   *
+   * Redundant with `poolEligible` by construction and checked to stay that way:
+   * both come from one `poolStatus` call, and `moduleUsageReportProblems`
+   * refuses a report where they disagree. A redundancy that is checked is a
+   * second reading of the same fact; one that is not is a place to drift.
    */
   disposition: "paid" | "recycled" | "none";
 }
@@ -128,14 +159,17 @@ export interface ModuleProvenance {
  */
 export function moduleProvenance(def: ModuleDef): ModuleProvenance {
   const builtBy = def.builtBy?.trim() || null;
-  const builderHandle = def.builtByAccount?.trim() || null;
+  const builtByAccount = def.builtByAccount?.trim() || null;
+  // ONE call, so the two pool fields below cannot come from two readings.
+  const pool = poolStatus(def);
   return {
     moduleId: def.id,
     builtBy,
-    builderHandle,
-    builderNamespace: builderHandle ? def.builtByNamespace?.trim() || null : null,
+    builtByAccount,
+    builtByNamespace: builtByAccount ? def.builtByNamespace?.trim() || null : null,
     platformBuilt: builtBy === null,
-    disposition: poolStatus(def).disposition,
+    poolEligible: pool.eligible,
+    disposition: pool.disposition,
   };
 }
 
@@ -369,27 +403,32 @@ function provenanceProblems(m: ModuleUsageEntry, id: string): string[] {
   } else if (m.disposition === "paid" && m.platformBuilt === true) {
     out.push(`module "${id}" says the platform built it and that its share is owed to somebody. A platform module's share returns to the pool`);
   }
-  if (m.builderHandle === null || m.builderHandle === undefined) {
-    if (m.builderNamespace) {
+  if (typeof m.poolEligible !== "boolean") {
+    out.push(`module "${id}" does not say whether it may draw from the pool, and a counter cannot guess that from a count`);
+  } else if (m.poolEligible !== (m.disposition !== "none")) {
+    out.push(`module "${id}" says poolEligible is ${String(m.poolEligible)} and that its share goes to "${String(m.disposition)}", so one of the two is wrong`);
+  }
+  if (m.builtByAccount === null || m.builtByAccount === undefined) {
+    if (m.builtByNamespace) {
       out.push(`module "${id}" names a namespace and no handle, so there is nobody in it to pay`);
     }
     return out;
   }
-  if (typeof m.builderHandle !== "string") {
+  if (typeof m.builtByAccount !== "string") {
     out.push(`module "${id}" gives a payout handle that is not text`);
     return out;
   }
   if (!m.builtBy) {
     out.push(`module "${id}" names a payout handle and credits nobody. A payment needs a builder to pay`);
   }
-  if (/^0x/i.test(m.builderHandle)) {
+  if (/^0x/i.test(m.builtByAccount)) {
     // Checked before the shape, and exclusive of it, so the one mistake a
     // person is actually likely to make gets the sentence that explains it.
     out.push(`module "${id}" puts what looks like a wallet address where the payout handle goes. A builder links their own address in their own profile and a counter reads it there`);
-  } else if (!isBuilderHandle(m.builderHandle)) {
-    out.push(`module "${id}" gives "${m.builderHandle}" as a payout handle. A handle is lowercase letters, digits and hyphens, with no at sign and no address`);
-  } else if (typeof m.builderNamespace !== "string" || !isBuilderNamespace(m.builderNamespace)) {
-    out.push(`module "${id}" gives a payout handle and no account system that asserts it, so a counter has nowhere to resolve "${m.builderHandle}"`);
+  } else if (!isBuilderHandle(m.builtByAccount)) {
+    out.push(`module "${id}" gives "${m.builtByAccount}" as a payout handle. A handle is lowercase letters, digits and hyphens, with no at sign and no address`);
+  } else if (typeof m.builtByNamespace !== "string" || !isBuilderNamespace(m.builtByNamespace)) {
+    out.push(`module "${id}" gives a payout handle and no account system that asserts it, so a counter has nowhere to resolve "${m.builtByAccount}"`);
   }
   return out;
 }

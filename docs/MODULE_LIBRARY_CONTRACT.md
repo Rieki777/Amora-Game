@@ -209,9 +209,25 @@ name of the system that asserts it.
 `/api/platform/module-usage`, announces it from its village discovery document at /.well-known/village.json as `module-usage/1`,
 and signs it with the key that document publishes. The report carries, per cycle and per module:
 members reached, active members, the reach fraction, your credit line, your handle, your namespace,
-whether the platform built it, where the share goes, and the time the cycle was sealed. The shape,
-and the checks a counter runs on a report before settling anything against it, are
-`shared/moduleProvenance.ts`, which is the authority over this paragraph.
+whether the platform built it, whether the module may draw from the pool at all, where the share
+goes, and the time the cycle was sealed. The shape, and the checks a counter runs on a report before
+settling anything against it, are `shared/moduleProvenance.ts`, which is the authority over this
+paragraph.
+
+Two properties of that report are worth knowing before you rely on it.
+
+**A report carries every module it measured, including the ones that earn nothing.** A priced
+listing and a withdrawn one both appear with their real usage on them, and both are marked as out of
+the pool. A counter that ignored that mark would put them in the split and take a share off you for
+a module the villages running it already pay for. The mark is a field and not an omission, because a
+fork counting itself needs the whole picture whether or not anybody is settling from it.
+
+**Being named in a report does not get you paid, and it is not meant to.** A village saying "the
+platform built this" costs whoever says it a payment, so it is believed. A village saying "pay this
+outside person" is a name and never a payment instruction: whoever settles the cycle holds that
+share until a human confirms the listing is yours. The village's job is to make the claim legible.
+The gate on money is somewhere else on purpose, because the alternative is a payment that anybody
+running a fork could redirect by editing a file.
 
 Three consequences worth stating for a builder outside this repository:
 

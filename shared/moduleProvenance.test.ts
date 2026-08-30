@@ -158,13 +158,14 @@ describe("the seal, which is a privacy property", () => {
       for (const m of r.modules) {
         expect(Object.keys(m).sort()).toEqual([
           "activeMembers",
-          "builderHandle",
-          "builderNamespace",
           "builtBy",
+          "builtByAccount",
+          "builtByNamespace",
           "disposition",
           "membersReached",
           "moduleId",
           "platformBuilt",
+          "poolEligible",
           "reach",
         ]);
       }
@@ -180,9 +181,10 @@ describe("provenance travels with the module", () => {
     expect(p).toEqual({
       moduleId: "atlas",
       builtBy: "Ada Lovelace",
-      builderHandle: "ada",
-      builderNamespace: "example.org",
+      builtByAccount: "ada",
+      builtByNamespace: "example.org",
       platformBuilt: false,
+      poolEligible: true,
       disposition: "paid",
     });
   });
@@ -190,8 +192,8 @@ describe("provenance travels with the module", () => {
   it("calls a module with no credit platform built, and recycles its share", () => {
     expect(moduleProvenance(base())).toMatchObject({
       builtBy: null,
-      builderHandle: null,
-      builderNamespace: null,
+      builtByAccount: null,
+      builtByNamespace: null,
       platformBuilt: true,
       disposition: "recycled",
     });
@@ -201,12 +203,40 @@ describe("provenance travels with the module", () => {
     expect(moduleProvenance(base({ core: true }))).toMatchObject({ platformBuilt: true, disposition: "recycled" });
   });
 
-  it("marks a module that charges as owed nothing from the pool", () => {
+  it("marks a module that charges as out of the pool, so it cannot dilute a split", () => {
+    /*
+     * The dilution this field exists to stop. The report drops nothing it
+     * measured, because a fork counting itself needs the whole picture, so a
+     * priced module appears with real usage on it. A counter summing reach
+     * without reading this would put it in the denominator and take a share off
+     * every free builder, including the platform's recycled one, for a module
+     * the villages running it already pay for. Contract clause 14.
+     */
     const priced = base({
       builtBy: "Ada Lovelace",
       pricing: { amount: 900, currency: "USD", period: "month", billingUrl: "https://example.org/buy" },
     });
-    expect(moduleProvenance(priced).disposition).toBe("none");
+    expect(moduleProvenance(priced)).toMatchObject({ poolEligible: false, disposition: "none" });
+  });
+
+  it("marks a withdrawn module as out of the pool too, which a price flag would miss", () => {
+    // Why the field is eligibility and not price: this module charges nothing
+    // and is still out, so a counter reading a `priced` flag would let it
+    // dilute the split.
+    const gone = base({ builtBy: "Ada Lovelace", withdrawn: { since: "2026-01-01" } });
+    expect(moduleProvenance(gone)).toMatchObject({ poolEligible: false, disposition: "none" });
+  });
+
+  it("refuses a report whose eligibility and destination disagree", () => {
+    const r = report();
+    r.modules[0] = { ...r.modules[0]!, poolEligible: false };
+    expect(moduleUsageReportProblems(r).join(" ")).toContain("so one of the two is wrong");
+  });
+
+  it("refuses a report that does not say whether a line belongs in the split", () => {
+    const r = report();
+    r.modules[0] = { ...r.modules[0]!, poolEligible: undefined as any };
+    expect(moduleUsageReportProblems(r).join(" ")).toContain("may draw from the pool");
   });
 
   it("makes the recycling visible on the wire and not only on the village page", () => {
@@ -217,6 +247,7 @@ describe("provenance travels with the module", () => {
     for (const m of r.modules) expect(["paid", "recycled", "none"]).toContain(m.disposition);
     expect(r.modules.every((m) => m.platformBuilt)).toBe(true);
     expect(r.modules.every((m) => m.disposition === "recycled")).toBe(true);
+    expect(r.modules.every((m) => m.poolEligible)).toBe(true);
   });
 
   it("drops a module the registry does not know rather than inventing a credit", () => {
@@ -259,23 +290,23 @@ describe("the payout identity, checked on the wire", () => {
   };
 
   it("accepts a handle with the system that asserts it", () => {
-    expect(moduleUsageReportProblems(withBuilder({ builderHandle: "ada", builderNamespace: "example.org" }))).toEqual([]);
+    expect(moduleUsageReportProblems(withBuilder({ builtByAccount: "ada", builtByNamespace: "example.org" }))).toEqual([]);
   });
 
   it("accepts a builder with no handle at all, because the share accrues", () => {
     // Absence is a real state. The share is still theirs, it is held, and the
     // statement names what is missing. Eligibility never depends on this.
-    expect(moduleUsageReportProblems(withBuilder({ builderHandle: null, builderNamespace: null }))).toEqual([]);
+    expect(moduleUsageReportProblems(withBuilder({ builtByAccount: null, builtByNamespace: null }))).toEqual([]);
   });
 
   it("refuses a handle with nowhere to resolve it", () => {
-    const problems = moduleUsageReportProblems(withBuilder({ builderHandle: "ada", builderNamespace: null }));
+    const problems = moduleUsageReportProblems(withBuilder({ builtByAccount: "ada", builtByNamespace: null }));
     expect(problems.join(" ")).toContain("nowhere to resolve");
   });
 
   it("refuses a wallet address by name, which is the mistake somebody will make", () => {
     const problems = moduleUsageReportProblems(
-      withBuilder({ builderHandle: "0x1234567890abcdef1234567890abcdef12345678", builderNamespace: "example.org" }),
+      withBuilder({ builtByAccount: "0x1234567890abcdef1234567890abcdef12345678", builtByNamespace: "example.org" }),
     );
     expect(problems.join(" ")).toContain("wallet address");
     // And not ALSO the generic message, which would bury the useful one.
@@ -283,18 +314,18 @@ describe("the payout identity, checked on the wire", () => {
   });
 
   it("refuses a handle that is not handle shaped", () => {
-    const problems = moduleUsageReportProblems(withBuilder({ builderHandle: "Ada@Example", builderNamespace: "example.org" }));
+    const problems = moduleUsageReportProblems(withBuilder({ builtByAccount: "Ada@Example", builtByNamespace: "example.org" }));
     expect(problems.join(" ")).toContain("no at sign and no address");
   });
 
   it("refuses a namespace with nobody in it", () => {
-    const problems = moduleUsageReportProblems(withBuilder({ builderHandle: null, builderNamespace: "example.org" }));
+    const problems = moduleUsageReportProblems(withBuilder({ builtByAccount: null, builtByNamespace: "example.org" }));
     expect(problems.join(" ")).toContain("nobody in it to pay");
   });
 
   it("refuses a payout handle credited to nobody", () => {
     const r = report();
-    r.modules[0] = { ...r.modules[0]!, builderHandle: "ada", builderNamespace: "example.org" };
+    r.modules[0] = { ...r.modules[0]!, builtByAccount: "ada", builtByNamespace: "example.org" };
     expect(moduleUsageReportProblems(r).join(" ")).toContain("credits nobody");
   });
 

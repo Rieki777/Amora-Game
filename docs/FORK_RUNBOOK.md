@@ -786,7 +786,11 @@ counting is safe to publish at all.
 signed with the same key your discovery document publishes. Per module it
 carries members reached, active members, the reach fraction, the builder's
 credit line, their handle, the account system that asserts the handle, whether
-the platform built the module, and where its share goes. Per cycle it carries
+the platform built the module, whether it may draw from the pool at all, and
+where its share goes. **A module that charges a price, and one that was
+withdrawn, still appear with their real usage and are marked out of the pool.**
+Dropping them would hide usage from a fork counting itself; failing to mark them
+would let them dilute a split. Per cycle it carries
 the cycle id, whether it is sealed, the seal time, and your instance id. **No
 member, in any field, ever.**
 
