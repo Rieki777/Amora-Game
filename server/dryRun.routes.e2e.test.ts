@@ -247,6 +247,43 @@ describe.skipIf(!DB_CONFIGURED)("the test run before launch", () => {
     expect(r.json.notCovered.length, "the run names what it does not cover").toBeGreaterThan(0);
   });
 
+  /*
+   * THE CARD READS THESE FIELDS BY NAME.
+   *
+   * `TestRun` in `client/src/pages/JourneyToLaunch.tsx` types the payload
+   * itself, so the compiler checks the card against the card's own idea of the
+   * server. A field the server stopped sending would render as `undefined` and
+   * crash on `.map`, with `pnpm check` green the whole way. This is the half of
+   * that contract a type cannot hold.
+   */
+  it("sends every field the launch page renders", async () => {
+    const r = await call("POST", "/api/admin/dry-run", { body: { moons: 6 } });
+    expect(r.status).toBe(200);
+    for (const field of ["moons", "spanDays", "isolation", "gameStarted"]) {
+      expect(r.json[field], `${field} is missing from the payload`).toBeDefined();
+    }
+    for (const field of ["turns", "runFindings", "allowances", "jobs", "refusals", "covered", "notCovered"]) {
+      expect(Array.isArray(r.json[field]), `${field} must be an array the card can map over`).toBe(true);
+    }
+    expect(r.json.runFindings.length, "the run always has something to say about itself").toBeGreaterThan(0);
+    expect(r.json.allowances.length, "one row per stage of the path").toBeGreaterThan(0);
+    expect(r.json.jobs.length, "the scheduler registry reached the report").toBeGreaterThan(0);
+    for (const f of [...r.json.runFindings, ...r.json.turns.flatMap((t: any) => t.findings)]) {
+      expect(typeof f.sentence).toBe("string");
+      expect(f.sentence.length).toBeGreaterThan(0);
+      expect(["issued", "refused", "idle"]).toContain(f.outcome);
+    }
+    for (const a of r.json.allowances) {
+      expect(typeof a.note).toBe("string");
+      expect(a.stageId).toBeTruthy();
+    }
+    for (const j of r.json.jobs) {
+      expect(j.name).toBeTruthy();
+      expect(Number.isFinite(j.everyHours)).toBe(true);
+      expect(Number.isFinite(j.runsInSpan)).toBe(true);
+    }
+  });
+
   it("THE LEDGER IS UNCHANGED, and so is every other append-only table", async () => {
     const before = await fingerprint();
     const r = await call("POST", "/api/admin/dry-run", { body: { moons: 36 } });
