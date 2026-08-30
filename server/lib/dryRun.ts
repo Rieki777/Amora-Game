@@ -194,6 +194,11 @@ export interface DryRunOptions {
 
 const DAY_MS = 86_400_000;
 
+/** "1 seat holder" and "3 seat holders", never "1 seat holder(s)". */
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 /**
  * A cadence in the units somebody would say it in.
  *
@@ -448,7 +453,9 @@ function settlementFindings(
     out.push({
       area: "settlement",
       outcome: "issued",
-      sentence: `${snapshot.seatCount} seat holder(s) each thanked ${r.amount} ${tokenName}, which comes to ${snapshot.seatCount * r.amount} for the moon.`,
+      sentence:
+        `${plural(snapshot.seatCount, "seat holder", "seat holders")} each thanked ` +
+        `${r.amount} ${tokenName}, which comes to ${snapshot.seatCount * r.amount} for the moon.`,
     });
   }
   return out;
@@ -618,7 +625,7 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
       area: "jobs",
       outcome: "idle",
       sentence:
-        `${snapshot.modulesOff.length} module(s) are off in this village: ` +
+        `${plural(snapshot.modulesOff.length, "module is", "modules are")} off in this village: ` +
         `${snapshot.modulesOff.map((m) => m.name).join(", ")}. ` +
         "The background jobs that belong to them ask on their usual cadence and then sit out.",
     });

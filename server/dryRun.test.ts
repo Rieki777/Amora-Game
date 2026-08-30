@@ -112,7 +112,7 @@ describe("what a settlement would pay", () => {
     const r = dryRun(snapshot({ seatCount: 3 }), { moons: 2, from: FROM });
     const paid = r.turns[0].findings.filter((f) => f.area === "settlement" && f.outcome === "issued");
     expect(paid).toHaveLength(1);
-    expect(paid[0].sentence).toContain("3 seat holder(s)");
+    expect(paid[0].sentence).toContain("3 seat holders");
     expect(paid[0].sentence).toContain("20 Gratitude");
     expect(paid[0].sentence).toContain("60 for the moon");
   });
@@ -244,12 +244,15 @@ describe("the run-level facts", () => {
     expect(f.sentence).toMatch(/still wrote nothing/i);
   });
 
-  it("names the modules that are off", () => {
+  it("names the modules that are off, and counts them the way a person would", () => {
     const r = dryRun(
       snapshot({ modulesOff: [{ id: "stays", name: "Stays" }, { id: "library", name: "Library" }] }),
       { moons: 1, from: FROM },
     );
-    expect(r.runFindings.find((f) => f.area === "jobs")!.sentence).toContain("Stays, Library");
+    const jobs = r.runFindings.find((f) => f.area === "jobs")!;
+    expect(jobs.sentence).toContain("Stays, Library");
+    expect(jobs.sentence).toContain("2 modules are off");
+    expect(jobs.sentence).not.toContain("module(s)");
     // The feed is on, so nothing says otherwise.
     expect(r.runFindings.some((f) => f.area === "gratitude")).toBe(false);
   });
