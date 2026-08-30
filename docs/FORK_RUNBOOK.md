@@ -728,13 +728,17 @@ whole org chart from one URL with no integration:
 - `/api/public/org.json` — the org chart as data.
 - `/org/index.md`, `/org/circles/<id>.md`, `/org/roles/<id>.md` — the same
   chart as linked Markdown.
+- `/api/platform/module-usage` — your module usage, per lunar cycle. **Always
+  on**, and its own section below.
 
 **The last two are dark until BOTH are true:** the `map` module is at `public`
 lifecycle, and the `map.public_structure` variable is on (it defaults on). That
 pair is already your answer to "may a stranger see our structure", so there is
 no separate publish switch to find. Set `map` to `off`, `preview` or `members`
-and the org documents 404 while discovery keeps answering with an empty
-`supports` array.
+and the org documents 404 while discovery keeps answering, with `org/1` gone
+from its `supports` array. `module-usage/1` stays, because it is counts of
+people and never a person and it is unconditional; the section below says
+exactly what it holds.
 
 **They never carry names.** Not full names, not first names, not the names of
 documented holders, not focus strings or holder notes. Seat counts and how many
@@ -756,6 +760,56 @@ Check yours after provisioning:
 curl -s https://<your-domain>/.well-known/village.json | jq '.supports, .publicKey.kid'
 curl -s https://<your-domain>/org/index.md | head -20
 ```
+
+## What your fork counts, and who may read it (0101, no new migration)
+
+**This runs from your first boot and there is nothing to switch on.** Every fork
+inherits it by pulling, which is the point: a game that cannot say who built
+what and how much it was used cannot pay anybody, and a fork cannot be on
+somebody else's hand-kept list.
+
+**What is measured.** A signed-in member getting a response under 400 on a
+route belonging to a non-core module counts **1**, for that module, for that
+lunar cycle. Opening it again counts 0. Writing in it counts 0. Admin routes are
+excluded and refused requests are excluded. The unit saturates on purpose: the
+one thing that moves a module's number is more different people opening it.
+
+**What survives a cycle.** While a cycle is open, `module_usage_marks` knows
+which member opened which module. When the cycle turns, the hourly seal job
+aggregates the marks into `module_usage_cycles`, records `sealed_at`, and
+**deletes the marks in the same transaction**. After that your database can no
+longer answer "which modules did this member open", this cycle or ever. That is
+a privacy guarantee and not a storage decision, and it is the reason the
+counting is safe to publish at all.
+
+**What you publish.** `/api/platform/module-usage` serves one cycle at a time,
+signed with the same key your discovery document publishes. Per module it
+carries members reached, active members, the reach fraction, the builder's
+credit line, their handle, the account system that asserts the handle, whether
+the platform built the module, and where its share goes. Per cycle it carries
+the cycle id, whether it is sealed, the seal time, and your instance id. **No
+member, in any field, ever.**
+
+```bash
+curl -s https://<your-domain>/.well-known/village.json | jq '.supports, .links.moduleUsage'
+curl -s https://<your-domain>/api/platform/module-usage | jq '.cycleId, .sealed, .sealedAt, .modules[0]'
+curl -s "https://<your-domain>/api/platform/module-usage?cycle=<a-past-cycle>" | jq '.sealedAt'
+```
+
+**Who reads it is not decided here.** This is a pull and never a push: your
+deployment holds nobody's address and reports to nobody. Anyone who can read
+your discovery document can follow the link, verify the signature against the
+key it publishes, and count you. A fork that nobody counts keeps exactly the
+same books, and `/api/modules/pool` shows your own reading of them either way.
+
+**If you carry a module of your own**, set all three of `builtBy`,
+`builtByAccount` and `builtByNamespace` on its registry entry. The last is the
+host of the account system that holds the handle, and a handle without one is
+refused at boot: a bare handle only resolves while everybody shares one roster,
+and in a network of counters it pays the wrong person.
+
+**Nothing pays anybody yet.** There is no wallet in this codebase and no
+transfer. What exists is the counting and the publishing.
 
 ## Peering with another village (0057)
 

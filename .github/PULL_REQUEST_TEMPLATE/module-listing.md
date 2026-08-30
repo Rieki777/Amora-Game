@@ -53,15 +53,18 @@ required is that somebody real accepts the terms, is named, and can be reached.
 
 ### Only if it takes the builders' pool
 
-Free modules are paid from a recurring $ReGen distribution, proportional to how many known villages
-run the module. Declaring a price takes a listing out of the pool by construction; see contract
-clause 14.
+Free modules are paid from a recurring $ReGen distribution, sized by how many members open the
+module. Declaring a price takes a listing out of the pool by construction; see contract clause 14.
 
-- [ ] I have a **ReGen Civics account**, and a **Hypha account with a linked Base address**, set up
-      through profile setup.
+- [ ] My entry sets **`builtByAccount`**, the handle I hold, and **`builtByNamespace`**, the host of
+      the account system that holds it. One without the other is refused.
+- [ ] That account has a **Hypha account with a linked Base address**, set up through profile setup.
 
 The pool pays an account, never an address written into a registry file. Do not put a payout address
 in this pull request.
+
+**Nothing has been paid out yet.** The counting runs and every village publishes a signed report of
+it. There is no wallet in this repository and the sending is still done by a person.
 
 ### Only if the data class is `member-pii`
 

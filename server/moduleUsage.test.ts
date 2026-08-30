@@ -150,6 +150,40 @@ describe.skipIf(!configured)("the module meter", () => {
     expect(sealed.activeMembers).toBe(4);
   });
 
+  it("gives every module in a cycle the same denominator, whatever a re-seal saw", async () => {
+    /*
+     * THE DENOMINATOR IS THE CYCLE'S, NEVER THE PASS'S, and until this was
+     * pinned a re-seal could hand one module a denominator of its own.
+     *
+     * Seal one counts four active members and writes the library's row against
+     * four, then deletes the marks, which are the only copy. A straggler then
+     * opens a module nothing had recorded yet. Seal two counts the marks it can
+     * see, which is one, and `GREATEST` cannot defend the NEW row because there
+     * is nothing there to be greater than: the new module lands with a
+     * denominator of one.
+     *
+     * That is a reach of 1.0 for a module one person in four opened, which is
+     * four times what it earned, and the clamp cannot catch it because the
+     * number is inside its range. Worse, which denominator the cycle reported
+     * depended on which row the database handed back first.
+     */
+    const cycle = "lunar-000924";
+    for (const who of ["a", "b", "c", "d"]) await markUse(pool, cycle, "library", who);
+    await sealCycle(pool, cycle);
+
+    // A module that sorts BEFORE the sealed one, so a reader taking the first
+    // row would take this one. The ordering is the trap and not the defect.
+    await markUse(pool, cycle, "events", "e");
+    await sealCycle(pool, cycle);
+
+    const sealed = await sealedCycleUsage(pool, cycle);
+    expect(sealed.activeMembers).toBe(4);
+    for (const m of sealed.modules) expect(m.activeMembers).toBe(4);
+    const weights = reachWeights(sealed);
+    expect(weights.get("library")).toBe(1);
+    expect(weights.get("events")).toBe(0.25);
+  });
+
   it("holds reach at one even when the counts disagree", async () => {
     // reachWeights clamps, because the cap at one village one vote is the
     // anti-inflation argument and it must be a rule instead of a habit.

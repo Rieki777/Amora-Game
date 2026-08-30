@@ -304,6 +304,29 @@ describe("the payout identity, checked on the wire", () => {
     expect(moduleUsageReportProblems(r).join(" ")).toContain("so one of the two is wrong");
   });
 
+  it("reads a blank credit line as no credit rather than as a disagreement", () => {
+    const r = report();
+    r.modules[0] = { ...r.modules[0]!, builtBy: "   ", platformBuilt: true };
+    expect(moduleUsageReportProblems(r)).toEqual([]);
+  });
+
+  it("refuses a destination for a share that is not one", () => {
+    const r = report();
+    r.modules[0] = { ...r.modules[0]!, disposition: "somewhere-else" as any };
+    expect(moduleUsageReportProblems(r).join(" ")).toContain("not somewhere a share can go");
+  });
+
+  it("refuses a platform module claiming its share is owed away", () => {
+    /*
+     * The leak R59 exists to close, seen from the counter's side. A line saying
+     * the platform built it AND that somebody is owed its share is asking a
+     * counter to pay a third party for the platform's own usage.
+     */
+    const r = report();
+    r.modules[0] = { ...r.modules[0]!, platformBuilt: true, builtBy: null, disposition: "paid" };
+    expect(moduleUsageReportProblems(r).join(" ")).toContain("share returns to the pool");
+  });
+
   it("takes a host name as a namespace and refuses a bare word", () => {
     expect(isBuilderNamespace("regen.example")).toBe(true);
     expect(isBuilderNamespace("a.b.c.example")).toBe(true);

@@ -344,10 +344,30 @@ export function moduleUsageReportProblems(report: unknown): string[] {
  */
 function provenanceProblems(m: ModuleUsageEntry, id: string): string[] {
   const out: string[] = [];
+  // A blank credit is the same fact as no credit, and a sender that writes one
+  // as an empty string would otherwise be told its `platformBuilt` disagrees
+  // with a credit line that is not there.
+  const credited = typeof m.builtBy === "string" && m.builtBy.trim() !== "";
   if (typeof m.platformBuilt !== "boolean") {
     out.push(`module "${id}" does not say whether the platform built it, and that decides whether its share is owed to anybody`);
-  } else if (m.platformBuilt !== (m.builtBy === null || m.builtBy === undefined)) {
-    out.push(`module "${id}" credits ${m.builtBy ? `"${m.builtBy}"` : "nobody"} and says platformBuilt is ${String(m.platformBuilt)}, so one of the two is wrong`);
+  } else if (m.platformBuilt === credited) {
+    out.push(`module "${id}" credits ${credited ? `"${String(m.builtBy)}"` : "nobody"} and says platformBuilt is ${String(m.platformBuilt)}, so one of the two is wrong`);
+  }
+  /*
+   * WHERE THE SHARE GOES, checked, because a counter acts on this field and a
+   * value it does not recognise is not a value it may guess at.
+   *
+   * The pairing check is the one with teeth: `paid` means somebody outside the
+   * platform is owed this share, and a line claiming the platform built it
+   * while also claiming its share is owed away is asking to be paid for the
+   * platform's own usage. That is precisely the leak R59 exists to close, and
+   * it is the difference between a report a counter can settle from and one
+   * that quietly moves money.
+   */
+  if (m.disposition !== "paid" && m.disposition !== "recycled" && m.disposition !== "none") {
+    out.push(`module "${id}" says its share goes to "${String(m.disposition)}", which is not somewhere a share can go`);
+  } else if (m.disposition === "paid" && m.platformBuilt === true) {
+    out.push(`module "${id}" says the platform built it and that its share is owed to somebody. A platform module's share returns to the pool`);
   }
   if (m.builderHandle === null || m.builderHandle === undefined) {
     if (m.builderNamespace) {
