@@ -47,6 +47,13 @@
  */
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { cycleBoundsFor } from "../../shared/lunar";
+import {
+  mintRuleValueNumber,
+  mintRuleValueProblem,
+  parseMintRuleKey,
+  type MintRuleField,
+} from "../../shared/mintRuleKeys";
+import { issuanceRefusal } from "./gameStart";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { shareCapFor } from "./gratitude";
 import { numberVar } from "./variables";
@@ -641,10 +648,37 @@ export function checkGive(
  *
  * The ledger post happens AFTER the commit, on purpose, and the order is the
  * conservative one. The note row consumes the allowance, so a crash between
- * the two leaves an allowance spent and no hearts minted: visible, keyed, and
- * healed by a retry, because the mint is idempotent on the note id. The other
- * order would mint hearts that no allowance had paid for, which is the failure
- * that costs something.
+ * the two leaves an allowance spent and no hearts minted, which is visible and
+ * keyed. The other order would mint hearts that no allowance had paid for,
+ * which is the failure that costs something.
+ *
+ * ── A RETRY DOES NOT HEAL IT, AND THIS COMMENT USED TO SAY IT DID ───────────
+ *
+ * The claim was "healed by a retry, because the mint is idempotent on the note
+ * id". The mint IS idempotent on the note id, and that is not the same
+ * sentence: a retry runs this function again and mints a NEW note id, so it is
+ * a new key, a new row and a second charge against the allowance. Nothing in
+ * this product ever re-posts an existing note (`keys.gratitudeGiven` has one
+ * call site, below), so the orphaned row stays orphaned.
+ *
+ * ── WHICH TURNED A CRASH WINDOW INTO AN EVERY-TIME BUG ──────────────────────
+ *
+ * `postTransfer` refuses every faucet posting until the village's launch vote
+ * carries (R67, `issuanceRefusal`), and the route above this gates on
+ * `economyReady` rather than on that. So for a founder setting up their Game,
+ * which is EVERY village until it launches, the post was not unlikely to fail.
+ * It failed every time: the note committed, the allowance was spent, the
+ * recipient got nothing, and the record said a gift had been given.
+ *
+ * So the question is asked BEFORE the note is taken. Refusing the whole act
+ * with the gate's own sentence is better than unwinding afterwards, because a
+ * note is something somebody wrote and losing their words to a ledger refusal
+ * is its own kind of wrong. Found by Lane TESTRUN, round 7.
+ *
+ * WHAT THIS DOES NOT CLOSE, said plainly: the crash window above is still
+ * there, and so is any other reason the ledger might refuse. This closes the
+ * one refusal that is knowable in advance and was firing on every give in
+ * every un-launched village.
  */
 export async function give(
   pool: Pool,
@@ -652,6 +686,14 @@ export async function give(
   stageMultiplier: StageMultiplierFor,
 ): Promise<MintOutcome & { noteId?: string }> {
   const amount = Number(input.amount);
+  /*
+   * Can this village issue at all? Asked before anything is written, for the
+   * reason in this function's header. The answer only ever moves one way, from
+   * closed to open, so a village that launches between this line and the post
+   * below costs somebody one refused give and never a lost note.
+   */
+  const closed = await issuanceRefusal(pool);
+  if (closed) return { ok: false, error: closed };
   // Resolved BEFORE the transaction opens. The stage a member has reached is
   // not what these gives race over, the spending is, and asking for it from
   // inside a SERIALIZABLE transaction would take a second pooled connection
@@ -1195,6 +1237,125 @@ export async function queueRuleChange(
     ],
   );
   return { ok: true, fromCycle };
+}
+
+/**
+ * The rules a change set names, by id, village-scoped like every other read
+ * here. Absent ids are simply absent from the map: a rule this village does
+ * not have is a real answer, and inventing a row for it would let a ballot
+ * decide a payment nobody could make.
+ */
+export async function mintRulesByIds(pool: Pool, ruleIds: string[]): Promise<Map<string, MintRule>> {
+  const ids = Array.from(new Set(ruleIds.filter((id) => !!id)));
+  const out = new Map<string, MintRule>();
+  if (ids.length === 0) return out;
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT * FROM \`mint_rules\` WHERE \`village_id\` = ? AND \`id\` IN (${ids.map(() => "?").join(",")})`,
+    [villageId(), ...ids],
+  );
+  for (const r of rows) {
+    const rule = rowToRule(r);
+    out.set(rule.id, rule);
+  }
+  return out;
+}
+
+export interface MintRuleQueueResult {
+  /** Each key that reached the rule, with the moon it lands on. */
+  queued: Array<{ key: string; ruleId: string; field: MintRuleField; from: string; to: string; fromCycle: number }>;
+  failed: Array<{ key: string; problem: string }>;
+}
+
+/**
+ * APPLY A CARRIED BALLOT'S MINTING CHANGES (R81, R84).
+ *
+ * The village's decision lands through `queueRuleChange`, which is the same
+ * writer the admin route uses. One writer, one deferral, one shape of pending
+ * row, whoever decided it.
+ *
+ * ── ONE CALL PER RULE, AND THAT IS THE WHOLE REASON THIS EXISTS ─────────────
+ *
+ * `queueRuleChange` writes all four pending columns every time, filling the
+ * ones it was not given from the rule's LIVE values. So a set moving an amount
+ * and a ceiling on the same rule, applied as two calls, would have the second
+ * call overwrite the first one's pending amount with the live one, and the
+ * village would get half of what it voted for with nothing to show that
+ * anything went wrong. Grouping by rule is what makes the write whole.
+ *
+ * ── VALIDATED AGAIN HERE, ON PURPOSE ────────────────────────────────────────
+ *
+ * Every value was checked when the proposal was raised. It is checked again on
+ * the way in, and `queueRuleChange` checks the row's own bounds a third time
+ * against the row as it stands now. A rule can be edited, disabled or removed
+ * between a vote opening and closing, and a refusal that says so is worth more
+ * than a write that half lands.
+ *
+ * ── IDEMPOTENT ─────────────────────────────────────────────────────────────
+ *
+ * `closeBallot` takes one guarded transition, so a second close never reaches
+ * an executor at all. Beyond that, this writes the same pending values from
+ * the same change set, so a run that did reach here twice leaves the rule in
+ * exactly the state the first run left it.
+ */
+export async function applyMintRuleChanges(
+  pool: Pool,
+  changes: Array<{ key: string; from: string; to: string }>,
+  actorUserId: string,
+): Promise<MintRuleQueueResult> {
+  const queued: MintRuleQueueResult["queued"] = [];
+  const failed: MintRuleQueueResult["failed"] = [];
+  const byRule = new Map<string, Array<{ key: string; field: MintRuleField; from: string; to: string }>>();
+
+  for (const c of changes) {
+    const parsed = parseMintRuleKey(c.key);
+    if (!parsed) {
+      failed.push({ key: c.key, problem: "This build cannot read that as one of the village's minting rules" });
+      continue;
+    }
+    const fields = byRule.get(parsed.ruleId) ?? [];
+    fields.push({ key: c.key, field: parsed.field, from: c.from, to: c.to });
+    byRule.set(parsed.ruleId, fields);
+  }
+
+  for (const [ruleId, fields] of Array.from(byRule.entries())) {
+    const rules = await mintRulesByIds(pool, [ruleId]);
+    if (!rules.has(ruleId)) {
+      for (const f of fields) {
+        failed.push({ key: f.key, problem: "This village no longer has a minting rule by that name" });
+      }
+      continue;
+    }
+    const change: { amount?: number | null; ceiling?: number; enabled?: boolean } = {};
+    let refused: string | null = null;
+    for (const f of fields) {
+      const invalid = mintRuleValueProblem(f.field, f.to);
+      if (invalid) {
+        refused = invalid;
+        break;
+      }
+      if (f.field === "amount") change.amount = mintRuleValueNumber("amount", f.to);
+      else if (f.field === "ceiling") change.ceiling = Number(f.to);
+      else change.enabled = f.to === "true";
+    }
+    /*
+     * A rule is refused WHOLE. Queueing the half that still validates would
+     * write a pending row nobody voted for, which is a worse outcome than a
+     * refusal the decision page shows.
+     */
+    if (refused) {
+      for (const f of fields) failed.push({ key: f.key, problem: refused });
+      continue;
+    }
+    const out = await queueRuleChange(pool, ruleId, change, actorUserId);
+    if (!out.ok) {
+      for (const f of fields) failed.push({ key: f.key, problem: out.error });
+      continue;
+    }
+    for (const f of fields) {
+      queued.push({ key: f.key, ruleId, field: f.field, from: f.from, to: f.to, fromCycle: out.fromCycle });
+    }
+  }
+  return { queued, failed };
 }
 
 /**

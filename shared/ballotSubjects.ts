@@ -114,6 +114,66 @@ export const VILLAGE_LAUNCH = "village_launch";
  */
 export const LAUNCH_SUBJECT_REF = "start";
 
+/**
+ * ── THE SECOND ENTRY: CHANGING WHAT THE VILLAGE MINTS ───────────────────────
+ *
+ * R81, in the founder's words: "all minting of tokens go through the
+ * governance process." R84 says which reading that is: the village votes on
+ * the RULES, and issuance then runs under rules the village already set.
+ *
+ * A proposal whose change set names a minting rule opens under this subject
+ * instead of `mechanics`. Everything else about it is a mechanics proposal:
+ * the same row, the same support threshold, the same document, the same
+ * executor. The subject type is what carries the threshold, so it is what has
+ * to differ.
+ *
+ * ── WHY THE QUORUM RISES AND THE UNITY DOES NOT ─────────────────────────────
+ *
+ * R68 gives the reason thresholds are tiered at all, and it is a specific
+ * reason: "so people have to become aware of the changes and be wanting them
+ * (for them to vote on them)". AWARENESS is the word. Quorum is the dial that
+ * measures awareness, because quorum is how much of the roll turned up. Unity
+ * measures agreement among whoever did. So the ruling's own stated reason
+ * lands on quorum, and raising unity would be answering a question nobody
+ * asked.
+ *
+ * There is a second reason, and it is the one that decides the METHOD field.
+ * `evaluateBallot` reads `quorumPct` FIRST, for every method, before it looks
+ * at anything else. It reads `unityPct` for `custom` alone. So a quorum floor
+ * is a true statement under all four methods, and a unity floor would be a
+ * number sitting in the row deciding nothing on three of them, which is the
+ * lie with a number on it this file's header refuses. A quorum floor therefore
+ * does not have to seize the village's choice of method, and it does not.
+ *
+ * ── WHERE 50 COMES FROM, AND WHERE IT DOES NOT ──────────────────────────────
+ *
+ * The founder has not named a number for this one. 50 is not invented for it
+ * either: it is already this engine's own constant, the hard 50 `majority`
+ * compares against in `evaluateBallot` and the unity `dialsForMethod` stamps
+ * for it. Said as a sentence, it is "more than half the village's voting
+ * weight was in the room when this was decided", which is the smallest claim
+ * that answers R68's awareness test.
+ *
+ * It also sits inside the range R74 opened. Launch is 100 and 100 because
+ * starting a Game is irreversible. A mint rule change is not: it takes effect
+ * at the next moon at the earliest, and the next vote can move it back. So it
+ * belongs above the ordinary default of 20 and below launch, and 50 is the one
+ * number in that range this codebase already uses for something.
+ *
+ * THE FLOOR NEVER LOWERS ANYONE. A village that set its quorum to 80 keeps 80
+ * here, because `dialsForSubject` takes the higher of the two.
+ *
+ * ── WHY THERE IS NO ELECTORATE FLOOR ────────────────────────────────────────
+ *
+ * Three was considered and refused. A launched village already cleared three
+ * at launch, so the floor would only ever bite a village that has SHRUNK, and
+ * the effect would be to take the mint back off a small village and leave it
+ * with the admin panel. R54's test is whether a thing moves a power toward the
+ * village or entrenches the scaffolding, and that fails it. A village of two
+ * governing itself is still governing itself.
+ */
+export const MINT_RULE = "mint_rule";
+
 export const SUBJECT_THRESHOLDS: Readonly<Record<string, SubjectThresholds>> = {
   [VILLAGE_LAUNCH]: {
     minUnityPct: 100,
@@ -121,6 +181,12 @@ export const SUBJECT_THRESHOLDS: Readonly<Record<string, SubjectThresholds>> = {
     minElectorate: 3,
     method: "custom",
     why: "Starting the Game turns on token issuance, so it asks for every member on the roll to vote and every one of them to agree.",
+  },
+  [MINT_RULE]: {
+    minUnityPct: 0,
+    minQuorumPct: 50,
+    minElectorate: 0,
+    why: "This one changes what the village mints, so it asks for more than half the village's voting weight to take part. How much of that has to agree is the village's own setting.",
   },
 };
 

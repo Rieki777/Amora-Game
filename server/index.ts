@@ -193,8 +193,11 @@ import {
   proposalMarkdown,
   proposalsOpenedSince,
   proposerStanding,
+  currentMintRuleValue,
+  mintRuleLabel,
   rowToProposal,
   validateChangeSet,
+  type MintRuleValues,
 } from "./lib/mechanics";
 import { buildMechanicsHandoff } from "./lib/hypha-bridge";
 // ── The Hypha Bridge module (R58) ────────────────────────────────────────────
@@ -264,8 +267,10 @@ import {
   methodForSubject,
   thresholdsForSubject,
   LAUNCH_SUBJECT_REF,
+  MINT_RULE,
   VILLAGE_LAUNCH,
 } from "../shared/ballotSubjects";
+import { isMintRuleKey, parseMintRuleKey } from "../shared/mintRuleKeys";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
@@ -295,7 +300,7 @@ import {
   spendSurfacesFor,
 } from "./lib/spending";
 import { seatChargeFor, seatEscrowDrift, seatPriceFor, settleFinishedSeats } from "./lib/eventSeats";
-import { allowanceFor, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId, type StageMultiplierFor } from "./lib/economy";
+import { allowanceFor, applyMintRuleChanges, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintRulesByIds, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, villageId, type StageMultiplierFor } from "./lib/economy";
 import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -23631,15 +23636,78 @@ ${inner}
     res.json(await mintView(getPool()));
   });
 
-  /** Queue a change. It lands at the next moon and says so in the response. */
+  /**
+   * Queue a change. It lands at the next moon and says so in the response.
+   *
+   * ── AFTER THE GAME STARTS, THIS IS A FOUNDER'S KEY (R81, R85, R68) ────────
+   *
+   * R81: "all minting of tokens go through the governance process" once the
+   * village has voted to start its Game. R84 says which reading that is: the
+   * village votes on the RULES. So after launch this route stops being an
+   * ordinary admin act, and the way an ordinary admin changes a minting rule
+   * is to put it to the village, which they can now do
+   * (`shared/mintRuleKeys.ts`).
+   *
+   * BEFORE LAUNCH NOTHING CHANGES. R67: a founder builds the whole Game alone,
+   * and nothing issues until the launch vote carries, so an unrestricted
+   * editor before that moment creates no value and takes nothing from anybody.
+   *
+   * R85 IS WHY THE DOOR IS NOT SIMPLY SHUT. In the founder's words: "all named
+   * founders have this back door ability until it is taken away." So a village
+   * has three stages and not two. Setup, launched, and a second handover after
+   * which the key is gone. THAT SECOND EVENT DOES NOT EXIST YET, and this
+   * route is where it will attach: see the TODO below.
+   *
+   * "Named founders" is a SET and not a person, which is what the `founder`
+   * account role already is, and the last-founder guard on
+   * `PUT /api/admin/users/:id/role` means the set is never empty. So a founder
+   * key can never strand a village that cannot assemble its quorum.
+   *
+   * R68 IS WHY IT IS LOUD. After launch, every admin action is available to be
+   * seen by all members. A back door nobody can see would contradict that
+   * directly, so a founder's use of this writes a line on the PUBLIC pulse
+   * saying what changed and that no vote decided it, beside the admin trail
+   * row that was already here.
+   *
+   * TODO (R85, the second handover): when the handover event lands, it records
+   * one dated fact the way `app_config['game-start']` records the launch, and
+   * this route reads it beside `readGameStart`. After it, the founder branch
+   * below goes away and every actor takes the same 403. The event needs three
+   * things and none of them exist today: a record with a date and the ballot
+   * or ceremony behind it, a surface that makes it a deliberate act instead of
+   * a flag somebody flips, and a sweep of every other route that treats
+   * `role === "founder"` as a standing power. Do not infer it from anything
+   * already in the tree.
+   *
+   * R89 makes that TODO a step on a committed path rather than a loose end.
+   * The stated end state is a village that governs itself with NO admins, on
+   * its own voice rules, minting eternally. This branch is the last thing
+   * standing between the mint and that, and it is meant to be removed.
+   */
   app.patch("/api/admin/economy/rules/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const actorUser = (req as any).adminUser;
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
+    const started = await readGameStart(getPool());
+    const isNamedFounder = actorUser?.role === "founder";
+    if (started.started && !isNamedFounder) {
+      return res.status(403).json({
+        error:
+          "This village decides what it mints. Put the change up on the Game Mechanics page and the village votes on it.",
+      });
+    }
     const body = req.body ?? {};
     const change: { amount?: number | null; ceiling?: number; enabled?: boolean } = {};
     if ("amount" in body) change.amount = body.amount === null ? null : Number(body.amount);
     if ("ceiling" in body) change.ceiling = Number(body.ceiling);
     if ("enabled" in body) change.enabled = body.enabled === true;
+
+    /*
+     * Read BEFORE the write, so the public line can say what the rule is for
+     * in the village's own words. After the write the row still carries them,
+     * and reading first keeps the sentence and the refusal on one code path.
+     */
+    const before = (await mintRulesByIds(getPool(), [req.params.id])).get(req.params.id) ?? null;
 
     const out = await queueRuleChange(getPool(), req.params.id, change, actor);
     if (!out.ok) return res.status(400).json({ error: out.error });
@@ -23652,6 +23720,22 @@ ${inner}
       entityRef: req.params.id,
       audience: "admin",
     });
+    /*
+     * THE BACK DOOR IS VISIBLE (R68, R85). Only after launch, because before
+     * it there is no village governing anything and a line per dial edit
+     * during setup would be noise in a feed nobody is reading yet. It names
+     * the fact and stops: what changed, that no vote decided it, and when it
+     * lands. R56 says state what is true and then get out of the way, so there
+     * is no warning attached and nothing asking anyone to feel a way about it.
+     */
+    if (started.started) {
+      const what = before ? `${before.trigger} in ${before.tokenSlug}` : "one of the village's minting rules";
+      await addActivity(
+        "governance",
+        `A founder changed what the village mints for ${what}, without a village vote. It takes effect at the next moon.`,
+        { actorUserId: actor, entityType: "mint_rule", entityRef: req.params.id },
+      );
+    }
     res.json({ success: true, fromCycle: out.fromCycle, view: await mintView(getPool()) });
   });
 
@@ -25209,6 +25293,15 @@ ${inner}
   ) => {
     const proposer = await members.byId(p.proposerUserId);
     const b = backers.get(p.id) ?? { supports: 0, sponsors: [] };
+    /*
+     * The minting rules this proposal names, when it names any. Read here so
+     * the card can say what a rule PAYS FOR instead of printing its key. The
+     * query only runs for a proposal that names one.
+     */
+    const mintIds = (p.changeSet as any[])
+      .map((c: any) => parseMintRuleKey(String(c.key))?.ruleId ?? "")
+      .filter(Boolean);
+    const mintRules = mintIds.length > 0 ? await mintRulesByIds(getPool(), mintIds) : new Map();
     return {
       id: p.id,
       title: p.title,
@@ -25227,17 +25320,37 @@ ${inner}
       sponsors: b.sponsors.length,
       changes: p.changeSet.map((c: any) => {
         const def = VARIABLES_BY_KEY[c.key];
+        const mint = parseMintRuleKey(String(c.key));
+        const rule = mint ? mintRules.get(mint.ruleId) : null;
         return {
           key: c.key,
-          label: def?.label ?? c.key,
+          label: mint ? (rule ? mintRuleLabel(rule, mint.field) : c.key) : def?.label ?? c.key,
           from: c.from,
           fromDisplay: displayChangeValue(c.key, c.from),
           to: c.to,
           toDisplay: displayChangeValue(c.key, c.to),
-          applyTiming: def ? applyTimingOf(def) : "instant",
+          /*
+           * A MINTING RULE IS ALWAYS DEFERRED, AND "instant" WOULD BE A LIE.
+           *
+           * This used to fall to "instant" for anything without a registry
+           * entry, and the card shows its "at next cycle close" note only for
+           * a cycle-close change. So a carried mint would have rendered with
+           * no note at all, telling a voter the village starts paying the new
+           * amount the moment the vote closes. It does not: `queueRuleChange`
+           * stamps the next cycle and settlement promotes it (0075). The card
+           * already has the right sentence, so this hands it the right value.
+           */
+          applyTiming: mint ? "cycle-close" : def ? applyTimingOf(def) : "instant",
           // Honest context for voters: the baseline can move under an open
           // proposal (another proposal passed, an admin acted). Show it.
-          currentValue: def ? rawValue(c.key) : null,
+          // For a minting rule it is the rule's live value, read the same way.
+          currentValue: mint
+            ? rule
+              ? currentMintRuleValue(rule, mint.field)
+              : null
+            : def
+              ? rawValue(c.key)
+              : null,
         };
       }),
     };
@@ -25288,6 +25401,18 @@ ${inner}
     });
   });
 
+  /*
+   * THE MINTING RULES A CHANGE SET NAMES (R81, R84).
+   *
+   * `validateChangeSet` takes this instead of querying, so `lib/mechanics.ts`
+   * stays free of the token registry and its unit tests keep proving that the
+   * dial path never touches the pool. One reader, used at raise and by the
+   * document, so the numbers a member votes on and the numbers checked are
+   * read the same way.
+   */
+  const readMintRulesForChangeSet = async (ruleIds: string[]): Promise<Map<string, MintRuleValues>> =>
+    (await mintRulesByIds(getPool(), ruleIds)) as Map<string, MintRuleValues>;
+
   app.post("/api/game/mechanics/proposals", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to propose a change to the game" });
@@ -25312,6 +25437,7 @@ ${inner}
       Array.isArray(req.body?.changes) ? req.body.changes : [],
       rawValue,
       cooldown,
+      readMintRulesForChangeSet,
     );
     if (problems.length) return res.status(400).json({ error: "The change-set has problems", problems });
     const id = `gmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -25554,14 +25680,20 @@ ${inner}
   async function applyMechanicsProposal(
     p: { id: string; title: string; changeSet: any[]; proposerUserId: string; hyphaRef: string | null; status: string; ballotId?: string | null },
     actor: string | null,
-  ): Promise<{ ok: boolean; applied: string[]; failed: Array<{ key: string; problem: string }> }> {
-    if (p.status === "applied") return { ok: true, applied: [], failed: [] };
+  ): Promise<{ ok: boolean; applied: string[]; queued: string[]; landsAtCycle: number | null; failed: Array<{ key: string; problem: string }> }> {
+    if (p.status === "applied") return { ok: true, applied: [], queued: [], landsAtCycle: null, failed: [] };
     // An on-site pass carries its ballot the same way a Hypha pass carries
     // its chain reference: every amendment row points at its vote.
     const proposalRef = `gm:${p.id}${p.hyphaRef ? ` ${p.hyphaRef}` : ""}${p.ballotId ? ` bal:${p.ballotId}` : ""}`.slice(0, 255);
     const applied: string[] = [];
+    const queued: string[] = [];
+    let landsAtCycle: number | null = null;
     const failed: Array<{ key: string; problem: string }> = [];
     for (const c of p.changeSet) {
+      // A minting rule is not a dial and has no registry entry. It is applied
+      // below, in one call per rule, for the reason written on
+      // `applyMintRuleChanges`.
+      if (isMintRuleKey(c.key)) continue;
       const def = VARIABLES_BY_KEY[c.key];
       if (!def) { failed.push({ key: c.key, problem: "This dial no longer exists in the registry" }); continue; }
       if (ringOf(def) !== "open") { failed.push({ key: c.key, problem: "This dial is no longer community-governable" }); continue; }
@@ -25575,7 +25707,38 @@ ${inner}
       );
       applied.push(c.key);
     }
-    if (applied.length > 0) {
+
+    /*
+     * THE MINTING RULES (R81, R84), AND WHY THEY ARE COUNTED SEPARATELY.
+     *
+     * A dial that applies HOLDS its new value from that moment. A minting rule
+     * does not: it is queued into its own pending columns and the next
+     * settlement promotes it, which is the deferral 0075 exists for. So a mint
+     * change goes into `queued` and never into `applied`, because the decision
+     * page renders every applied key as "<key> now holds the value the village
+     * voted for" and that sentence would be false about the one table that
+     * decides what members are paid. `landsAtCycle` carries the moon it lands
+     * on, so the sentence a member reads is the one the row actually promises.
+     */
+    const mintSet = p.changeSet.filter((c: any) => isMintRuleKey(c.key));
+    if (mintSet.length > 0) {
+      const out = await applyMintRuleChanges(getPool(), mintSet, actor ?? "governance");
+      failed.push(...out.failed);
+      for (const q of out.queued) {
+        queued.push(q.key);
+        landsAtCycle = q.fromCycle;
+        await recordMechanicsChange(
+          q.key,
+          { value: q.to, previous: q.from },
+          actor,
+          "governance",
+          proposalRef,
+          `Carried by the village and queued on the rule. It takes effect at cycle ${q.fromCycle}.`,
+        );
+      }
+    }
+
+    if (applied.length > 0 || queued.length > 0) {
       await getPool().query("UPDATE mechanics_proposals SET status = 'applied' WHERE id = ?", [p.id]);
       await addActivity("governance", `The village's rules changed by passed proposal: ${p.title}`, {
         actorUserId: actor, entityType: "mechanics_proposal", entityRef: p.id,
@@ -25583,14 +25746,20 @@ ${inner}
       await notify({
         userId: p.proposerUserId,
         type: "governance",
-        title: `Your proposal was applied: ${p.title}`,
-        body: failed.length ? `${applied.length} change(s) applied; ${failed.length} could not be (see the ledger).` : null,
+        title: queued.length > 0 && applied.length === 0
+          ? `Your proposal carried and is queued for the next moon: ${p.title}`
+          : `Your proposal was applied: ${p.title}`,
+        body: failed.length
+          ? `${applied.length + queued.length} change(s) went through; ${failed.length} could not (see the ledger).`
+          : queued.length > 0
+            ? "What the village mints changes at the next moon. Nothing is paid at a new rate inside the cycle it is already in."
+            : null,
         link: proposalLink(p.id),
         actorUserId: actor,
         dedupeKey: `gmp:${p.id}:applied`,
       });
     }
-    return { ok: failed.length === 0, applied, failed };
+    return { ok: failed.length === 0, applied, queued, landsAtCycle, failed };
   }
 
   /** A set holding ANY cycle-timed dial applies as a whole at cycle close —
@@ -26050,6 +26219,27 @@ ${inner}
         out.proposerTold = p.proposerUserId;
         const applyResult = await applyMechanicsProposal(fresh, actorId);
         out.applied = applyResult.applied;
+        /*
+         * A CARRIED MINTING CHANGE IS QUEUED, AND THE CARD HAS TO SAY SO.
+         *
+         * "What changed" renders every applied key as "<key> now holds the
+         * value the village voted for". A minting rule does not hold it yet:
+         * the deferral in 0075 means it lands at the next moon, and a member
+         * reading that sentence would conclude the village is being paid the
+         * new amount today. `held` is the field written for exactly this, and
+         * the page reads it as "Nothing has moved yet: <held>. The change is
+         * recorded and waiting", which is the truth about a queued rule.
+         *
+         * `applied` and `queued` are never both filled on one proposal, because
+         * `validateChangeSet` refuses a set that mixes dials and minting rules.
+         * So "nothing has moved yet" is never said over a dial that did move.
+         */
+        if (applyResult.queued.length > 0) {
+          out.held =
+            applyResult.landsAtCycle !== null
+              ? `what the village mints changes at cycle ${applyResult.landsAtCycle}, the next moon`
+              : "what the village mints changes at the next moon";
+        }
         if (applyResult.failed.length > 0) {
           await notifyAdmins(
             "governance",
@@ -26566,6 +26756,23 @@ ${inner}
     },
   };
 
+  /*
+   * ── ONE EXECUTOR, TWO SUBJECT TYPES (R81, R84) ──────────────────────────
+   *
+   * A proposal that changes what the village mints IS a mechanics proposal:
+   * the same row, the same supporters, the same document, the same status
+   * machine, the same close. The only thing that differs is the price of
+   * deciding it, and the price is carried by the subject type
+   * (`shared/ballotSubjects.ts`), so the subject type is what has to differ.
+   *
+   * Registered by assignment instead of by a second copy of the function. Two
+   * copies of a governance executor disagree eventually, and here the
+   * disagreement lands on somebody who thinks the village decided something.
+   * This line is also what makes `ballotBinds` true for a minting vote, which
+   * is read straight off this table.
+   */
+  SUBJECT_CLOSERS[MINT_RULE] = SUBJECT_CLOSERS.mechanics;
+
   /**
    * What a power-transfer ballot is ABOUT, read off its frozen subject ref.
    *
@@ -26939,7 +27146,36 @@ ${inner}
       return res.status(409).json({ error: "This village decides mechanics on Hypha. Use Take to Hypha, or change governance.default_method first" });
     }
     const method: BallotMethod = conducts;
-    const dials = dialsForMethod(method, {
+    /*
+     * WHICH SUBJECT THIS IS, READ OFF THE CHANGE SET (R81, R84).
+     *
+     * A change set names game dials or minting rules, never both:
+     * `validateChangeSet` refuses the mix, and the reason is written there.
+     * So one look answers which subject the village is being asked about, and
+     * the subject is what carries the threshold.
+     *
+     * THIS IS THE OPT-IN, AND IT IS THE WHOLE POINT OF THE LINE BELOW. Of the
+     * six routes that open a village-wide ballot, five call `dialsForMethod`
+     * and never see the subject registry at all. A minting vote opened through
+     * one of those would conduct at the ordinary quorum, pass on a quiet week,
+     * and look completely correct doing it, because there is nothing on the
+     * ballot to say which threshold it should have had. `dialsForSubject`
+     * calls `dialsForMethod` itself and then raises it to the subject's floor,
+     * so this route answers for both kinds with one call and cannot forget.
+     *
+     * ── A THIRD KIND OF RULE COSTS FOUR EDITS, NAMED HERE (R89) ────────────
+     *
+     * The end state is a village that votes on everything, so the next lane
+     * that wants a second kind of rule inside a change set needs: a key
+     * namespace of its own beside `shared/mintRuleKeys.ts`, an entry in
+     * `SUBJECT_THRESHOLDS`, a branch in `validateChangeSet`, and an apply in
+     * `applyMechanicsProposal`. This ternary becomes a lookup, and the
+     * one-vocabulary-per-proposal rule in `validateChangeSet` generalises with
+     * it: a proposal names one kind of rule, because the threshold is priced
+     * per subject and a proposal that is two subjects has no honest price.
+     */
+    const subjectType = p.changeSet.some((c: any) => isMintRuleKey(c.key)) ? MINT_RULE : "mechanics";
+    const dials = dialsForSubject(subjectType, method, {
       unityPct: Math.max(0, numberVar("governance.unity_pct")),
       quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
     });
@@ -26950,6 +27186,18 @@ ${inner}
     }
     const electorate = await buildElectorate();
     const proposer = await members.byId(p.proposerUserId);
+    /*
+     * The rules the document names, read at OPEN. The document is frozen into
+     * the ballot and is what the village reads, so a minting change has to say
+     * what it pays for in the village's own words. A key on its own would be a
+     * vote on a string.
+     */
+    const mintRules =
+      subjectType === MINT_RULE
+        ? await readMintRulesForChangeSet(
+            p.changeSet.map((c: any) => parseMintRuleKey(String(c.key))?.ruleId ?? "").filter(Boolean),
+          )
+        : undefined;
     const markdown = proposalMarkdown({
       id: p.id,
       title: p.title,
@@ -26959,9 +27207,10 @@ ${inner}
       proposerName: proposer ? firstName(proposer.name) : "A departed member",
       supports,
       createdAt: p.createdAt,
+      mintRules,
     });
     const result = await openBallot(getPool(), {
-      subjectType: "mechanics",
+      subjectType,
       subjectRef: p.id,
       title: p.title,
       docMarkdown: markdown,
@@ -27398,8 +27647,13 @@ ${inner}
     if (!user) return res.status(401).json({ error: "auth_required" });
     const b = await ballotById(getPool(), req.params.id);
     if (!b) return res.status(404).json({ error: "Not found" });
+    // A minting vote's subject IS a mechanics proposal, so its proposer holds
+    // the same door. Both subject types, or a village that voted on what it
+    // mints would find the author locked out of closing it.
     const subjectProposerId =
-      b.subjectType === "mechanics" ? (await proposalById(getPool(), b.subjectRef))?.proposerUserId ?? null : null;
+      b.subjectType === "mechanics" || b.subjectType === MINT_RULE
+        ? (await proposalById(getPool(), b.subjectRef))?.proposerUserId ?? null
+        : null;
     const expired = Date.parse(b.closesAt) <= Date.now();
     const isProposer = user.id === subjectProposerId || user.id === b.openedBy;
     /*
@@ -27597,7 +27851,7 @@ ${inner}
      * anything. Guarded on `onsite_vote` so a proposal somebody else moved in
      * the meantime is left alone.
      */
-    if (b.subjectType === "mechanics") {
+    if (b.subjectType === "mechanics" || b.subjectType === MINT_RULE) {
       await getPool().query(
         "UPDATE mechanics_proposals SET status = 'open' WHERE id = ? AND status = 'onsite_vote'",
         [b.subjectRef],
