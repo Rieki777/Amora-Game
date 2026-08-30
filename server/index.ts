@@ -29613,7 +29613,35 @@ ${inner}
     );
   });
 
-  /** One seat's whole history, ended seatings included. */
+  /**
+   * One seat's whole history, ended seatings included.
+   *
+   * THIS ROUTE IS STRICTER THAN `/api/org` ON PURPOSE. DO NOT LEVEL THEM.
+   *
+   * `/api/org` has three tiers and its widest one answers a signed-out
+   * stranger whenever `org.public_people` is on, which it is by default
+   * (R57). This route asks `map.viewPeople` or admin and stops there. It
+   * never consults that dial. Read side by side the two look inconsistent,
+   * and a tidy-up that "fixed" it would publish things `/api/org` spent real
+   * work withholding.
+   *
+   * THE REASON IS IN THE PAYLOADS, not in the principle. `/api/org`'s public
+   * tier is a first name and nothing else, and `publicHolder` above lists
+   * what it strips and why it was stripped: `focus`, `note`, `userId`,
+   * `kind`, `lapsed`. Every row this route returns carries `focus` and
+   * `endedReason`. Both sit at the MEMBER tier or above in that same
+   * document, so honouring `org.public_people` here would hand an anonymous
+   * caller two fields the route next door refuses them by name.
+   *
+   * Said the shorter way: a CURRENT seat is a fact about the village, and
+   * somebody deciding whether to approach it needs that. A HISTORY of who
+   * held it is a record about people over time, including when each of them
+   * stopped and why. The village publishes the first. The second is the
+   * members' own record of themselves.
+   *
+   * So the asymmetry is the decision. If it should ever change, the thing to
+   * change is what this payload carries, and the tiering follows from that.
+   */
   app.get("/api/org/roles/:id/history", async (req, res) => {
     const viewer = await authedUser(req);
     const maySeePeople =
