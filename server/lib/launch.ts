@@ -215,18 +215,45 @@ export async function launchVoteBlocked(
  * forwards and different events looking back: every village running today has
  * been issuing for months and none of them has ever held this vote.
  *
- * Idempotent on the first write. A close that somehow reached here twice finds
- * the launch already recorded and leaves the first instant standing.
+ * ── WHY THIS ONE DOES NOT USE `writeState` ──────────────────────────────────
+ *
+ * Everything else in this file reads the whole document, edits a field and
+ * writes the whole document back. That is fine for a manual confirmation,
+ * which an admin can simply tick again. It is not fine for this: an admin
+ * pressing "Mark done" in the same moment the ballot closes would read the
+ * document before this wrote it and put it back without the launch in it, and
+ * the village would have voted to start its Game and have no record of it.
+ *
+ * So this is two statements and neither of them can lose a write. The insert
+ * creates the document only when there is none. The update sets the three
+ * fields in place, and its WHERE refuses to move a launch that is already
+ * recorded, which is also what makes it idempotent: `affectedRows` of zero
+ * means the launch was already there, and the first instant stands.
+ *
+ * `game-start` is a separate row written by INSERT IGNORE, so the fact that
+ * actually gates issuance was never exposed to this at all.
  */
 export async function recordLaunchCarried(
   pool: Pool,
   input: { ballotId: string; closedBy: string; at?: Date },
 ): Promise<{ alreadyRecorded: boolean; launchedAt: string }> {
-  const state = await readState(pool);
-  if (state.launchedAt) return { alreadyRecorded: true, launchedAt: state.launchedAt };
-  state.launchedAt = (input.at ?? new Date()).toISOString();
-  state.launchedBy = input.closedBy;
-  state.launchedByBallotId = input.ballotId;
-  await writeState(pool, state);
-  return { alreadyRecorded: false, launchedAt: state.launchedAt };
+  const at = (input.at ?? new Date()).toISOString();
+  await pool.query(
+    "INSERT IGNORE INTO app_config (config_key, value) VALUES ('launch-state', ?)",
+    [JSON.stringify({ ...EMPTY, manualConfirms: {} })],
+  );
+  const [result] = await pool.query<any>(
+    "UPDATE app_config SET value = JSON_SET(value, '$.launchedAt', ?, '$.launchedBy', ?, '$.launchedByBallotId', ?) " +
+      "WHERE config_key = 'launch-state' " +
+      // Both spellings of absent: the key missing entirely, and the key
+      // present holding JSON null. A document written before this field
+      // existed is the first; one written by `writeState` is the second.
+      "AND (JSON_EXTRACT(value, '$.launchedAt') IS NULL OR JSON_TYPE(JSON_EXTRACT(value, '$.launchedAt')) = 'NULL')",
+    [at, input.closedBy, input.ballotId],
+  );
+  if (Number(result.affectedRows) === 0) {
+    const standing = await readState(pool);
+    return { alreadyRecorded: true, launchedAt: standing.launchedAt ?? at };
+  }
+  return { alreadyRecorded: false, launchedAt: at };
 }

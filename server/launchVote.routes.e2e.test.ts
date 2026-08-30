@@ -408,6 +408,26 @@ describe.skipIf(!DB_CONFIGURED)("everybody answers and everybody agrees", () => 
     expect(String(anon.json?.gameStart?.ballotId)).toMatch(/^bal-/);
   });
 
+  it("keeps the record when a manual checklist item is ticked afterwards", async () => {
+    /*
+     * The clobber this file exists to catch. Every other write to the
+     * launch-state document reads it whole and puts it back whole, so an admin
+     * ticking a checklist item after the vote carried would have erased the
+     * launch if `recordLaunchCarried` wrote the same way. It writes the three
+     * fields in place instead, and this drives the exact sequence.
+     */
+    const before = (await call("GET", "/api/admin/launch")).json;
+    expect(String(before.launchedAt)).toBeTruthy();
+
+    expect((await call("POST", "/api/admin/launch/confirm", { body: { id: "backups-drilled", done: false } })).status).toBe(200);
+    expect((await call("POST", "/api/admin/launch/confirm", { body: { id: "backups-drilled", done: true } })).status).toBe(200);
+
+    const after = (await call("GET", "/api/admin/launch")).json;
+    expect(after.launchedAt).toBe(before.launchedAt);
+    expect(after.launchedByBallotId).toBe(before.launchedByBallotId);
+    expect(after.gameStart?.started).toBe(true);
+  });
+
   it("cannot be started twice", async () => {
     const again = await call("POST", "/api/admin/launch/propose");
     expect(again.status).toBe(409);

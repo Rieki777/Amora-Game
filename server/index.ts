@@ -25805,7 +25805,7 @@ ${inner}
         startedBy: actorId,
         note: "The village voted to start its Game.",
       });
-      const carried = await recordLaunchCarried(getPool(), { ballotId: b.id, closedBy: actorId });
+      await recordLaunchCarried(getPool(), { ballotId: b.id, closedBy: actorId });
       if (!started.started) {
         /*
          * A refusal is held, never swallowed. Nothing today can reach this,
@@ -25819,9 +25819,27 @@ ${inner}
         return out;
       }
 
-      // `applied` is what a close CHANGED, and this close changed exactly one
-      // thing about the world. The decision page renders it beside the outcome.
-      out.applied = carried.alreadyRecorded ? [] : ["game.started"];
+      /*
+       * `applied` STAYS EMPTY, and that is a decision rather than an omission.
+       *
+       * "What changed" on the outcome card renders each applied key as
+       * "<key> now holds the value the village voted for", which is written
+       * for a mechanics amendment. Starting a Game sets no dial to a value, so
+       * a key here would render a sentence that is false about the most
+       * consequential decision a village ever takes. The handover ballots hit
+       * the same wall and answered it the same way (`ballot.transfer` on
+       * client/src/pages/Decision.tsx suppresses the block and the ceremony
+       * says what moved, in the power's own words).
+       *
+       * The record does not go quiet. The outcome sentence is the heading of
+       * that card, the title says what was decided, the public pulse carries
+       * its own line, and `app_config['game-start']` holds this ballot's id
+       * permanently. What is genuinely missing is a durable line ON the
+       * decision page reading "this is the vote that started the Game", the
+       * way `crossedHere` reads a handover off its own row. That is a UI
+       * addition and it is named here instead of faked with a key.
+       */
+      out.applied = [];
       out.proposerTold = b.openedBy;
       await notify({
         userId: b.openedBy,
