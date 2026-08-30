@@ -32,6 +32,17 @@ import {
   validateVariable,
   VARIABLES_BY_KEY,
 } from "../../shared/gameVariables";
+import {
+  AMOUNT_FROM_SOURCE,
+  MINT_RULE_FIELD_LABEL,
+  displayMintRuleValue,
+  isMintRuleKey,
+  mintRuleValueNumber,
+  mintRuleValueProblem,
+  normalizeMintRuleValue,
+  parseMintRuleKey,
+  type MintRuleField,
+} from "../../shared/mintRuleKeys";
 
 export interface ProposedChange {
   key: string;
@@ -46,15 +57,70 @@ export interface ChangeSetProblem {
 }
 
 /**
+ * The three columns of a minting rule a change set can move, plus the two that
+ * say which rule it is. Structural on purpose: `MintRule` in `lib/economy.ts`
+ * satisfies this already, and importing that module here would pull the whole
+ * token registry into a file whose point is being testable without a server.
+ */
+export interface MintRuleValues {
+  trigger: string;
+  tokenSlug: string;
+  amount: number | null;
+  ceiling: number;
+  enabled: boolean;
+}
+
+/**
+ * Reads the rules a change set names. Injected instead of queried here for the
+ * reason above, and because the ONE caller already holds the mint's own
+ * village-scoped reader.
+ */
+export type MintRuleReader = (ruleIds: string[]) => Promise<Map<string, MintRuleValues>>;
+
+/** What a rule's field says today, in the change set's own spelling. */
+export function currentMintRuleValue(rule: MintRuleValues, field: MintRuleField): string {
+  if (field === "enabled") return rule.enabled ? "true" : "false";
+  if (field === "ceiling") return String(rule.ceiling);
+  return rule.amount === null ? AMOUNT_FROM_SOURCE : String(rule.amount);
+}
+
+/** How a minting rule reads on a document: what it pays for, in which token. */
+export function mintRuleLabel(rule: MintRuleValues, field: MintRuleField): string {
+  return `${rule.trigger} in ${rule.tokenSlug}: ${MINT_RULE_FIELD_LABEL[field]}`;
+}
+
+/**
  * Validate a whole change-set against the CURRENT registry state.
  * Returns problems (empty = valid) and the normalized set with `from`
  * captured from the live effective values.
+ *
+ * ── TWO VOCABULARIES, AND THEY MAY NOT MIX (R81, R84) ───────────────────────
+ *
+ * A change may name a game dial or a minting rule (`shared/mintRuleKeys.ts`).
+ * A set may not name both, and the refusal is a design decision rather than an
+ * implementation limit, so here is the reason where somebody will read it.
+ *
+ * A ballot carries ONE threshold, and the threshold is chosen by the ballot's
+ * subject type (`shared/ballotSubjects.ts`). A minting rule change conducts at
+ * a higher quorum floor than an ordinary dial, because R68 tiers thresholds by
+ * what is being changed. A set holding both would have to pick one of the two
+ * numbers and would be wrong about half of itself: either the dials get a
+ * threshold nobody chose for them, or the mint gets conducted at the ordinary
+ * one and passes on a quiet week, which is the exact outcome R68 exists to
+ * prevent. The seam prices a SUBJECT, so a set that is two subjects has no
+ * honest price.
+ *
+ * They also land through different writers on different clocks. A dial is
+ * written by `setVariable`; a minting rule is queued into its own pending
+ * columns and promoted by the next settlement. A set mixing them could not be
+ * applied atomically, and atomicity beats promptness on a change set here.
  */
 export async function validateChangeSet(
   pool: Pool,
   changes: Array<{ key: string; to: string }>,
   effectiveValueOf: (key: string) => string,
   cooldownDays: number,
+  readMintRules?: MintRuleReader,
 ): Promise<{ problems: ChangeSetProblem[]; normalized: ProposedChange[] }> {
   const problems: ChangeSetProblem[] = [];
   const normalized: ProposedChange[] = [];
@@ -67,10 +133,77 @@ export async function validateChangeSet(
       normalized,
     };
   }
+  const keys = changes.map((c) => String(c?.key ?? ""));
+  const mintKeys = keys.filter(isMintRuleKey);
+  if (mintKeys.length > 0 && mintKeys.length < keys.length) {
+    return {
+      problems: [{
+        key: "*",
+        problem:
+          "One proposal changes the game's dials, or it changes what the village mints. The village votes on those two at different thresholds, so they go up as two proposals",
+      }],
+      normalized,
+    };
+  }
+
+  /*
+   * The rules this set names, read once. The pool is untouched when no mint
+   * key is present, which is what keeps the dial path exactly as costly as it
+   * was and lets the unit tests prove it with a throwing stub.
+   */
+  let mintRules = new Map<string, MintRuleValues>();
+  if (mintKeys.length > 0) {
+    if (!readMintRules) {
+      return {
+        problems: [{ key: "*", problem: "This build cannot take a minting rule to a vote from here" }],
+        normalized,
+      };
+    }
+    const ids = mintKeys.map((k) => parseMintRuleKey(k)?.ruleId).filter((id): id is string => !!id);
+    mintRules = await readMintRules(Array.from(new Set(ids)));
+  }
+
   const seen = new Set<string>();
   for (const c of changes) {
     const key = String(c?.key ?? "");
     const to = String(c?.to ?? "").trim();
+
+    if (isMintRuleKey(key)) {
+      const parsed = parseMintRuleKey(key);
+      if (!parsed) {
+        problems.push({ key, problem: "This build cannot read that as one of the village's minting rules" });
+        continue;
+      }
+      if (seen.has(key)) {
+        problems.push({ key, problem: "The same minting rule setting appears twice in this proposal" });
+        continue;
+      }
+      seen.add(key);
+      const rule = mintRules.get(parsed.ruleId);
+      if (!rule) {
+        problems.push({ key, problem: "This village has no minting rule by that name" });
+        continue;
+      }
+      const invalid = mintRuleValueProblem(parsed.field, to);
+      if (invalid) {
+        problems.push({ key, problem: invalid });
+        continue;
+      }
+      const value = normalizeMintRuleValue(parsed.field, to);
+      const from = currentMintRuleValue(rule, parsed.field);
+      if (from === value) {
+        problems.push({ key, problem: "This change would not change anything. It already has that value" });
+        continue;
+      }
+      const cooling = await cooldownProblem(pool, key, cooldownDays, "This minting rule");
+      if (cooling) {
+        problems.push({ key, problem: cooling });
+        continue;
+      }
+      normalized.push({ key, from, to: value });
+      continue;
+    }
+
     const def = VARIABLES_BY_KEY[key];
     if (!def) {
       problems.push({ key, problem: "No such dial" });
@@ -95,23 +228,74 @@ export async function validateChangeSet(
       problems.push({ key, problem: "This change would not change anything. It already has that value" });
       continue;
     }
-    if (cooldownDays > 0) {
-      const [[recent]] = await pool.query<any[]>(
-        "SELECT at FROM mechanics_changes WHERE config_key = ? AND source = 'governance' " +
-          "AND at > (NOW() - INTERVAL ? DAY) ORDER BY at DESC LIMIT 1",
-        [key, cooldownDays],
-      );
-      if (recent) {
-        problems.push({
-          key,
-          problem: `This dial was changed by a passed proposal within the last ${cooldownDays} day(s) and is cooling down`,
-        });
-        continue;
-      }
+    const cooling = await cooldownProblem(pool, key, cooldownDays, "This dial");
+    if (cooling) {
+      problems.push({ key, problem: cooling });
+      continue;
     }
     normalized.push({ key, from, to });
   }
+
+  problems.push(...mintCeilingProblems(normalized, mintRules));
   return { problems, normalized };
+}
+
+/** The one cooldown read, shared by both vocabularies so they cool alike. */
+async function cooldownProblem(
+  pool: Pool,
+  key: string,
+  cooldownDays: number,
+  noun: string,
+): Promise<string | null> {
+  if (!(cooldownDays > 0)) return null;
+  const [[recent]] = await pool.query<any[]>(
+    "SELECT at FROM mechanics_changes WHERE config_key = ? AND source = 'governance' " +
+      "AND at > (NOW() - INTERVAL ? DAY) ORDER BY at DESC LIMIT 1",
+    [key, cooldownDays],
+  );
+  return recent
+    ? `${noun} was changed by a passed proposal within the last ${cooldownDays} day(s) and is cooling down`
+    : null;
+}
+
+/**
+ * A rule that pays more than its own ceiling contradicts itself, and a change
+ * set can build one out of two changes that are each fine alone: raise the
+ * amount in one line and lower the ceiling in the next. So this runs over the
+ * WHOLE normalised set with the rule's current values standing in for whatever
+ * the set does not touch. `queueRuleChange` asks the same question again at
+ * execution, against the row as it stands then.
+ */
+export function mintCeilingProblems(
+  normalized: ProposedChange[],
+  mintRules: Map<string, MintRuleValues>,
+): ChangeSetProblem[] {
+  const out: ChangeSetProblem[] = [];
+  const touched = new Map<string, Partial<Record<MintRuleField, { key: string; to: string }>>>();
+  for (const c of normalized) {
+    const parsed = parseMintRuleKey(c.key);
+    if (!parsed) continue;
+    const fields = touched.get(parsed.ruleId) ?? {};
+    fields[parsed.field] = { key: c.key, to: c.to };
+    touched.set(parsed.ruleId, fields);
+  }
+  for (const [ruleId, fields] of Array.from(touched.entries())) {
+    const rule = mintRules.get(ruleId);
+    if (!rule) continue;
+    const amountRaw = fields.amount?.to ?? currentMintRuleValue(rule, "amount");
+    const ceilingRaw = fields.ceiling?.to ?? currentMintRuleValue(rule, "ceiling");
+    const amount = mintRuleValueNumber("amount", amountRaw);
+    const ceiling = Number(ceilingRaw);
+    if (amount === null || !(ceiling > 0) || amount <= ceiling) continue;
+    const at = fields.amount ?? fields.ceiling!;
+    out.push({
+      key: at.key,
+      problem:
+        `${displayMintRuleValue("amount", amountRaw)} is above the ${displayMintRuleValue("ceiling", ceilingRaw)} ` +
+        "this rule is allowed to pay. Move the ceiling in the same proposal, or ask for less",
+    });
+  }
+  return out;
 }
 
 export interface ProposerStanding {
@@ -158,11 +342,31 @@ export function proposerStanding(
 
 /** A stored value shown the way a voter should read it. */
 export function displayChangeValue(key: string, raw: string): string {
+  const parsed = parseMintRuleKey(key);
+  if (parsed) return displayMintRuleValue(parsed.field, raw);
   const def = VARIABLES_BY_KEY[key];
   if (!def) return raw;
   if (def.type === "boolean") return raw === "true" || raw === "1" ? "On" : "Off";
   if (def.type === "choice") return def.choices?.find((c) => c.value === raw)?.label ?? raw;
   return def.unit ? `${raw} ${def.unit}` : raw;
+}
+
+/**
+ * What a change is CALLED on the document the village freezes and reads.
+ *
+ * A minting rule has no registry entry to carry a label, so the label is built
+ * from the rule itself and the caller has to hand the rules over. Without them
+ * the key stands in, which is ugly and true. Inventing a friendly name for a
+ * rule this build cannot see would be a sentence about a payment nobody
+ * checked.
+ */
+function changeLabel(key: string, mintRules: Map<string, MintRuleValues>): string {
+  const parsed = parseMintRuleKey(key);
+  if (parsed) {
+    const rule = mintRules.get(parsed.ruleId);
+    return rule ? mintRuleLabel(rule, parsed.field) : key;
+  }
+  return VARIABLES_BY_KEY[key]?.label ?? key;
 }
 
 /**
@@ -180,11 +384,20 @@ export function proposalMarkdown(p: {
   proposerName: string;
   supports: number;
   createdAt: string;
+  /**
+   * The minting rules this set names, when it names any. A mint change carries
+   * no registry entry, so this is where its label comes from.
+   */
+  mintRules?: Map<string, MintRuleValues>;
 }): string {
+  const mintRules = p.mintRules ?? new Map<string, MintRuleValues>();
+  const mints = p.changeSet.some((c) => isMintRuleKey(c.key));
   const lines: string[] = [
     `# [gm:${p.id}] ${p.title}`,
     "",
-    `A game-mechanics change proposal from ${p.villageName}, prepared on its public Game Mechanics page.`,
+    mints
+      ? `A proposal from ${p.villageName} to change what the village mints, prepared on its public Game Mechanics page.`
+      : `A game-mechanics change proposal from ${p.villageName}, prepared on its public Game Mechanics page.`,
     `Proposed by ${p.proposerName} on ${p.createdAt.slice(0, 10)}; ${p.supports} member(s) supported it in-game before it came here.`,
     "",
     "## Why",
@@ -193,20 +406,22 @@ export function proposalMarkdown(p: {
     "",
     "## The changes",
     "",
-    "| dial | now | proposed |",
+    mints ? "| what it pays for | now | proposed |" : "| dial | now | proposed |",
     "|---|---|---|",
   ];
   for (const c of p.changeSet) {
-    const def = VARIABLES_BY_KEY[c.key];
-    const label = def?.label ?? c.key;
+    const label = changeLabel(c.key, mintRules);
     lines.push(`| ${label} (\`${c.key}\`) | ${displayChangeValue(c.key, c.from)} | **${displayChangeValue(c.key, c.to)}** |`);
+    const def = VARIABLES_BY_KEY[c.key];
     if (def && applyTimingOf(def) === "cycle-close") {
       lines.push(`| ↳ takes effect at the next cycle close, never mid-cycle | | |`);
     }
   }
   lines.push(
     "",
-    "Every value above sits inside the bounds the platform's constitution fixes for that dial; if this proposal passes, the changes are applied exactly as listed and recorded on the village's public amendment ledger with this proposal's reference.",
+    mints
+      ? "If this proposal passes, every change above is queued on the rule it names and takes effect at the next moon, which is how every change to a minting rule lands. Nothing is paid at a new rate inside the cycle the village is already in. Each one is recorded on the village's public amendment ledger with this proposal's reference."
+      : "Every value above sits inside the bounds the platform's constitution fixes for that dial; if this proposal passes, the changes are applied exactly as listed and recorded on the village's public amendment ledger with this proposal's reference.",
     "",
     "```json",
     JSON.stringify({ marker: `gm:${p.id}`, changes: p.changeSet }, null, 2),

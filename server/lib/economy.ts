@@ -47,6 +47,12 @@
  */
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { cycleBoundsFor } from "../../shared/lunar";
+import {
+  mintRuleValueNumber,
+  mintRuleValueProblem,
+  parseMintRuleKey,
+  type MintRuleField,
+} from "../../shared/mintRuleKeys";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { shareCapFor } from "./gratitude";
 import { numberVar } from "./variables";
@@ -1195,6 +1201,125 @@ export async function queueRuleChange(
     ],
   );
   return { ok: true, fromCycle };
+}
+
+/**
+ * The rules a change set names, by id, village-scoped like every other read
+ * here. Absent ids are simply absent from the map: a rule this village does
+ * not have is a real answer, and inventing a row for it would let a ballot
+ * decide a payment nobody could make.
+ */
+export async function mintRulesByIds(pool: Pool, ruleIds: string[]): Promise<Map<string, MintRule>> {
+  const ids = Array.from(new Set(ruleIds.filter((id) => !!id)));
+  const out = new Map<string, MintRule>();
+  if (ids.length === 0) return out;
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT * FROM \`mint_rules\` WHERE \`village_id\` = ? AND \`id\` IN (${ids.map(() => "?").join(",")})`,
+    [villageId(), ...ids],
+  );
+  for (const r of rows) {
+    const rule = rowToRule(r);
+    out.set(rule.id, rule);
+  }
+  return out;
+}
+
+export interface MintRuleQueueResult {
+  /** Each key that reached the rule, with the moon it lands on. */
+  queued: Array<{ key: string; ruleId: string; field: MintRuleField; from: string; to: string; fromCycle: number }>;
+  failed: Array<{ key: string; problem: string }>;
+}
+
+/**
+ * APPLY A CARRIED BALLOT'S MINTING CHANGES (R81, R84).
+ *
+ * The village's decision lands through `queueRuleChange`, which is the same
+ * writer the admin route uses. One writer, one deferral, one shape of pending
+ * row, whoever decided it.
+ *
+ * ── ONE CALL PER RULE, AND THAT IS THE WHOLE REASON THIS EXISTS ─────────────
+ *
+ * `queueRuleChange` writes all four pending columns every time, filling the
+ * ones it was not given from the rule's LIVE values. So a set moving an amount
+ * and a ceiling on the same rule, applied as two calls, would have the second
+ * call overwrite the first one's pending amount with the live one, and the
+ * village would get half of what it voted for with nothing to show that
+ * anything went wrong. Grouping by rule is what makes the write whole.
+ *
+ * ── VALIDATED AGAIN HERE, ON PURPOSE ────────────────────────────────────────
+ *
+ * Every value was checked when the proposal was raised. It is checked again on
+ * the way in, and `queueRuleChange` checks the row's own bounds a third time
+ * against the row as it stands now. A rule can be edited, disabled or removed
+ * between a vote opening and closing, and a refusal that says so is worth more
+ * than a write that half lands.
+ *
+ * ── IDEMPOTENT ─────────────────────────────────────────────────────────────
+ *
+ * `closeBallot` takes one guarded transition, so a second close never reaches
+ * an executor at all. Beyond that, this writes the same pending values from
+ * the same change set, so a run that did reach here twice leaves the rule in
+ * exactly the state the first run left it.
+ */
+export async function applyMintRuleChanges(
+  pool: Pool,
+  changes: Array<{ key: string; from: string; to: string }>,
+  actorUserId: string,
+): Promise<MintRuleQueueResult> {
+  const queued: MintRuleQueueResult["queued"] = [];
+  const failed: MintRuleQueueResult["failed"] = [];
+  const byRule = new Map<string, Array<{ key: string; field: MintRuleField; from: string; to: string }>>();
+
+  for (const c of changes) {
+    const parsed = parseMintRuleKey(c.key);
+    if (!parsed) {
+      failed.push({ key: c.key, problem: "This build cannot read that as one of the village's minting rules" });
+      continue;
+    }
+    const fields = byRule.get(parsed.ruleId) ?? [];
+    fields.push({ key: c.key, field: parsed.field, from: c.from, to: c.to });
+    byRule.set(parsed.ruleId, fields);
+  }
+
+  for (const [ruleId, fields] of Array.from(byRule.entries())) {
+    const rules = await mintRulesByIds(pool, [ruleId]);
+    if (!rules.has(ruleId)) {
+      for (const f of fields) {
+        failed.push({ key: f.key, problem: "This village no longer has a minting rule by that name" });
+      }
+      continue;
+    }
+    const change: { amount?: number | null; ceiling?: number; enabled?: boolean } = {};
+    let refused: string | null = null;
+    for (const f of fields) {
+      const invalid = mintRuleValueProblem(f.field, f.to);
+      if (invalid) {
+        refused = invalid;
+        break;
+      }
+      if (f.field === "amount") change.amount = mintRuleValueNumber("amount", f.to);
+      else if (f.field === "ceiling") change.ceiling = Number(f.to);
+      else change.enabled = f.to === "true";
+    }
+    /*
+     * A rule is refused WHOLE. Queueing the half that still validates would
+     * write a pending row nobody voted for, which is a worse outcome than a
+     * refusal the decision page shows.
+     */
+    if (refused) {
+      for (const f of fields) failed.push({ key: f.key, problem: refused });
+      continue;
+    }
+    const out = await queueRuleChange(pool, ruleId, change, actorUserId);
+    if (!out.ok) {
+      for (const f of fields) failed.push({ key: f.key, problem: out.error });
+      continue;
+    }
+    for (const f of fields) {
+      queued.push({ key: f.key, ruleId, field: f.field, from: f.from, to: f.to, fromCycle: out.fromCycle });
+    }
+  }
+  return { queued, failed };
 }
 
 /**
