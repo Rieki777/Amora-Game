@@ -23396,15 +23396,73 @@ ${inner}
     res.json(await mintView(getPool()));
   });
 
-  /** Queue a change. It lands at the next moon and says so in the response. */
+  /**
+   * Queue a change. It lands at the next moon and says so in the response.
+   *
+   * ── AFTER THE GAME STARTS, THIS IS A FOUNDER'S KEY (R81, R85, R68) ────────
+   *
+   * R81: "all minting of tokens go through the governance process" once the
+   * village has voted to start its Game. R84 says which reading that is: the
+   * village votes on the RULES. So after launch this route stops being an
+   * ordinary admin act, and the way an ordinary admin changes a minting rule
+   * is to put it to the village, which they can now do
+   * (`shared/mintRuleKeys.ts`).
+   *
+   * BEFORE LAUNCH NOTHING CHANGES. R67: a founder builds the whole Game alone,
+   * and nothing issues until the launch vote carries, so an unrestricted
+   * editor before that moment creates no value and takes nothing from anybody.
+   *
+   * R85 IS WHY THE DOOR IS NOT SIMPLY SHUT. In the founder's words: "all named
+   * founders have this back door ability until it is taken away." So a village
+   * has three stages and not two. Setup, launched, and a second handover after
+   * which the key is gone. THAT SECOND EVENT DOES NOT EXIST YET, and this
+   * route is where it will attach: see the TODO below.
+   *
+   * "Named founders" is a SET and not a person, which is what the `founder`
+   * account role already is, and the last-founder guard on
+   * `PUT /api/admin/users/:id/role` means the set is never empty. So a founder
+   * key can never strand a village that cannot assemble its quorum.
+   *
+   * R68 IS WHY IT IS LOUD. After launch, every admin action is available to be
+   * seen by all members. A back door nobody can see would contradict that
+   * directly, so a founder's use of this writes a line on the PUBLIC pulse
+   * saying what changed and that no vote decided it, beside the admin trail
+   * row that was already here.
+   *
+   * TODO (R85, the second handover): when the handover event lands, it records
+   * one dated fact the way `app_config['game-start']` records the launch, and
+   * this route reads it beside `readGameStart`. After it, the founder branch
+   * below goes away and every actor takes the same 403. The event needs three
+   * things and none of them exist today: a record with a date and the ballot
+   * or ceremony behind it, a surface that makes it a deliberate act instead of
+   * a flag somebody flips, and a sweep of every other route that treats
+   * `role === "founder"` as a standing power. Do not infer it from anything
+   * already in the tree.
+   */
   app.patch("/api/admin/economy/rules/:id", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+    const actorUser = (req as any).adminUser;
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? "admin";
+    const started = await readGameStart(getPool());
+    const isNamedFounder = actorUser?.role === "founder";
+    if (started.started && !isNamedFounder) {
+      return res.status(403).json({
+        error:
+          "This village decides what it mints. Put the change up on the Game Mechanics page and the village votes on it.",
+      });
+    }
     const body = req.body ?? {};
     const change: { amount?: number | null; ceiling?: number; enabled?: boolean } = {};
     if ("amount" in body) change.amount = body.amount === null ? null : Number(body.amount);
     if ("ceiling" in body) change.ceiling = Number(body.ceiling);
     if ("enabled" in body) change.enabled = body.enabled === true;
+
+    /*
+     * Read BEFORE the write, so the public line can say what the rule is for
+     * in the village's own words. After the write the row still carries them,
+     * and reading first keeps the sentence and the refusal on one code path.
+     */
+    const before = (await mintRulesByIds(getPool(), [req.params.id])).get(req.params.id) ?? null;
 
     const out = await queueRuleChange(getPool(), req.params.id, change, actor);
     if (!out.ok) return res.status(400).json({ error: out.error });
@@ -23417,6 +23475,22 @@ ${inner}
       entityRef: req.params.id,
       audience: "admin",
     });
+    /*
+     * THE BACK DOOR IS VISIBLE (R68, R85). Only after launch, because before
+     * it there is no village governing anything and a line per dial edit
+     * during setup would be noise in a feed nobody is reading yet. It names
+     * the fact and stops: what changed, that no vote decided it, and when it
+     * lands. R56 says state what is true and then get out of the way, so there
+     * is no warning attached and nothing asking anyone to feel a way about it.
+     */
+    if (started.started) {
+      const what = before ? `${before.trigger} in ${before.tokenSlug}` : "one of the village's minting rules";
+      await addActivity(
+        "governance",
+        `A founder changed what the village mints for ${what}, without a village vote. It takes effect at the next moon.`,
+        { actorUserId: actor, entityType: "mint_rule", entityRef: req.params.id },
+      );
+    }
     res.json({ success: true, fromCycle: out.fromCycle, view: await mintView(getPool()) });
   });
 
