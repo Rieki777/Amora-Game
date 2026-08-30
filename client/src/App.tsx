@@ -84,7 +84,7 @@ function ScrollToTop() {
 const PAGE_TITLES: Record<string, string> = {
   "/": "", // the home page is the village itself; no prefix
   "/journey-to-launch": "Journey to launch",
-  "/project-history": "What we have built",
+  "/project-history": "Command Centre",
   "/feedback": "Feedback",
   "/network": "Village network",
   "/contribute": "Contribute",

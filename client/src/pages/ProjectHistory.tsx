@@ -439,7 +439,7 @@ function PasswordGate({ onUnlock }: { onUnlock: (pw: string) => void }) {
             <div className="text-center">
               {/* The name the page gives itself once it opens (its own h1),
                   so the gate and the page behind it agree. */}
-              <h2 className="font-display text-xl font-bold text-teal-deep">Project History</h2>
+              <h2 className="font-display text-xl font-bold text-teal-deep">Command Centre</h2>
               <p className="text-stone-500 text-sm mt-1">
                 {loading || isAdmin
                   ? "Checking your access…"
@@ -999,11 +999,11 @@ export default function ProjectHistory() {
             <span className="text-amber-on-band font-medium text-sm tracking-widest uppercase">Internal Tool</span>
           </div>
           <h1 className="font-display text-3xl md:text-4xl font-bold mb-2">
-            Project History
+            Command Centre
           </h1>
           <p className="text-white text-sm max-w-2xl mb-6">
-            The original build tracker: the six weeks that made this site, kept
-            whole. For what's left before launch, see{" "}
+            It holds the original build tracker: the six weeks that made this
+            site, kept whole. For what's left before launch, see{" "}
             <Link href="/journey-to-launch" className="text-amber-on-band underline">Journey to Launch</Link>.
           </p>
 
