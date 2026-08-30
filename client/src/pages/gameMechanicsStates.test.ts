@@ -47,7 +47,7 @@
 import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { STATUS_COPY, BALLOT_RETURN, APPLYABLE } from "./GameMechanics";
+import { STATUS_COPY, BALLOT_RETURN, APPLYABLE, dialMatches } from "./GameMechanics";
 
 const ROOT = path.resolve(__dirname, "../../..");
 
@@ -218,5 +218,69 @@ describe("the mechanics page speaks every state the server can send", () => {
     expect(tip).toMatch(/proposal\.decide/);
     expect(tip).toMatch(/admin/i);
     expect(tip.toLowerCase()).toContain("nobody has answered");
+  });
+});
+
+describe("finding a dial you cannot name", () => {
+  /*
+   * R79's second half. The Dials list is 151 dials across 29 categories, every
+   * category shut, and no way to search. A founder setting up a Game is
+   * opening drawers looking for a switch whose key they have never seen.
+   *
+   * THE DESCRIPTION IS PART OF THE HAYSTACK, and that is the point of these
+   * tests. Somebody hunting for the feedback switch types "bug report" or
+   * "platform team" or "turn off sharing". The key is `platform.feedback_relay`
+   * and the label says "Share bug reports and ideas with the platform team",
+   * so a search over key and label alone answers some of those and silently
+   * misses the rest. The word they are most likely to type, "relay", is the
+   * one word a founder has no reason to know.
+   */
+  const relay = {
+    key: "platform.feedback_relay",
+    label: "Share bug reports and ideas with the platform team",
+    description:
+      "A copy of each bug report and idea reaches the platform team who maintain this software. Turn it off to keep feedback entirely local.",
+    category: "Platform",
+  };
+  const quorum = {
+    key: "governance.quorum_percent",
+    label: "Quorum",
+    description: "How much of the village has to answer a ballot for it to settle.",
+    category: "Governance",
+  };
+
+  it("an empty search shows every dial", () => {
+    expect(dialMatches(relay, "")).toBe(true);
+    expect(dialMatches(quorum, "   ")).toBe(true);
+  });
+
+  it("matches the key", () => {
+    expect(dialMatches(relay, "feedback_relay")).toBe(true);
+  });
+
+  it("matches the label", () => {
+    expect(dialMatches(relay, "bug reports")).toBe(true);
+  });
+
+  it("matches words that live only in the description", () => {
+    // "local" appears nowhere in the key, the label or the category.
+    expect(`${relay.key} ${relay.label} ${relay.category}`.toLowerCase()).not.toContain("local");
+    expect(dialMatches(relay, "local")).toBe(true);
+    expect(dialMatches(quorum, "settle")).toBe(true);
+  });
+
+  it("matches the category, so a founder can open one part of the Game", () => {
+    expect(dialMatches(quorum, "governance")).toBe(true);
+  });
+
+  it("ignores case and takes words in any order", () => {
+    expect(dialMatches(relay, "PLATFORM Feedback")).toBe(true);
+    expect(dialMatches(relay, "local bug")).toBe(true);
+  });
+
+  it("every word has to land, so a search narrows", () => {
+    expect(dialMatches(quorum, "governance ballot")).toBe(true);
+    expect(dialMatches(quorum, "governance feedback")).toBe(false);
+    expect(dialMatches(relay, "quorum")).toBe(false);
   });
 });
