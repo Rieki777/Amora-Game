@@ -108,8 +108,18 @@ export interface DryRunSnapshot {
   seatCount: number;
   rules: DryRunRule[];
   jobs: DryRunJob[];
-  /** Modules this village has switched off, by their own names. */
-  modulesOff: string[];
+  /**
+   * Modules this village has switched off, id and catalog name.
+   *
+   * The id is here so a check can join on it without a hand-kept map. The feed
+   * is the one that matters to the arithmetic below: `/api/feed` mounts behind
+   * `requireModule("feed")`, so a village with the feed off is sending no
+   * hearts at all, and a note about what a heart costs would be describing a
+   * channel nobody can reach. Giving is NOT gated this way:
+   * `/api/game/gratitude/send` mounts with no module guard, so the written
+   * allowance holds whatever the catalog says.
+   */
+  modulesOff: Array<{ id: string; name: string }>;
 }
 
 export type Outcome = "issued" | "refused" | "idle";
@@ -241,7 +251,7 @@ function claimsOpenInside(startsAt: Date, endsAt: Date): { open: boolean; opensA
  *   a heart tap cap that allows more taps than the share leaves room for, so
  *   the number on the feed dial is never the number that bites.
  */
-function allowanceTable(): DryRunAllowance[] {
+function allowanceTable(feedOff: boolean): DryRunAllowance[] {
   const base = numberVar("gratitude.base_budget");
   const heart = numberVar("feed.heart_amount");
   const sharePct = numberVar("gratitude.max_share_per_recipient");
@@ -260,7 +270,7 @@ function allowanceTable(): DryRunAllowance[] {
     let note: string;
     if (allowance <= 0) {
       note = `Members at ${s.name} can give nothing. Their sending budget is ${base} times ${multiplier}, which comes to zero.`;
-    } else if (!heartsSendable) {
+    } else if (!heartsSendable && !feedOff) {
       note =
         `A heart is worth ${heart} and one person may receive ${cap} from a member at ${s.name}, ` +
         `so every tap on the feed would be refused. Raise the share, or lower what a heart is worth.`;
@@ -268,7 +278,7 @@ function allowanceTable(): DryRunAllowance[] {
       note =
         `A member at ${s.name} gives ${allowance} a moon. ${sharePct}% of that is under one Gratitude, ` +
         `so the ceiling holds at 1 and the share dial is doing nothing here.`;
-    } else if (tapsTheShareAllows < tapCap) {
+    } else if (tapsTheShareAllows < tapCap && !feedOff) {
       note =
         `A member at ${s.name} gives ${allowance} a moon and up to ${cap} of it to any one person. ` +
         `That is ${tapsTheShareAllows} hearts to one person, and the feed dial says ${tapCap}, ` +
@@ -285,7 +295,8 @@ function allowanceTable(): DryRunAllowance[] {
       allowance,
       shareCap: cap,
       spreadsAcross,
-      heartsSendable,
+      // A channel a member cannot reach is not a channel they can send on.
+      heartsSendable: heartsSendable && !feedOff,
       note,
     };
   });
@@ -513,13 +524,24 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
     });
   }
 
+  const feedOff = snapshot.modulesOff.some((m) => m.id === "feed");
   if (snapshot.modulesOff.length > 0) {
     runFindings.push({
       area: "jobs",
       outcome: "idle",
       sentence:
-        `${snapshot.modulesOff.length} module(s) are off in this village: ${snapshot.modulesOff.join(", ")}. ` +
+        `${snapshot.modulesOff.length} module(s) are off in this village: ` +
+        `${snapshot.modulesOff.map((m) => m.name).join(", ")}. ` +
         "The background jobs that belong to them ask on their usual cadence and then sit out.",
+    });
+  }
+  if (feedOff) {
+    runFindings.push({
+      area: "gratitude",
+      outcome: "idle",
+      sentence:
+        "The feed is off, so nobody is tapping hearts. The allowance below is what a member can " +
+        "give through written acknowledgments alone.",
     });
   }
 
@@ -577,7 +599,7 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
       "so no balance moved, no recognition was recorded, and nothing was issued.",
     turns,
     runFindings,
-    allowances: allowanceTable(),
+    allowances: allowanceTable(feedOff),
     jobs,
     refusals,
     covered: [

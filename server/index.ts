@@ -13293,7 +13293,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
                 },
         })),
         jobs: registeredJobs(),
-        modulesOff: MODULES.filter((m) => effectiveLifecycle(m.id) === "off").map((m) => m.name),
+        modulesOff: MODULES.filter((m) => effectiveLifecycle(m.id) === "off").map((m) => ({ id: m.id, name: m.name })),
       },
       { moons: asked },
     );

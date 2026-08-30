@@ -35,6 +35,7 @@ import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { cycleBoundsFor } from "../shared/lunar";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -186,11 +187,31 @@ beforeAll(async () => {
   wrenToken = wren.token; wrenId = wren.id;
 
   /*
-   * THE STATE, ON. A seat somebody actually holds is what makes the moon
-   * settlement have anything to say, and a queued rule change is what makes
-   * the promotion path have anything to say. Without both, a compressed run
-   * walks a village where nothing happens and reports a confident green.
+   * THE STATE, ON.
+   *
+   * A compressed run over a village with every module off and no seat held
+   * exercises almost nothing and reports a confident green. Three things are
+   * switched on here and each one makes a different part of the run have
+   * something to say:
+   *
+   *   the FEED, because a village with it off is sending no hearts, and the
+   *   allowance arithmetic says so instead of describing a channel nobody can
+   *   reach;
+   *
+   *   a SEAT somebody actually holds, because the moon settlement thanks seat
+   *   holders and has nothing to report without one;
+   *
+   *   a QUEUED RULE CHANGE, because the promotion path is otherwise dead code
+   *   in every turn.
    */
+  // The feed is a LENS over forum threads and names the forum as a hard
+  // dependency, so the forum goes on first or the enable is refused with a 409.
+  for (const id of ["forum", "feed"]) {
+    const on = await call("PUT", `/api/admin/modules/${id}/lifecycle`, {
+      body: { lifecycle: "members", examples: false },
+    });
+    expect(on.status, `${id} must be on for this suite: ${JSON.stringify(on.json)}`).toBe(200);
+  }
   await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     "INSERT INTO org_roles (id, name, seats, active) VALUES ('dryrun-seat', 'Water Steward', 1, 1)",
   );
@@ -198,6 +219,17 @@ beforeAll(async () => {
     "INSERT INTO org_role_assignments (id, org_role_id, holder_kind, user_id, holder_key, is_example) " +
       "VALUES ('dryrun-seating', 'dryrun-seat', 'member', ?, ?, 0)",
     [wrenId, wrenId],
+  );
+
+  /*
+   * A queued change on the seat rule, stamped for a moon inside every run this
+   * suite makes. Written the way `queueRuleChange` writes it, because the
+   * route that queues one is the Mint panel and this suite is about the run.
+   */
+  await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    "UPDATE mint_rules SET pending_amount = 45, pending_ceiling = ceiling, pending_enabled = 1, " +
+      "pending_from_cycle = ? WHERE id = 'rule-role.cycle-gratitude'",
+    [cycleBoundsFor(new Date()).cycleNumber + 1],
   );
 }, 180_000);
 
@@ -218,6 +250,33 @@ describe.skipIf(!DB_CONFIGURED)("the test run before launch", () => {
       "SELECT COUNT(*) n FROM mint_rules WHERE enabled = 1",
     );
     expect(Number(rules[0].n), "the village has enabled mint rules").toBeGreaterThan(0);
+
+    // The feed is on, so the run measures a village where hearts are sendable.
+    const r = await call("POST", "/api/admin/dry-run", { body: { moons: 3 } });
+    expect(r.status).toBe(200);
+    expect(
+      r.json.runFindings.some((f: any) => f.area === "gratitude"),
+      "the feed is on, so nothing says it is off",
+    ).toBe(false);
+    expect(
+      r.json.allowances.some((a: any) => a.heartsSendable),
+      "at least one stage can send a heart",
+    ).toBe(true);
+    expect(
+      r.json.turns.flatMap((t: any) => t.findings).some((f: any) => f.area === "settlement" && f.outcome === "issued"),
+      "the seat holder is thanked, so the settlement is live in this fixture",
+    ).toBe(true);
+
+    // The queued change lands in exactly one moon of the run, and the seat
+    // settles at the new amount from that moon on. Without this the promotion
+    // path is dead code in every turn and the run looks fine anyway.
+    const landings = r.json.turns.filter((t: any) => t.findings.some((f: any) => f.area === "rules"));
+    expect(landings, "the queued rule change lands in one moon").toHaveLength(1);
+    expect(JSON.stringify(landings[0].findings)).toContain("20 becomes 45");
+    const amountIn = (i: number) =>
+      r.json.turns[i].findings.find((f: any) => f.area === "settlement" && f.outcome === "issued")?.sentence ?? "";
+    expect(amountIn(0)).toContain("20 Gratitude");
+    expect(amountIn(1)).toContain("45 Gratitude");
   });
 
   it("refuses a stranger", async () => {

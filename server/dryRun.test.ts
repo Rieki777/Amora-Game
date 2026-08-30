@@ -47,7 +47,7 @@ const snapshot = (over: Partial<DryRunSnapshot> = {}): DryRunSnapshot => ({
   seatCount: 2,
   rules: [seatRule()],
   jobs: [{ name: "moon-settlement", everyMs: 60 * 60 * 1000 }],
-  modulesOff: [],
+  modulesOff: [] as Array<{ id: string; name: string }>,
   ...over,
 });
 
@@ -233,8 +233,13 @@ describe("the run-level facts", () => {
   });
 
   it("names the modules that are off", () => {
-    const r = dryRun(snapshot({ modulesOff: ["Stays", "Library"] }), { moons: 1, from: FROM });
+    const r = dryRun(
+      snapshot({ modulesOff: [{ id: "stays", name: "Stays" }, { id: "library", name: "Library" }] }),
+      { moons: 1, from: FROM },
+    );
     expect(r.runFindings.find((f) => f.area === "jobs")!.sentence).toContain("Stays, Library");
+    // The feed is on, so nothing says otherwise.
+    expect(r.runFindings.some((f) => f.area === "gratitude")).toBe(false);
   });
 
   it("counts how often each job would ask, and runs none of them", () => {
@@ -363,5 +368,21 @@ describe("the isolation is structural, and stays that way", () => {
     // `Pool` on its own would match the word inside "cycle pool", so the type
     // is checked as an import instead.
     expect(SOURCE).not.toMatch(/import type \{[^}]*\bPool\b/);
+  });
+});
+
+describe("a channel nobody can reach", () => {
+  it("says the feed is off, and stops describing hearts", () => {
+    const off = dryRun(
+      snapshot({ modulesOff: [{ id: "feed", name: "The Feed" }] }),
+      { moons: 1, from: FROM },
+    );
+    expect(off.runFindings.find((f) => f.area === "gratitude")!.sentence).toMatch(/feed is off/i);
+    const guest = off.allowances.find((a) => a.stageId === "guest")!;
+    expect(guest.heartsSendable).toBe(false);
+    expect(guest.note).not.toMatch(/heart/i);
+    // With the feed on, the same village describes hearts again.
+    const on = dryRun(snapshot(), { moons: 1, from: FROM });
+    expect(on.allowances.find((a) => a.stageId === "guest")!.heartsSendable).toBe(true);
   });
 });
