@@ -271,26 +271,51 @@ describe.skipIf(!configured)("proposal drafts (MySQL)", () => {
 });
 
 /**
- * THE TWO KEYS THAT MAKE AN ELECTORATE, SAID TWICE, PINNED ONCE.
+ * TWO MAPS ABOUT VOICE, POINTING IN OPPOSITE DIRECTIONS.
  *
  * This file's `TYPE_CAPABILITY_REFUSALS` and `shared/capabilities.ts`'s
  * `DENIABLE` were written months apart, by different lanes, for different
- * reasons, and they arrived at the same pair. The runway refuses a badge
- * grant naming `ballot.vote` or `member.vouch` because handing a voice to
- * named individuals is a few members choosing who else gets a say. `DENIABLE`
- * refuses a warning badge TAKING either, because a voice that was earned is
- * never taken away (R65/R66, 0109). Two directions, one line.
+ * reasons. The runway refuses a badge GRANT naming `ballot.vote` or
+ * `member.vouch`, because handing a voice to named individuals is a few
+ * members choosing who else gets a say. `DENIABLE` refuses a warning badge
+ * TAKING a voice, because one that was earned is never taken away (R65/R66,
+ * 0109). Two directions.
  *
- * Two statements of one fact drift. Neither is wrong today, and a later lane
- * adding a third voice key to one of them would leave the other quietly
- * behind, so the agreement is asserted rather than admired.
+ * THEY USED TO NAME THE SAME PAIR AND THIS TEST ASSERTED THEM EQUAL. Round 7
+ * added `mechanics.propose` to the voices and broke that, correctly, because
+ * the equality was a coincidence of the moment rather than the rule:
+ *
+ *   The runway's set is ELECTORATE-SHAPED. Its own header says so, "the two
+ *   keys that make an electorate". Granting the vote to three named people
+ *   and seating them dilutes everybody else's share of a fixed roll, so the
+ *   grant itself is the capture.
+ *
+ *   `mechanics.propose` is a voice with no roll behind it. Ten more proposers
+ *   take nothing from anybody, and flooding has a remedy that names nobody in
+ *   `governance.proposals_per_member_per_cycle`. So granting it early is an
+ *   ordinary thing a badge may do, and taking it away is still not.
+ *
+ * What survives is the one direction that IS a rule: a key nobody may be
+ * granted by name is a key nobody may be stripped of either. The reverse does
+ * not follow, and asserting it would force the next voice key to become
+ * ungrantable for no reason anyone argued.
  */
-describe("the badge-grant refusal and the deny map name the same voice keys", () => {
-  it("agrees key for key", () => {
+describe("the badge-grant refusal and the deny map agree in the direction that is a rule", () => {
+  it("every key the runway refuses to grant is also one no badge may take", () => {
     const refusedByTheRunway = [...(TYPE_CAPABILITY_REFUSALS.badge_grant?.keys ?? [])].sort();
     const notDeniable = ALL_CAPABILITIES.filter((c) => !DENIABLE[c]).sort();
     expect(refusedByTheRunway.length, "the runway refuses nothing, so this proves nothing").toBeGreaterThan(0);
-    expect(notDeniable).toEqual(refusedByTheRunway);
+    for (const key of refusedByTheRunway) {
+      expect(notDeniable, `${key} may not be granted by name, so it may not be taken either`).toContain(key);
+    }
+  });
+
+  it("and the voices are wider than the runway's set, which is the round 7 split", () => {
+    // Stated as a difference rather than a count, so this reads as the
+    // decision it is the day somebody adds a fourth voice key.
+    const refusedByTheRunway = new Set(TYPE_CAPABILITY_REFUSALS.badge_grant?.keys ?? []);
+    const voicesTheRunwayAllows = ALL_CAPABILITIES.filter((c) => !DENIABLE[c] && !refusedByTheRunway.has(c));
+    expect(voicesTheRunwayAllows).toEqual(["mechanics.propose"]);
   });
 
   it("and the pair really is the vote and the vouch", () => {

@@ -25062,11 +25062,20 @@ ${inner}
       hasCapability("mechanics.propose", ctx),
       // THE SECOND READER OF A DENY, and the only one outside the gate.
       // `isDeniable` is asked here too (0109) so this cannot drift from the
-      // gate the day somebody reclassifies a key. Byte-identical today:
-      // `mechanics.propose` is deniable, and the raw membership test that
-      // used to stand alone here is deliberately kept beside it, because it
-      // reaches an admin where the gate short-circuits and that is this
-      // function's own long-standing posture.
+      // gate the day somebody reclassifies a key.
+      //
+      // THAT DAY WAS ROUND 7 AND THIS LINE IS WHY NOTHING BROKE. The founder
+      // ruled that proposing a change to the Game's own rules is a voice, so
+      // `DENIABLE` now marks `mechanics.propose` false and this whole
+      // expression is permanently false with it. Everything downstream goes
+      // quiet on its own: `standing.denied` stays false, the 403 below is
+      // dormant, and the deny checkbox has already gone from the admin screen
+      // because it lists `CAPS.filter(isDeniable)`.
+      //
+      // The dormant branches are left standing rather than cut. They cost
+      // nothing, they re-arm correctly if a key is ever reclassified again,
+      // and the `denied` field is on a payload `client/src/pages/GameMechanics.tsx`
+      // reads, which belongs to another lane. Removing it is that lane's call.
       isDeniable("mechanics.propose") && (ctx.badgeDenies ?? []).includes("mechanics.propose"),
       Number(user.recognitionBalance ?? 0),
       Math.max(0, numberVar("governance.hypha_threshold")),

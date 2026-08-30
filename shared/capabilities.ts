@@ -417,10 +417,18 @@ export const TRANSFERABLE: Record<Capability, boolean> = {
  *
  * `false` means A VOICE: a member's own say in a decision the village makes.
  * Nothing may take one away. The gate ignores a deny naming one of these,
- * `badgeProblem` refuses to save one, and `drizzle/0109` clears the ones
- * already stored. Three locks on the same door, because a hand-written UPDATE
- * is invisible to code review by definition and a stored row outlives the
- * admin who wrote it.
+ * `badgeProblem` refuses to save one, and a migration clears the ones already
+ * stored. Three locks on the same door, because a hand-written UPDATE is
+ * invisible to code review by definition and a stored row outlives the admin
+ * who wrote it.
+ *
+ * THE THIRD LOCK IS PER KEY, so moving a key into this group needs its own
+ * migration. `drizzle/0109` cleared `ballot.vote` and `member.vouch`;
+ * `drizzle/0114` cleared `mechanics.propose` when the founder ruled on it in
+ * round 7. Skipping that step does not merely leave a stale row: the boot
+ * runs `assertBadgeInvariants`, which calls `badgeProblem` over every active
+ * badge, and a stored deny naming a voice key now REFUSES THE BOOT. A village
+ * whose admin had once paused somebody's proposing would fail to start.
  *
  * `true` means the deny still stands, and every one of them is either an act
  * of EXPRESSION or a job. The expression keys are the open question and they
@@ -447,19 +455,42 @@ export const DENIABLE: Record<Capability, boolean> = {
   // nothing today, because the membrane's vouching step does not exist yet,
   // which makes this the cheapest possible moment to close the door.
   "member.vouch": false,
+  /*
+   * Proposing a change to the Game's own rules. The founder ruled on this one
+   * in round 7, and the reason is that it is the say itself, one step
+   * earlier. A village's rules are the thing its members vote about, so the
+   * power to put a change in front of them is a voice in every decision that
+   * follows from it.
+   *
+   * A DENY HERE IS TOTAL, and that is what separates it from `proposal.open`
+   * sitting a few lines below. Denying `proposal.open` leaves the drafts and
+   * the whole forum standing, so a member keeps every other way of being
+   * heard. `POST /api/game/mechanics/proposals` is the only way anybody
+   * reaches the rule set at all, and `proposerStanding` returns
+   * `mayDraft: false` on a deny, so the draft path closes with it. There is
+   * nothing left over.
+   *
+   * THE REMEDY THAT NAMES NOBODY ALREADY EXISTS, which is what makes taking
+   * this deny away safe as well as right.
+   * `governance.proposals_per_member_per_cycle` caps how many proposals one
+   * member may open in a cycle. It is read by that same route, it applies to
+   * everybody equally, and a village worried about flooding can turn it down
+   * without suspending a named person. Villages set their own dials (R56).
+   */
+  "mechanics.propose": false,
 
   // ── TRUE: EXPRESSION. Speaking, but not deciding ────────────────────────
   //
-  // Brought back to the founder rather than settled here. Each of these is a
-  // member speaking as themselves, so each sits close to a voice, and a
-  // village that cannot ask somebody to stop for a while has no remedy short
-  // of removing them. The recommendation lives with the round 7 report.
+  // Still with the founder, and unsettled here. Each of these is a member
+  // speaking as themselves, so each sits close to a voice, and a village that
+  // cannot ask somebody to stop for a while has no remedy short of removing
+  // them. `mechanics.propose` used to sit in this group and moved up to the
+  // voices when he ruled on it; these are the ones he has not reached.
   "forum.post": true,
   "message.send": true,
   "map.contact": true,
   "map.photograph": true,
   "proposal.open": true,
-  "mechanics.propose": true,
 
   // ── TRUE: NEITHER. A job, a power over others, a look, or a trade ───────
   //
