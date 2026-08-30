@@ -445,7 +445,9 @@ import {
   runWeeklyBrief,
   type NotifyDeps,
 } from "./lib/notify";
-import { registerJob, startScheduler } from "./lib/scheduler";
+import { registerJob, registeredJobs, startScheduler } from "./lib/scheduler";
+import { dryRun, MAX_MOONS } from "./lib/dryRun";
+import { cyclePoolProblem } from "./lib/cyclePool";
 import { onReplyCreated, onThreadCreated, processMentions, subscribe } from "./lib/forum";
 import {
   MAX_BODY_CHARS,
@@ -1618,9 +1620,13 @@ function adminActor(req: express.Request): { id: string; name?: string } | null 
 }
 
 /**
- * S2: the Command Centre is a founder surface, gated by the same admin
- * identities as everything else. The second shared password is retired —
- * two shared secrets was one more than zero too many.
+ * S2: Journey to Launch is a founder surface, gated by the same admin
+ * identities as everything else. The second shared password is retired: two
+ * shared secrets was one more than zero too many.
+ *
+ * This docblock used to call the page the Command Centre. R82 item 5 gave that
+ * name to `/project-history`, so the two pages are named apart now. Journey to
+ * Launch is the live readiness checklist and the vote that starts the Game.
  */
 const isJourney = isAdmin;
 
@@ -13252,6 +13258,76 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   /**
+   * THE TEST RUN (R86). Turn the village's cycles over quickly and see what
+   * the settings do, in the last moment before the launch ballot.
+   *
+   * READS ONLY, and that is the whole design. `server/lib/dryRun.ts` carries
+   * the reasoning; the short version is that R81 puts all minting behind
+   * governance and R67 shuts issuance until the launch vote carries, so a run
+   * that wrote would either meet the gate and teach the founder nothing, or
+   * route around the gate and remove it. This route reads five facts and hands
+   * them to a function that takes no pool.
+   *
+   * It is allowed on a village that has ALREADY started its Game, deliberately.
+   * There is no accident available: nothing here can write, so a founder
+   * checking what a dial change would do to next season is welcome to it. The
+   * report says which of the two villages it was looking at.
+   */
+  app.post("/api/admin/dry-run", async (req, res) => {
+    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
+
+    // A length the caller asked for, or a refusal. A silent clamp would answer
+    // a question nobody put, and the number is on the report.
+    const asked = Number(req.body?.moons);
+    if (!Number.isFinite(asked) || !Number.isInteger(asked) || asked < 1 || asked > MAX_MOONS) {
+      return res.status(400).json({
+        error: "bad_request",
+        message: `A test run covers between 1 and ${MAX_MOONS} moons. You asked for ${req.body?.moons}.`,
+      });
+    }
+
+    const start = await readGameStart(getPool());
+    const [seats] = await getPool().query<any[]>(
+      "SELECT COUNT(*) AS n FROM `org_role_assignments` " +
+        "WHERE `active_holder_key` IS NOT NULL AND `holder_kind` = 'member' AND `user_id` IS NOT NULL AND `is_example` = 0",
+    );
+    const [ruleRows] = await getPool().query<any[]>(
+      "SELECT * FROM `mint_rules` WHERE `village_id` = ? ORDER BY `trigger`, `token_slug`",
+      [villageId()],
+    );
+
+    const report = dryRun(
+      {
+        gameStarted: start.started,
+        startedAt: start.startedAt,
+        seatCount: Number(seats[0]?.n ?? 0),
+        rules: ruleRows.map((r) => ({
+          id: String(r.id),
+          trigger: String(r.trigger),
+          tokenSlug: String(r.token_slug),
+          amount: r.amount === null || r.amount === undefined ? null : Number(r.amount),
+          ceiling: Number(r.ceiling ?? 0),
+          enabled: !!r.enabled,
+          effectiveFromCycle: Number(r.effective_from_cycle ?? 0),
+          pending:
+            r.pending_from_cycle === null || r.pending_from_cycle === undefined
+              ? null
+              : {
+                  amount: r.pending_amount === null || r.pending_amount === undefined ? null : Number(r.pending_amount),
+                  ceiling: Number(r.pending_ceiling ?? 0),
+                  enabled: !!r.pending_enabled,
+                  fromCycle: Number(r.pending_from_cycle),
+                },
+        })),
+        jobs: registeredJobs(),
+        modulesOff: MODULES.filter((m) => effectiveLifecycle(m.id) === "off").map((m) => ({ id: m.id, name: m.name })),
+      },
+      { moons: asked },
+    );
+    res.json(report);
+  });
+
+  /**
    * S65: Maia's launch-guide mode. The SAME registry the page renders is the
    * ONLY knowledge she gets — she reads live status and points at the exact
    * surfaces, she never invents an item and never touches a secret. Admin-
@@ -18647,13 +18723,22 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   /**
-   * S48: founder economics for the ONE command centre (/journey-to-launch —
-   * "never a second command centre"). One aggregate read: the settlement
+   * S48: founder economics, read by the Command Centre (`/project-history`)
+   * and by the Village economics tab on Journey to Launch.
+   *
+   * THE NAME MOVED, AND THE RULE DID NOT. This block used to call
+   * `/journey-to-launch` "the ONE command centre" and "never a second command
+   * centre". R82 item 5 gave that name to `/project-history`, so the claim is
+   * wrong twice over now: it names the wrong page, and it argues by denial.
+   * What it was defending is still right and is stated below as a rule about
+   * this route instead of a claim about a page.
+   *
+   * ONE AGGREGATE READ, AND EVERY ACTION LIVES ELSEWHERE. The settlement
    * report the founders carry to Hypha (hearts and acknowledgments NEVER
    * blended into one number), module health, the work waiting on the human
    * gate, milestones going quiet, and the same ledger invariants boot
-   * enforces — on the founder's desk instead of in a crash log. Read-only:
-   * every ACTION lives on its existing admin surface.
+   * enforces, on the founder's desk instead of in a crash log. Read-only, so
+   * a surface that reads this can never become the place a decision is made.
    */
   app.get("/api/admin/command-centre", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
@@ -23834,27 +23919,13 @@ ${inner}
     );
   });
 
-  /**
-   * The pool's configuration, judged before anything settles. Returns the
-   * refusal in plain words, or null when the pool is safe to release.
-   *
-   * One function, two readers: the close fails loud on it, and the preview
-   * below prints it. When these were two copies an admin could only learn
-   * about a misconfigured pool by pressing the button that releases value,
-   * which is the one moment a surprise is least welcome.
+  /*
+   * The pool's configuration guard used to live here as a closure, read by the
+   * close and by the preview below it. The test run (R86) is a third reader of
+   * the same judgement about the same dials, so it moved to
+   * `server/lib/cyclePool.ts` and all three import it. Three copies of a money
+   * guard is how two of them drift.
    */
-  function cyclePoolProblem(poolSize: number, poolToken: string): string | null {
-    if (!(poolSize > 0)) return null;
-    const def = tokenDef(poolToken);
-    if (!def) return `gratitude.pool_token "${poolToken}" is not a registered token`;
-    if (def.governance !== "platform") {
-      return `${poolToken} is ${def.governance}-governed and cannot be minted by the pool`;
-    }
-    if (poolToken === "gratitude") {
-      return "The pool cannot pay the recognition token itself: recognition is the signal, the pool is the value";
-    }
-    return null;
-  }
 
   /**
    * What a close would settle, read before anyone presses it.
