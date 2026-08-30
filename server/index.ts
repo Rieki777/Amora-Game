@@ -24425,11 +24425,19 @@ ${inner}
        * member had no way to learn why nothing had ever been issued to them.
        *
        * This route already answers "what are the rules of this village's Game",
-       * and whether it has begun is the first of those. Anonymous like the rest
-       * of the payload, and it names no person: the ballot id points at a
-       * decision every member on the roll was already asked to vote in.
+       * and whether it has begun is the first of those.
+       *
+       * THREE FIELDS AND NOT THE WHOLE DOCUMENT. This route is anonymous, and
+       * `startedBy` is the user id of whoever closed the vote. Nothing here
+       * needs it and a stranger has no business reading it off a rules page,
+       * so it is picked out by hand instead of spread. The ballot id stays,
+       * because it points at a decision and never at a person, and it is what
+       * makes "the Game started" checkable against the vote that started it.
        */
-      gameStart: await readGameStart(getPool()),
+      gameStart: await (async () => {
+        const g = await readGameStart(getPool());
+        return { started: g.started, startedAt: g.startedAt, ballotId: g.ballotId };
+      })(),
     });
   });
 
