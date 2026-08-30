@@ -154,13 +154,25 @@ describe("what a settlement would pay", () => {
     expect(sentences(r)).toMatch(/No mint rule is switched on/i);
   });
 
-  it("holds a rule back until the moon it becomes effective", () => {
+  it("holds a rule back until the moon it becomes effective, and says which emptiness it is", () => {
     const r = dryRun(
       snapshot({ rules: [seatRule({ effectiveFromCycle: C0 + 3 })] }),
       { moons: 5, from: FROM },
     );
     const paidIn = r.turns.map((t) => t.findings.some((f) => f.area === "settlement" && f.outcome === "issued"));
     expect(paidIn).toEqual([false, false, false, true, true]);
+
+    /*
+     * THE FALLBACK THAT LIED. The first draft filtered to what is enabled AND
+     * in force, then read an empty list as "no mint rule is switched on". A
+     * founder whose rules start next moon would have been told their rules
+     * were off while they sat in the table waiting.
+     */
+    const early = r.turns[0].findings.find((f) => f.area === "settlement")!;
+    expect(early.outcome).toBe("idle");
+    expect(early.sentence).toMatch(/starts from a later moon/i);
+    expect(early.sentence).not.toMatch(/switched on/i);
+    expect(r.refusals.filter((f) => f.area === "settlement")).toHaveLength(0);
   });
 });
 
@@ -384,5 +396,45 @@ describe("a channel nobody can reach", () => {
     // With the feed on, the same village describes hearts again.
     const on = dryRun(snapshot(), { moons: 1, from: FROM });
     expect(on.allowances.find((a) => a.stageId === "guest")!.heartsSendable).toBe(true);
+  });
+});
+
+
+describe("a queued change is four columns, never one", () => {
+  it("names a change that switches a rule off, and calls it a refusal", () => {
+    const rules = [seatRule({ pending: { amount: 20, ceiling: 100, enabled: false, fromCycle: C0 + 1 } })];
+    const r = dryRun(snapshot({ rules }), { moons: 3, from: FROM });
+    const f = r.turns[1].findings.find((x) => x.area === "rules")!;
+    // The first draft rendered this as "20 becomes 20" and called it issued,
+    // while the payments stopped from that moon on.
+    expect(f.sentence).toMatch(/it switches off/i);
+    expect(f.sentence).not.toMatch(/20 becomes 20/);
+    expect(f.outcome).toBe("refused");
+    expect(r.refusals.some((x) => x.area === "rules")).toBe(true);
+    // And the settlement stops paying from the moon it lands in.
+    const paid = r.turns.map((t) => t.findings.some((x) => x.area === "settlement" && x.outcome === "issued"));
+    expect(paid).toEqual([true, false, false]);
+  });
+
+  it("names a ceiling change on its own", () => {
+    const rules = [seatRule({ pending: { amount: 20, ceiling: 250, enabled: true, fromCycle: C0 + 1 } })];
+    const r = dryRun(snapshot({ rules }), { moons: 2, from: FROM });
+    expect(r.turns[1].findings.find((f) => f.area === "rules")!.sentence)
+      .toMatch(/its ceiling goes from 100 to 250/i);
+  });
+
+  it("announces a change that was already due before the run began", () => {
+    // Queued for a moon that has passed with no settlement to promote it. The
+    // first draft matched on equality alone, so this went unmentioned while
+    // the settlement quietly paid the new number from turn one.
+    const rules = [seatRule({ pending: { amount: 45, ceiling: 100, enabled: true, fromCycle: C0 - 4 } })];
+    const r = dryRun(snapshot({ rules, seatCount: 1 }), { moons: 3, from: FROM });
+    const f = r.turns[0].findings.find((x) => x.area === "rules")!;
+    expect(f.sentence).toMatch(/already due/i);
+    expect(f.sentence).toContain("20 becomes 45");
+    expect(r.turns[0].findings.find((x) => x.area === "settlement" && x.outcome === "issued")!.sentence)
+      .toContain("45 Gratitude");
+    // Said once, on the first moon, and never again.
+    expect(r.turns.filter((t) => t.findings.some((x) => x.area === "rules"))).toHaveLength(1);
   });
 });

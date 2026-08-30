@@ -312,15 +312,35 @@ function allowanceTable(feedOff: boolean): DryRunAllowance[] {
  * with no faucet can never pay; and a rule whose amount rounds to zero ledger
  * units pays nothing while showing a number on the dial.
  */
-function settlementFindings(snapshot: DryRunSnapshot, rules: readonly DryRunRule[]): Finding[] {
+function settlementFindings(
+  snapshot: DryRunSnapshot,
+  rules: readonly DryRunRule[],
+  everyRule: readonly DryRunRule[],
+): Finding[] {
   const out: Finding[] = [];
   const cycleRules = rules.filter((r) => r.trigger === "role.cycle");
 
-  if (rules.length === 0) {
+  /*
+   * THREE DIFFERENT EMPTINESSES, and saying the wrong one is a fallback that
+   * lies. `rules` here has already been filtered to what is enabled AND in
+   * force this moon, so an empty list can mean the village has no rules, or
+   * that it has them and they start later. The first draft said "no mint rule
+   * is switched on" for both, which would have told a founder their rules were
+   * off while they sat in the table waiting for their moon.
+   */
+  if (everyRule.filter((r) => r.enabled).length === 0) {
     out.push({
       area: "settlement",
       outcome: "refused",
       sentence: "No mint rule is switched on for this village, so a moon settlement would pay nobody.",
+    });
+    return out;
+  }
+  if (rules.length === 0) {
+    out.push({
+      area: "settlement",
+      outcome: "idle",
+      sentence: "Every rule this village has starts from a later moon, so this one settles nothing.",
     });
     return out;
   }
@@ -403,18 +423,55 @@ function settlementFindings(snapshot: DryRunSnapshot, rules: readonly DryRunRule
   return out;
 }
 
-/** Queued dial changes that land in this cycle, named one by one. */
-function promotionFindings(rules: readonly DryRunRule[], cycle: number): Finding[] {
+/**
+ * Queued dial changes that land in this cycle, named one by one.
+ *
+ * Two things here are the audit's, not the first draft's.
+ *
+ * A change stamped for a moon BEFORE the run starts is already due, and the
+ * first draft matched on equality alone, so it went unmentioned while the
+ * settlement quietly paid the new number from turn one. It is announced on the
+ * first turn instead, as what it is.
+ *
+ * And a queued change is four columns, not one. A pending `enabled: false`
+ * used to render as "20 becomes 20" while silently stopping the payments, which
+ * is the loudest possible thing said in the quietest possible way.
+ */
+function promotionFindings(
+  rules: readonly DryRunRule[],
+  cycle: number,
+  firstCycle: number,
+): Finding[] {
   const out: Finding[] = [];
   for (const r of rules) {
-    if (!r.pending || r.pending.fromCycle !== cycle) continue;
+    if (!r.pending) continue;
+    const due = r.pending.fromCycle;
+    const landsNow = due === cycle || (due < firstCycle && cycle === firstCycle);
+    if (!landsNow) continue;
+
     const tokenName = tokenDef(r.tokenSlug)?.name ?? r.tokenSlug;
-    const from = r.amount === null ? "read from the work" : String(r.amount);
-    const to = r.pending.amount === null ? "read from the work" : String(r.pending.amount);
+    const parts: string[] = [];
+    if (r.pending.amount !== r.amount) {
+      const from = r.amount === null ? "read from the work" : String(r.amount);
+      const to = r.pending.amount === null ? "read from the work" : String(r.pending.amount);
+      parts.push(`${from} becomes ${to}`);
+    }
+    if (r.pending.ceiling !== r.ceiling) {
+      parts.push(`its ceiling goes from ${r.ceiling} to ${r.pending.ceiling}`);
+    }
+    if (r.pending.enabled !== r.enabled) {
+      parts.push(r.pending.enabled ? "it switches on" : "it switches off");
+    }
+    const what = parts.length > 0 ? parts.join(", ") : "nothing about it changes";
+    const when = due < firstCycle
+      ? `was queued for an earlier moon and is already due, so it applies from the first moon of this run: ${what}`
+      : `lands this moon: ${what}`;
     out.push({
       area: "rules",
-      outcome: "issued",
-      sentence: `The queued change to the ${tokenName} rule for ${r.trigger} lands this moon: ${from} becomes ${to}.`,
+      // A change that switches a rule OFF is a payment stopping. It belongs
+      // with the refusals, where a founder reads it before the vote.
+      outcome: r.pending.enabled === false && r.enabled ? "refused" : "issued",
+      sentence: `The queued change to the ${tokenName} rule for ${r.trigger} ${when}.`,
     });
   }
   return out;
@@ -438,8 +495,8 @@ export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRun
     const bounds = cycleBoundsByNumber(cycle);
     const inForce = rulesInForce(snapshot.rules, cycle);
     const findings: Finding[] = [
-      ...promotionFindings(snapshot.rules, cycle),
-      ...settlementFindings(snapshot, inForce),
+      ...promotionFindings(snapshot.rules, cycle, firstCycle),
+      ...settlementFindings(snapshot, inForce, snapshot.rules),
     ];
 
     const claims = claimsOpenInside(bounds.startsAt, bounds.endsAt);
