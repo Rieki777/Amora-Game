@@ -272,6 +272,29 @@ describe.skipIf(!DB_CONFIGURED)("the village votes on what it mints", () => {
     );
   });
 
+  it("BEFORE THE GAME STARTS a give is refused WHOLE, and costs the giver nothing (TESTRUN, round 7)", async () => {
+    /*
+     * `give()` committed the note and spent the allowance, then asked the
+     * ledger. `postTransfer` refuses every faucet posting until the launch
+     * vote carries, and the route gates on `economyReady` rather than on that,
+     * so for a founder setting up their Game this did not fail rarely. It
+     * failed every time: allowance gone, permanent record of a gift, recipient
+     * paid nothing. The note is the allowance, so an empty log IS an unspent
+     * allowance and one assertion covers both.
+     */
+    const gave = await call("POST", "/api/gratitude", {
+      token: voters[0].token,
+      body: { toId: voters[1].id, amount: 3, note: "For carrying the water up the hill." },
+    });
+    expect(gave.status, JSON.stringify(gave.json)).toBe(400);
+    expect(String(gave.json?.error)).toContain("has not started its Game");
+
+    const [log] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT COUNT(*) AS n FROM `gratitude_log`",
+    );
+    expect(Number(log[0]?.n), "a refused give writes nothing and spends nothing").toBe(0);
+  });
+
   it("a proposal can NAME a minting rule, which is the thing no ballot could do", async () => {
     await startTheGame();
     // A quorum the ordinary vote would run at. The floor below is what proves

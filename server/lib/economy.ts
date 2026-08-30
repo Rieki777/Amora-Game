@@ -53,6 +53,7 @@ import {
   parseMintRuleKey,
   type MintRuleField,
 } from "../../shared/mintRuleKeys";
+import { issuanceRefusal } from "./gameStart";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { shareCapFor } from "./gratitude";
 import { numberVar } from "./variables";
@@ -647,10 +648,37 @@ export function checkGive(
  *
  * The ledger post happens AFTER the commit, on purpose, and the order is the
  * conservative one. The note row consumes the allowance, so a crash between
- * the two leaves an allowance spent and no hearts minted: visible, keyed, and
- * healed by a retry, because the mint is idempotent on the note id. The other
- * order would mint hearts that no allowance had paid for, which is the failure
- * that costs something.
+ * the two leaves an allowance spent and no hearts minted, which is visible and
+ * keyed. The other order would mint hearts that no allowance had paid for,
+ * which is the failure that costs something.
+ *
+ * ── A RETRY DOES NOT HEAL IT, AND THIS COMMENT USED TO SAY IT DID ───────────
+ *
+ * The claim was "healed by a retry, because the mint is idempotent on the note
+ * id". The mint IS idempotent on the note id, and that is not the same
+ * sentence: a retry runs this function again and mints a NEW note id, so it is
+ * a new key, a new row and a second charge against the allowance. Nothing in
+ * this product ever re-posts an existing note (`keys.gratitudeGiven` has one
+ * call site, below), so the orphaned row stays orphaned.
+ *
+ * ── WHICH TURNED A CRASH WINDOW INTO AN EVERY-TIME BUG ──────────────────────
+ *
+ * `postTransfer` refuses every faucet posting until the village's launch vote
+ * carries (R67, `issuanceRefusal`), and the route above this gates on
+ * `economyReady` rather than on that. So for a founder setting up their Game,
+ * which is EVERY village until it launches, the post was not unlikely to fail.
+ * It failed every time: the note committed, the allowance was spent, the
+ * recipient got nothing, and the record said a gift had been given.
+ *
+ * So the question is asked BEFORE the note is taken. Refusing the whole act
+ * with the gate's own sentence is better than unwinding afterwards, because a
+ * note is something somebody wrote and losing their words to a ledger refusal
+ * is its own kind of wrong. Found by Lane TESTRUN, round 7.
+ *
+ * WHAT THIS DOES NOT CLOSE, said plainly: the crash window above is still
+ * there, and so is any other reason the ledger might refuse. This closes the
+ * one refusal that is knowable in advance and was firing on every give in
+ * every un-launched village.
  */
 export async function give(
   pool: Pool,
@@ -658,6 +686,14 @@ export async function give(
   stageMultiplier: StageMultiplierFor,
 ): Promise<MintOutcome & { noteId?: string }> {
   const amount = Number(input.amount);
+  /*
+   * Can this village issue at all? Asked before anything is written, for the
+   * reason in this function's header. The answer only ever moves one way, from
+   * closed to open, so a village that launches between this line and the post
+   * below costs somebody one refused give and never a lost note.
+   */
+  const closed = await issuanceRefusal(pool);
+  if (closed) return { ok: false, error: closed };
   // Resolved BEFORE the transaction opens. The stage a member has reached is
   // not what these gives race over, the spending is, and asking for it from
   // inside a SERIALIZABLE transaction would take a second pooled connection
