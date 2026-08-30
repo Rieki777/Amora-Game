@@ -981,7 +981,15 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(bad.status).toBe(400);
   });
 
-  it("S2: founders run the admins — role changes, their guards, and the last-founder rule", async () => {
+  /*
+   * R90 REWROTE THIS CASE, and the old title is worth keeping in view: it read
+   * "founders run the admins", which is what the tier did until the founder
+   * role was ruled to end at launch. THIS VILLAGE HAS STARTED ITS GAME
+   * (`provisionTestDb()` with no options), so every request below meets the
+   * after side of that moment. `server/founderEnds.routes.e2e.test.ts` walks
+   * one village across it and drives both sides.
+   */
+  it("S2 after R90: the founder role has ended, so admins run the admins and the last way in stays", async () => {
     // The founder promotes peer to admin…
     const promote = await api("PUT", `/api/admin/users/${peerId}/role`, { role: "admin" }, founderToken);
     expect(promote.status).toBe(200);
@@ -990,21 +998,39 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const peerAdmin = await api("GET", "/api/admin/players", undefined, peerToken);
     expect(peerAdmin.status).toBe(200);
 
-    // An admin who is not a founder cannot change roles (which guard: 403, not 401).
-    const coup = await api("PUT", `/api/admin/users/${doerId}/role`, { role: "admin" }, peerToken);
-    expect(coup.status).toBe(403);
-    expect(String(coup.json.error)).toContain("founder");
+    // An administrator who is not a founder may change roles here, because
+    // after launch there is no founder tier to be short of. Before launch this
+    // same request is a 403 naming the founder.
+    const byPeer = await api("PUT", `/api/admin/users/${doerId}/role`, { role: "admin" }, peerToken);
+    expect(byPeer.status).toBe(200);
+    expect((await api("PUT", `/api/admin/users/${doerId}/role`, { role: "member" }, peerToken)).status).toBe(200);
 
-    // The last founder cannot be demoted — a fork must never strand itself.
-    const strand = await api("PUT", `/api/admin/users/${founderId}/role`, { role: "member" }, founderToken);
-    expect(strand.status).toBe(409);
-    expect(String(strand.json.error)).toContain("last founder");
+    // Nobody new can be made a founder: the role ended when the Game started,
+    // and minting a holder of it is the one change that would put it back.
+    const minted = await api("PUT", `/api/admin/users/${doerId}/role`, { role: "founder" }, founderToken);
+    expect(minted.status).toBe(409);
+    expect(String(minted.json.error)).toContain("founder role ended");
 
     // Demote peer back to member; their admin access dies with the role.
     const demote = await api("PUT", `/api/admin/users/${peerId}/role`, { role: "member" }, founderToken);
     expect(demote.status).toBe(200);
     const closed = await api("GET", "/api/admin/players", undefined, peerToken);
     expect(closed.status).toBe(401);
+
+    /*
+     * AND NOW THE GUARANTEE THAT REPLACED THE LAST-FOUNDER RULE. Its stated
+     * reason was never the tier, it was that a deployment must never strand
+     * itself, so after launch it counts the accounts that can reach the panel.
+     * The precondition is asserted rather than assumed: this village must be
+     * down to one of them for the refusal below to mean what it says.
+     */
+    const roster = (await api("GET", "/api/admin/players", undefined, founderToken)).json;
+    const reach = roster.filter((u: any) => u.role === "admin" || u.role === "founder");
+    expect(reach.map((u: any) => u.id), "one account left with admin reach").toEqual([founderId]);
+
+    const strand = await api("PUT", `/api/admin/users/${founderId}/role`, { role: "member" }, founderToken);
+    expect(strand.status).toBe(409);
+    expect(String(strand.json.error)).toContain("last account that can administer");
   });
 
   it("S2: the Command Centre rides admin identities; the second password is retired", async () => {

@@ -8080,19 +8080,25 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!["member", "admin", "founder"].includes(role)) {
       return res.status(400).json({ error: "role must be member, admin, or founder" });
     }
-    if (!founderStands && role === "founder") {
-      return res.status(409).json({
-        error:
-          "The founder role ended when this village started its Game, so nobody new can be made one. An administrator is the most this can set.",
-      });
-    }
     const target = await members.byId(req.params.id);
     if (!target) return res.status(404).json({ error: "Not found" });
     // A standing-example identity promoted to founder is the state bootstrap
     // already refuses: a founder the roster hides (it filters examples), that
     // the last-founder guard counts as a person, and that retirement
     // hard-DELETEs. The ids are fixed and public in every fork.
+    //
+    // IT IS ASKED BEFORE THE R90 REFUSAL BELOW, and the order is a decision. A
+    // request naming an example identity is refused for being about an example
+    // identity whatever else is wrong with it, and every caller reads that
+    // refusal off its shared `code`. Answering the launch-state refusal first
+    // would hand one of them a 409 carrying a different sentence and no code.
     if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
+    if (!founderStands && role === "founder") {
+      return res.status(409).json({
+        error:
+          "The founder role ended when this village started its Game, so nobody new can be made one. An administrator is the most this can set.",
+      });
+    }
     const fromRole = target.role ?? "member";
     if (founderStands) {
       if (fromRole === "founder" && role !== "founder") {
