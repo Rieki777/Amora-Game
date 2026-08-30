@@ -825,7 +825,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(afterSecond.json.inSync).toBe(true);
   });
 
-  it("holds the economy's guard rails: no self-send, one per peer per cycle, message required", async () => {
+  it("holds the economy's guard rails: no self-send, a share per peer per cycle, message required", async () => {
     const self = await api(
       "POST",
       "/api/game/gratitude/send",
@@ -834,15 +834,39 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     );
     expect(self.status).toBe(400);
 
-    // maxPerRecipientPerCycle is 1, so a second send to the same peer in the
-    // same cycle must be refused rather than silently doubling recognition.
+    // R73. This assertion used to read `expect(twice.status).toBe(409)` with
+    // the comment "maxPerRecipientPerCycle is 1, so a second send to the same
+    // peer must be refused". It was pinning the defect: a cap counting SENDS
+    // bounds how OFTEN one member acknowledges another and never how MUCH, so
+    // the single send it permitted could carry the giver's whole allowance to
+    // one person. A second send of 1, well inside the share, is now the
+    // correct answer and it lands.
     const twice = await api(
       "POST",
       "/api/game/gratitude/send",
       { toEmail: peer.email, amount: 1, message: "Again, thank you." },
       doerToken,
     );
-    expect(twice.status).toBe(409);
+    expect(twice.status).toBe(200);
+
+    // And the thing the old cap could not do. The doer is at a stock stage on
+    // an allowance of `gratitude.base_budget` times their multiplier, and the
+    // share is 25% of it, so a single send of the whole allowance to one peer
+    // is refused by the share and the refusal names the dial.
+    const rules = await api("GET", "/api/game/rules");
+    const me = await api("GET", "/api/game/me", undefined, doerToken);
+    const total = me.json.gratitude.budget.total;
+    expect(total).toBeGreaterThan(0);
+    expect(rules.json.gratitude.maxSharePerRecipient).toBe(25);
+    const cap = Math.max(1, Math.floor((total * 25) / 100));
+    const hogging = await api(
+      "POST",
+      "/api/game/gratitude/send",
+      { toEmail: peer.email, amount: cap + 1, message: "All of it, to you." },
+      doerToken,
+    );
+    expect(hogging.status).toBe(409);
+    expect(String(hogging.json.error)).toContain("gratitude.max_share_per_recipient");
 
     const noMessage = await api(
       "POST",

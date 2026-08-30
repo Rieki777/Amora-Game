@@ -100,52 +100,64 @@ describe.skipIf(!configured)("one cycle, one name", () => {
   });
 
   /**
-   * QA2-01, held shut. Today's dials are 30 through the Hearts economy and 100
-   * through the acknowledgement flow. Whichever of those the founder keeps,
-   * one member must not be able to move 130 by using both doors.
+   * QA2-01, held shut, and R73 on top of it.
+   *
+   * The dials WERE 30 a moon through the Hearts economy and 100 through the
+   * acknowledgement flow, and this test held the seam shut between two totals
+   * that disagreed. There is one total now: `gratitude.base_budget` times the
+   * giver's stage multiplier, read by both doors. What is left to prove is
+   * that one member still cannot move more than it by using both.
    */
   it("counts a member's spending once, whichever door they came through", async () => {
     const giver = await makeMember("cyc-giver");
     const people = [];
     for (let i = 0; i < 8; i++) people.push(await makeMember(`cyc-friend-${i}`));
 
-    // Door one: the Hearts economy. 30 a moon, at most 10 to any one person.
-    for (let i = 0; i < 3; i++) {
-      const out = await give(pool, { fromUserId: giver, toUserId: people[i], amount: 10, clientNonce: `n-${i}` });
-      expect(out.ok).toBe(true);
-    }
-    const drained = await give(pool, { fromUserId: giver, toUserId: people[3], amount: 1, clientNonce: "n-drained" });
-    expect(drained.ok).toBe(false);
-
-    // Door two: the acknowledgement flow. Its budget must already see the 30.
-    const budget = await budgetFor(depsOver(pool), { id: giver, name: giver });
-    expect(budget.spent).toBe(30);
-    expect(budget.remaining).toBe(70);
-
-    // And it must stop at its own total rather than at its own half of the
-    // table. Two acknowledgements of 25 fit inside the 70 that is left. The
-    // third does not, and this is the sentence a member now meets that they
-    // did not meet yesterday.
+    // Stock dials, and this test's stage multiplier is 1: an allowance of 100
+    // and a per-recipient share of 25% of it, so 25 to any one person.
     const ack = (to: string, amount: number) =>
       sendGratitude(depsOver(pool), { fromUser: { id: giver, name: giver }, toId: to, amount, message: "thank you" });
-    expect((await ack(people[3], 25)).ok).toBe(true);
-    expect((await ack(people[4], 25)).ok).toBe(true);
-    const refused = await ack(people[5], 25);
-    expect(refused.ok).toBe(false);
-    expect(refused.ok === false && refused.error).toBe("Only 20 left in your budget this cycle");
-    expect((await ack(people[6], 20)).ok).toBe(true);
+    const hearts = (to: string, amount: number, nonce: string) =>
+      give(pool, { fromUserId: giver, toUserId: to, amount, clientNonce: nonce }, async () => 1);
+
+    // Door one: the Hearts economy, on the one allowance.
+    expect((await hearts(people[0], 25, "n-0")).ok).toBe(true);
+
+    // The share, on this door, and measured while 75 of the allowance is still
+    // unspent so the ALLOWANCE cannot be what refuses it. Order of refusals is
+    // part of the contract: the remaining allowance is checked first, because
+    // it is the harder limit and the more useful sentence when both bind.
+    const hogging = await hearts(people[1], 26, "n-hog");
+    expect(hogging.ok).toBe(false);
+    expect(hogging.ok === false && hogging.error).toContain("25 is the most you can give one person");
+
+    expect((await hearts(people[1], 25, "n-1")).ok).toBe(true);
+    expect((await hearts(people[2], 25, "n-2")).ok).toBe(true);
+
+    // Door two: the acknowledgement flow. Its budget already sees the 75.
+    const budget = await budgetFor(depsOver(pool), { id: giver, name: giver });
+    expect(budget.total).toBe(100);
+    expect(budget.spent).toBe(75);
+    expect(budget.remaining).toBe(25);
+
+    // THE SAME PERSON, TWICE, inside the share. At 6b44084 the second of
+    // these was a 409: `gratitude.max_per_recipient_per_cycle` counted sends
+    // and was set to 1.
+    expect((await ack(people[3], 12)).ok).toBe(true);
+    expect((await ack(people[3], 13)).ok).toBe(true);
 
     const byFormat = await spentByFormat(giver);
     // One name for one lunation. Nothing under any other key.
     expect(Object.keys(byFormat)).toEqual([cycleIdFor()]);
-    // 30 through one door and 70 through the other, against a budget of 100.
-    // At b5bed01 this same sequence moved 130.
+    // 75 through one door and 25 through the other, against one allowance of
+    // 100. At b5bed01 this shape moved 130.
     expect(Object.values(byFormat).reduce((a, b) => a + b, 0)).toBe(100);
 
     // Nothing at all is left to give, through either door.
-    expect((await ack(people[2], 1)).ok).toBe(false);
-    const noMoreHearts = await give(pool, { fromUserId: giver, toUserId: people[7], amount: 1, clientNonce: "n-last" });
-    expect(noMoreHearts.ok).toBe(false);
+    const spent = await ack(people[4], 1);
+    expect(spent.ok).toBe(false);
+    expect(spent.ok === false && spent.error).toBe("Only 0 left in your budget this cycle");
+    expect((await hearts(people[7], 1, "n-last")).ok).toBe(false);
   });
 
   /**
@@ -190,5 +202,49 @@ describe.skipIf(!configured)("one cycle, one name", () => {
   /** The engine's own window key is the same string the log carries. */
   it("the economy's cycle key and the gratitude cycle id are one string", () => {
     expect(cycleWindow().key).toBe(cycleIdFor());
+  });
+
+  /**
+   * R73: the per-recipient rule is ONE rule over BOTH channels.
+   *
+   * The caps it replaced were per channel and counted different things, so a
+   * heart could carry what an acknowledgment had just been refused. This holds
+   * the two doors to one running total against one ceiling.
+   *
+   * Last in the file on purpose: it writes rows, and the settlement assertions
+   * above count every row in the table.
+   */
+  it("holds one share against one person, whichever door the giving comes through", async () => {
+    const giver = await makeMember("cyc-share-giver");
+    const friend = await makeMember("cyc-share-friend");
+    const other = await makeMember("cyc-share-other");
+
+    const ack = (to: string, amount: number) =>
+      sendGratitude(depsOver(pool), { fromUser: { id: giver, name: giver }, toId: to, amount, message: "thank you" });
+
+    // 25% of an allowance of 100. A single send of the whole allowance to one
+    // person is the thing the old sends cap permitted and this refuses.
+    const all = await ack(friend, 100);
+    expect(all.ok).toBe(false);
+    expect(all.ok === false && all.error).toContain("gratitude.max_share_per_recipient");
+
+    // Up to the share, in as many sends as the giver likes.
+    expect((await ack(friend, 20)).ok).toBe(true);
+    expect((await ack(friend, 5)).ok).toBe(true);
+    const overByOne = await ack(friend, 1);
+    expect(overByOne.ok).toBe(false);
+    expect(overByOne.ok === false && overByOne.error).toContain("you have given them 25");
+
+    // The other door reads the same running total and the same ceiling.
+    const viaHearts = await give(
+      pool,
+      { fromUserId: giver, toUserId: friend, amount: 1, clientNonce: "share-cross" },
+      async () => 1,
+    );
+    expect(viaHearts.ok).toBe(false);
+    expect(viaHearts.ok === false && viaHearts.error).toContain("you have given them 25");
+
+    // And somebody else is entirely unaffected: the ceiling is per pair.
+    expect((await ack(other, 25)).ok).toBe(true);
   });
 });

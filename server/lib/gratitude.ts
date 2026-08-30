@@ -34,6 +34,28 @@ export interface GratitudeBudget {
   cycleId: string;
 }
 
+/**
+ * The most one member may put on ONE other member this cycle (R73).
+ *
+ * A share of the giver's own allowance, so it means the same thing at 100 and
+ * at 500 and a village that doubles `gratitude.base_budget` does not silently
+ * double how much of one person's standing can come from one relationship. A
+ * cap of 1/N is the sentence "at least N people" written as one number.
+ *
+ * The floor of 1 is a bound, never a guess: 1% of an allowance of 50 rounds to
+ * zero, and a zero here would refuse every send in the village while both
+ * dials still read as sane numbers. It is stated on the dial itself.
+ *
+ * Exported because the economy engine's give path applies the identical rule
+ * (server/lib/economy.ts, checkGive). Two channels, one ceiling, computed in
+ * one place so they cannot drift apart the way the caps they replaced did.
+ */
+export function shareCapFor(allowanceTotal: number): number {
+  if (allowanceTotal <= 0) return 0;
+  const share = numberVar("gratitude.max_share_per_recipient");
+  return Math.max(1, Math.floor((allowanceTotal * share) / 100));
+}
+
 /** Budget = base variable × stage multiplier, minus what this cycle already spent. */
 export async function budgetFor(deps: GratitudeDeps, user: any): Promise<GratitudeBudget> {
   const total = Math.round(
@@ -68,9 +90,10 @@ export type SendOutcome =
 /**
  * The one send path. Order of refusals is part of the contract (the loop test
  * asserts the guard messages): bad input → unknown recipient → self-send →
- * no budget → over budget → per-recipient cap. Then: log row (the heart
- * index may refuse a duplicate), ledger post (recognition issues from the
- * faucet — the sender spends BUDGET, not balance), recipient cache update.
+ * no budget → over budget → heart tap count → per-recipient share. Then: log
+ * row (the heart index may refuse a duplicate), ledger post (recognition
+ * issues from the faucet — the sender spends BUDGET, not balance), recipient
+ * cache update.
  */
 export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Promise<SendOutcome> {
   const user = input.fromUser;
@@ -105,27 +128,41 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     return { ok: false, status: 400, error: `Only ${budget.remaining} left in your budget this cycle` };
   }
 
-  // Two caps, one budget (S27): hearts and acknowledgments each carry their
-  // own per-recipient per-cycle ceiling, and the refusal NAMES which cap
-  // fired — a silent 409 teaches nothing.
-  // Indexed COUNT, and this one IS kind-filtered — the two aggregates differ
-  // on purpose (see the repo interface): one budget across all kinds, but a
-  // separate per-recipient ceiling per kind.
-  const already = await deps.log.countPair(user.id, recipient.id, budget.cycleId, kind);
+  // One count cap, then one share (R73). The refusal NAMES which one fired,
+  // because a silent 409 teaches nothing.
+  //
+  // The heart cap counts TAPS and is the last count cap in the village: a
+  // heart is a gesture whose size is already fixed by `feed.heart_amount`, so
+  // how many of them is the meaningful question. Indexed COUNT, kind-filtered
+  // on purpose (see the repo interface).
   if (kind === "heart") {
     const heartCap = numberVar("feed.max_hearts_per_recipient_per_cycle");
-    if (already >= heartCap) {
+    const taps = await deps.log.countPair(user.id, recipient.id, budget.cycleId, kind);
+    if (taps >= heartCap) {
       return {
         ok: false,
         status: 409,
         error: `Hearts to one person are capped at ${heartCap} per cycle (feed.max_hearts_per_recipient_per_cycle)`,
       };
     }
-  } else if (already >= numberVar("gratitude.max_per_recipient_per_cycle")) {
+  }
+
+  // The share, and it counts GRATITUDE across BOTH channels. The cap it
+  // replaced counted SENDS and defaulted to 1, which bounded how OFTEN one
+  // member could acknowledge another and never how MUCH: a member at the top
+  // of the ladder could hand one person 500 in a single send and break no
+  // rule. Gratitude is the voting-weight token by default, so that was a
+  // limit on concentrated voice that did not exist.
+  const cap = shareCapFor(budget.total);
+  const alreadyGiven = await deps.log.sumPair(user.id, recipient.id, budget.cycleId);
+  if (alreadyGiven + amt > cap) {
+    const left = Math.max(0, cap - alreadyGiven);
     return {
       ok: false,
       status: 409,
-      error: "You have already acknowledged them this cycle (gratitude.max_per_recipient_per_cycle)",
+      error:
+        `${cap} is the most you can give one person this cycle, and you have given them ${alreadyGiven}. ` +
+        `That leaves ${left} for them (gratitude.max_share_per_recipient)`,
     };
   }
 

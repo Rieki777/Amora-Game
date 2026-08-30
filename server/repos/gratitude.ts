@@ -49,6 +49,14 @@ export interface GratitudeLogRepo {
   spentInCycle(fromId: string, cycleId: string): Promise<number>;
   /** How many of ONE kind have gone from one member to another this cycle. */
   countPair(fromId: string, toId: string, cycleId: string, kind: string): Promise<number>;
+  /**
+   * How much GRATITUDE has gone from one member to another this cycle, across
+   * ALL KINDS. The per-recipient share (R73) is a share of one allowance, and
+   * the allowance is one across the channels, so its aggregate has to be one
+   * too: kind-filtering this would let a heart carry what an acknowledgment
+   * was refused, which is the concentration the share exists to bound.
+   */
+  sumPair(fromId: string, toId: string, cycleId: string): Promise<number>;
 }
 
 export function gratitudeLogRepo(pool: Pool): GratitudeLogRepo {
@@ -89,6 +97,14 @@ export function gratitudeLogRepo(pool: Pool): GratitudeLogRepo {
         [fromId, toId, cycleId, kind],
       );
       return Number(row.n);
+    },
+
+    async sumPair(fromId, toId, cycleId) {
+      const [[row]] = await pool.query<any[]>(
+        "SELECT COALESCE(SUM(amount),0) AS s FROM gratitude_log WHERE from_id = ? AND to_id = ? AND cycle_id = ?",
+        [fromId, toId, cycleId],
+      );
+      return Number(row.s);
     },
 
     async add(e) {

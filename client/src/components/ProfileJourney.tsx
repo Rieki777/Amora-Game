@@ -36,9 +36,13 @@ function prettySource(s: string): string {
  * A BLOSSOM FOR BEING THANKED, and the restraint that keeps it worth seeing.
  *
  * Two things arrive as `gratitude` and only one of them is rare. A written
- * acknowledgment is capped at ONE per sender per recipient per lunar cycle
- * and has to carry a message, so receiving one is somebody sitting down and
- * saying why. A heart is a tap on a forum post, five per sender per cycle,
+ * acknowledgment has to carry a message, so receiving one is somebody sitting
+ * down and saying why. (This comment used to add "capped at ONE per sender per
+ * recipient per lunar cycle". R73 retired that cap: a count cap bounded how
+ * OFTEN one member acknowledged another and never how MUCH, so it is a share
+ * of the giver's allowance now and the same person can be thanked twice. The
+ * bloom's rarity was never resting on it: the two guards below are what hold
+ * it.) A heart is a tap on a forum post, five per sender per cycle,
  * and `feed.hearts_on_wall` already defaults false on the reasoning that a
  * tap is a gesture. Celebrating the tap would spend the bloom on the cheaper
  * thing within a week, so `kind === "heart"` is filtered out here and gets

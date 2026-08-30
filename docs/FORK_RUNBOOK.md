@@ -882,18 +882,32 @@ twenty-four runs a day pay exactly what one does and an interrupted run
 finishes on the next tick. It thanks seat holders at the amounts the rules
 already promised. It does NOT close a gratitude cycle, which stays a human act.
 
-**Two new variables**, both in Admin under Gratitude:
+**No new variables.** The engine's give path reads the same two dials the
+acknowledgement flow does, in Admin under Gratitude:
 
-| key | default | what it counts |
+| key | default | what it sets |
 |---|---|---|
-| `economy.giving_allowance_per_moon` | 30 | Hearts a member may give each lunation |
-| `economy.hearts_per_recipient_per_moon` | 10 | Hearts to any one person each lunation |
+| `gratitude.base_budget` | 100 | The allowance a member may give each cycle, before their stage multiplier |
+| `gratitude.max_share_per_recipient` | 25 % | The most of that allowance any one person may receive |
 
-These are separate from `gratitude.base_budget` and
-`gratitude.max_per_recipient_per_cycle`, which govern the older acknowledgement
-flow and count SENDS rather than Hearts. Both pairs are live and both write
-`gratitude_log`; the new pair is the stricter, so the overlap runs in the safe
-direction. Retiring one is a decision, not a cleanup.
+It shipped with a second pair of its own, `economy.giving_allowance_per_moon`
+(a flat 30) and `economy.hearts_per_recipient_per_moon` (10 to one person),
+beside `gratitude.max_per_recipient_per_cycle` (1 SEND to one person). R73
+retired all three, and 0110 deletes any override rows a fork had written.
+
+The reason the sends cap had to go: a cap on the COUNT bounds how OFTEN one
+member acknowledges another and never how MUCH, so a member at the top of the
+ladder could hand one person 500 Gratitude in a single send and break no rule.
+Gratitude is `governance.weight_token` by default, so that was a limit on how
+much voice one member may concentrate in another, and it did not exist. A share
+is stage-proof and edit-proof: it means the same thing at 100 and at 500, and
+doubling the base budget cannot silently double how much of one person's
+standing comes from one relationship.
+
+Both doors still write `gratitude_log` and both sum their spending out of the
+same rows. They now agree about the total as well.
+`feed.max_hearts_per_recipient_per_cycle` survives as the last count cap in the
+village, because a heart is a tap whose size `feed.heart_amount` already fixes.
 
 **Avatars.** `scripts/gen_avatars.py` needs `GEMINI_API_KEY` in the
 environment, never committed, and is only ever run by hand. It keeps its 2K

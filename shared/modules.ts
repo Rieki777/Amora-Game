@@ -436,7 +436,7 @@ export const MODULES: ModuleDef[] = [
     variableKeys: [
       "gratitude.base_budget",
       "gratitude.require_message",
-      "gratitude.max_per_recipient_per_cycle",
+      "gratitude.max_share_per_recipient",
       "gratitude.pool_per_cycle",
       "gratitude.pool_token",
     ],
