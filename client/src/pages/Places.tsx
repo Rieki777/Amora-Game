@@ -77,6 +77,11 @@ function PlacesPage() {
             Every place on the land that somebody has stood in front of with a camera. Each photograph carries the name of
             whoever took it and the month it was taken.
           </p>
+          <nav aria-label="Every photograph">
+            <Link href="/photographs" className="text-sm text-teal-deep underline inline-block py-1.5 min-h-[44px]">
+              See every photograph on one page, newest first
+            </Link>
+          </nav>
         </header>
 
         {locked ? (

@@ -25,9 +25,12 @@ export default function PlacePhotos() {
   return (
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-10 space-y-6">
-        <nav aria-label="Breadcrumb">
+        <nav aria-label="Breadcrumb" className="flex flex-wrap gap-x-4">
           <Link href="/places" className="text-sm text-teal-deep underline inline-block py-1.5 min-h-[44px]">
             All places
+          </Link>
+          <Link href="/photographs" className="text-sm text-teal-deep underline inline-block py-1.5 min-h-[44px]">
+            Every photograph
           </Link>
         </nav>
         <h1 className="font-serif text-3xl">{key || "This place"}</h1>

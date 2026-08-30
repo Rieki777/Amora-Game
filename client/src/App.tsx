@@ -139,6 +139,10 @@ const PAGE_TITLES: Record<string, string> = {
   // One line covers the shelf and every place, by the same longest-prefix
   // rule the module library uses above.
   "/places": "Places, photographed",
+  // Its own address rather than /places/photos, because a place key called
+  // "photos" would shadow it and because this is a different object from a
+  // place: the whole village's record on one page.
+  "/photographs": "Every photograph",
   "/admin": "Village settings",
 };
 
@@ -221,6 +225,7 @@ const LoveLetter = lazyPage(() => import("./pages/LoveLetter"));
 const Circles = lazyPage(() => import("./pages/Circles"));
 const Places = lazyPage(() => import("./pages/Places"));
 const PlacePhotos = lazyPage(() => import("./pages/PlacePhotos"));
+const Photographs = lazyPage(() => import("./pages/Photographs"));
 const Quests = lazyPage(() => import("./pages/Quests"));
 const QuestDetail = lazyPage(() => import("./pages/QuestDetail"));
 const ProposeQuest = lazyPage(() => import("./pages/ProposeQuest"));
@@ -342,6 +347,11 @@ function Router() {
           shelf would swallow it. */}
       <Route path="/places" component={Places} />
       <Route path="/places/:key" component={PlacePhotos} />
+      {/* Every photograph in the village on one page, so a person who wants a
+          picture of themselves down can find it without knowing which place
+          it was filed under. Top level and not under /places for the reason
+          PAGE_TITLES gives. */}
+      <Route path="/photographs" component={Photographs} />
       <Route path="/map/circles" component={VillageMap} />
       <Route path="/events" component={Events} />
       <Route path="/first-walk" component={FirstWalk} />

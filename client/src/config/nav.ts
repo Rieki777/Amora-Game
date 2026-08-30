@@ -100,6 +100,7 @@ export const NAV: readonly NavEntry[] = [
       // The map itself is a top-level entry now; this is the org view.
       { href: "/map/circles", label: "Circles & Roles", module: "map" },
       { href: "/places", label: "Places", module: "map" },
+      { href: "/photographs", label: "Photographs", module: "map" },
       { href: "/stay", label: "Stay", module: "stays" },
       { href: "/library", label: "Library", module: "library" },
       { href: "/tools", label: "Tools", module: "tools" },
