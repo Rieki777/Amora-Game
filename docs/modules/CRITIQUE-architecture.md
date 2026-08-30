@@ -86,6 +86,8 @@ Individually, these designs are unusually disciplined — idempotency keys, reco
 
 **Fix:** Bound feed.heart_amount at 1–5 (bounds should exclude broken economies, per the fail-loud philosophy), or enforce a combined per-recipient per-cycle VALUE cap across kinds (acks + hearts) as the real invariant, with the 409 naming which cap fired.
 
+**Closed 2026-08-29, 3882081:** `gratitude.max_share_per_recipient` replaced both per-recipient caps with one kind-blind share of the giver's own allowance, summed across acknowledgments and hearts together so neither channel can carry what the other refuses, and both 409s name the dial that fired.
+
 ### [MEDIUM] Internal Exchange (idempotency key width + rounding direction)
 
 **Issue:** Two settlement-precision defects. (1) Swap-leg key scheme `order:{id}:{account}:{currencyId}:{direction}` claims to fit varchar(160) but is 64+64+64+direction plus separators ≈ 200+ chars worst case — truncation silently merges distinct legs' keys (an idempotency collision that DROPS one leg of a swap: member debited, never credited, or vice versa). (2) The quote endpoint 'returns the even pair that minimizes rounding remainder' — a nearest-rounding implementation can round in the member's favor, and with spread 0 (the default) a crafted amount pair makes A→B→A round-trips extract dust from the treasury at scale.
