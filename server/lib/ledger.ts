@@ -30,6 +30,7 @@
  * never be. Boot invariants enforce that with a loud failure, not a comment.
  */
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
+import { issuanceRefusal } from "./gameStart";
 
 export type TokenType = string;
 
@@ -349,6 +350,28 @@ export async function postTransfer(
       return { ok: false, duplicate: false, toBalance: 0, error: `account "${missing}" does not exist` };
     }
 
+    /*
+     * ISSUANCE WAITS FOR THE VILLAGE (R67, lane GAMESTART).
+     *
+     * A posting out of a faucet creates tokens; every other posting moves
+     * tokens that already exist. That distinction is this table's `faucet`
+     * column, read one statement above for the overdraft rule, so the gate
+     * costs nothing extra and sees every faucet there is instead of the one
+     * the admin mint cap knows about.
+     *
+     * Before the launch ballot carries, a village may build its whole Game and
+     * issue nothing. Spending, swapping and member-to-member sending are
+     * untouched here on purpose: a village that has not started has nothing to
+     * spend, so this takes nothing away from anybody.
+     */
+    if (fromAcct.faucet) {
+      const closed = await issuanceRefusal(conn);
+      if (closed) {
+        await conn.rollback();
+        return { ok: false, duplicate: false, toBalance: 0, error: closed };
+      }
+    }
+
     // The veto, under the lock the accounts are already holding.
     if (guard) {
       const refusal = await guard(conn);
@@ -528,6 +551,20 @@ async function postTransferPairOnce(
       if (!accounts.has(acct)) {
         await conn.rollback();
         return fail(`account "${acct}" does not exist`);
+      }
+    }
+
+    /*
+     * The same issuance gate the single-leg poster keeps, and it has to be
+     * here too: a pair is two ledger rows, and a leg out of a faucet issues
+     * exactly as much as a lone posting would. One rule, asked in both places
+     * that can write the table.
+     */
+    if (legs.some((leg) => accounts.get(leg.from)?.faucet)) {
+      const closed = await issuanceRefusal(conn);
+      if (closed) {
+        await conn.rollback();
+        return fail(closed);
       }
     }
 

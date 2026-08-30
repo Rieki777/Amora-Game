@@ -11,11 +11,17 @@
  * named admin instead, and the confirmation records who and when: a human
  * saying "done" is evidence, anonymous state is not.
  *
- * "Launched" is a one-way founder act gated on every blocking requirement
- * reading ok. It is deliberately NOT auto-derived from the checks: going
- * live is a decision a person makes and owns, the same posture as module
- * enablement and the trading card. The flag's one consumer today is the
- * admin banner (it disappears); nothing else may branch on it.
+ * "Launched" WAS a one-way founder act gated on every blocking requirement
+ * reading ok. R74 changed who takes it: the button now opens the village's
+ * first ballot, at 100 unity and 100 quorum with three people on the roll, and
+ * the flag is written by that ballot carrying. What the checklist gates is
+ * unchanged, and it is the QUESTION: a village whose exit policy is still a
+ * placeholder is not ready to be asked. It never gated the answer, and it
+ * still does not.
+ *
+ * It is deliberately NOT auto-derived from the checks: starting the Game is a
+ * decision people make and own, the same posture as module enablement and the
+ * trading card.
  */
 import type { Pool } from "mysql2/promise";
 import {
@@ -51,18 +57,26 @@ export interface LaunchStatus {
   /** blocking items not yet ok — what stands between here and launched. */
   blockingOpen: number;
   recommendedOpen: number;
+  /**
+   * Every blocking item reads done, so the launch VOTE may be opened. It was
+   * named for a founder's own act and now names permission to ask the village
+   * (R74); the checklist gates the question, never the answer.
+   */
   readyToLaunch: boolean;
   launchedAt: string | null;
   launchedBy: string | null;
+  /** The ballot that carried, on a village that launched by its own vote. */
+  launchedByBallotId: string | null;
 }
 
 interface LaunchState {
   manualConfirms: Record<string, { by: string; at: string }>;
   launchedAt: string | null;
   launchedBy: string | null;
+  launchedByBallotId?: string | null;
 }
 
-const EMPTY: LaunchState = { manualConfirms: {}, launchedAt: null, launchedBy: null };
+const EMPTY: LaunchState = { manualConfirms: {}, launchedAt: null, launchedBy: null, launchedByBallotId: null };
 
 async function readState(pool: Pool): Promise<LaunchState> {
   const [[row]] = await pool.query<any[]>(
@@ -133,6 +147,7 @@ export async function launchStatus(pool: Pool, deps: LaunchDeps): Promise<Launch
     readyToLaunch: blockingOpen === 0,
     launchedAt: state.launchedAt,
     launchedBy: state.launchedBy,
+    launchedByBallotId: state.launchedByBallotId ?? null,
   };
 }
 
@@ -155,23 +170,90 @@ export async function confirmManual(
   return { ok: true };
 }
 
-/** The one-way founder act. Refuses while any blocking item is open. */
-export async function markLaunched(
+/**
+ * WHAT STANDS BETWEEN THIS VILLAGE AND OPENING ITS LAUNCH VOTE.
+ *
+ * R74 turned the founder's one-way act into a proposal, so this stopped being
+ * "may I write the flag" and became "may I ask the village". The checklist
+ * still gates it, and it gates the same thing it always did: whether the
+ * question may be PUT, never whether the answer is yes. A village whose exit
+ * policy is still a placeholder is not ready to be asked.
+ *
+ * Returns the refusal sentence and the open titles, or null when the vote may
+ * open. Everything else about opening it (the roll's floor of three, the
+ * thresholds, whether a vote is already running) belongs to the ballot engine
+ * and is asked there.
+ */
+export async function launchVoteBlocked(
   pool: Pool,
   deps: LaunchDeps,
-  by: string,
-): Promise<{ ok: true } | { ok: false; error: string; open?: string[] }> {
+): Promise<{ error: string; open: string[] } | null> {
   const status = await launchStatus(pool, deps);
-  if (status.launchedAt) return { ok: false, error: "Already launched" };
+  if (status.launchedAt) {
+    return { error: "This village has already started its Game.", open: [] };
+  }
   if (!status.readyToLaunch) {
     const open = status.items
       .filter((i) => i.severity === "blocking" && i.state !== "ok")
       .map((i) => i.title);
-    return { ok: false, error: `Not yet: ${open.length} blocking item(s) remain`, open };
+    return {
+      error: `${open.length} item(s) on the journey still block the launch vote.`,
+      open,
+    };
   }
-  const state = await readState(pool);
-  state.launchedAt = new Date().toISOString();
-  state.launchedBy = by;
-  await writeState(pool, state);
-  return { ok: true };
+  return null;
+}
+
+/**
+ * The village's launch vote carried. Recorded once, with the ballot that did
+ * it, so the record can never read as a founder's own decision.
+ *
+ * `launchedAt` keeps its meaning for the two surfaces that already read it
+ * (the admin banner retires, the journey page becomes a record), and gains the
+ * ballot id beside it. The SEPARATE fact that token issuance is open lives in
+ * `server/lib/gameStart.ts`, because those two are the same event going
+ * forwards and different events looking back: every village running today has
+ * been issuing for months and none of them has ever held this vote.
+ *
+ * ── WHY THIS ONE DOES NOT USE `writeState` ──────────────────────────────────
+ *
+ * Everything else in this file reads the whole document, edits a field and
+ * writes the whole document back. That is fine for a manual confirmation,
+ * which an admin can simply tick again. It is not fine for this: an admin
+ * pressing "Mark done" in the same moment the ballot closes would read the
+ * document before this wrote it and put it back without the launch in it, and
+ * the village would have voted to start its Game and have no record of it.
+ *
+ * So this is two statements and neither of them can lose a write. The insert
+ * creates the document only when there is none. The update sets the three
+ * fields in place, and its WHERE refuses to move a launch that is already
+ * recorded, which is also what makes it idempotent: `affectedRows` of zero
+ * means the launch was already there, and the first instant stands.
+ *
+ * `game-start` is a separate row written by INSERT IGNORE, so the fact that
+ * actually gates issuance was never exposed to this at all.
+ */
+export async function recordLaunchCarried(
+  pool: Pool,
+  input: { ballotId: string; closedBy: string; at?: Date },
+): Promise<{ alreadyRecorded: boolean; launchedAt: string }> {
+  const at = (input.at ?? new Date()).toISOString();
+  await pool.query(
+    "INSERT IGNORE INTO app_config (config_key, value) VALUES ('launch-state', ?)",
+    [JSON.stringify({ ...EMPTY, manualConfirms: {} })],
+  );
+  const [result] = await pool.query<any>(
+    "UPDATE app_config SET value = JSON_SET(value, '$.launchedAt', ?, '$.launchedBy', ?, '$.launchedByBallotId', ?) " +
+      "WHERE config_key = 'launch-state' " +
+      // Both spellings of absent: the key missing entirely, and the key
+      // present holding JSON null. A document written before this field
+      // existed is the first; one written by `writeState` is the second.
+      "AND (JSON_EXTRACT(value, '$.launchedAt') IS NULL OR JSON_TYPE(JSON_EXTRACT(value, '$.launchedAt')) = 'NULL')",
+    [at, input.closedBy, input.ballotId],
+  );
+  if (Number(result.affectedRows) === 0) {
+    const standing = await readState(pool);
+    return { alreadyRecorded: true, launchedAt: standing.launchedAt ?? at };
+  }
+  return { alreadyRecorded: false, launchedAt: at };
 }

@@ -443,6 +443,24 @@ export interface ProvisionOptions {
    * Pass a DIFFERENT collation to reproduce a fork's database.
    */
   collation?: string;
+  /**
+   * Whether this scratch village has already STARTED its Game (R67, lane
+   * GAMESTART). Default true, and the default is the load-bearing part.
+   *
+   * Token issuance now waits for the launch ballot to carry: a faucet posting
+   * is refused until `app_config['game-start']` exists, and migration 0112
+   * writes that row only for a deployment whose ledger already proves it was
+   * issuing. A scratch schema is migrated from empty, so every one of them
+   * would arrive un-started, and forty suites that have nothing to do with
+   * launch would each have to learn about it to keep minting.
+   *
+   * So the fixture says what a fixture should say: this is an ordinary village
+   * mid-life. What that costs is stated plainly instead of hidden: the rest of
+   * the suite cannot see the closed gate, so the gate's own suite
+   * (`server/lib/gameStart.test.ts`) provisions with `gameStarted: false` and
+   * proves both sides against a real database.
+   */
+  gameStarted?: boolean;
 }
 
 /**
@@ -539,6 +557,22 @@ export async function provisionTestDb(opts: ProvisionOptions = {}): Promise<Test
       `[testDb] the clone of ${template} was ${result.applied.length} migration(s) behind. ` +
         `The template fingerprint is not covering something it should.`,
     );
+  }
+  /*
+   * The fixture's one opinion about this village, written here and nowhere
+   * else. See `ProvisionOptions.gameStarted` for what it costs and why it is
+   * still the right default. `ballotId` is a fixture marker on purpose: a row
+   * reading `bal-fixture` can never be mistaken for a vote a village held.
+   */
+  if (opts.gameStarted !== false) {
+    await conn.query("INSERT IGNORE INTO app_config (config_key, value) VALUES ('game-start', ?)", [
+      JSON.stringify({
+        startedAt: new Date().toISOString(),
+        ballotId: "bal-fixture",
+        startedBy: "test-harness",
+        note: "Provisioned by the S5 test harness as a village whose Game has already started.",
+      }),
+    ]);
   }
   noteProvision({
     kind: cloned ? "clone" : "full",

@@ -3724,13 +3724,22 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(confirmed.json.status.items.find((i: any) => i.id === "backups-drilled").state).toBe("ok");
     // A live-checked item refuses hand-confirmation: evidence, not assertion.
     expect((await api("POST", "/api/admin/launch/confirm", { id: "admin-identities", done: true }, founderToken)).status).toBe(400);
-    // Launch refuses while ANY blocking item is open (stripe-webhook is not
-    // applicable with stays off, but modules/brand items may still be open —
-    // assert on the semantics, not this deployment's exact remainder).
-    const attempt = await api("POST", "/api/admin/launch/launched", undefined, founderToken);
+    // R74: the button PROPOSES now. It still refuses while any blocking item
+    // is open (stripe-webhook is not applicable with stays off, but
+    // modules/brand items may still be open), and this village may also be
+    // short of the three members a launch vote asks for, so this asserts the
+    // semantics and never this deployment's exact remainder.
+    const attempt = await api("POST", "/api/admin/launch/propose", undefined, founderToken);
     const after = (await api("GET", "/api/admin/launch", undefined, founderToken)).json;
     if (after.blockingOpen > 0) expect(attempt.status).toBe(409);
-    else expect(attempt.json.success).toBe(true);
+    /*
+     * THE WHOLE BEHAVIOUR CHANGE, IN ONE ASSERTION, AND IT HOLDS IN EVERY
+     * BRANCH. Pressing this used to mark the village launched. Now nothing but
+     * a ballot carrying can write that flag, so whether the press was refused
+     * or opened a vote, the village is not launched on the way out.
+     * server/launchVote.routes.e2e.test.ts drives the vote itself end to end.
+     */
+    expect(after.launchedAt).toBeNull();
 
     // ── S63: a secret goes in, and only its shape comes back. ──
     const put = await api("PUT", "/api/admin/integrations/resend_api_key", { value: "re_TESTKEY_abcd1234" }, founderToken);
