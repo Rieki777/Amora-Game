@@ -25,6 +25,22 @@
 #     silent degradation, not a crash: `docs/knowledge` missing only prints
 #     "[knowledge] docs/knowledge missing" and Maia serves an empty shelf.
 #
+# Building it by hand:
+#
+#   docker build --build-arg GIT_SHA=$(git rev-parse HEAD) -t village-os .
+#   docker run -p 3000:3000 \
+#     -e DATABASE_URL=mysql://user:pass@host:3306/village \
+#     -e AUTH_TOKEN_SECRET=$(openssl rand -hex 32) \
+#     -v village-data:/app/data \
+#     village-os
+#
+# GIT_SHA is what lets /health say which commit is serving; without it the
+# marker reads "dev". DATABASE_URL is the only variable the server refuses to
+# boot without. AUTH_TOKEN_SECRET is not required but should be set: unset, the
+# server warns and uses a random per-process secret, so every restart logs
+# everybody out and a second replica cannot read the first one's sessions.
+# The volume is where uploads live; without it they vanish with the container.
+#
 # Debian rather than Alpine on purpose. bcrypt resolves its native binding
 # through node-gyp-build and sharp through @img/sharp-linux-x64, and both pick
 # their glibc prebuilds here. Alpine would send both down the musl path, which

@@ -205,8 +205,12 @@ jobs:
           # docker and some mirrors are not, and this image is meant to be
           # pullable by thirteen operators we do not control.
           provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Scoped, because this shares the repo's 10 GB Actions cache with
+          # ci's pnpm cache and eviction is repo-wide LRU. mode=max keeps the
+          # dependency-install layers, which are the expensive ones and only
+          # change when the lockfile does.
+          cache-from: type=gha,scope=release
+          cache-to: type=gha,mode=max,scope=release
 
   # -------------------------------------------------------------------------
   # Prove the thing we just published actually boots and knows what it is.
