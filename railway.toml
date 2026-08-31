@@ -1,18 +1,50 @@
-# WARNING, read before merging this branch to main.
+# WATCH THE FIRST DEPLOY AFTER THIS LANDS, AND READ ITS BUILD LOG.
 #
-# A `Dockerfile` now exists at the repo root. Railway's own config-as-code
-# reference says "Railway will always build with a Dockerfile if it finds one",
-# and `NIXPACKS` is no longer a documented value for `builder` (the documented
-# ones are RAILPACK and DOCKERFILE). So the line below may no longer be doing
-# what it says, and the first deploy after this lands could build from the
-# Dockerfile instead of from nixpacks.
+# A `Dockerfile` now exists at the repo root, and it is not settled whether
+# that changes how Railway builds this service. Here is exactly what is known,
+# separated into what was measured and what was only read.
 #
-# That is where this repo is going on purpose, one image for ReGen-hosted and
-# self-hosted alike. It is not something to arrive at by accident on a Tuesday.
-# The builder line is therefore left exactly as it was: this lane is not
-# changing production's build path as a side effect of adding a Dockerfile.
-# Settle it with one deliberate deploy, then set `builder` to the value that
-# deploy proved, and delete this comment.
+# MEASURED, 2026-08-31, deployment 0eaaf3fa-30a2-4860-ab00-f77e10ba6fc9 of
+# service "Amora Game" in project "Amora Game", environment production, at
+# commit 6de6629 with NO Dockerfile in the tree. First lines of its build log:
+#
+#     scheduling build on Metal builder "builder-bovfov"
+#     using build driver nixpacks-v1.41.0
+#
+# So `builder = "nixpacks"` is live and honoured TODAY. The worry that the
+# line had already gone inert is false, and this file is not lying about the
+# build that currently runs. (The nixpacks driver generates its own Dockerfile
+# internally, which is why the same log later says "load build definition from
+# Dockerfile" while no Dockerfile existed in the repo. That line is not
+# evidence of root-Dockerfile detection.)
+#
+# READ, not measured, from Railway's config-as-code reference on the same day:
+# "Railway will always build with a Dockerfile if it finds one", and the only
+# documented values for `builder` are RAILPACK and DOCKERFILE. Taken at face
+# value that means the first build after this lands is the image.
+#
+# NOT DETERMINED: whether the presence of the file actually overrides the line
+# below. The intended experiment was a throwaway service carrying both a
+# Dockerfile and this builder setting, read back from its build log. The
+# Railway CLI session token expired part way through the investigation, and
+# re-authenticating is a browser sign-in that only the account holder can do.
+# So the question stands where the previous lane left it, with one worry
+# removed and none added.
+#
+# WHY IT IS SAFE TO FIND OUT BY DEPLOYING. The health check below is the
+# reason. Railway's healthchecks reference: it queries the endpoint until it
+# gets a 200, and "only then will the new deployment be made active and the
+# previous deployment inactive". A first Dockerfile build that fails to build,
+# or builds and cannot serve /health, is marked failed and the deployment that
+# is already serving keeps serving. The image is also built and booted end to
+# end by .github/workflows/release.yml before any of this, so an image that
+# cannot start has already been caught somewhere cheaper.
+#
+# WHAT TO DO ON THAT FIRST DEPLOY: read the first two lines of the build log
+# (`railway logs --build <deploymentId>`). If they name a driver other than
+# nixpacks, the Dockerfile won: set `builder = "DOCKERFILE"` here so the file
+# states what actually happens, and delete this comment. If they still say
+# nixpacks, the line below won: leave it, and delete this comment too.
 [build]
 builder = "nixpacks"
 buildCommand = "pnpm run build"
