@@ -45,6 +45,22 @@ const settings = new Map<string, ModuleRow>();
 let orphanIds: string[] = [];
 /** Modules served as OFF because a hard dependency is off (boot reconciliation). */
 let demoted = new Map<string, string[]>();
+/**
+ * Modules served as OFF because their own data failed a boot invariant.
+ *
+ * The SAME consequence as a demotion and a different cause, so it gets its own
+ * map rather than sharing one: a demotion is answered by turning a dependency
+ * back on, and a quarantine is answered by mending rows. Telling a founder the
+ * wrong one costs them the afternoon.
+ *
+ * Deliberately NOT cleared by `reconcileGraph`. The graph reconciles whenever
+ * module settings reload, which an admin can cause at any moment by toggling
+ * something unrelated, and a quarantine that evaporated on an unrelated click
+ * would put the broken module back in front of members with nothing fixed.
+ * This process refuses this module until the process restarts and the check
+ * passes, which is a button a founder already has.
+ */
+const quarantined = new Map<string, string[]>();
 
 export async function loadModuleSettings(p: Pool): Promise<void> {
   pool = p;
@@ -86,6 +102,10 @@ export function effectiveLifecycle(id: string): ModuleLifecycle {
   const def = MODULES_BY_ID[id];
   if (!def) return "off";
   if (def.core) return "public";
+  // Below the core check on purpose. Core modules are the village's substrate,
+  // they have no per-module invariant of their own to fail, and nothing here
+  // should ever be able to switch the front door off.
+  if (quarantined.has(id)) return "off";
   if (demoted.has(id)) return "off";
   return storedLifecycle(id);
 }
@@ -110,6 +130,40 @@ export function decidedModuleIds(): string[] {
 
 export function moduleDemotions(): Array<{ id: string; missing: string[] }> {
   return Array.from(demoted.entries()).map(([id, missing]) => ({ id, missing }));
+}
+
+/**
+ * ONE MODULE'S BAD DATA STOPS BEING THE WHOLE VILLAGE'S OUTAGE.
+ *
+ * The per-module boot invariants (exchange firewalls, badge validity, library
+ * escrow reconciliation) each threw and each took the entire deployment down
+ * with them. That is the right instinct pointed at the wrong blast radius: the
+ * thing being protected is one module's own correctness, and the price was
+ * every other module, for everybody, until somebody with production SQL
+ * mended a row. No founder has production SQL. The failure they actually met
+ * was a village that would not come back, at an hour with nobody to ask.
+ *
+ * So the module goes off and the village serves. This is not leniency: OFF is
+ * the strictest thing available. It unmounts the routes, stops the scheduler
+ * jobs and closes the only code that could compound the discrepancy, which is
+ * more protection than a dead process ever gave. What it stops doing is
+ * punishing the other twenty modules for it.
+ *
+ * `reasons` are sentences a founder can act on, naming the rows. They land in
+ * the log, in the admin modules payload and in the village's health events.
+ *
+ * VILLAGE-WIDE TRUTHS ARE NOT THIS. Migrations and ledger conservation stay
+ * fail-loud and fatal, because there is no single module to quarantine when
+ * the schema or the economy as a whole is wrong.
+ */
+export function quarantineModule(id: string, reasons: string[]): void {
+  if (!MODULES_BY_ID[id]) return;
+  const existing = quarantined.get(id) ?? [];
+  quarantined.set(id, [...existing, ...reasons]);
+}
+
+export function moduleQuarantines(): Array<{ id: string; reasons: string[] }> {
+  return Array.from(quarantined.entries()).map(([id, reasons]) => ({ id, reasons }));
 }
 
 function reconcileGraph() {

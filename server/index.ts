@@ -305,7 +305,7 @@ import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, remove
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
 import { assertVoiceSecret, checkVoiceSecret, claimHistory, claimReadiness, requestVoiceClaim, settleVoiceClaim } from "./lib/voiceClaim";
-import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
+import { installCrashHandlers, reachedSomebody, reportError, reportErrorWithin, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
   ensureStayToken,
@@ -621,6 +621,8 @@ import {
   moduleDemotions,
   moduleMaxLifecycle,
   moduleOrphans,
+  moduleQuarantines,
+  quarantineModule,
   listingStamp,
   requireModule,
   requireVendor,
@@ -1077,12 +1079,25 @@ const DEFAULT_SETTINGS = {
   },
 };
 
-const DEFAULT_TRAINING_MODULES = [
+/**
+ * The starter training list a fresh deployment gets, once, when the table is
+ * empty. Two of these descriptions named Amora outright, so every village that
+ * installed this platform opened its training page and read another village's
+ * name back at itself on day one. A FUNCTION rather than a const because the
+ * name is read at seed time from the merged config (brand overlay over the
+ * gameConfig default), which is not known at module load.
+ *
+ * Only the identity moved. The practices are the platform's opinion about what
+ * a village should learn first and they stay exactly as written.
+ */
+function defaultTrainingModules() {
+  const village = mergedConfig().project.name;
+  return [
   {
     id: "nvc-intro",
     title: "Introduction to Nonviolent Communication",
     description:
-      "The foundation of how we talk to each other at Amora. Learn the four components of NVC and why they matter.",
+      `The foundation of how we talk to each other at ${village}. Learn the four components of NVC and why they matter.`,
     type: "Video",
     url: "",
     order: 1,
@@ -1100,7 +1115,7 @@ const DEFAULT_TRAINING_MODULES = [
     id: "consent-decisions",
     title: "Consent-Based Decision Making",
     description:
-      "How Amora makes decisions together: the difference between consensus and consent, and why it matters.",
+      `How ${village} makes decisions together: the difference between consensus and consent, and why it matters.`,
     type: "Article",
     url: "",
     order: 3,
@@ -1114,7 +1129,8 @@ const DEFAULT_TRAINING_MODULES = [
     url: "",
     order: 4,
   },
-];
+  ];
+}
 
 const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" | "prosperity"> = {
   investor: "investor",
@@ -1861,8 +1877,12 @@ async function ensureDataFiles() {
       console.error("[seed] roles seed failed (continuing)", e);
     }
   }
-  if (trainingRepo.all().length === 0 && DEFAULT_TRAINING_MODULES.length) {
-    await trainingRepo.replaceAll(DEFAULT_TRAINING_MODULES as any[]);
+  if (trainingRepo.all().length === 0) {
+    // Built here rather than at module load: the descriptions carry the
+    // village's own name and the brand overlay is only readable once the
+    // repos are hydrated, which is true by the time this seed runs.
+    const starter = defaultTrainingModules();
+    await trainingRepo.replaceAll(starter as any[]);
     console.log("[seed] default training modules seeded");
   }
   if (milestonesRepo.all().length === 0 && DEFAULT_MILESTONES.length) {
@@ -2500,7 +2520,11 @@ async function markFoundingTeamInProgress() {
  * the old default. Anything a human has since edited is left exactly as it is.
  */
 async function retireLegacyPegCopy() {
-  const OLD_FAQ = "Contributions are compensated in Gratitude (1 Gratitude = $1 USD in value). As Amora's shared businesses generate revenue, Gratitude converts to cash.";
+  // brand-ok: a fossil, not a claim. This literal is compared character for
+  // character against copy already written to deployed volumes, so replacing
+  // the name here would stop the correction matching and silently leave the
+  // false peg in live copy on every village that booted before it.
+  const OLD_FAQ = "Contributions are compensated in Gratitude (1 Gratitude = $1 USD in value). As Amora's shared businesses generate revenue, Gratitude converts to cash."; // brand-ok: fossil compared byte for byte against deployed copy, see above
   const OLD_DUES_NOTE = "Village Dues cover utilities, maintenance, and community services. They can be offset through Gratitude (1 Gratitude = $1 USD of contribution).";
   try {
     const faqs = faqsRepo.get();
@@ -4225,6 +4249,188 @@ function stayPostingHooks() {
  */
 let lastUploadsReport: UploadsSweepReport | null = null;
 
+/** What `/health` says about the database, and never a default. */
+type DatabaseProbe = { ok: true; ms: number } | { ok: false; error: string };
+
+/** A probe that hangs is a probe that never answers; give it a deadline. */
+const DB_PROBE_BUDGET_MS = 3000;
+
+/**
+ * ONE QUESTION THE DATABASE CANNOT BLUFF.
+ *
+ * `SELECT 1` through the live pool: it needs no table, so it survives a schema
+ * a migration has not reached, and it fails for exactly the reasons a member's
+ * request would fail: the host is gone, the credentials rotated, the pool is
+ * exhausted, the network partitioned.
+ *
+ * The deadline is the point. Without it a probe against a black-holed MySQL
+ * hangs on the connect timeout, Railway's healthcheck times out too, and the
+ * only thing anybody learns is that something took too long. With it the probe
+ * answers inside three seconds with the reason in words, and a timeout is
+ * reported as a FAILURE rather than as an unfinished check: a question we
+ * could not ask is not a question that came back fine.
+ */
+async function probeDatabase(): Promise<DatabaseProbe> {
+  const started = Date.now();
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const outcome = await Promise.race<"ok" | "timed out">([
+      getPool().query("SELECT 1").then(() => "ok" as const),
+      new Promise<"timed out">((resolve) => {
+        timer = setTimeout(() => resolve("timed out"), DB_PROBE_BUDGET_MS);
+      }),
+    ]);
+    if (outcome === "timed out") {
+      return { ok: false, error: `the database did not answer within ${DB_PROBE_BUDGET_MS}ms` };
+    }
+    return { ok: true, ms: Date.now() - started };
+  } catch (e) {
+    // The message, not the stack, and never the connection string: this
+    // endpoint is unauthenticated. mysql2 messages name the error class
+    // (ECONNREFUSED, ER_ACCESS_DENIED_ERROR) without the credentials.
+    return { ok: false, error: String((e as any)?.message ?? e ?? "unknown error").slice(0, 200) };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+interface UploadsGauge {
+  files: number;
+  mb: number;
+  photoFiles: number;
+  photoMb: number;
+  orphanFiles?: number;
+  orphanMb?: number;
+}
+
+/**
+ * WHAT THE UPLOADS GAUGE COSTS, AND WHY IT NO LONGER COSTS IT PER REQUEST.
+ *
+ * The volume had no gauge at all before this: no byte count, no file count,
+ * nothing on this probe. It fills silently (every hero photo retried in the
+ * wizard leaves its predecessor behind forever), and the first sign of a full
+ * volume would have been every upload failing at once.
+ *
+ * Deliberately a REPORT, not a reclaim. An orphan sweep was specced and then
+ * refuted by review: the investor vault stamps filenames from the uploaded
+ * file's own name, which the reference scan could not see, so the sweep would
+ * have deleted live cap tables. Measurement first; deletion only behind the
+ * amendments in docs/DESIGN_TOKENS_SPEC.md §A1. `orphanFiles` / `orphanMb` are
+ * the amended version of that, served from the last daily sweep and never
+ * measured here. 0093 splits the community's photographs out of the total,
+ * because member uploads grow the volume without anybody pressing a button.
+ *
+ * ── WHY THIS IS A CACHE ──────────────────────────────────────────────────
+ *
+ * The measurement shipped as a `readdirSync` plus a `statSync` per file, run
+ * inline on every request to an UNAUTHENTICATED endpoint. Both halves of that
+ * are wrong and the file said so itself in two places: the comment over
+ * `lastUploadsReport` claims the figures are kept in memory "so /health can
+ * report it without walking the volume", and docs/DESIGN_TOKENS_SPEC.md §9.4
+ * states outright that /health must never stat the volume per request. It did
+ * both anyway, and it did them SYNCHRONOUSLY, so every file on the volume was
+ * a syscall that blocked the single event loop for every other member's
+ * request. Probe traffic is about to multiply against it: railway.toml is
+ * gaining a healthcheckPath and the fleet roller polls this route per instance
+ * per rollout step.
+ *
+ * The cache is keyed on the volume's own mtime rather than a timer, so it is
+ * not a staleness trade. A flat directory's mtime changes whenever a file is
+ * added or removed, which is the only way these counts move, so an unchanged
+ * mtime is proof the previous answer is still exact. Steady state is therefore
+ * one `stat` per probe and no walk at all, while a volume that genuinely
+ * changed is re-measured on the next probe rather than on a schedule.
+ *
+ * Three guards around that:
+ *   - mtime is read BEFORE and AFTER the walk. If it moved mid-walk the result
+ *     is served but NOT cached, so a count taken across a concurrent write can
+ *     never be mistaken for a settled one.
+ *   - a floor (`MIN_INTERVAL_MS`) caps the cost of a directory being written
+ *     continuously, which is otherwise a way for an authenticated uploader to
+ *     make every probe pay for a walk.
+ *   - a ceiling (`MAX_AGE_MS`) re-measures anyway, because directory mtime is
+ *     a filesystem promise and network mounts have been known to break it.
+ *
+ * The walk itself is now async, so even the re-measure yields the event loop
+ * between files instead of stopping the village while it counts.
+ */
+const UPLOADS_GAUGE_MIN_INTERVAL_MS = 1000;
+const UPLOADS_GAUGE_MAX_AGE_MS = 5 * 60 * 1000;
+let uploadsGaugeCache: { at: number; dirMtimeMs: number; value: UploadsGauge } | null = null;
+/** One walk at a time: concurrent probes share the answer instead of racing. */
+let uploadsGaugeInFlight: Promise<UploadsGauge | undefined> | null = null;
+
+/** The orphan half comes from the daily sweep, not from the walk. Cheap, always current. */
+function withOrphanTally(g: UploadsGauge): UploadsGauge {
+  if (!lastUploadsReport?.complete) {
+    // Absent until the first sweep has run, and absent whenever a scan could
+    // not finish. A zero would read as "none found", which is a different
+    // statement from "not measured yet".
+    const { orphanFiles: _f, orphanMb: _m, ...rest } = g;
+    return rest;
+  }
+  return {
+    ...g,
+    orphanFiles: lastUploadsReport.tally.orphan.files,
+    orphanMb: Math.round(lastUploadsReport.tally.orphan.bytes / (1024 * 1024)),
+  };
+}
+
+async function walkUploadsVolume(): Promise<UploadsGauge> {
+  const entries = await fs.promises.readdir(UPLOADS_DIR, { withFileTypes: true });
+  let bytes = 0;
+  let files = 0;
+  let photoBytes = 0;
+  let photoFiles = 0;
+  for (const e of entries) {
+    if (!e.isFile()) continue;
+    files += 1;
+    let size = 0;
+    try { size = (await fs.promises.stat(path.join(UPLOADS_DIR, e.name))).size; } catch { /* raced a delete */ }
+    bytes += size;
+    if (isPhotoFile(e.name)) { photoFiles += 1; photoBytes += size; }
+  }
+  return {
+    files,
+    mb: Math.round(bytes / (1024 * 1024)),
+    photoFiles,
+    photoMb: Math.round(photoBytes / (1024 * 1024)),
+  };
+}
+
+async function readUploadsGauge(): Promise<UploadsGauge | undefined> {
+  try {
+    const now = Date.now();
+    const cached = uploadsGaugeCache;
+    if (cached && now - cached.at < UPLOADS_GAUGE_MIN_INTERVAL_MS) return withOrphanTally(cached.value);
+    const before = await fs.promises.stat(UPLOADS_DIR);
+    if (
+      cached &&
+      cached.dirMtimeMs === before.mtimeMs &&
+      now - cached.at < UPLOADS_GAUGE_MAX_AGE_MS
+    ) {
+      return withOrphanTally(cached.value);
+    }
+    if (!uploadsGaugeInFlight) {
+      uploadsGaugeInFlight = (async () => {
+        const value = await walkUploadsVolume();
+        const after = await fs.promises.stat(UPLOADS_DIR);
+        // Only a walk the volume held still for becomes the cached answer.
+        if (after.mtimeMs === before.mtimeMs) {
+          uploadsGaugeCache = { at: Date.now(), dirMtimeMs: after.mtimeMs, value };
+        }
+        return value;
+      })().finally(() => { uploadsGaugeInFlight = null; });
+    }
+    const fresh = await uploadsGaugeInFlight;
+    return fresh ? withOrphanTally(fresh) : undefined;
+  } catch {
+    // Volume not mounted yet: report nothing rather than a zero that reads as
+    // healthy. This is NOT part of the /health verdict, for the same reason.
+    return undefined;
+  }
+}
+
 /**
  * Walk the volume, ask the database about every file on it, and classify.
  *
@@ -4739,6 +4945,13 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * The heading was the literal word "Amora", so every village that installed
+ * this platform emailed its own stewards under another village's name. Same
+ * rule as every other identity string: the name comes from the merged config,
+ * which is a brand override over the gameConfig default, and is escaped
+ * because a village types its own name.
+ */
 function buildSubmissionEmailHtml(type: string, data: Record<string, unknown>, adminUrl: string): string {
   const rows = Object.entries(data)
     .map(
@@ -4748,7 +4961,7 @@ function buildSubmissionEmailHtml(type: string, data: Record<string, unknown>, a
     .join("");
   return `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">
 <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
-  <div style="background:#2D5A5A;color:#fff;padding:20px 24px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.7">New ${escapeHtml(type)} submission</div><div style="font-size:20px;font-weight:700;margin-top:4px">Amora</div></div>
+  <div style="background:#2D5A5A;color:#fff;padding:20px 24px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.7">New ${escapeHtml(type)} submission</div><div style="font-size:20px;font-weight:700;margin-top:4px">${escapeHtml(mergedConfig().project.name)}</div></div>
   <div style="padding:20px 24px">
     <table style="width:100%;border-collapse:collapse;font-size:14px">${rows}</table>
     <div style="margin-top:24px"><a href="${escapeHtml(adminUrl)}" style="display:inline-block;background:#2D5A5A;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Open Admin</a></div>
@@ -5004,6 +5217,100 @@ async function assistantDailyCapReached(max: number): Promise<boolean> {
 async function assistantDailyCapAtLimit(max: number): Promise<boolean> {
   const today = new Date().toISOString().slice(0, 10);
   return atLimit(`assistant-day:${today}`, max, 24 * 60 * 60 * 1000);
+}
+
+/**
+ * RUN A BOOT INVARIANT WITHOUT LETTING IT TAKE THE VILLAGE.
+ *
+ * `moduleId` is the module whose own data the check is about, or null when the
+ * check is about something with no module to quarantine (the capability
+ * holding table). In that case the failure is recorded and the village serves,
+ * because the harm it guards against is already closed one layer down.
+ *
+ * ── WHY THE CONSOLE IS CAPTURED ──────────────────────────────────────────────
+ *
+ * Every one of these checks prints its problems line by line and then throws a
+ * summary that carries only a COUNT: "badge invariants violated (2), refusing
+ * to serve". A count is useless to a founder. The lines are the part that names
+ * the rows, and they exist already, so this listens for them for the duration
+ * of the call rather than editing four library files to restate them.
+ *
+ * The real console still gets every line. This forwards, it does not swallow.
+ * It is boot-time and single-threaded, one check at a time, and it is restored
+ * in a `finally` so a throw cannot leave the process with a patched console.
+ */
+async function quarantineOnInvariantFailure(
+  moduleId: string | null,
+  what: string,
+  check: () => Promise<void>,
+): Promise<void> {
+  const printed: string[] = [];
+  const realError = console.error;
+  console.error = (...args: unknown[]) => {
+    if (printed.length < 20) {
+      printed.push(args.map((a) => (typeof a === "string" ? a : String(a))).join(" ").slice(0, 400));
+    }
+    realError(...(args as []));
+  };
+  try {
+    await check();
+    return;
+  } catch (e) {
+    console.error = realError;
+    // Every one of these errors ends "refusing to serve", which was true when
+    // the throw reached startServer() and is a lie now. Reprinting it would
+    // teach an operator that the village is down while the village is up, so
+    // the stale clause comes off and this function says what it actually did.
+    const summary = String((e as any)?.message ?? e ?? "unknown failure")
+      .replace(/[,;]?\s*refusing to serve\.?\s*$/i, "");
+    // The lines the check itself printed are the ones naming rows. Anything
+    // that is plainly not a problem line (a repair it performed on the way) is
+    // still true and still worth an admin seeing, so all of it is kept.
+    const detail = printed.length ? printed : [summary];
+    const name = moduleId ? MODULES_BY_ID[moduleId]?.name ?? moduleId : null;
+
+    if (moduleId) {
+      quarantineModule(moduleId, detail);
+      realError(
+        `[${what}] FATAL-LEVEL DATA: ${summary}\n` +
+          detail.map((d) => `  ${d}`).join("\n") +
+          `\n  Serving "${moduleId}" as OFF for this run. The rest of the village is up. ` +
+          `Mend the rows named above and restart; nothing about your configuration was changed.`,
+      );
+    } else {
+      realError(
+        `[${what}] FATAL-LEVEL DATA: ${summary}\n` +
+          detail.map((d) => `  ${d}`).join("\n") +
+          `\n  Serving anyway: the permission gate filters these rows out on every read, so they grant nothing.`,
+      );
+    }
+
+    // The village's own record, in words a founder can act on. recordEvent
+    // never throws into its caller, so a database that cannot take the event
+    // cannot turn a contained failure back into a boot failure.
+    await recordEvent(getPool(), {
+      kind: "module_quarantine",
+      text: name
+        ? `${name} was switched off at startup because its own records did not add up. ` +
+          `The rest of the village is running normally. What the check found: ${detail.join(" | ")}. ` +
+          `Once the records are mended, restart the village and ${name} comes back on its own.`
+        : `A startup check on the village's ${what} found records that do not add up, and the village is ` +
+          `serving normally because those records grant nothing on their own. What the check found: ${detail.join(" | ")}.`,
+      actorKind: "system",
+      entityType: moduleId ? "module" : "village",
+      entityRef: moduleId ?? "capability_holding",
+      audience: "admin",
+    });
+
+    // And out to whoever is watching, through the same sink a crash uses.
+    // Not awaited on the critical path: boot continues, the alert catches up.
+    void reportError(e, {
+      where: moduleId ? `the ${moduleId} module's boot invariant` : `the ${what} boot invariant`,
+      detail: { quarantined: moduleId ?? "none", problems: detail.length },
+    });
+  } finally {
+    console.error = realError;
+  }
 }
 
 async function startServer() {
@@ -5785,16 +6092,67 @@ async function startServer() {
    */
   MODULES_BY_ID["events"].openStateCheck = () => eventsOpenState(getPool());
 
-  // S33/S37/S42: config and economy firewalls are re-proven at every boot —
-  // a hand-edited listing, badge row, or drained escrow can never outlive a
-  // deploy. Same posture as the ledger invariants above.
-  await assertExchangeFirewalls(getPool());
-  await assertBadgeInvariants(getPool());
-  await assertLibraryInvariants(getPool());
-  // 0098: the same posture for the holding table, and the same reason. A row
-  // naming a capability that may never move would close a door quietly, and
-  // the one thing a hand-written row is guaranteed to escape is code review.
-  await assertCapabilityHoldingInvariants(getPool());
+  /*
+   * S33/S37/S42: config and economy firewalls are re-proven at every boot, so
+   * a hand-edited listing, badge row, or drained escrow can never outlive a
+   * deploy.
+   *
+   * ── WHY THESE NO LONGER REFUSE THE VILLAGE ───────────────────────────────
+   *
+   * They used to run bare, so each of them threw straight out of startServer()
+   * and the whole deployment refused to serve. The blast radius was wrong. Each
+   * of these checks is about ONE module's own data: one listing that must not
+   * be sold, one badge that no longer validates, one escrow account that does
+   * not reconcile. The punishment was every other module, for every member,
+   * until somebody ran SQL against production.
+   *
+   * Nobody here can run SQL against production. Thirteen founders are each
+   * designing a village in their own instance, and there is no developer at
+   * 2am. The realistic outcome of the old shape was a village that went dark
+   * and stayed dark: railway.toml gives up after three restarts and the boot
+   * failure was silent (fixed at the bottom of this file).
+   *
+   * So a per-module failure now quarantines that module and the village serves.
+   * OFF is the strict answer, not the lenient one: it unmounts the routes,
+   * stops the scheduler jobs, and closes the only code that could make the
+   * discrepancy worse. A dead process did none of that; it just took the
+   * forum, the map and the front door down alongside.
+   *
+   * WHAT STAYS FATAL, and why: migrations above, and the ledger conservation
+   * check above. Those are village-wide truths with no single module to
+   * quarantine. Serving over a schema that does not match the code, or over
+   * an economy that does not conserve, would normalise a break rather than
+   * contain one.
+   */
+  await quarantineOnInvariantFailure("exchange", "exchange firewall", () =>
+    assertExchangeFirewalls(getPool()),
+  );
+  await quarantineOnInvariantFailure("badges", "badge invariant", () =>
+    assertBadgeInvariants(getPool()),
+  );
+  await quarantineOnInvariantFailure("library", "library escrow reconciliation", () =>
+    assertLibraryInvariants(getPool()),
+  );
+  /*
+   * 0098: the holding table. This one is NOT per-module and it is no longer
+   * fatal either, and the reason is that the door it guards is already shut
+   * one layer down.
+   *
+   * `villageHeldCapabilities`, the actual permission gate, filters every row
+   * through TRANSFERABLE before it grants anything, and says so in as many
+   * words: "two locks on the same door, because the failure mode being guarded
+   * against is a row nobody reviewed". So a hand-written row naming a
+   * capability that may never move grants nothing, locks nobody out, and is
+   * inert. Refusing the entire village over a row the permission system
+   * already ignores is all cost and no protection.
+   *
+   * It stays loud. The rows are named in the log, sent to whoever is on the
+   * error webhook, and written into the village's health events for an admin
+   * who was asleep when it happened.
+   */
+  await quarantineOnInvariantFailure(null, "capability holding table", () =>
+    assertCapabilityHoldingInvariants(getPool()),
+  );
 
   /*
    * conversations.last_message_at is a denormalized cache, and the ledger's
@@ -7345,68 +7703,45 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   app.get("/health", async (_req, res) => {
-    // The uploads volume had no gauge at all: no byte count, no file count,
-    // nothing on this probe. It fills silently — every hero photo retried in
-    // the wizard leaves its predecessor behind forever — and the first sign
-    // of a full volume would have been every upload failing at once. This is
-    // a synchronous directory walk, but the volume is flat (no recursion) and
-    // the railway probe cadence is minutes, not milliseconds.
-    //
-    // Deliberately a REPORT, not a reclaim. An orphan sweep was specced and
-    // then refuted by review: the investor vault stamps filenames from the
-    // uploaded file's own name, which the reference scan could not see, so
-    // the sweep would have deleted live cap tables. Measurement first;
-    // deletion only behind the amendments in docs/DESIGN_TOKENS_SPEC.md §A1.
-    //
-    // `orphanFiles` / `orphanMb` are the amended version of that: the scan now
-    // reads EVERY text column of every table in the live schema instead of a
-    // hand-kept list, so the vault's own naming convention is no longer
-    // invisible to it (server/repos/uploadRefs.ts). Nothing here reclaims even
-    // so. The figure is served from the last daily sweep and never measured on
-    // this probe, which fires every few minutes.
-    //
-    // 0093 splits the community's photographs out of that total, and the
-    // reason is that they changed what this gauge is FOR. Until now the
-    // volume only moved when a founder pressed a button, so a number that
-    // climbed was a founder's own doing. Member uploads grow it without
-    // anybody watching, so the operational question is no longer "how full"
-    // but "how full, and how much of it is the part that grows on its own".
-    // Every writer stamps its own filename prefix, so the split costs one
-    // comparison inside a walk this probe already does and no query at all.
-    let uploads:
-      | { files: number; mb: number; photoFiles: number; photoMb: number; orphanFiles?: number; orphanMb?: number }
-      | undefined;
-    try {
-      const entries = fs.readdirSync(UPLOADS_DIR, { withFileTypes: true });
-      let bytes = 0;
-      let files = 0;
-      let photoBytes = 0;
-      let photoFiles = 0;
-      for (const e of entries) {
-        if (!e.isFile()) continue;
-        files += 1;
-        let size = 0;
-        try { size = fs.statSync(path.join(UPLOADS_DIR, e.name)).size; } catch { /* raced a delete */ }
-        bytes += size;
-        if (isPhotoFile(e.name)) { photoFiles += 1; photoBytes += size; }
-      }
-      uploads = {
-        files,
-        mb: Math.round(bytes / (1024 * 1024)),
-        photoFiles,
-        photoMb: Math.round(photoBytes / (1024 * 1024)),
-        // Absent until the first sweep has run, and absent whenever a scan
-        // could not finish. A zero would read as "none found", which is a
-        // different statement from "not measured yet".
-        ...(lastUploadsReport?.complete
-          ? {
-              orphanFiles: lastUploadsReport.tally.orphan.files,
-              orphanMb: Math.round(lastUploadsReport.tally.orphan.bytes / (1024 * 1024)),
-            }
-          : {}),
-      };
-    } catch { /* volume not mounted yet: report nothing rather than a zero that reads as healthy */ }
-    res.json({ status: "ok", build: BUILD_MARKER, timestamp: new Date().toISOString(), uploads });
+    /*
+     * WHAT THIS PROBE IS ALLOWED TO CLAIM.
+     *
+     * It used to answer `{ status: "ok" }` unconditionally. It touched no
+     * database, so a village whose MySQL had died served 500s to every member
+     * from behind a green health endpoint, and the restart policy had nothing
+     * to react to because nothing ever went red. A liveness probe that cannot
+     * fail is not a probe; it is a constant.
+     *
+     * So the database is now asked one question it cannot bluff, a `SELECT 1`
+     * through the live pool, with its own deadline, and the answer decides
+     * both the payload and the status code. A probe that did not RUN reports
+     * `ok: false` with the reason, never a cheerful default: "we could not
+     * ask" and "we asked and it was fine" are different facts and this
+     * endpoint says which one it has.
+     */
+    const db = await probeDatabase();
+
+    // What the uploads volume is holding, and why this line is a cache read
+    // rather than a directory walk: see readUploadsGauge().
+    const uploads = await readUploadsGauge();
+
+    /*
+     * The status code is the half of this answer that machines read, and it is
+     * the half that has to be honest first. Railway's healthcheck and the
+     * fleet roller both decide "did that deploy work" from it, and a 200 over
+     * a dead database tells them to keep rolling the outage forward.
+     *
+     * The uploads volume is NOT part of the verdict. A missing gauge means the
+     * mount is not there yet, which is worth reporting and is not a reason to
+     * refuse traffic to a village whose database is fine.
+     */
+    res.status(db.ok ? 200 : 503).json({
+      status: db.ok ? "ok" : "degraded",
+      build: BUILD_MARKER,
+      timestamp: new Date().toISOString(),
+      database: db,
+      uploads,
+    });
   });
 
   // Form Submission
@@ -8552,6 +8887,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   app.get("/api/admin/modules", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const demotions = new Map(moduleDemotions().map((d) => [d.id, d.missing]));
+    // The other reason a module is served as OFF against its configuration:
+    // its own records failed a startup check. Answered by mending rows and
+    // restarting, not by turning a dependency back on, so the panel carries
+    // them as separate fields rather than one "why is this dark".
+    const quarantines = new Map(moduleQuarantines().map((q) => [q.id, q.reasons]));
     // Read once per request: examplesAvailable below asks whether the seed
     // file carries a block for each module.
     const exampleSeed = loadExampleSeed(SEEDS_DIR);
@@ -8581,6 +8921,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         lifecycle: m.core ? "public" : storedLifecycle(m.id),
         served: effectiveLifecycle(m.id),
         demotedBecause: demotions.get(m.id) ?? null,
+        quarantinedBecause: quarantines.get(m.id) ?? null,
         // Standing examples: whether this module is currently showing them,
         // and whether they are gone for good. Drives the "showing examples"
         // chip and the clear button, and explains why a module that nobody
@@ -19092,6 +19433,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
     // Module health: stored intent vs what's actually served.
     const demotions = new Map(moduleDemotions().map((d) => [d.id, d.missing]));
+    // This is the screen a founder opens when something is dark, so it is the
+    // screen that has to distinguish the two reasons a module can be dark
+    // against its own configuration: a dependency is off (turn it back on) or
+    // its own records failed a startup check (mend the rows, then restart).
+    const quarantines = new Map(moduleQuarantines().map((q) => [q.id, q.reasons]));
     const modules = MODULES.map((m) => ({
       id: m.id,
       name: m.name,
@@ -19099,6 +19445,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       lifecycle: storedLifecycle(m.id),
       served: effectiveLifecycle(m.id),
       demotedBecause: demotions.get(m.id) ?? null,
+      quarantinedBecause: quarantines.get(m.id) ?? null,
       requires: m.requires,
       legalReview: !!m.legalReview,
       // ── Lane C: who answers for this one. This is the screen a founder
@@ -32352,12 +32699,78 @@ ${inner}
 // that never served yet kept running jobs that move value. Exit inside 2s —
 // safely under the scheduler's 15s first tick — and let the platform's restart
 // policy make the outage visible instead of silent.
-startServer().catch((e) => {
+//
+// "Visible" was the word doing the work, and it was not earned. The comment at
+// the top of startServer() says error reporting is wired FIRST precisely so a
+// boot death is seen, and then this handler never called the reporter: a failed
+// boot printed to stdout and stopped there. railway.toml sets
+// restartPolicyMaxRetries = 3, so three bad boots took a village fully dark
+// with nothing sent anywhere. A village has no developer watching a log stream
+// at 2am; it has, at best, a webhook. This is the one crash where the alarm
+// matters most and it was the one crash that did not ring.
+//
+// The budget is deliberate. reportError awaits an admin notification (a
+// database write) and then an HTTPS POST, and the boot failure most worth
+// reporting is a database that will not answer, where that first await sits on
+// a connect timeout. So the whole report gets ONE deadline and the process
+// exits either way. The webhook is the sink that survives: it needs no pool, no
+// schema and no migration, so it still fires when the database is the casualty.
+const BOOT_ALERT_BUDGET_MS = 8000;
+startServer().catch(async (e) => {
   console.error("[startup] refusing to serve:", e);
   // exitCode covers the drain path (an early failure leaves nothing on the
   // event loop, so the unref'd timer below would never fire and the process
   // would exit 0); the timer covers the keep-alive path (an open pool or
-  // socket would otherwise hold a broken process up forever).
+  // socket would otherwise hold a broken process up forever). Set BEFORE the
+  // await, so an exit racing the alarm is still an exit 1.
   process.exitCode = 1;
-  setTimeout(() => process.exit(1), 2000).unref();
+  // REF'D on purpose. The unref'd form only fires if something else is already
+  // holding the event loop, which is the exact case it is not needed for; on an
+  // early failure the loop is empty and an unref'd backstop never runs at all.
+  // Held: if the alarm somehow never settles, this exits anyway.
+  const hardStop = setTimeout(() => process.exit(1), BOOT_ALERT_BUDGET_MS + 2000);
+  try {
+    const delivery = await reportErrorWithin(BOOT_ALERT_BUDGET_MS, e, {
+      where: "the village's boot",
+      detail: {
+        build: BUILD_MARKER,
+        // Which stage died, in the words the log above already used. No
+        // connection strings, no secrets: this payload leaves the building.
+        stage: String((e as any)?.message ?? e ?? "unknown").slice(0, 200),
+      },
+    });
+    // ASK WHAT THE NUMBER READS WHEN THE CHECK DID NOT RUN. "We sent an alert"
+    // is a claim, and on a village with no ERROR_WEBHOOK_URL and a dead
+    // database it is a false one. Say which sinks answered, so the operator
+    // reading the log afterwards knows whether anyone was told.
+    if (delivery === "timed out") {
+      console.error(
+        `[startup] boot alert did not confirm inside ${BOOT_ALERT_BUDGET_MS}ms; nobody may have been told`,
+      );
+    } else if (reachedSomebody(delivery)) {
+      console.error(`[startup] boot alert sent (admins: ${delivery.admins}, webhook: ${delivery.webhook})`);
+    } else {
+      // The advice has to match the fact. "Set ERROR_WEBHOOK_URL" is wrong
+      // when it IS set and the collector refused, and an operator who acts on
+      // wrong advice loses the time this line exists to save.
+      const advice =
+        delivery.webhook === "not configured"
+          ? "Set ERROR_WEBHOOK_URL so a failed boot can reach a person without a working database."
+          : "ERROR_WEBHOOK_URL is set and the delivery failed; the reason is on the [error] line above.";
+      console.error(
+        `[startup] boot alert reached NOBODY (admins: ${delivery.admins}, webhook: ${delivery.webhook}). ${advice}`,
+      );
+    }
+  } catch (alarmErr) {
+    // An alarm that throws must not replace the crash it was reporting.
+    console.error("[startup] boot alert failed outright:", alarmErr);
+  }
+  clearTimeout(hardStop);
+  // NOT an immediate process.exit. On Windows and on a pipe, stdout writes are
+  // asynchronous, and exiting on the same tick as the last console.error can
+  // discard it, which would throw away precisely the lines an operator opens
+  // the log to find. This timer is ref'd, so it holds the loop open long enough
+  // to drain and then forces the exit for anything (an open pool, a socket)
+  // that would otherwise keep a broken process alive forever.
+  setTimeout(() => process.exit(1), 500);
 });

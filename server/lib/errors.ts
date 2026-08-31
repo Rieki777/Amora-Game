@@ -34,6 +34,29 @@ export interface ErrorContext {
 
 type Reporter = (title: string, dedupeKey: string) => Promise<void>;
 
+/**
+ * WHAT THE ALARM ACTUALLY DID, said out loud.
+ *
+ * An alerting call that returns `void` cannot be distinguished from an
+ * alerting call that reached nobody, and the second is the normal state of a
+ * fresh village: `ERROR_WEBHOOK_URL` is unset until an operator sets it, and
+ * the admin sink needs a database that a boot failure has often just proved
+ * unreachable. A caller that is about to exit the process needs to be able to
+ * print whether anything left the building, so the log line at least names the
+ * silence instead of implying delivery.
+ */
+export interface ErrorDelivery {
+  /** Reported before, inside the dedupe window: the log has it, no sink was called. */
+  suppressed: boolean;
+  admins: "sent" | "failed" | "not wired";
+  webhook: "sent" | "failed" | "not configured";
+}
+
+/** True when this report reached at least one place a person can look. */
+export function reachedSomebody(d: ErrorDelivery): boolean {
+  return d.admins === "sent" || d.webhook === "sent";
+}
+
 let notifyAdmins: Reporter | null = null;
 let instanceLabel = "village";
 
@@ -59,7 +82,7 @@ function fingerprint(err: unknown, where: string): string {
   return `${where}|${msg.slice(0, 120)}|${frame.slice(0, 120)}`;
 }
 
-export async function reportError(err: unknown, ctx: ErrorContext): Promise<void> {
+export async function reportError(err: unknown, ctx: ErrorContext): Promise<ErrorDelivery> {
   const e = err as any;
   const message = String(e?.message ?? e ?? "unknown error");
   const key = fingerprint(err, ctx.where);
@@ -72,7 +95,9 @@ export async function reportError(err: unknown, ctx: ErrorContext): Promise<void
 
   // The log always gets it, repeat or not — that is what a log is for.
   console.error(`[error] ${ctx.where}: ${message}`, ctx.detail ?? {}, e?.stack ?? "");
-  if (repeat) return;
+  if (repeat) return { suppressed: true, admins: "not wired", webhook: "not configured" };
+
+  const delivery: ErrorDelivery = { suppressed: false, admins: "not wired", webhook: "not configured" };
 
   if (notifyAdmins) {
     try {
@@ -80,11 +105,15 @@ export async function reportError(err: unknown, ctx: ErrorContext): Promise<void
         `Something broke in ${ctx.where}: ${message.slice(0, 200)}`,
         `error:${key.slice(0, 120)}`,
       );
-    } catch { /* an alarm that fails must not become the crash */ }
+      delivery.admins = "sent";
+    } catch {
+      /* an alarm that fails must not become the crash */
+      delivery.admins = "failed";
+    }
   }
 
   const url = process.env.ERROR_WEBHOOK_URL;
-  if (!url) return;
+  if (!url) return delivery;
   try {
     // Through the pinned-IP dialer, like every other outbound call: an
     // admin-settable URL is exactly the shape SSRF lives in.
@@ -102,8 +131,50 @@ export async function reportError(err: unknown, ctx: ErrorContext): Promise<void
         at: new Date().toISOString(),
       },
     });
+    delivery.webhook = "sent";
   } catch (sendErr) {
     console.error("[error] could not reach ERROR_WEBHOOK_URL", sendErr);
+    delivery.webhook = "failed";
+  }
+  return delivery;
+}
+
+/**
+ * REPORT, THEN GIVE UP ON REPORTING. For callers that are about to exit.
+ *
+ * `reportError` awaits two sinks that can both hang for longer than a dying
+ * process should wait. The admin sink is a database write, and the failure
+ * that most needs reporting, a boot that could not reach MySQL, is exactly
+ * the one where that write sits on a connect timeout. So the caller gets a
+ * deadline and an answer either way: the webhook needs no database and no
+ * schema, which is what makes it the sink that survives the interesting
+ * failures.
+ *
+ * On timeout the in-flight report is NOT cancelled; it is abandoned. If it
+ * lands a moment later, good, and if the process exits first, the log line
+ * already said the alarm did not confirm.
+ */
+export async function reportErrorWithin(
+  budgetMs: number,
+  err: unknown,
+  ctx: ErrorContext,
+): Promise<ErrorDelivery | "timed out"> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race<ErrorDelivery | "timed out">([
+      reportError(err, ctx).catch((reportErr) => {
+        // reportError swallows its own sink failures; anything reaching here
+        // is a bug in the reporter, and a bug in the reporter must not become
+        // the reason nobody hears about the original crash.
+        console.error("[error] the error reporter itself threw", reportErr);
+        return { suppressed: false, admins: "failed", webhook: "failed" } as ErrorDelivery;
+      }),
+      new Promise<"timed out">((resolve) => {
+        timer = setTimeout(() => resolve("timed out"), budgetMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
