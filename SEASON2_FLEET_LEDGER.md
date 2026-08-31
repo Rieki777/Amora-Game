@@ -163,6 +163,7 @@ Order matters where noted; everything else lands when green.
 | `data/uploads/` volume has no backup of any kind | ops (owns `server/index.ts`) | 2026-08-30 | backup lane cannot reach a Railway volume from a GitHub Action; `railway ssh` is interactive-only and this repo's own history shows it run by hand, never headless. Full spec for an authenticated `GET /api/admin/backup/uploads-archive` (route, `BACKUP_EXPORT_TOKEN` header auth, streamed tar, canary-file manifest) is written up in `docs/FORK_RUNBOOK.md`, "Backup encryption, the uploads volume gap..." section, 2026-08-30. Not half-built; needs the lane that owns `server/index.ts`. |
 | New repo secrets needed for backup encryption: `BACKUP_GPG_PUBLIC_KEY`, `BACKUP_DRILL_GPG_PUBLIC_KEY`, `BACKUP_DRILL_GPG_PRIVATE_KEY` | founder (GitHub secrets) | 2026-08-30 | `db-backup.yml` now fails closed (refuses to dump) until these exist. Generation commands and which secret holds which half are in `docs/FORK_RUNBOOK.md` same section. The drill keypair is CI-only test material and safe to generate and hand over; the production public key's private half must be generated and held by the founder offline, never in this repo or CI. |
 | A CI step for `scripts/check-theme-literals.mjs` | safety (owns `ci.yml`) | 2026-08-30, tokens lane | New ratchet, same shape as the existing `check-brand-refs.mjs` / `check-image-budget.mjs` steps. Exact step to add, right after `check-image-budget.mjs` (both are dependency-free, no-DB, colour/asset budget gates, so they belong next to each other, before the Build step): `- name: Theme literals` then `run: node scripts/check-theme-literals.mjs`. No env, no extra permissions, no new secret. Committed baseline (`scripts/theme-literals-baseline.json`) is at 162 as of commit `4892c97` on `wt/s2-tokens`; `--update-baseline` refuses to write a total above the one already committed (verified by hand: a staged regression fails the gate at exit 1, then `--update-baseline` against that same regression also exits 1 and leaves the baseline file on disk untouched; see 7e for the full transcript). |
+| Three CI steps for the guards' own regression tests | safety (owns `ci.yml`) | 2026-08-30, gates lane | `scripts/check-brand-refs.test.mjs`, `scripts/contribution-scan.test.mjs`, `scripts/intake-classify.test.mjs` all exist, all pass standing alone, and no workflow runs any of them today (`intake-classify.mjs` and `contribution-scan.mjs`, the code they test, ARE invoked, only their tests are dead). Verified: this repo's own notes record the brand guard reporting two different answers for the same commit on two machines, which is exactly the failure a dead regression test cannot catch. Belongs in `ci.yml`, not `module-intake.yml`: that workflow is `paths`-gated on `shared/modules.ts` / `shared/capabilities.ts` / etc, and none of those paths cover `scripts/intake-classify.mjs` or `scripts/contribution-scan.mjs` themselves, so a change to the classifier's own logic would never trigger its own test under that workflow. `ci.yml` runs on every push and PR unconditionally, which is what a guard-of-a-guard needs. Recommend placing them right before the existing `node scripts/check-brand-refs.mjs` step, so a broken guard test fails before the guard it is testing is trusted; all three are plain Node, no DB, sub-second each: `- name: Guard regression test, brand refs` / `run: node scripts/check-brand-refs.test.mjs`, then the same shape for `- name: Guard regression test, contribution scan` (`contribution-scan.test.mjs`) and `- name: Guard regression test, intake classifier` (`intake-classify.test.mjs`). No env, no new secret, no new permission. Each verified standing alone at `7976b29` on `wt/s2-gates`: brand refs 9/9 checks passed exit 0, contribution scan 24/24 assertions exit 0, intake classifier 13/13 assertions exit 0. |
 
 ## 7 - What I got wrong (coordinator errors, recorded at the same prominence as findings)
 
@@ -516,6 +517,39 @@ VERIFIED means the coordinator confirmed it. Nothing here is merged to main yet.
   with access denied for user root. Consistent with the database password having been rotated
   without updating the `PROD_DATABASE_URL` repository secret. Verified with `gh run list`.
 
+## 7g - Integration state, seven lanes (coordinator-run)
+
+`wt/s2-integration` now carries main plus SEVEN lanes, merged in this order:
+
+    backup -> fleet -> tokens -> ops -> constitution -> kit -> neutral
+
+One conflict in the whole set, exactly where predicted: `docs/FORK_RUNBOOK.md`, where backup
+and kit both appended dated sections. Resolved by keeping BOTH and stripping only the markers,
+never picking a side. Verified afterwards that both sections survive.
+
+The ops-versus-constitution hunk split in `server/index.ts` HELD. They merged clean. Worth
+recording that the ops lane measured its nearest hunk at about 530 lines from a constitution
+zone, not the roughly 2000 I estimated, so my margin was three times thinner than I claimed. It
+still held, but the lesson is that the coordinator's estimate was the loose number.
+
+GATES ON THE SIX-LANE TREE at **485ab2f**, exit codes captured with no pipe, in a worktree with
+dependencies installed and a test env present. ALL GREEN:
+
+    install 0 | pnpm check 0 | pnpm build 0 (dist/index.js built @ 485ab2f)
+    brand-refs 0 | voice 0 | hyphen-dash 0 | doc-links 0 | auth-fetch 0 | admin-reach 0
+    save-honesty 0 | repo-payloads 0 | mirror-annotations 0 | upload-strip 0
+    artifact-budget 0 | route-reachability 0 | map-routes 0 | image-budget 0
+    theme-literals 0 | dist-budget 0
+
+Sixteen guards plus typecheck and build. The two migration gates are NOT in that list because
+they live on the safety branch, which had not merged at that point.
+
+Neutral merged after that run, at a3f4829, and its gates are re-run as part of the next pass.
+
+STATE REMAINS "CODED, COORDINATOR-VERIFIED LOCALLY". GitHub CI has still never run on any of
+this. The founder has since authorised pushing to main (the Amora village is not in use), so
+the push will happen after the full suite runs serially against a completed control baseline.
+
 ## 7f - Integration branch (coordinator-run, not pushed)
 
 `wt/s2-integration` in `../s2-integration` carries main plus the three landed lanes, merged in
@@ -539,6 +573,94 @@ decision and is deliberately not the coordinator's to take.
 
 The full test suite has NOT been run on the integrated tree. It will be, serially, once the
 lanes stop competing for the one local MySQL, and compared against the pristine control.
+
+## 7g - gates lane landed (2026-08-30, on `wt/s2-gates`, not yet merged to main)
+
+Objective: no gate in this repo can report success without having actually run, and the
+guards that protect the fleet are themselves tested. Three commits, `scripts/*.test.mjs`,
+`vitest.config.ts`, `server/db/provisioningReport.ts` only, per the lane's boundary; did not
+touch `server/db/testDb.ts`, `ci.yml`, or `scripts/brand-refs-baseline.json`.
+
+**Brief re-verified, one number corrected downward in confidence, nothing else wrong.** The
+brief's "roughly 44 database-backed test suites" undercounts the literal call sites: every
+`describe.skipIf(` in this tree gates on `testDbConfigured()` (confirmed, zero exceptions),
+and there are 133 of them across 79 files, not ~44. The 44 in the brief traces to a different,
+correct number already in the tree's own comments (`provisioningReport.ts`: "44 provisions per
+full run"), which counts scratch schemas per full suite run, not `skipIf` call sites; the two
+numbers measure different things and both are real. The fix now reports the live 133 rather
+than either fixed number, so it cannot go stale either way.
+
+**What shipped:**
+
+- `server/db/provisioningReport.ts`: `teardown()` now throws when `process.env.CI` is set and
+  zero suites provisioned a schema (`noteProvision` recorded nothing). The message names a
+  live count of `describe.skipIf(` call sites read from the tree at failure time, not a
+  hardcoded guess. Local runs (no `CI` env var) are untouched by design.
+- `vitest.config.ts`: `include` widened from `client/**/*.test.ts` to `client/**/*.test.{ts,tsx}`.
+  Zero `.tsx` tests exist today; the gap was that one written tomorrow would never run and
+  `pnpm test` would stay green throughout.
+- `scripts/check-brand-refs.mjs`: `--update-baseline` now refuses to write a per-file count
+  higher than the one already committed, matching `check-image-budget.mjs`'s ratchet discipline
+  (ported per-file, not per-total, since the gate itself enforces `count > baseline[file]` one
+  file at a time). `--force` is the explicit escape hatch for a deliberate raise, and it still
+  prints every file that rose. `scripts/brand-refs-baseline.json` itself was never touched
+  (neutral lane's file); the refusal logic was proven against an isolated fixture tree, not the
+  real baseline.
+
+**Proof each gate goes red, run at commit `7976b29` on `wt/s2-gates`:**
+
+1. **The trapdoor, reproduced against the real repo, not a fixture.** With `.env` moved aside
+   (no `TEST_DATABASE_URL`) and no `CI` set: `pnpm test` exits 0, `135 files passed | 68 skipped
+   (203)`, `1979 tests passed | 1078 skipped (3057)`. Same tree, same missing env, `CI=true`:
+   `pnpm test` now fails at startup with `[provisioningReport] CI is set and zero DB-backed
+   suites provisioned a schema this run ... every one of the 133 describe.skipIf(...) suites
+   ... silently skipped`, exit 1. Restored `.env` afterward and reran the no-CI case: identical
+   `135 passed | 68 skipped`, exit 0, confirming the fix changes nothing locally. (These exact
+   numbers, 135/68 and 1979/1078, were independently measured by the coordinator on pristine
+   trunk before this lane finished; matched exactly.)
+2. **check-brand-refs.mjs, isolated fixture (real repo baseline never touched).** Baseline said
+   1 reference; raised the fixture file to 3. Plain gate: fails, exit 1, `3 brand reference(s),
+   baseline allows 1`. `--update-baseline` without `--force`: refuses, exit 1, baseline file on
+   disk byte-identical to before. `--update-baseline --force`: succeeds, exit 0, prints
+   `baseline RAISED for 1 file(s) ... 1 -> 3`, baseline now reads 3. Lowered the fixture back to
+   1 and ran `--update-baseline` with no force: succeeds normally, baseline back to 1. All four
+   outcomes as designed.
+3. **vitest.config.ts, the `.tsx` gap.** A deliberately failing `_fixture_tsx_pickup.test.tsx`
+   under `client/src/lib/`: under the NEW `include` pattern, vitest collects it and reports it
+   failed (`expected 1 to be 2`), exit 1. Under the OLD pattern (`client/**/*.test.ts`) run in
+   isolation against the same file: `No test files found, exiting with code 1` (glob simply does
+   not match the extension). Fixture removed before commit; real client suite reran clean after,
+   `40 files passed (40)`, `491 tests passed (491)`.
+4. **The three guard regression tests, standing alone (none are wired into any workflow yet;
+   see the Blocker list, section 6):** `node scripts/check-brand-refs.test.mjs` (9/9 checks),
+   `node scripts/contribution-scan.test.mjs` (24/24 assertions), `node
+   scripts/intake-classify.test.mjs` (13/13 assertions), all exit 0. Confirmed each is a real
+   gate, not a script that always exits 0, by reading the source: `check-brand-refs.test.mjs`
+   uses uncaught `assert.strictEqual` (throws, non-zero exit, on any failure); the other two
+   explicitly `process.exit(failures === 0 ? 0 : 1)`.
+
+**Targeted, not full-suite, per the coordinator's protocol change mid-lane.** Ran: `pnpm check`
+(exit 0), `npx tsc -p tsconfig.tests.json --noEmit` (exit 0), `pnpm build` (exit 0, `dist/index.js
+built @ 052d042` then re-verified after each commit), `node scripts/check-brand-refs.mjs` (real
+gate, unmodified baseline: unchanged, `52 legacy reference(s) ... baseline 63`), `node
+scripts/check-hyphen-dash.mjs` (0 found), `node scripts/check-voice.mjs` (clean across 668
+files, extra check not in the brief's required list), `npx vitest run client` (`40 passed |
+491 tests passed`, the one test-file subtree this lane's `vitest.config.ts` change touches),
+plus the three `.test.mjs` guard tests above and the trapdoor reproduction, which is a stronger
+proof than any single targeted test file since it exercises the real global teardown against
+the real tree. Did not run the DB-backed `server/**` suite at full scale; no file this lane
+changed has a dedicated DB-backed test, and the machine is shared across twelve lanes on one
+MySQL (38 to 46s per DB-backed file under this round's contention, confirmed once before the
+protocol changed).
+
+**All en/em dashes swept from own diff before each commit** (found and fixed 5 during work: 3 in
+`check-brand-refs.mjs`/`provisioningReport.ts` comments, 3 in this ledger section's first
+draft, later reduced to 0; counts verified with a Node Unicode scan, not a `grep -P` which
+silently returned a false clean pass on this machine's locale, i.e. the exact silent-failure
+class this whole lane exists to catch, caught in its own tooling).
+
+**CI steps requested, not applied** (this lane does not own `ci.yml`): filed in section 6, one
+row for the three guard regression tests.
 
 ## 8 - Changelog
 
