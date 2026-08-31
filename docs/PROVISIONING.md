@@ -258,7 +258,7 @@ not just the exit code.
 ## Which version you are running, and how to hold still
 
 The platform ships as numbered releases, each one a container image published
-at `ghcr.io/rieki777/village-os`. The package is public, so a self-hosted
+at `ghcr.io/rieki777/village-os`. The package is open, so a self-hosted
 village can pull and run a named version with no account and no access token.
 
 - `CHANGELOG.md` says what each release contains, in plain language. Its

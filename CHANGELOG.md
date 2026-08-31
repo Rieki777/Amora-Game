@@ -24,9 +24,12 @@ and kept available under its own number for as long as anyone needs it.
 - **A version number.** Your village runs 1.1.0. Its `/health` page reports
   the exact commit inside that release, so the version and the running
   software can always be checked against each other.
-- **An image anyone can pull.** `ghcr.io/rieki777/village-os:1.1.0`. It is
-  public. A village that hosts itself needs no account, no invitation to the
-  source repository, and no access token to run it.
+- **An image published for anyone to pull.**
+  `ghcr.io/rieki777/village-os:1.1.0`. The package is open by ruling, so a
+  village that hosts itself needs no account, no invitation to the source
+  repository, and no access token to run it. `ops/RELEASES.md` has the one
+  setting that has to be flipped by hand the first time, and the one command
+  that tells you whether it has been.
 - **A release that was started before it was published.** Every release is
   built, started against an empty database, and asked to serve three real
   pages of the village. A release that cannot do all three is never

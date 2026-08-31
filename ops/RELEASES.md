@@ -14,14 +14,39 @@ is about how to get a release and how to stay on one.
 ghcr.io/rieki777/village-os
 ```
 
-The package is **public on purpose**. A village that leaves the fleet keeps
-its source, its images, and its security advisories, and loses only the
-guarantee that someone else is watching. A private package plus per-village
-access tokens would turn "you may leave" into "you may leave and be
-stranded", so the package is open and no token is needed to pull it.
+The package is **public by ruling**. A village that leaves the fleet keeps its
+source, its images, and its security advisories, and loses only the guarantee
+that someone else is watching. A private package plus per-village access
+tokens would turn "you may leave" into "you may leave and be stranded", and
+would add token rotation for thirteen villages with nothing gained.
 
 The image bakes in no secrets. Every secret arrives as an environment
 variable at run time, which is what makes publishing it safe.
+
+### One human step, once
+
+A package created by CI inherits the visibility of the repository that
+published it, and this repository is private, so the FIRST publish creates a
+private package. There is no API for changing that: `PATCH
+user/packages/container/village-os` answers 404, and the packages REST API
+offers list, get, delete and restore only. It is a web page:
+
+> `https://github.com/users/Rieki777/packages/container/village-os/settings`
+> then Danger Zone, Change visibility, Public.
+
+Only the account holder can do it, and it only has to be done once. Every
+later release publishes into the package that already exists and keeps
+whatever visibility it has.
+
+Check it from any machine, with no account and no Docker:
+
+```
+curl -s "https://ghcr.io/token?scope=repository:rieki777/village-os:pull&service=ghcr.io"
+```
+
+A JSON body carrying a `token` means the package is public and a stranger can
+pull it. `{"errors":[{"code":"UNAUTHORIZED"...}]}` with HTTP 401 means it is
+still private. Measured 2026-08-31, immediately after publishing 1.1.0: 401.
 
 ## The three channels
 
