@@ -14,8 +14,8 @@
  * Both exist for the same reason as the users repository: ONE seam per domain, so
  * the JSON-to-MySQL swap happens in this file rather than at 130 call sites. The
  * document repository is also the reason `app_config` is a key-value table with a
- * JSON column rather than shredded into columns (see server/db/schema.ts): these
- * are documents in the app's own mental model, not just in its storage.
+ * JSON column rather than shredded into columns: these are documents in the app's
+ * own mental model, not just in its storage.
  *
  * Synchronous while the backing store is a file, for the same reason the users
  * repository is: converting to async cascades through every sync helper and route,

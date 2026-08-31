@@ -1,0 +1,23 @@
+-- 0121: the migration ledger learns to notice when a shipped file changes.
+--
+-- `_migrations_applied` has recorded which files ran since 0001, but never
+-- what was IN them. server/db/migrate.ts's own header has always said a
+-- shipped migration file is never edited (a part-applied file resumes at a
+-- recorded statement offset, and an edited file that already ran on some
+-- instance is silently skipped there forever), but nothing has ever checked
+-- that the rule was followed. This gives the ledger one sha256 of the file's
+-- bytes alongside its name, so server/db/migrate.ts can tell.
+--
+-- NULLABLE, on purpose, and this is the whole reason this migration is safe
+-- to run on every one of the thirteen founder instances the moment it ships.
+-- Every row already in `_migrations_applied` on every running instance
+-- predates this column, and a plain ALTER cannot manufacture a truthful
+-- checksum for a file it never watched run. `applyPending` backfills what it
+-- safely CAN, the current on-disk bytes, the first time it boots after this
+-- migration lands, and leaves anything it cannot verify as NULL. A NULL
+-- checksum is read as "nothing recorded to compare against", never as a
+-- mismatch, both here and in the check this migration exists to enable.
+--
+-- No index: every read of this column is a point lookup by filename, which
+-- the table's own PRIMARY KEY already serves.
+ALTER TABLE `_migrations_applied` ADD COLUMN `checksum` char(64) NULL DEFAULT NULL;
