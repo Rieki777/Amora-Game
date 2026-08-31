@@ -184,7 +184,7 @@ The full slide vision plus what Phase 3+ unlocks (~2 sessions): nested sub-circl
 
 ## Risks
 
-- Circle-name drift is live today: quests.json uses 'Regenerative Agriculture' etc. while Circles.tsx hardcodes 'Permaculture Council' etc. — the alias system absorbs it, but until quests get a real circle_id FK (Phase 1b), a typo'd new quest silently lands uncircled; the admin reconciliation helper is the mitigation, write-time validation is the cure.
+- Circle-name drift: a village's free-text quest circle names and its circle records drift apart, which is why aliases exist. Circles.tsx read hardcoded names when this was written and reads /api/org now, so the drift that remains is between quests.json and the circle records — the alias system absorbs it, but until quests get a real circle_id FK (Phase 1b), a typo'd new quest silently lands uncircled; the admin reconciliation helper is the mitigation, write-time validation is the cure.
 - Contact relay abuse/harassment: caps + opt-out + admin log cover volume, but there is no per-pair block yet; a recipient's only hard stop is going fully uncontactable. Flag for a block-list follow-up before real membership scales.
 - Reply-To exposes the SENDER's email to the recipient by design (that is what makes reply-by-email work) — must be disclosed in the compose UI; if unacceptable, v2 needs a tokenized reply relay, which is real work.
 - Storing contact message bodies + concierge queries is personal data — retention window and the 'admin can read messages for abuse review' posture should get a real legal/privacy pass before a fork sells this to a village in a GDPR jurisdiction.
