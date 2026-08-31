@@ -759,7 +759,35 @@ not true.
 That is R74 plus the engine's documented abstain rule, it takes three people choosing to
 answer, and changing it means editing `governanceEngine.ts`. Recorded rather than silently left.
 
-## 7k - S15 is a real intermittent, and its likely cause is a known audit finding
+## 7k - TWO intermittent tests, both resolved against the control, and I caused the condition
+
+Two lanes independently reported a failing test. Neither is a regression. Both PASSED in the
+definitive control run at 052d042, which finished 203/203 files and 3057/3057 tests with ZERO
+failures and zero skips:
+
+    server/loop.e2e.test.ts  S15 tools hub                          PASSED  422ms
+    server/governance.routes.e2e.test.ts  (9 tests)                 PASSED  31710ms
+
+- The constitution lane saw S15 fail once, then did the right thing rather than assuming: it
+  checked out the base ref in its own worktree, rebuilt, ran the control at 70/70 green, and
+  re-ran its own branch at 70/70 green.
+- The kit lane saw the governance advisory notification assertion fail and correctly refused to
+  touch a file outside its zone, flagging it instead.
+
+**THE CONDITION WAS MINE.** Twelve lanes were running full suites against ONE local MySQL
+because of my dispatch. That is not a state this repository is ever in normally, and it is the
+same coordinator error already recorded above. So "flaky" here means "flaky under a contention
+level the coordinator manufactured", which is a weaker claim than "flaky in CI".
+
+**But it should not be dismissed**, for one specific reason. S15 writes through the JSON-backed
+`toolsRepo`, and the original architecture audit independently flagged
+`dbCollection.replaceAll` as a DELETE-then-reinsert of a caller-held snapshot with no per-row
+upsert and no version guard, naming the tools link-check job as a live lost-update window. A
+contention race there is exactly the shape that finding predicts, and a Railway deploy that
+briefly overlaps two containers is a real-world instance of the same condition. It belongs on
+the improvements list, not in the bin.
+
+
 
 Two lanes independently saw `server/loop.e2e.test.ts` S15 fail (`PUT /api/admin/tools/:id`
 returning 500). The constitution lane did the right thing rather than assuming: it checked out
