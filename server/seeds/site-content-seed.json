@@ -28,7 +28,7 @@
       },
       {
         "id": "inv-6",
-        "question": "Can I live at Amora as an investor?",
+        "question": "Can I live here as an investor?",
         "answer": "Yes. Investors who become residents get priority access to lots, and you can build a home on your lot. Your investment can apply toward your Land Share Agreement."
       },
       {
@@ -56,7 +56,7 @@
       {
         "id": "stw-2",
         "question": "Do I get paid as a Village Steward?",
-        "answer": "Contributions are recognised in Gratitude, the village's signal of appreciation. Gratitude carries no financial value on its own. Each cycle the community shares a real pool of value tokens across everyone's Gratitude, and as Amora's shared businesses generate revenue those tokens can convert to cash, equity, or community currency."
+        "answer": "Contributions are recognised in Gratitude, the village's signal of appreciation. Gratitude carries no financial value on its own. Each cycle the community shares a real pool of value tokens across everyone's Gratitude, and as the village's shared businesses generate revenue those tokens can convert to cash, equity, or community currency."
       },
       {
         "id": "stw-3",
@@ -94,7 +94,7 @@
       },
       {
         "id": "pro-3",
-        "question": "Do I need to live at Amora to run a business?",
+        "question": "Do I need to live here to run a business?",
         "answer": "Some businesses require on-site presence. Others can be managed remotely. Discuss your model with the team during your Prosperity Call."
       }
     ]
@@ -182,7 +182,7 @@
     }
   ],
   "visitConfig": {
-    "hero_subtitle": "Experience the land, meet the people, and decide if Amora is where you belong.",
+    "hero_subtitle": "Experience the land, meet the people, and decide if this is where you belong.",
     "visit_types": [
       {
         "id": "community-call",
@@ -192,7 +192,7 @@
         "cost": "Free",
         "description": "Meet the founding team and current members. Ask any question. Hear the vision directly. This is your first step.",
         "cta_label": "Join the Next Call",
-        "cta_url": "https://amora.cr/event/discover-amora-webinar-qa/",
+        "cta_url": "",
         "order": 1
       },
       {
@@ -227,7 +227,7 @@
   },
   "investorSummary": {
     "headline": "What Your Investment Looks Like",
-    "intro": "We believe transparency converts. Here's the plain-language version of what investing in Amora means.",
+    "intro": "We believe transparency converts. Here's the plain-language version of what investing here means.",
     "details": [
       {
         "id": "min-investment",
@@ -279,7 +279,7 @@
         "icon": "users"
       }
     ],
-    "disclaimer": "Investment in Amora involves risk. All projections are forward-looking and not guaranteed. This is not a solicitation. Speak with your financial and legal advisors before making any investment decision.",
+    "disclaimer": "Investment here involves risk. All projections are forward-looking and not guaranteed. This is not a solicitation. Speak with your financial and legal advisors before making any investment decision.",
     "cta_label": "Request Full Investor Pack",
     "cta_url": ""
   }

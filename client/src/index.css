@@ -14,14 +14,15 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * AMORA CO-CREATE DESIGN SYSTEM
- * Based on Official Amora Brand Guidelines
- * - Deep teal primary color palette (#157f7d)
- * - Serenity sans-serif for all headings (official brand font)
- * - Clean sans-serif body (Montserrat)
- * - Golden amber accents (#ecb163)
- * - Warm cream backgrounds (#efe8d7)
- * - Heart-centered, regenerative energy
+ * PLATFORM DEFAULT DESIGN SYSTEM
+ * Neutral placeholder values below, not any village's brand.
+ * - Neutral gray primary palette (--tone-brand default #3f3f46)
+ * - Platform sans-serif type (Raleway display / Montserrat body, both OFL)
+ * - Neutral gray accents and backgrounds, no hue committed either way
+ * A village's own colors and fonts arrive at runtime through the brand
+ * overlay (Admin -> Look), emitted as /api/brand/theme.css and derived in
+ * shared/brandTokens.ts. An untouched fork renders exactly what is below:
+ * nobody's brand, by design (DESIGN_TOKENS_SPEC.md §2.3).
  */
 
 /* Platform defaults: self-hosted, licence-clean (all three are OFL via
@@ -83,32 +84,31 @@
   --color-sidebar-ring: var(--sidebar-ring);
   
   /* The brand tone layer. Each historical colour name now resolves through a
-     runtime --tone-* variable, with the original hex as the FALLBACK — so an
-     untouched deployment renders pixel-identically to before, and a village
-     that picks a seed colour in Admin → Look re-themes every one of these at
-     once via /api/brand/theme.css (derivation in shared/brandTokens.ts, every
-     pairing WCAG-measured before it ships). The var() indirection survives
-     @theme inline because the reference itself is what gets inlined into the
+     runtime --tone-* variable, with a NEUTRAL GRAY as the fallback — an
+     untouched deployment renders nobody's brand, and a village that picks a
+     seed colour in Admin → Look re-themes every one of these at once via
+     /api/brand/theme.css (derivation in shared/brandTokens.ts, every pairing
+     WCAG-measured before it ships). The var() indirection survives @theme
+     inline because the reference itself is what gets inlined into the
      generated utilities — same mechanism as the shadcn block above. */
-  --color-teal-deep: var(--tone-brand, #157f7d);
-  --color-teal: var(--tone-brand-soft, #7fb8ac);
-  --color-teal-light: var(--tone-brand-mid, #3a9896);
-  --color-aqua: var(--tone-mist, #83a7ad);
-  --color-aqua-light: var(--tone-mist-light, #c6dde0);
-  --color-cream: var(--tone-cream, #efe8d7);
-  --color-amber: var(--tone-sun, #ecb163);
+  --color-teal-deep: var(--tone-brand, #404040);
+  --color-teal: var(--tone-brand-soft, #a3a3a3);
+  --color-teal-light: var(--tone-brand-mid, #737373);
+  --color-aqua: var(--tone-mist, #a3a3a3);
+  --color-aqua-light: var(--tone-mist-light, #e4e4e4);
+  --color-cream: var(--tone-cream, #f2f2f2);
+  --color-amber: var(--tone-sun, #d4d4d4);
   /* The BAND and the accent that is legible AS TEXT on it, derived as a pair in
-     shared/brandTokens.ts. `amber on teal-deep` is 2.53:1, below even the 3:1
-     large-text floor, so no size or weight rescued the fifteen section eyebrows
-     that used it. Lifting the accent alone washes it to white for half of all
-     seeds; darkening the band alone drove a navy seed to L 0.02. Both move one
-     step at a time until the pair clears 4.5, so neither colour stops being the
-     village's own. The fallbacks are that same search run on the shipped pair:
-       amber #ecb163 on teal-deep #157f7d  =  2.53:1
-       #f0c285        on #105e5d           =  4.59:1, and white on the band 7.55 */
-  --color-teal-band: var(--tone-brand-band, #105e5d);
-  --color-amber-on-band: var(--tone-sun-on-band, #f0c285);
-  --color-gray-light: #f2f2f2;     /* Official light gray */
+     shared/brandTokens.ts. A saturated accent directly on a saturated band can
+     fail contrast even when each one alone reads fine, so the search moves
+     both toward each other one step at a time until the pair clears 4.5,
+     rather than lifting the accent alone (which washes brand-colored accents
+     to near-white) or darkening the band alone (which can crush a dark seed
+     to near-black). These are the platform's own neutral fallbacks, not a
+     measured brand pairing: near-black band, near-white text, 13.6:1. */
+  --color-teal-band: var(--tone-brand-band, #262626);
+  --color-amber-on-band: var(--tone-sun-on-band, #f2f2f2);
+  --color-gray-light: #f2f2f2;     /* Platform neutral gray */
   /* UI accent colors - warm tones, dark enough for white text (WCAG AA) */
   /* MEASURED, not estimated. The old comment here claimed 6.2:1 vs white and
      was wrong by 36%, which is worse than no comment: a lane read it, used gold
@@ -125,10 +125,12 @@
   /* Light tints - the mirror of the block above. Those are dark enough to
      carry WHITE text; these are light enough to carry DARK text, the way
      --color-aqua-light already does. Every pairing below is measured against
-     the text colour it actually ships with, not against white:
-       sage-light  + text-sage   #3d6e4a = 4.82:1   body #1a3a39 =  9.95:1
-       amber-light + text-gold   #a06b1c = 4.08:1   body #1a3a39 = 11.01:1
-       green-light + text-forest #00472c = 8.78:1   body #1a3a39 =  9.96:1
+     the text colour it actually ships with, not against white. `body` below
+     is --foreground, now #171717 (was #1a3a39 — recomputed when the platform
+     default went neutral, since these numbers name a value, not a variable):
+       sage-light  + text-sage   #3d6e4a = 4.82:1   body #171717 = 14.52:1
+       amber-light + text-gold   #a06b1c = 4.08:1   body #171717 = 16.07:1
+       green-light + text-forest #00472c = 8.78:1   body #171717 = 14.53:1
      The amber pairing clears AA on the 20px-bold headings it is used for
      (large text, 3:1); do not put small amber text on it. These are NOT
      interchangeable with the dark tokens - a "-light" background under
@@ -137,80 +139,84 @@
   --color-sage-light: #dcebe0;
   --color-amber-light: #fdf1de;
   --color-green-light: #dcecd6;
-  --color-cream-dark: #e5dcc6;     /* Deeper cream - reads as a card against --background #f2f2f2 */
-  --color-teal-deep-dark: #116a68; /* Hover partner for teal-deep - 6.4:1 vs white, so buttons stay AA while pressed */
+  --color-cream-dark: #e4e4e4;     /* Deeper neutral - reads as a card against --background #f2f2f2 */
+  --color-teal-deep-dark: #262626; /* Hover partner for teal-deep - 13.6:1 vs white, so buttons stay AA while pressed */
 }
 
 :root {
-  /* Amora Brand Theme - Official Brand Guidelines hex values */
-  --primary: #157f7d; /* Official deep teal - primary brand color */
+  /* Platform default theme - neutral gray, nobody's brand. A village's real
+     colors arrive through the brand overlay (see the tone layer above);
+     these are what an untouched fork renders before that overlay exists. */
+  --primary: #404040; /* Neutral gray - platform default, not a brand color */
   --primary-foreground: #ffffff;
-  --sidebar-primary: #157f7d;
+  --sidebar-primary: #404040;
   --sidebar-primary-foreground: #ffffff;
-  --chart-1: #157f7d; /* Deep teal */
-  --chart-2: #7fb8ac; /* Seafoam teal */
-  --chart-3: #83a7ad; /* Blue-gray teal */
-  --chart-4: #ecb163; /* Golden amber */
-  --chart-5: #a8cfc9; /* Light teal */
+  --chart-1: #404040; /* Neutral gray */
+  --chart-2: #737373; /* Neutral gray, lighter */
+  --chart-3: #a3a3a3; /* Neutral gray, lighter still */
+  --chart-4: #d4d4d4; /* Neutral gray, light */
+  --chart-5: #e4e4e4; /* Neutral gray, lightest */
   --radius: 0.5rem;
-  --background: #f2f2f2; /* Official light gray */
-  --foreground: #1a3a39; /* Dark teal-charcoal */
+  --background: #f2f2f2; /* Platform neutral gray */
+  --foreground: #171717; /* Near-black neutral */
   --card: #ffffff;
-  --card-foreground: #1a3a39;
+  --card-foreground: #171717;
   --popover: #ffffff;
-  --popover-foreground: #1a3a39;
-  --secondary: #ecb163; /* Official golden amber */
-  --secondary-foreground: #1a3a39;
-  --muted: #e8f0ee;
-  --muted-foreground: #2e5a58;
-  --accent: #7fb8ac; /* Seafoam teal */
-  --accent-foreground: #1a3a39;
+  --popover-foreground: #171717;
+  --secondary: #d4d4d4; /* Neutral gray */
+  --secondary-foreground: #171717;
+  --muted: #e4e4e4;
+  --muted-foreground: #525252;
+  --accent: #a3a3a3; /* Neutral gray */
+  --accent-foreground: #171717;
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: #c5dbd8;
-  --input: #e8f0ee;
-  --ring: #157f7d;
-  --sidebar: #efe8d7;
-  --sidebar-foreground: #1a3a39;
-  --sidebar-accent: #e8f0ee;
-  --sidebar-accent-foreground: #1a3a39;
-  --sidebar-border: #c5dbd8;
-  --sidebar-ring: #157f7d;
+  --border: #d4d4d4;
+  --input: #e4e4e4;
+  --ring: #404040;
+  --sidebar: #f2f2f2;
+  --sidebar-foreground: #171717;
+  --sidebar-accent: #e4e4e4;
+  --sidebar-accent-foreground: #171717;
+  --sidebar-border: #d4d4d4;
+  --sidebar-ring: #404040;
 }
 
 .dark {
-  --primary: oklch(0.58 0.08 195);
-  --primary-foreground: oklch(0.15 0.03 195);
-  --sidebar-primary: oklch(0.48 0.08 195);
-  --sidebar-primary-foreground: oklch(0.15 0.03 195);
-  --background: oklch(0.18 0.03 195);
-  --foreground: oklch(0.92 0.01 195);
-  --card: oklch(0.22 0.03 195);
-  --card-foreground: oklch(0.92 0.01 195);
-  --popover: oklch(0.22 0.03 195);
-  --popover-foreground: oklch(0.92 0.01 195);
-  --secondary: oklch(0.70 0.12 75);
-  --secondary-foreground: oklch(0.92 0.01 195);
-  --muted: oklch(0.28 0.03 195);
-  --muted-foreground: oklch(0.68 0.02 195);
-  --accent: oklch(0.70 0.12 185);
-  --accent-foreground: oklch(0.92 0.01 195);
+  /* Same neutral-gray-by-default rule as the light theme above: zero chroma,
+     no hue, so an untouched fork's dark mode is nobody's brand either. */
+  --primary: oklch(0.58 0 0);
+  --primary-foreground: oklch(0.15 0 0);
+  --sidebar-primary: oklch(0.48 0 0);
+  --sidebar-primary-foreground: oklch(0.15 0 0);
+  --background: oklch(0.18 0 0);
+  --foreground: oklch(0.92 0 0);
+  --card: oklch(0.22 0 0);
+  --card-foreground: oklch(0.92 0 0);
+  --popover: oklch(0.22 0 0);
+  --popover-foreground: oklch(0.92 0 0);
+  --secondary: oklch(0.70 0 0);
+  --secondary-foreground: oklch(0.92 0 0);
+  --muted: oklch(0.28 0 0);
+  --muted-foreground: oklch(0.68 0 0);
+  --accent: oklch(0.70 0 0);
+  --accent-foreground: oklch(0.92 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.32 0.03 195);
-  --input: oklch(0.28 0.03 195);
-  --ring: oklch(0.58 0.08 195);
-  --chart-1: oklch(0.58 0.08 195);
-  --chart-2: oklch(0.48 0.08 195);
-  --chart-3: oklch(0.68 0.07 195);
-  --chart-4: oklch(0.75 0.12 75);
-  --chart-5: oklch(0.70 0.08 195);
-  --sidebar: oklch(0.22 0.03 195);
-  --sidebar-foreground: oklch(0.92 0.01 195);
-  --sidebar-accent: oklch(0.28 0.03 195);
-  --sidebar-accent-foreground: oklch(0.92 0.01 195);
-  --sidebar-border: oklch(0.32 0.03 195);
-  --sidebar-ring: oklch(0.58 0.08 195);
+  --border: oklch(0.32 0 0);
+  --input: oklch(0.28 0 0);
+  --ring: oklch(0.58 0 0);
+  --chart-1: oklch(0.58 0 0);
+  --chart-2: oklch(0.48 0 0);
+  --chart-3: oklch(0.68 0 0);
+  --chart-4: oklch(0.75 0 0);
+  --chart-5: oklch(0.70 0 0);
+  --sidebar: oklch(0.22 0 0);
+  --sidebar-foreground: oklch(0.92 0 0);
+  --sidebar-accent: oklch(0.28 0 0);
+  --sidebar-accent-foreground: oklch(0.92 0 0);
+  --sidebar-border: oklch(0.32 0 0);
+  --sidebar-ring: oklch(0.58 0 0);
 }
 
 /*
@@ -355,7 +361,7 @@
     }
   }
   
-  /* Amora Custom Utilities - Brand Colors */
+  /* Platform utility classes - tone-layer colors, neutral until a village sets its own */
   .font-display {
     font-family: var(--font-display);
   }
@@ -500,21 +506,29 @@
     color: var(--color-gold);
   }
   
-  /* Amora button style - Brand teal */
+  /* Platform button style, styled off the neutral --color-teal-deep tone
+     token above (or a village's own brand colour once one is set). Class
+     name kept as-is for now: 12 call sites across
+     client/src/pages/{Investor,Steward,Resident,Prosperity}Journey.tsx
+     (tokens lane's files, not this lane's to edit) reference `btn-amora` by
+     name. Renaming here without updating those call sites would silently
+     drop the button styling on every shopfront journey page. Flagged for a
+     coordinated rename; not done in this pass. */
   .btn-amora {
     @apply px-6 py-3 rounded-full font-medium uppercase tracking-wider text-sm;
     background-color: var(--color-teal-deep);
     color: white;
     transition: all 0.3s ease;
   }
-  
+
   .btn-amora:hover {
     background-color: var(--color-teal);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(45, 90, 90, 0.25);
+    box-shadow: 0 4px 12px rgba(38, 38, 38, 0.25);
   }
-  
-  /* Secondary button - Golden amber */
+
+  /* Secondary button, off the neutral --color-amber tone token. Same
+     btn-amora-secondary naming caveat as above. */
   .btn-amora-secondary {
     @apply px-6 py-3 rounded-full font-medium uppercase tracking-wider text-sm;
     background-color: var(--color-amber);
@@ -523,15 +537,15 @@
   }
   
   .btn-amora-secondary:hover {
-    background-color: oklch(0.72 0.14 75);
+    background-color: oklch(0.72 0 0);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(236, 177, 99, 0.35);
+    box-shadow: 0 4px 12px rgba(212, 212, 212, 0.35);
   }
   
   /* Organic card style */
   .card-organic {
     border-radius: 1rem;
-    box-shadow: 0 4px 20px -4px rgba(45, 90, 90, 0.12);
+    box-shadow: 0 4px 20px -4px rgba(38, 38, 38, 0.12);
   }
   
   /* Journey step animation */
@@ -549,7 +563,7 @@
   
   .journey-step.active {
     border-left: 4px solid var(--color-teal-deep);
-    background: linear-gradient(90deg, rgba(45, 90, 90, 0.08) 0%, transparent 100%);
+    background: linear-gradient(90deg, rgba(38, 38, 38, 0.08) 0%, transparent 100%);
   }
   
   /* Liquid/iridescent background effect */
@@ -567,7 +581,7 @@
     background: linear-gradient(135deg, 
       var(--color-aqua-light) 0%, 
       var(--color-cream) 50%, 
-      rgba(236, 177, 99, 0.1) 100%
+      rgba(212, 212, 212, 0.1) 100%
     );
   }
 }
@@ -609,10 +623,10 @@ html {
 
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(45, 90, 90, 0.4);
+    box-shadow: 0 0 0 0 rgba(38, 38, 38, 0.4);
   }
   50% {
-    box-shadow: 0 0 20px 10px rgba(45, 90, 90, 0);
+    box-shadow: 0 0 20px 10px rgba(38, 38, 38, 0);
   }
 }
 
@@ -1056,12 +1070,12 @@ button, a, [role="button"], input, textarea, select, summary {
  * are present and neither is decoration on top of the other.
  */
 .focus-arrival {
-  outline: 2px solid var(--primary, #2d5a5a);
+  outline: 2px solid var(--primary, #404040);
   outline-offset: 3px;
-  background-color: color-mix(in srgb, var(--primary, #2d5a5a) 7%, transparent);
+  background-color: color-mix(in srgb, var(--primary, #404040) 7%, transparent);
   transition: outline-color 400ms ease, background-color 400ms ease;
 }
 
 .focus-arrival:focus {
-  outline: 2px solid var(--primary, #2d5a5a);
+  outline: 2px solid var(--primary, #404040);
 }

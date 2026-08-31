@@ -3,11 +3,11 @@
   "journeySteps": [
    {
     "id": "discover",
-    "title": "Discover Amora",
+    "title": "Discover the Village",
     "description": "Learn about our vision, values, and regenerative approach to community development.",
     "action": "Join Community Call",
-    "link": "https://amora.cr/event/discover-amora-webinar-qa/",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "Understand our mission and values",
      "Learn about the land and location",
@@ -20,8 +20,8 @@
     "title": "Request Investor Pack",
     "description": "Receive the full investor materials: feasibility study, proformas, and development timeline.",
     "action": "Request Pack",
-    "link": "mailto:invest@amora.cr?subject=Investor%20Pack%20Request",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "15-year financial proformas",
      "Feasibility study with market analysis",
@@ -32,10 +32,10 @@
    {
     "id": "call",
     "title": "Schedule Investment Call",
-    "description": "Connect one-on-one with our team to discuss your investment goals and how they align with Amora.",
+    "description": "Connect one-on-one with our team to discuss your investment goals and how they align with the vision.",
     "action": "Schedule Call",
-    "link": "mailto:invest@amora.cr?subject=Investment%20Call%20Request",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "Discuss investment options",
      "Review financial projections",
@@ -46,10 +46,10 @@
    {
     "id": "commit",
     "title": "Make Your Commitment",
-    "description": "Choose your investment vehicle and formalize your contribution to the Amora vision.",
+    "description": "Choose your investment vehicle and formalize your contribution to the village's vision.",
     "action": "Contact Team",
-    "link": "mailto:invest@amora.cr?subject=Investment%20Commitment",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "Select investment structure",
      "Review and sign agreements",
@@ -65,10 +65,10 @@
     "id": "community-call",
     "stage": "Visitor",
     "title": "Attend Community Call",
-    "description": "Learn about the basics and ask any immediate questions about Amora.",
+    "description": "Learn about the basics and ask any immediate questions about the village.",
     "action": "Join Community Call",
-    "link": "https://amora.cr/event/discover-amora-webinar-qa/",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "Meet the founding team",
      "Learn about our vision",
@@ -82,8 +82,8 @@
     "title": "Participate in Events",
     "description": "Join potlucks, events, workshops, and parties on our land to experience the community.",
     "action": "View Events",
-    "link": "https://amora.cr/events/",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "Weekly potlucks",
      "Village weaving gatherings",
@@ -109,8 +109,8 @@
    {
     "id": "love-letter",
     "stage": "Member",
-    "title": "Become an Amorian",
-    "description": "Contemplate and sign our Love Letter, formally becoming a member of Amora 508c1a.",
+    "title": "Become a Member",
+    "description": "Contemplate and sign our Love Letter, formally becoming a member of the community.",
     "action": "Read the Love Letter",
     "link": "/love-letter",
     "external": false,
@@ -118,7 +118,7 @@
      "Understand our values deeply",
      "Reflect on your commitment",
      "Sign the Love Letter",
-     "Join the Amorian community"
+     "Join the community"
     ]
    },
    {
@@ -189,10 +189,10 @@
     "id": "community-call",
     "stage": "Visitor",
     "title": "Attend Community Call",
-    "description": "Learn about the basics and ask any immediate questions about living at Amora.",
+    "description": "Learn about the basics and ask any immediate questions about living here.",
     "action": "Join Community Call",
-    "link": "https://amora.cr/event/discover-amora-webinar-qa/",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "Meet the founding team",
      "Learn about our vision",
@@ -206,8 +206,8 @@
     "title": "Participate in Events",
     "description": "Join potlucks, events, workshops, and parties on our land to experience the community firsthand.",
     "action": "View Events",
-    "link": "https://amora.cr/events/",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "Weekly potlucks",
      "Village weaving gatherings",
@@ -233,8 +233,8 @@
    {
     "id": "love-letter",
     "stage": "Member",
-    "title": "Become an Amorian",
-    "description": "Contemplate and sign our Love Letter, formally becoming a member of Amora 508c1a.",
+    "title": "Become a Member",
+    "description": "Contemplate and sign our Love Letter, formally becoming a member of the community.",
     "action": "Read the Love Letter",
     "link": "/love-letter",
     "external": false,
@@ -242,7 +242,7 @@
      "Understand our values deeply",
      "Reflect on your commitment",
      "Sign the Love Letter",
-     "Join the Amorian community"
+     "Join the community"
     ]
    },
    {
@@ -309,7 +309,7 @@
     "id": "move-in",
     "stage": "Resident",
     "title": "Move In Celebration!",
-    "description": "Welcome home! Celebrate with the Amorians and begin your life in the village.",
+    "description": "Welcome home! Celebrate with your neighbors and begin your life in the village.",
     "action": "Welcome Home",
     "link": "#",
     "external": false,
@@ -328,10 +328,10 @@
     "id": "community-call",
     "stage": "Explorer",
     "title": "Attend Community Call",
-    "description": "Learn about business opportunities at Amora and ask questions about our economic model.",
+    "description": "Learn about business opportunities here and ask questions about our economic model.",
     "action": "Join Community Call",
-    "link": "https://amora.cr/event/discover-amora-webinar-qa/",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "Understand our economic vision",
      "Learn how Gratitude and the value pool work",
@@ -357,8 +357,8 @@
    {
     "id": "love-letter",
     "stage": "Member",
-    "title": "Become an Amorian",
-    "description": "Contemplate and sign our Love Letter to formally join the Amora community.",
+    "title": "Become a Member",
+    "description": "Contemplate and sign our Love Letter to formally join the community.",
     "action": "Read the Love Letter",
     "link": "/love-letter",
     "external": false,
@@ -375,8 +375,8 @@
     "title": "Submit a Business Plan",
     "description": "Present your business concept for community review and approval.",
     "action": "Submit Plan",
-    "link": "mailto:business@amora.cr?subject=Business%20Plan%20Submission",
-    "external": true,
+    "link": "#",
+    "external": false,
     "details": [
      "Prepare your business plan",
      "Include revenue projections",
@@ -418,7 +418,7 @@
     "id": "launch",
     "stage": "Operator",
     "title": "Launch Your Business",
-    "description": "Open your doors and begin serving the Amora community and visitors!",
+    "description": "Open your doors and begin serving the community and visitors!",
     "action": "Launch Checklist",
     "link": "#",
     "external": false,
