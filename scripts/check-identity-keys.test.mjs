@@ -109,6 +109,18 @@ check("returns null when there is no GAME_CONFIG to read", () => {
   assert.strictEqual(parseConfigValues("export const SOMETHING_ELSE = { a: 1 };"), null);
 });
 
+check("survives CRLF, which has silently blinded a guard in this repo before", () => {
+  // check-brand-refs reported a different answer per machine for exactly this
+  // reason: JavaScript's dot excludes the carriage return, so a line-anchored
+  // rule never reached the end of a line on a Windows checkout. .gitattributes
+  // is not relied on here; the reader is proved against both endings.
+  const crlf = parseConfigValues(SAMPLE.replace(/\n/g, "\r\n"));
+  const lf = parseConfigValues(SAMPLE);
+  assert.deepStrictEqual(crlf, lf, "a Windows checkout must read the same as a Linux one");
+  assert.strictEqual(crlf["project.name"], "Unnamed Village");
+  assert.strictEqual(crlf["currency.equity.symbol"], "EQUITY");
+});
+
 // ── The rules ───────────────────────────────────────────────────────────────
 
 check("an approved neutral value is not a violation, a village's is", () => {
