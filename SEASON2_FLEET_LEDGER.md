@@ -531,10 +531,17 @@ baseline, 7 waivers), `node scripts/check-theme-literals.mjs` exit 0 (162 of a 1
 `pnpm build` exit 0 (`dist/index.js built @ 4892c97`), `node scripts/check-dist-budget.mjs` exit
 0 (5768 KB of the 6600 KB block-charged ceiling, byte-identical to the pre-lane measurement in
 this same worktree, so this lane's pure className/style-string edits did not move it). `pnpm
-test`: the coordinator's correction about the missing `.env` / `TEST_DATABASE_URL` landed mid-lane;
-ran the full suite with the corrected env, result recorded once it finished (see changelog entry
-below for the actual counts, filled in after this section was first drafted so the numbers are
-real rather than predicted).
+test`, run with the coordinator's corrected `.env` / `TEST_DATABASE_URL`, exit 1: **202
+of 203 test files passed, 3056 of 3057 tests passed** (2497.75s, real MySQL round trips, not
+mocked). The ONE failure is `server/loop.e2e.test.ts` > "S15: the tools hub rides the framework,
+lifecycle posture end to end", asserting an SSRF guard on `PUT /api/admin/tools/:id` returns 200
+and getting 500 instead (line 1484). Confirmed before writing this down, not assumed: grepped for
+every file this lane touched against `server/loop.e2e.test.ts` and `server/index.ts` (the two
+files that own this test and the route it exercises) and found zero overlap; this lane edited only
+`client/src/**/*.tsx` and `scripts/check-theme-literals.mjs`, neither of which that test imports
+or could affect. `server/**` is the ops lane's, not this one's, to fix. Recording this as a
+PRE-EXISTING failure this lane observed, not one it caused, and leaving it for ops rather than
+touching a file outside this lane's ownership.
 
 **CI step requested, not applied** (this lane does not own `ci.yml`): filed in section 6.
 
