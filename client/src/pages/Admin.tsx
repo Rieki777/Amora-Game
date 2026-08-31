@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // Nineteen icons left this list when navGroups and CONTENT_SECTIONS moved to
 // client/src/components/admin/: they were the nav's icons, not this file's.
-import { Lock, Eye, EyeOff, Inbox, Circle, CheckCircle2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, FileText, Upload, ExternalLink, ArrowUp, ArrowDown, Plus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Circle, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, FileText, Upload, ExternalLink, ArrowUp, ArrowDown, Plus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { linesToList, listToLines } from "@/lib/questBoard";
@@ -42,6 +42,7 @@ import { CrowdpoolAdminTab, ForumCategoriesEditor, ToolsCategoriesEditor } from 
 import { CONTENT_SECTIONS } from "@/components/admin/contentSections";
 import { navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
 import { SETUP_STEPS, measureSetup, setupIsComplete } from "@/components/admin/setupProgress";
+import SetupSection from "@/components/admin/SetupSection";
 import HandoverTab from "@/components/admin/HandoverTab";
 import HyphaModulePanel from "@/components/admin/HyphaModulePanel";
 import VotingWeightsPanel from "@/components/admin/VotingWeightsPanel";
@@ -10014,7 +10015,9 @@ function BrandImageField({
 
 // ── Setup Wizard: the white-label front door — make this site your project's ───
 
-function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (tab: string) => void }) {
+/* Exported for client/src/pages/Admin.setupWizard.test.tsx, which is the only
+   caller outside this file. The Admin shell below still renders it directly. */
+export function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (tab: string) => void }) {
   const [brand, setBrand] = useState<any>(null);
   const [defaults, setDefaults] = useState<any>(null);
   const [savingSection, setSavingSection] = useState<string | null>(null);
@@ -10128,36 +10131,11 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
     { tab: "quests-admin", label: "Quests", hint: "Seeded starter quests. Rewrite, add or remove them here so the board is yours." },
   ];
 
-  /* A measured step shows what the record holds and has no box to tick. A
-     self-reported step keeps its box and says that is what it is. */
-  const Section = ({ id, n, title, subtitle, children }: any) => {
-    const row = rows.find((r) => r.key === id);
-    return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden mb-4">
-      <div className="flex items-center justify-between gap-3 bg-gray-50 px-5 py-3 border-b border-gray-100">
-        <div className="flex items-center gap-3">
-          <span className="w-7 h-7 rounded-full bg-teal-deep text-white text-sm font-bold flex items-center justify-center">{n}</span>
-          <div>
-            <h3 className="font-semibold text-gray-900 leading-tight">{title}</h3>
-            <p className="text-xs text-gray-500">{subtitle}</p>
-          </div>
-        </div>
-        {row?.measured ? (
-          <span className={`flex items-center gap-1.5 text-xs font-medium shrink-0 ${row.done ? "text-emerald-600" : "text-muted-foreground"}`} title={row.blank.length ? `Counted from what you have saved. Still empty: ${row.blank.join(", ")}.` : "Counted from what you have saved. Every field on this step has a value."}>
-            {row.done && <CheckCircle2 className="w-4 h-4" />}
-            {row.filled} of {row.total} filled in
-          </span>
-        ) : (
-          <label className="flex items-center gap-2 text-xs font-medium text-gray-600 shrink-0 cursor-pointer" title="Nothing on this step can be read back from your settings, so this box is your own note to yourself.">
-            <input type="checkbox" checked={!!brand.setup?.[id]} onChange={() => toggleStep(id)} className="h-4 w-4 accent-teal-deep" />
-            Done, my word
-          </label>
-        )}
-      </div>
-      <div className="p-5">{children}</div>
-    </div>
-    );
-  };
+  /* SetupSection is a module-scope import and MUST stay one. It was declared
+     here, inside this body, which made a new component type on every render
+     and remounted all six steps (and the focused input) on every keystroke.
+     See client/src/components/admin/SetupSection.tsx for the full account. */
+  const step = { rows, setup: brand.setup, onToggleStep: toggleStep };
 
   return (
     <div>
@@ -10194,7 +10172,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         )}
       </div>
 
-      <Section id="identity" n={1} title="Identity" subtitle="What your project is called.">
+      <SetupSection {...step} id="identity" n={1} title="Identity" subtitle="What your project is called.">
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           {brandField("project", "name", "Project name", defaults.project.name)}
           {brandField("project", "tagline", "Tagline", defaults.project.tagline)}
@@ -10211,9 +10189,9 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
           {savingSection === "identity" ? "Saving..." : "Save identity"}
         </button>
         <p className="text-xs text-gray-400 mt-2">Instantly updates the game layer (profile, gratitude, season banner, pulse). Page marketing copy is edited under Content below.</p>
-      </Section>
+      </SetupSection>
 
-      <Section id="images" n={2} title="Pictures" subtitle="Hero images across the site. Upload your own (we host and compress them) or point at a URL you already host.">
+      <SetupSection {...step} id="images" n={2} title="Pictures" subtitle="Hero images across the site. Upload your own (we host and compress them) or point at a URL you already host.">
         <div className="grid md:grid-cols-3 gap-4 mb-4">
           {imageField("hero", "Homepage hero")}
           {imageField("investorHero", "Investor hero")}
@@ -10238,9 +10216,9 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         <LookPanel password={password} />
         <TypographyPanel password={password} />
         <IdentityPackPanel password={password} />
-      </Section>
+      </SetupSection>
 
-      <Section id="numbers" n={3} title="Numbers" subtitle="The editable figures on your site.">
+      <SetupSection {...step} id="numbers" n={3} title="Numbers" subtitle="The editable figures on your site.">
         <p className="text-sm text-gray-600 mb-3">
           Village dues live in the Settings tab, and so do the land and money figures the
           investor page and the master plan show. Every one of them ships blank. A blank figure
@@ -10249,9 +10227,9 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         <button onClick={() => onOpenTab("settings")} className="px-4 py-2 bg-white border border-gray-200 text-teal-deep rounded-lg text-sm font-medium hover:bg-gray-50">
           Open Settings →
         </button>
-      </Section>
+      </SetupSection>
 
-      <Section id="content" n={4} title="Content" subtitle="Rewrite the words, questions, milestones, and quests for your project.">
+      <SetupSection {...step} id="content" n={4} title="Content" subtitle="Rewrite the words, questions, milestones, and quests for your project.">
         <div className="space-y-2">
           {contentEditors.map((c) => (
             <div key={c.tab} className="flex items-center justify-between gap-3 border border-gray-100 rounded-lg px-4 py-2.5">
@@ -10265,17 +10243,17 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
             </div>
           ))}
         </div>
-      </Section>
+      </SetupSection>
 
-      <Section id="map" n={5} title="Map & styling" subtitle="How the Living Map draws your land. Blank keeps the map's own look.">
+      <SetupSection {...step} id="map" n={5} title="Map & styling" subtitle="How the Living Map draws your land. Blank keeps the map's own look.">
         <MapSkinPanel password={password} />
         <WalkEditorPanel password={password} />
         {/* The vocabulary route has been live since the map shipped and its
             only caller was a CLI importer. This is its first door. */}
         <MapVocabularyPanel password={password} />
-      </Section>
+      </SetupSection>
 
-      <Section id="technical" n={6} title="Go live" subtitle="One-time technical setup. Hand these to your developer or Claude Code.">
+      <SetupSection {...step} id="technical" n={6} title="Go live" subtitle="One-time technical setup. Hand these to your developer or Claude Code.">
         <ol className="space-y-4 text-sm text-gray-700">
           <li>
             <p className="font-medium text-gray-900">1. Deploy on Railway</p>
@@ -10308,7 +10286,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
             <p className="text-gray-500">See <code>PLATFORM_FOUNDATION.md</code> in the repo for the complete white-label architecture and swap points.</p>
           </li>
         </ol>
-      </Section>
+      </SetupSection>
     </div>
   );
 }
