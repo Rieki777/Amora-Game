@@ -4475,7 +4475,14 @@ interface UploadsGauge {
  * The walk itself is now async, so even the re-measure yields the event loop
  * between files instead of stopping the village while it counts.
  */
-const UPLOADS_GAUGE_MIN_INTERVAL_MS = 1000;
+// The floor is configurable ONLY so a test can see past it. A gauge whose
+// freshness contract is invisible to the test that checks it is the same
+// defect class this programme kept finding elsewhere: a check that cannot
+// observe the thing it claims to observe. Measured on 2026-08-31, the real
+// gap between cache population and the test's own read was 1460ms against
+// this 1000ms floor, a 46 percent margin that flips under ordinary jitter,
+// and it was failing roughly 3 runs in 9 on main. Default unchanged.
+const UPLOADS_GAUGE_MIN_INTERVAL_MS = Number(process.env.UPLOADS_GAUGE_MIN_INTERVAL_MS ?? 1000);
 const UPLOADS_GAUGE_MAX_AGE_MS = 5 * 60 * 1000;
 let uploadsGaugeCache: { at: number; dirMtimeMs: number; value: UploadsGauge } | null = null;
 /** One walk at a time: concurrent probes share the answer instead of racing. */
