@@ -175,10 +175,10 @@ export default function NotificationBell() {
           tabIndex={-1}
           role="group"
           aria-label="Notifications"
-          className="absolute right-0 mt-2 w-[21rem] max-w-[calc(100vw-1.5rem)] max-h-[26rem] overflow-y-auto bg-white text-gray-800 rounded-xl shadow-xl border border-gray-200 z-50 focus:outline-none"
+          className="absolute right-0 mt-2 w-[21rem] max-w-[calc(100vw-1.5rem)] max-h-[26rem] overflow-y-auto bg-white text-foreground rounded-xl shadow-xl border border-gray-200 z-50 focus:outline-none"
         >
           <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-2.5 flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notifications</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Notifications</span>
             {unread > 0 && (
               <button
                 type="button"
@@ -193,20 +193,20 @@ export default function NotificationBell() {
           {/* Present from the moment the panel opens, empty, so the text
               written into it later is actually announced. A region created
               together with its content is skipped by most screen readers. */}
-          <p role="status" className={note ? "px-4 py-2 text-xs text-gray-600 bg-gray-50" : "sr-only"}>
+          <p role="status" className={note ? "px-4 py-2 text-xs text-muted-foreground bg-gray-50" : "sr-only"}>
             {note}
           </p>
 
           {!state.loaded ? (
-            <p className="px-4 py-6 text-sm text-gray-400 text-center">Reading the village.</p>
+            <p className="px-4 py-6 text-sm text-muted-foreground text-center">Reading the village.</p>
           ) : groups.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-gray-400 text-center">Nothing yet. Go be seen.</p>
+            <p className="px-4 py-6 text-sm text-muted-foreground text-center">Nothing yet. Go be seen.</p>
           ) : (
             groups.map((g) => (
               <section key={g.id} aria-labelledby={`${uid}-${g.id}`}>
                 <h3
                   id={`${uid}-${g.id}`}
-                  className="px-4 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-gray-400"
+                  className="px-4 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground"
                 >
                   {g.title}
                   {g.unread > 0 && <span className="ml-1.5 font-semibold normal-case tracking-normal text-teal-deep">{g.unread} unread</span>}
@@ -224,16 +224,16 @@ export default function NotificationBell() {
                           className="w-full text-left flex items-start gap-2 px-4 py-3 min-h-11 border-b border-gray-50 hover:bg-gray-50"
                         >
                           <span className="min-w-0 flex-1">
-                            <span className={`block text-sm leading-snug ${row.unread ? "font-semibold text-gray-900" : "text-gray-700"}`}>
+                            <span className={`block text-sm leading-snug text-foreground ${row.unread ? "font-semibold" : ""}`}>
                               {row.title}
                             </span>
-                            <span className="block text-xs text-gray-500 mt-0.5">{row.detail}</span>
-                            <span className="block text-[10px] text-gray-400 mt-1">Newest {timeAgo(row.at)}</span>
+                            <span className="block text-xs text-muted-foreground mt-0.5">{row.detail}</span>
+                            <span className="block text-[10px] text-muted-foreground mt-1">Newest {timeAgo(row.at)}</span>
                           </span>
                           {row.unread > 0 && <NewMark />}
                           <ChevronDown
                             aria-hidden="true"
-                            className={`w-4 h-4 shrink-0 text-gray-400 mt-0.5 ${expanded.includes(row.key) ? "rotate-180" : ""}`}
+                            className={`w-4 h-4 shrink-0 text-muted-foreground mt-0.5 ${expanded.includes(row.key) ? "rotate-180" : ""}`}
                           />
                         </button>
                         {expanded.includes(row.key) && (
@@ -249,10 +249,10 @@ export default function NotificationBell() {
                                   className="flex items-start gap-2 pl-7 pr-4 py-2.5 min-h-11 border-b border-gray-100 hover:bg-gray-100"
                                 >
                                   <span className="min-w-0 flex-1">
-                                    <span className={`block text-xs leading-snug ${it.isRead ? "text-gray-600" : "font-semibold text-gray-900"}`}>
+                                    <span className={`block text-xs leading-snug ${it.isRead ? "text-muted-foreground" : "font-semibold text-foreground"}`}>
                                       {it.title}
                                     </span>
-                                    <span className="block text-[10px] text-gray-400 mt-0.5">{timeAgo(it.at)}</span>
+                                    <span className="block text-[10px] text-muted-foreground mt-0.5">{timeAgo(it.at)}</span>
                                   </span>
                                   {!it.isRead && <NewMark />}
                                 </Link>
@@ -272,11 +272,11 @@ export default function NotificationBell() {
                           className="flex items-start gap-2 px-4 py-3 min-h-11 border-b border-gray-50 hover:bg-gray-50"
                         >
                           <span className="min-w-0 flex-1">
-                            <span className={`block text-sm leading-snug ${row.unread ? "font-semibold text-gray-900" : "text-gray-700"}`}>
+                            <span className={`block text-sm leading-snug text-foreground ${row.unread ? "font-semibold" : ""}`}>
                               {row.title}
                             </span>
-                            {row.detail && <span className="block text-xs text-gray-500 mt-0.5 line-clamp-2">{row.detail}</span>}
-                            <span className="block text-[10px] text-gray-400 mt-1">{timeAgo(row.at)}</span>
+                            {row.detail && <span className="block text-xs text-muted-foreground mt-0.5 line-clamp-2">{row.detail}</span>}
+                            <span className="block text-[10px] text-muted-foreground mt-1">{timeAgo(row.at)}</span>
                           </span>
                           {row.unread > 0 && <NewMark />}
                         </Link>
@@ -291,7 +291,7 @@ export default function NotificationBell() {
           <Link
             href="/profile"
             onClick={() => setOpen(false)}
-            className="flex items-center gap-2 px-4 py-3 min-h-11 border-t border-gray-100 text-xs font-medium text-gray-500 hover:bg-gray-50"
+            className="flex items-center gap-2 px-4 py-3 min-h-11 border-t border-gray-100 text-xs font-medium text-muted-foreground hover:bg-gray-50"
           >
             <Settings2 aria-hidden="true" className="w-3.5 h-3.5" />
             Choose what reaches you, and how

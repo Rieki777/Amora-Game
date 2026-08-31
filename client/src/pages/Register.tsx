@@ -10,25 +10,43 @@ const PATHS = [
     id: "investor",
     label: "Investor",
     description: "Support Amora's vision through financial investment",
-    color: "bg-amber/10 border-amber/30 text-amber hover:bg-amber/20",
+    // text-amber-ink, not text-amber: --color-amber is derived only to carry
+    // ink AS a background chip, never checked as small foreground text on a
+    // light surface. This pill measured 1.43:1 with text-amber; amber-ink
+    // (index.css) measures 4.90:1 in the same spot. See index.css for the
+    // full measurement.
+    color: "bg-amber/10 border-amber/30 text-amber-ink hover:bg-amber/20",
   },
   {
     id: "steward",
     label: "Village Steward",
     description: "Help govern and guide our community's evolution",
+    // text-sage is already a static, measured-safe foreground colour
+    // (5.21:1 on this pill's tint) - unchanged.
     color: "bg-sage/10 border-sage/30 text-sage hover:bg-sage/20",
   },
   {
     id: "resident",
     label: "Resident",
     description: "Make Amora your home and live the village vision",
-    color: "bg-teal/10 border-teal/30 text-teal hover:bg-teal/20",
+    // text-teal-deep, not text-teal (brand-soft): brand-soft is a decorative
+    // tint, never checked as foreground text. text-teal measured 2.33:1 here.
+    // teal-deep is safe by construction instead: shared/brandTokens.ts
+    // enforces contrastRatio(white, brand) >= 4.5 for every seed, and
+    // contrast is symmetric, so contrastRatio(brand, white) clears the same
+    // floor - proven down to 4.50:1 worst case across all 54 card x seed
+    // combinations in CHARACTER_CARDS, not just the neutral default (9.59:1
+    // here). See index.css for the neutral-default measurement.
+    color: "bg-teal/10 border-teal/30 text-teal-deep hover:bg-teal/20",
   },
   {
     id: "prosperity-creator",
     label: "Prosperity Creator",
     description: "Build businesses and enterprises that thrive",
-    color: "bg-teal-light/10 border-teal-light/30 text-teal-light hover:bg-teal-light/20",
+    // Same fix as "resident": text-teal-light (brand-mid) measured 4.20:1,
+    // below AA. text-teal-deep is safe by construction (see above), 9.18:1
+    // in this specific tint under the neutral default.
+    color: "bg-teal-light/10 border-teal-light/30 text-teal-deep hover:bg-teal-light/20",
   },
 ];
 
@@ -236,7 +254,7 @@ export default function Register() {
               <motion.a
                 whileHover={{ scale: 1.05 }}
                 href="/login"
-                className="inline-flex items-center gap-2 px-6 py-3 border-2 border-amber text-amber font-semibold rounded-lg hover:bg-amber/5 transition-colors"
+                className="inline-flex items-center gap-2 px-6 py-3 border-2 border-amber-ink text-amber-ink font-semibold rounded-lg hover:bg-amber-ink/5 transition-colors"
               >
                 Sign In
                 <ArrowRight className="w-5 h-5" />

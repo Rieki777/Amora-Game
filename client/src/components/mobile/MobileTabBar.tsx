@@ -80,9 +80,22 @@ export default function MobileTabBar() {
             </>
           );
 
-          const cls = `group relative flex flex-col items-center justify-center gap-1 transition-transform active:scale-95 ${
-            active ? "text-white" : "text-white/70 hover:text-white"
-          }`;
+          // Both states are full-opacity text-white, on purpose: white is the
+          // ONLY opacity level shared/brandTokens.ts actually guarantees here.
+          // "brand" (teal-deep) is derived so white clears AA_BODY (4.5)
+          // against it EXACTLY at the floor for the hardest seed (checked:
+          // worst case 4.50:1 across all 54 CHARACTER_CARDS x seed
+          // combinations), which means ANY dimming below full opacity can
+          // drop under 4.5 for some village's colour - even white/90
+          // measured as low as 3.80:1 on one. The old white/70 measured
+          // 2.66:1 worst case (30 of 54 combinations failed outright), and
+          // separately, on the platform's own former literal brand colour
+          // (#157f7d, docs/AUDIT_2026-07-30_OPEN_QUESTIONS.md 1.1), white/70
+          // measured 3.20:1 - a real, shipped failure, not a hypothetical
+          // one. Active vs inactive is carried by the highlight pill
+          // (bg-white/15), the translate-y lift and font-weight below
+          // instead of by colour.
+          const cls = "group relative flex flex-col items-center justify-center gap-1 transition-transform active:scale-95 text-white";
 
           if (slot.path) {
             return (

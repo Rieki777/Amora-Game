@@ -118,6 +118,23 @@
      This block is a set of BACKGROUNDS for white text. As a foreground on a
      light surface use sage or coral, which clear AA on both. */
   --color-gold: #a06b1c;
+  /* --color-amber (--tone-sun) is derived in shared/brandTokens.ts to clear
+     AA_LARGE (3:1) against INK, because its designed role is a background
+     chip carrying ink text, never checked as small foreground text on a
+     light surface, for any seed. Two real defects shipped from that gap:
+     text-amber on the /login and /register CTA links measured 1.32:1 against
+     the platform body (#f2f2f2) and 1.48:1 against white, and the Register
+     path pills measured 1.43:1 the same way (computed 2026-08-31, this lane,
+     via shared/brandTokens.ts's own contrastRatio, not estimated). gold above
+     is the existing "safe amber for text" attempt and is itself borderline:
+     4.55 on white (barely clears 4.5), 4.07 on the body (FAILS), so it is
+     not safe for the body-backed auth pages. amber-ink is gold's hue/chroma
+     driven one step darker via shared/brandTokens.ts's own atContrast binary
+     search (seeded from gold's HSL, target 5.0 against #f2f2f2, the harder of
+     the two real backgrounds): 5.01:1 on the body, 5.60:1 on white. Use this,
+     not --color-amber and not --color-gold, wherever the amber accent is
+     TEXT on a light surface. */
+  --color-amber-ink: #8d5e19;
   --color-coral: #9b4030;          /* Measured: 6.63 on white, 5.92 on the body. The old comment said 8.7 */
   --color-cyan: oklch(0.80 0.15 185);           /* Bright cyan accent */
   --color-sage: #3d6e4a;           /* Measured: 5.95 on white, 5.32 on the body. Safe as FOREGROUND on both */
@@ -458,7 +475,11 @@
   .text-amber {
     color: var(--color-amber);
   }
-  
+
+  .text-amber-ink {
+    color: var(--color-amber-ink);
+  }
+
   .text-cyan-brand {
     color: var(--color-cyan);
   }

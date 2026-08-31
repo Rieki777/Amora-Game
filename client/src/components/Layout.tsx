@@ -204,7 +204,7 @@ export default function Layout({ children }: LayoutProps) {
                           <Link
                             key={item.href}
                             href={item.href}
-                            className="block px-4 py-2.5 text-sm text-gray-900 hover:bg-gray-50 transition-colors"
+                            className="block px-4 py-2.5 text-sm text-foreground hover:bg-gray-50 transition-colors"
                             onClick={() => setAccountOpen(false)}
                           >
                             {item.label}
@@ -271,7 +271,18 @@ export default function Layout({ children }: LayoutProps) {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="lg:hidden bg-teal-deep/95 border-t border-white/10 overflow-hidden"
+              // bg-teal-band, not bg-teal-deep: this drawer carries the
+              // amber accent below as small TEXT, and shared/brandTokens.ts
+              // only guarantees that pairing (--tone-sun-on-band vs
+              // --tone-brand-band) against band. Checked across all 54
+              // CHARACTER_CARDS x seed combinations: sun-on-band against
+              // brand (teal-deep) fails 46 of them (worst 2.11:1); against
+              // band it holds for all of them (brandTokens.test.ts's own
+              // "accent on band" assertion). white text only gets safer on
+              // the darker surface (band's own contrast floor for white is
+              // 5.36:1 worst case vs brand's 4.50:1), so nothing else in
+              // this drawer is put at risk by the change.
+              className="lg:hidden bg-teal-band/95 border-t border-white/10 overflow-hidden"
             >
               <div className="container py-4 space-y-1">
                 {navEntries.map((entry) =>
@@ -298,7 +309,7 @@ export default function Layout({ children }: LayoutProps) {
                               <Link
                                 key={item.href}
                                 href={item.href}
-                                className={`block transition-colors text-sm py-1.5 ${item.accent ? "text-amber/80 hover:text-amber" : "text-white hover:underline"}`}
+                                className={`block transition-colors text-sm py-1.5 ${item.accent ? "text-amber-on-band hover:underline" : "text-white hover:underline"}`}
                                 onClick={() => { setMobileMenuOpen(false); setOpenMobileGroup(null); }}
                               >
                                 {item.label}
@@ -733,7 +744,7 @@ function NavDropdown({
                   </span>
                 )}
                 <span className="min-w-0">
-                  <span className={`block text-sm font-semibold ${item.accent ? "text-gold" : "text-gray-900"}`}>
+                  <span className={`block text-sm font-semibold ${item.accent ? "text-gold" : "text-foreground"}`}>
                     {item.label}
                     {/* Same badge the bar used to carry, in the ink the white
                         sheet needs: amber-200 on white measured below 2:1. */}
@@ -741,7 +752,7 @@ function NavDropdown({
                       <span className="ml-1.5 text-[9px] bg-amber/30 text-gold px-1 py-0.5 rounded uppercase align-middle">preview</span>
                     )}
                   </span>
-                  {item.subtitle && <span className="block text-xs text-gray-500">{item.subtitle}</span>}
+                  {item.subtitle && <span className="block text-xs text-muted-foreground">{item.subtitle}</span>}
                 </span>
               </Link>
             ))}

@@ -154,7 +154,7 @@ export default function Login() {
               <motion.a
                 whileHover={{ scale: 1.05 }}
                 href="/register"
-                className="inline-flex items-center gap-2 px-6 py-3 border-2 border-amber text-amber font-semibold rounded-lg hover:bg-amber/5 transition-colors"
+                className="inline-flex items-center gap-2 px-6 py-3 border-2 border-amber-ink text-amber-ink font-semibold rounded-lg hover:bg-amber-ink/5 transition-colors"
               >
                 Create Account
                 <ArrowRight className="w-5 h-5" />
