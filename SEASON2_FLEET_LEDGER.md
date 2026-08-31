@@ -82,6 +82,32 @@ Nobody forks. Self-host and ReGen-hosted are the same image with a different ope
   acceptance test of the kit lane's work. If the founder cannot brand Amora through the admin
   surfaces alone, that is a fork-ability defect, not a founder problem.
 
+- **R13** 2026-08-31. BACKUP RECOVERY KEYS ARE PER VILLAGE AND THE PLATFORM MUST NEVER HOLD ONE.
+  The founder asked whether the recovery key should be downloadable by village founders from a
+  link we expose. It must not be, and the reasoning is load bearing:
+
+  1. The key generated on 2026-08-31 is AMORA's, not the platform's. Each village needs its OWN
+     keypair. One shared key would mean any village that can read its own backups can read every
+     other village's, and a single leak exposes all thirteen databases at once.
+  2. If we can serve the private key from a link, then we hold it, or held it. A platform that
+     holds every village's recovery key can decrypt every village's backups, which defeats the
+     entire purpose of encrypting them. It would also make ReGen a processor of every village's
+     member data in the strongest possible sense.
+  3. This is exactly why the drill uses a SEPARATE CI-only keypair: so the real recovery key
+     never enters our infrastructure at all. Exposing a download would undo that on purpose.
+
+  CORRECT SHAPE, and it is work this programme still owes: the keypair is generated ONCE at
+  provisioning, on the founder's own machine, shown once, and never stored by us. It behaves
+  like a wallet seed phrase or a two-factor recovery code. `scripts/fork-init.mjs` already
+  generates other secrets with `crypto.randomBytes` and is the natural home. What the platform
+  MAY expose is the public half, instructions, and a way to verify a village's own backups
+  decrypt. Never the private half.
+
+  WORK ITEM, not yet built: extend `fork-init.mjs` and `docs/PROVISIONING.md` so each village
+  generates its own recovery keypair, sets the public half as its CI secret, and is told plainly
+  that losing the private half makes every future backup unreadable. Until that exists, the
+  thirteen villages have encrypted backups only if somebody does this by hand for each of them.
+
 ## 2 - Lane registry
 
 Every lane: base ref above, its own worktree, its own branch, commits with `git add -p`,
