@@ -124,7 +124,7 @@ const journeySteps = [
     // (legal.membership.backgroundCheckNote in
     // server/seeds/brochure-legal-seed.json) and appended at render time
     // only when a village has published it. See the override below.
-    description: "Once your deposit is down, we complete a background check together. It's part of our commitment to community safety.",
+    description: "Once your deposit is down, we complete a background check together. It's part of our commitment to community safety",
     icon: FileCheck,
     link: "#",
     linkText: "Coming Soon",
@@ -229,8 +229,13 @@ export default function ResidentJourney() {
   const transferNote = legal?.landShareTransferNote?.trim();
   const backgroundCheckNote = legal?.membership?.backgroundCheckNote?.trim();
   const steps = journeySteps.map((step) => {
-    if (step.id === "background" && backgroundCheckNote) {
-      return { ...step, description: `${step.description} ${backgroundCheckNote}` };
+    if (step.id === "background") {
+      return {
+        ...step,
+        description: backgroundCheckNote
+          ? `${step.description}, ${backgroundCheckNote}.`
+          : `${step.description}.`,
+      };
     }
     return step;
   });
