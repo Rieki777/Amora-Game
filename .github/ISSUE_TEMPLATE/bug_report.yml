@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in the platform behaves wrongly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a security problem, close this and use
+        [private reporting](https://github.com/Rieki777/Amora-Game/security/advisories/new)
+        instead. A public issue is a disclosure.
+
+  - type: input
+    id: build
+    attributes:
+      label: Build marker
+      description: >-
+        Open `/health` on the instance and paste the `build` field, for example
+        `2026-07-28-wave1-a1b2c3d`. It carries the release label and the git commit the running
+        image was built from, and it is the fastest way to tell a live bug from a fixed one.
+      placeholder: "paste the build field from /health"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: The observed behaviour first, then the expected one. One paragraph each is plenty.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: >-
+        In order, from a state somebody else can reach. Name the screen or the route. If it needs a
+        particular role, module or setting to reproduce, say which.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where you saw it
+      options:
+        - A running village
+        - A local checkout
+        - Both
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: >-
+        Console or server errors, a screenshot, the browser, whether it is every time or sometimes.
+        Leave this blank if there is nothing.
+    validations:
+      required: false

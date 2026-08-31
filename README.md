@@ -28,3 +28,11 @@ distilled from it; this is where the full reasoning lives.
 Start with **`CLAUDE.md`** at the repository root, then
 **`docs/ARCHITECTURE.md`** for the system map. Adding a module has its own
 guide at **`docs/modules/START_HERE.md`**.
+
+Before you open a pull request, read **`CONTRIBUTING.md`**: the gates and that
+they are enforced, the house writing rules, the migration numbering rules, and
+how a module is reviewed. Found a security problem? **`SECURITY.md`** has the
+private route, and a public issue is not it.
+
+MIT licensed (`LICENSE`). `CODE_OF_CONDUCT.md` applies everywhere the project
+runs.

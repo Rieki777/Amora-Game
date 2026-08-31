@@ -1,0 +1,126 @@
+name: Module proposal
+description: Ask whether a module would be accepted, before you build it.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the cheap conversation to have first. Review capacity is finite, and a clear no in
+        week one is worth more than a polite queue.
+
+        The binding document is
+        [the module library contract](https://github.com/Rieki777/Amora-Game/blob/main/docs/MODULE_LIBRARY_CONTRACT.md).
+        When you are ready to submit code, use the
+        [module listing pull request template](https://github.com/Rieki777/Amora-Game/compare?template=module-listing.md).
+
+  - type: input
+    id: capability
+    attributes:
+      label: The one sentence
+      description: >-
+        One capability, no marketing words. This is stage 0 of the listing process and it gets
+        reused in the catalog and in the review. If it needs two sentences, it is probably two
+        modules.
+    validations:
+      required: true
+
+  - type: input
+    id: domain
+    attributes:
+      label: The domain it claims
+      description: One domain. Say who holds it today, if anybody does.
+    validations:
+      required: true
+
+  - type: textarea
+    id: writes
+    attributes:
+      label: What it writes
+      description: >-
+        Which tables, which columns, under what trigger. "It syncs" is not a write surface. A rough
+        answer is fine at this stage; a vague one is not.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dataclass
+    attributes:
+      label: Data class
+      description: The widest thing the module holds, never the narrowest.
+      options:
+        - none
+        - village-content
+        - member-pii
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Tier
+      description: >-
+        Connected is the default for third parties. The credential placement is the mechanical
+        definition of the tier: in Connected the village holds a key it can see and rotate, in
+        Managed the platform holds it and the village never sees it. Managed is hard capped at two
+        concurrent listings.
+      options:
+        - connected
+        - managed
+        - not sure yet
+    validations:
+      required: true
+
+  - type: dropdown
+    id: money
+    attributes:
+      label: Does it charge money?
+      description: >-
+        A listing that declares a price is out of the builders' pool by construction, and the
+        listing lint enforces it. Declaring a price and drawing from the pool are two ways of being
+        paid for the same work, and a listing picks one.
+      options:
+        - "No. Free, and pool eligible."
+        - "Yes. Priced, and out of the pool."
+    validations:
+      required: true
+
+  - type: input
+    id: counterparty
+    attributes:
+      label: Who is behind it
+      description: >-
+        A name and a contact address is the whole requirement for a free module that touches no
+        member personal data. If it charges money or its data class is `member-pii`, name the human
+        who will sign. An individual is a valid counterparty and a company is never required.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outside
+    attributes:
+      label: Outside services it reaches
+      description: >-
+        Every host, by name. If it reaches nothing outside this codebase, say so. If it does reach
+        something, you owe all five driver methods including `exportMember` and `forgetMember`, and
+        `forgetMember` confirms by reading back and getting nothing.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: read
+    attributes:
+      label: Before you get an answer
+      options:
+        - label: >-
+            I have read the contract, including the appendix saying which clauses are machinery and
+            which rest on a human.
+          required: true
+        - label: >-
+            I understand clause 13: this code would run inside every village's own server process
+            with that server's database credentials and network access, there is no sandbox, and a
+            human security review is required before merge.
+          required: true
+        - label: >-
+            I have read `docs/modules/REVIEW_CHECKLIST.md`, which is what I will be reviewed
+            against.
+          required: true
