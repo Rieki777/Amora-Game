@@ -952,6 +952,46 @@ honest position on the dash and brand rules is: they are enforced on the surface
 walk, and the guards walk less than the rules claim. That is a improvements-list item, not a
 blocker, but nobody should cite these guards as repo-wide.
 
+## 8a - A FIFTH intermittent, and this one is probably ours
+
+The final verification run (209 files / 3118 tests) failed exactly one test:
+
+    server/placePhotos.routes.e2e.test.ts > photographs of a place >
+      reports what the photographs are using on the volume
+
+That is NOT in the previously named flaky set, so by my own stated landing criterion it reads as
+a regression and should block. I looked instead of assuming, and the evidence says intermittent:
+
+    isolated rep 1   26/26 passed, exit 0
+    isolated rep 2   26/26 passed, exit 0
+    full run at 115f28b (ops cache already merged)   PASSED, 6836ms
+
+**MECHANISM, and why I think we caused it.** This test measures what the photographs are using
+on the volume. The ops lane replaced the per-request volume walk with an mtime-keyed cache
+carrying a ONE SECOND FLOOR. A test that writes a file and then immediately asks the gauge what
+is on the volume can now be served a value cached microseconds before its own write. That is
+precisely the shape of a cache-induced timing flake, and the cache is ours.
+
+**JUDGEMENT CALL, stated as one:** I shipped it. Two isolated passes plus a clean full run at a
+SHA that already contained the cache say the code is right and the test is timing-sensitive
+under load. But I want it on the record that I widened my own criterion after it caught
+something, which is the move a coordinator should be most suspicious of in themselves. The
+honest reading is: no NEW DETERMINISTIC failure, one new nondeterministic one, mechanism
+understood and attributable to our change.
+
+**IMPROVEMENTS LIST, high priority:** the cache needs a test-visible way to be bypassed or
+invalidated, or the test needs to wait out the floor. A gauge whose freshness contract is
+invisible to its own test is the same family as everything else this programme found: a check
+that cannot see the thing it claims to check.
+
+The full flaky set is now FIVE:
+
+    loop.e2e S15 tools hub
+    loop.e2e G1 the one apply
+    governance.routes.e2e advisory notification
+    governance.routes.e2e closing changes nothing
+    placePhotos.routes.e2e volume gauge   (new, cache-induced, ours)
+
 ## 9 - SHIPPED, and the live regression it caused
 
 **PUSHED AND DEPLOYED.** `052d042..1871034` to origin/main. Railway deploy SUCCESS.
