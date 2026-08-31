@@ -5,10 +5,10 @@
  *
  * WHY THIS EXISTS, MEASURED. `client/src/pages/Admin.tsx` was 11,419 lines the
  * day this guard landed, and it is the second-most-edited file in this
- * repository: 124 of 962 commits touch
- * it, behind only `server/index.ts` at 283, and 123 of the last 400 commits
- * that touched `client/src` at all landed in that one file, which is 2.3x the
- * next busiest. It is also the surface a non-technical village steward runs
+ * repository: 124 of 962 commits touch it, behind only `server/index.ts` at
+ * 283, and 123 of the last 400 commits that touched `client/src` at all landed
+ * in that one file, which is 2.3x the next busiest. It is also the surface a
+ * non-technical village steward runs
  * their village from, and the surface a founder rebrands through. Every module
  * contributor has to edit it, so it collects merge conflicts the way the
  * server monolith does, and no agent or human can hold it in one context.
@@ -51,9 +51,9 @@
  * GameMechanics.tsx 1498, CoCreatorsGuide.tsx 1212) and leaves the next one
  * down (InvestorJourney.tsx at 949) alone, which is the gap that made 1000 the
  * honest place to draw it rather than a round number that happened to fit.
- * Three of those four are prose-heavy content pages that change
- * about 15 times per 400 commits, so the cost of the guard falls almost
- * entirely on the file it was written for.
+ * Three of those four are prose-heavy content pages that change about 15 times
+ * per 400 commits, so the cost of the guard falls almost entirely on the file
+ * it was written for.
  *
  * A FILE UNDER THE THRESHOLD IS NOT TRACKED AND CANNOT FAIL. It only enters
  * the baseline by crossing 1000 lines, and the day it crosses is the day this
