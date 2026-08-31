@@ -136,6 +136,11 @@ function refusal(d: any, fallback: string): string {
  */
 const CONTENT_SECTIONS = [
   { key: "team", label: "Team Page", icon: Users },
+  // Added for the brochure lane's legal-content extraction (fe3f3e1): 22
+  // jurisdiction-specific claims moved out of compiled JSX into this section,
+  // read through the same generic content routes. Without a registry entry
+  // here a founder has no door to write their own jurisdiction's notices.
+  { key: "legal", label: "Legal & Jurisdiction Notices", icon: FileText },
 ] as const;
 
 /**
