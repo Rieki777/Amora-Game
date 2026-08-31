@@ -263,8 +263,8 @@ import {
 } from "../shared/governanceEngine";
 import {
   dialsForSubject,
-  electorateFloorProblem,
   methodForSubject,
+  rollProblem,
   thresholdsForSubject,
   LAUNCH_SUBJECT_REF,
   MINT_RULE,
@@ -13471,6 +13471,32 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   };
 
   /**
+   * HOW WEIGHT IS ASSIGNED RIGHT NOW, as one sentence or none.
+   *
+   * The launch card says what carrying the vote needs, and until this existed
+   * it said it in a vocabulary of PEOPLE ("100% of the roll has answered")
+   * while the engine counts weight. In `equal` mode those are the same
+   * sentence and the note is empty. In the other two they are not, and a
+   * founder about to open the one irreversible vote should be told which one
+   * they are looking at before they press it, not after.
+   *
+   * A fact, never a caution. Skewed weight is legitimate (R56) and this says
+   * what is in force, nothing about whether it is wise.
+   */
+  function weightModeNote(): string {
+    const mode = stringVar("governance.weight_mode");
+    if (mode === "custom") {
+      return "Voting weight comes from the allocation table, so a member weighs what it says they weigh.";
+    }
+    if (mode === "token") {
+      const slug = stringVar("governance.weight_token").trim();
+      const name = (slug && tokenDef(slug)?.name) || slug || "the weight token";
+      return `Voting weight is each member's balance of ${name} at the moment the vote opens.`;
+    }
+    return "";
+  }
+
+  /**
    * THE LAUNCH VOTE'S OWN FACTS, beside the checklist that gates it (R74).
    *
    * Everything here is measured now and nothing is remembered, because all
@@ -13483,6 +13509,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * what a 100% quorum is measured against and what R67's floor of three has
    * to mean. A village of five where two people hold a voice would otherwise
    * be told it could start.
+   *
+   * `tooFew` carries EVERY reason the roll is not ready to be asked, not only
+   * the head count, because that field is the one the card renders and the one
+   * that greys the button. A second reason returned on a second field would be
+   * a refusal the route makes and the page does not show.
    */
   async function launchVoteFacts() {
     const threshold = thresholdsForSubject(VILLAGE_LAUNCH);
@@ -13492,7 +13523,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     try {
       const roll = await buildElectorate();
       onTheRoll = roll.length;
-      tooFew = electorateFloorProblem(VILLAGE_LAUNCH, roll.length);
+      tooFew = rollProblem(VILLAGE_LAUNCH, roll);
     } catch (e: any) {
       // Building the roll reads the weight mode, which can refuse (a weight
       // token the engine may not conduct). That is a real answer about this
@@ -13506,7 +13537,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       unityPct: threshold?.minUnityPct ?? null,
       quorumPct: threshold?.minQuorumPct ?? null,
       minElectorate: threshold?.minElectorate ?? null,
-      why: threshold?.why ?? null,
+      // The subject's own fact, then this village's. `why` is what the card
+      // renders in the ready-to-ask state, so a mode note appended here lands
+      // in front of the founder with no new field for a client to learn.
+      why: threshold ? [threshold.why, weightModeNote()].filter(Boolean).join(" ") : null,
       openBallot: openNow
         ? {
             id: openNow.id,
@@ -15179,11 +15213,19 @@ Send an empty drafts array when you are still listening. A role payload is {name
     }
     const electorate = await buildElectorate();
 
-    // R67's floor of three, asked of the ELECTORATE and not the member list. A
-    // village of five where two people hold a voice would otherwise carry a
-    // 100% ballot with two, which is not a Game with three people in it.
-    const tooFew = electorateFloorProblem(VILLAGE_LAUNCH, electorate.length);
-    if (tooFew) return res.status(409).json({ error: tooFew, onTheRoll: electorate.length });
+    /*
+     * R67's floor of three, asked of the ELECTORATE and not the member list. A
+     * village of five where two people hold a voice would otherwise carry a
+     * 100% ballot with two, which is not a Game with three people in it.
+     *
+     * And the same question asked of the WEIGHTS, which is the half the head
+     * count cannot see: three heads on the roll with two of them at weight
+     * zero is one person carrying a 100/100 vote while the frozen document
+     * says the whole village agreed. `rollProblem` is both, in one sentence,
+     * and the reasoning is in `shared/ballotSubjects.ts`.
+     */
+    const rollNotReady = rollProblem(VILLAGE_LAUNCH, electorate);
+    if (rollNotReady) return res.status(409).json({ error: rollNotReady, onTheRoll: electorate.length });
 
     const villageMethod = villageBallotMethod(stringVar("governance.default_method"));
     const conducts = methodForSubject(VILLAGE_LAUNCH, villageMethod);
@@ -15215,6 +15257,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
       "",
       "An abstention counts toward participation and takes no side on the agreement.",
       "",
+      // How weight was assigned when this froze, in the document itself. The
+      // roll and the dials are already frozen here; the rule that turned
+      // members into weights was not written down anywhere a member reads.
+      ...(weightModeNote() ? [weightModeNote(), ""] : []),
       `Every item on the journey to launch read done when ${firstName(user.name)} opened this, on ${new Date().toISOString().slice(0, 10)}.`,
       "",
     ].join("\n");
@@ -18475,6 +18521,19 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // unregistered token". The example's stock number is a display fact.
     if (def.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     if (def.governance !== "platform") return res.status(400).json({ error: `${slug} is issued on Hypha and cannot be stocked here` });
+    /*
+     * ONLY STOCK WHAT MAY BE SOLD.
+     *
+     * This route refused an example token and a hypha mirror and nothing else,
+     * so it would happily mint a VOICE token out of `sys:mint` into the
+     * treasury for a shop to sell. `purchaseProblem` is the exact question
+     * ("may the exchange sell this?"), it honours the L9 library card the same
+     * way the listing and buy routes do, and asking it here means stocking can
+     * never run ahead of the firewall the sale answers to. Minting is not
+     * undone by a later refusal: the ledger rows stay.
+     */
+    const notForSale = purchaseProblem(slug);
+    if (notForSale) return res.status(409).json({ error: notForSale });
     if (amt < 1) return res.status(400).json({ error: "A positive amount is required" });
     const cap = numberVar("ledger.admin_mint_cycle_cap");
     if (cap <= 0) return res.status(403).json({ error: "Minting is disabled (ledger.admin_mint_cycle_cap is 0)" });

@@ -7,17 +7,23 @@
  *    its own number;
  *  - the stamped dials are the dials the evaluator actually reads, which is
  *    the whole reason a subject may fix its method.
+ *
+ * The last describe block adds a fourth: a roll of three HEADS is not the same
+ * fact as a roll of three VOICES, and on a 100/100 subject only the second one
+ * makes the frozen document true.
  */
 import { describe, expect, it } from "vitest";
 import {
   dialsForSubject,
   electorateFloorProblem,
   methodForSubject,
+  rollProblem,
   SUBJECT_THRESHOLDS,
   thresholdsForSubject,
+  weightFloorProblem,
   VILLAGE_LAUNCH,
 } from "./ballotSubjects";
-import { dialsForMethod, evaluateBallot, type BallotMethod } from "./governanceEngine";
+import { dialsForMethod, evaluateBallot, quorumPctOf, unityPctOf, type BallotMethod } from "./governanceEngine";
 
 const village = { unityPct: 80, quorumPct: 20 };
 
@@ -120,6 +126,91 @@ describe("per-subject thresholds", () => {
        * `unity_pct`, so the number would be frozen, rendered and never read.
        */
       if (t.minUnityPct > 50) expect(t.method, subject).toBe("custom");
+      /*
+       * A subject that asks for 100% QUORUM and does not also ask every seat
+       * to weigh something is asking a question its own answer cannot make
+       * true: `quorumPctOf` divides by the frozen total weight, so a roll
+       * carrying zero-weight seats reaches 100% without them. The bypass this
+       * clause exists to stop is measured directly two describes down.
+       */
+      if (t.minQuorumPct >= 100) expect(t.everySeatWeighs, subject).toBe(true);
     }
+  });
+});
+
+describe("a roll of three heads is not a roll of three voices", () => {
+  const seats = (...weights: number[]) => weights.map((weight) => ({ weight }));
+
+  it("REPRODUCES the bypass the weight floor closes, in arithmetic", () => {
+    /*
+     * Measured against the shipped engine on 2026-08-30. Custom weight mode,
+     * the founder allocated 1 and nobody else allocated at all. Every guard
+     * that existed passes and one person carries the vote.
+     */
+    const roll = seats(1, 0, 0);
+    const totalWeight = roll.reduce((s, e) => s + e.weight, 0);
+    expect(electorateFloorProblem(VILLAGE_LAUNCH, roll.length)).toBeNull(); // three heads
+    expect(roll.length).toBeGreaterThan(0); // openBallot's roll guard
+    expect(totalWeight).toBeGreaterThan(0); // openBallot's weight guard
+
+    const method = methodForSubject(VILLAGE_LAUNCH, "custom") as BallotMethod;
+    const dials = dialsForSubject(VILLAGE_LAUNCH, method, { unityPct: 80, quorumPct: 20 });
+    const tallies = { yesW: 1, noW: 0, abstainW: 0 }; // the founder alone
+    expect(quorumPctOf(tallies, totalWeight)).toBe(100);
+    expect(unityPctOf(tallies)).toBe(100);
+    expect(evaluateBallot({ method, ...dials, totalWeight, tallies })).toBe("passed");
+
+    // And the one thing that now stands between that roll and this engine.
+    expect(rollProblem(VILLAGE_LAUNCH, roll)).toContain("no voting weight");
+  });
+
+  it("says how many seats weigh nothing, in words, and counts them right", () => {
+    expect(weightFloorProblem(VILLAGE_LAUNCH, seats(1, 0, 0))).toBe(
+      "2 of the 3 members on the roll carry no voting weight today. " +
+        "This vote asks every one of them, so it opens once each of them carries some weight.",
+    );
+    expect(weightFloorProblem(VILLAGE_LAUNCH, seats(1, 1, 0))).toContain("One of the 3 members");
+    expect(weightFloorProblem(VILLAGE_LAUNCH, seats(1, 1, 1))).toBeNull();
+  });
+
+  it("treats a negative or unset weight as no weight, because both are", () => {
+    expect(weightFloorProblem(VILLAGE_LAUNCH, seats(1, 1, -3))).toContain("One of the 3");
+    expect(weightFloorProblem(VILLAGE_LAUNCH, [{ weight: Number.NaN }, { weight: 1 }, { weight: 1 }])).toContain(
+      "One of the 3",
+    );
+  });
+
+  it("does NOT flatten weight: skew is the village's business, zero is not", () => {
+    // R56. An allocation of 100/5/1 opens, because 100% quorum still needs all
+    // three to answer and 100% unity still needs none of them to object.
+    const roll = seats(100, 5, 1);
+    expect(rollProblem(VILLAGE_LAUNCH, roll)).toBeNull();
+    const method = methodForSubject(VILLAGE_LAUNCH, "custom") as BallotMethod;
+    const dials = dialsForSubject(VILLAGE_LAUNCH, method, { unityPct: 80, quorumPct: 20 });
+    const totalWeight = 106;
+    // The heaviest member alone: 100 of 106 is not everybody.
+    expect(evaluateBallot({ method, ...dials, totalWeight, tallies: { yesW: 100, noW: 0, abstainW: 0 } })).toBe(
+      "no_quorum",
+    );
+    // Everybody answers, the lightest objects: 100/101 is not unanimous.
+    expect(evaluateBallot({ method, ...dials, totalWeight, tallies: { yesW: 105, noW: 1, abstainW: 0 } })).toBe(
+      "failed",
+    );
+    expect(evaluateBallot({ method, ...dials, totalWeight, tallies: { yesW: 106, noW: 0, abstainW: 0 } })).toBe(
+      "passed",
+    );
+  });
+
+  it("asks the head count FIRST, so a young village hears the kinder fact", () => {
+    // Two members, neither allocated. Both things are true; "one more member"
+    // is the one that says what to do next.
+    expect(rollProblem(VILLAGE_LAUNCH, seats(0, 0))).toContain("One more member");
+  });
+
+  it("asks nothing of a subject that did not ask for it", () => {
+    expect(weightFloorProblem("mechanics", seats(0, 0, 0))).toBeNull();
+    expect(rollProblem("mechanics", seats(0, 0, 0))).toBeNull();
+    // mint_rule raises quorum to 50 and deliberately keeps no roll floor.
+    expect(weightFloorProblem("mint_rule", seats(1, 0))).toBeNull();
   });
 });

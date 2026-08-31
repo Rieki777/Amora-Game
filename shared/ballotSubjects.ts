@@ -62,6 +62,12 @@ export interface SubjectThresholds {
    */
   minElectorate: number;
   /**
+   * Whether every member on the roll must carry weight above zero before this
+   * subject may be asked. See the block above `weightFloorProblem` for why a
+   * head count alone is not enough on a subject whose ruling is 100 and 100.
+   */
+  everySeatWeighs?: boolean;
+  /**
    * The method this subject conducts, when its ruling is expressed as numbers
    * and only the dial-reading method can carry them. Absent means the village
    * decides the method the way it decides every other ballot's.
@@ -90,6 +96,10 @@ export interface SubjectThresholds {
  * THE FLOOR OF THREE is R67's other half. A Game needs three people to play.
  * Below three, the surface says how many hold a voice and offers nothing to
  * press.
+ *
+ * THE FLOOR OF THREE COUNTS HEADS, AND THE ENGINE COUNTS WEIGHT. That gap is
+ * what `everySeatWeighs` closes, and the block above `weightFloorProblem` is
+ * the whole of why.
  *
  * `custom` for the reason in this file's header: the ruling is a pair of
  * numbers, and `custom` is the only method that decides by the numbers a
@@ -179,6 +189,7 @@ export const SUBJECT_THRESHOLDS: Readonly<Record<string, SubjectThresholds>> = {
     minUnityPct: 100,
     minQuorumPct: 100,
     minElectorate: 3,
+    everySeatWeighs: true,
     method: "custom",
     why: "Starting the Game turns on token issuance, so it asks for every member on the roll to vote and every one of them to agree.",
   },
@@ -245,4 +256,82 @@ export function electorateFloorProblem(subjectType: string, onTheRoll: number): 
   const people = onTheRoll === 1 ? "One member holds a voice" : `${onTheRoll} members hold a voice`;
   const more = short === 1 ? "One more member" : `${short} more members`;
   return `${people} in this village today. ${more} and the village can vote to start its Game.`;
+}
+
+/** One seat on a frozen roll: who was asked, and what their answer weighs. */
+export interface RollSeat {
+  weight: number;
+}
+
+/**
+ * ── WHY A HEAD COUNT IS NOT ENOUGH ON A 100/100 SUBJECT ─────────────────────
+ *
+ * `electorateFloorProblem` counts HEADS and `governanceEngine` counts WEIGHT,
+ * and until this function existed nothing joined the two. Measured against the
+ * built server on 2026-08-30, that gap was a complete bypass of R67:
+ *
+ *   `governance.weight_mode` is a founder dial. In `custom` mode a member with
+ *   no row in `governance_weights` resolves to weight 0 (fail closed, and
+ *   right on its own terms). A founder allocates 1 to themselves and nothing
+ *   to anybody else. Three members are on the roll, so the floor of three is
+ *   met. `openBallot` accepts it, because the roll is not empty and the total
+ *   weight is 1. The founder votes yes. Quorum is 1 of 1, unity is 1 of 1, and
+ *   the engine reports 100 and 100 on one vote out of three. The frozen
+ *   document tells the village that 3 people held a voice and that it carried
+ *   on 100% participation and 100% agreement. Token issuance then opens, and
+ *   issuance does not come back.
+ *
+ * `token` mode has the same shape for a different reason: weight is a balance,
+ * and a balance of zero is a seat that weighs nothing. So the rule is written
+ * over RESOLVED WEIGHTS and not over a mode, and it holds for every mode the
+ * engine has now or later.
+ *
+ * ── WHY THIS SHAPE AND NOT A SECOND QUORUM ──────────────────────────────────
+ *
+ * The other candidate was to count quorum over people as well as weight, and
+ * require both to reach 100. This is equivalent and cheaper. With every seat
+ * above zero, weight quorum of 100% is reached only when the weights of the
+ * voters sum to the whole roll, and a sum of strictly positive numbers reaches
+ * its total only when every term is present. So "every seat weighs something"
+ * plus the 100% the subject already declares IS a 100% count of people, proved
+ * rather than tracked, with no second column on `ballots`, no second number in
+ * the frozen snapshot, and no change to the engine every other subject shares.
+ *
+ * ── WHAT IT DELIBERATELY DOES NOT DO ────────────────────────────────────────
+ *
+ * It does not flatten weights. A village whose allocation table reads 100, 5
+ * and 1 still opens its launch vote, and still needs all three to answer and
+ * none to object, because unity of 100 means zero weight voted no whatever the
+ * weights are. Refusing skew would be the platform overruling R56, and skew is
+ * not the hole. Zero is the hole.
+ *
+ * It does not read `weight_mode`. A rule written against a mode is a rule a
+ * future fourth mode inherits by accident or escapes by accident.
+ *
+ * It says nothing about abstention. A launch can still carry on one yes and
+ * two abstentions, because that is R74 plus the engine's stated abstain rule,
+ * and it takes three people choosing to answer. That is a documented decision,
+ * not this gap.
+ */
+export function weightFloorProblem(subjectType: string, roll: readonly RollSeat[]): string | null {
+  const floor = thresholdsForSubject(subjectType);
+  if (!floor?.everySeatWeighs) return null;
+  const silent = roll.filter((seat) => !(Number(seat.weight) > 0)).length;
+  if (silent === 0) return null;
+  const who =
+    silent === 1
+      ? `One of the ${roll.length} members on the roll carries no voting weight today`
+      : `${silent} of the ${roll.length} members on the roll carry no voting weight today`;
+  return `${who}. This vote asks every one of them, so it opens once each of them carries some weight.`;
+}
+
+/**
+ * Everything wrong with the roll for this subject, cheapest first, or null.
+ *
+ * One function because there is one question a surface asks ("may this village
+ * be asked this?") and one place a route refuses. Two separate calls at each of
+ * the two call sites is how the second check gets added to one of them.
+ */
+export function rollProblem(subjectType: string, roll: readonly RollSeat[]): string | null {
+  return electorateFloorProblem(subjectType, roll.length) ?? weightFloorProblem(subjectType, roll);
 }

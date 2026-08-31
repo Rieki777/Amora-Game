@@ -13,8 +13,13 @@
  * The firewalls, enforced at WRITE time and re-proven at BOOT:
  *   - recognition-kind tokens are never purchasable or swappable — gratitude
  *     is earned, full stop (economy invariant 2.2 #2).
+ *   - ONLY CREDIT-KIND TOKENS TRADE AT ALL. Money buys credits. It does not
+ *     buy a share of the village (equity) and it does not buy a say in what
+ *     the village decides (voice). See `tradingProblem`.
  *   - hypha-governed tokens are never purchasable or swappable — nothing
  *     share-like trades on this platform, ever (Gate B).
+ *   - the village's voting-weight token is never listed while it is the thing
+ *     that weighs votes. See `weightTokenListingProblem`.
  *   - one seller per token: a token a module sells (stays -> stay-credit)
  *     cannot ALSO be listed purchasable here. The boot check unions the
  *     static sellsToken claims with the dynamic purchasable flags.
@@ -37,7 +42,7 @@ import {
   tokenDef,
 } from "./ledger";
 import type { PairGuard } from "./ledger";
-import { numberVar } from "./variables";
+import { numberVar, stringVar } from "./variables";
 import { moduleConfig } from "./modules";
 import { MODULES } from "../../shared/modules";
 
@@ -79,11 +84,52 @@ function rowToSettings(r: RowDataPacket): ExchangeSettings {
   };
 }
 
+/**
+ * ── WHICH TOKENS ARE ON SALE, AS A SYNCHRONOUS FACT ─────────────────────────
+ *
+ * `governance.weight_token` must not name a token anybody can buy, and the
+ * function that decides that (`weightTokenProblem`) is synchronous and called
+ * from seven ballot-opening routes and from `weightsFor`. Making it async to
+ * reach this table would mean editing all of them, so the table's one relevant
+ * bit is cached here the same way `tokenDef` caches the registry: filled from
+ * a full read, written through on change, and read as memory.
+ *
+ * FILLED BEFORE ANYTHING IS SERVED, and not by a new boot call: both
+ * `assertExchangeFirewalls` and `repairTaintedListings` already read the whole
+ * table at boot and both run before the server answers, so the set is warm by
+ * the time any route can ask. A cache with its own boot hook is a cache that
+ * gets forgotten in the next fork's start-up path.
+ *
+ * EXAMPLES ARE EXCLUDED. A standing example listing sells nothing (the buy
+ * route refuses it before any stock logic) so counting one would refuse a
+ * village's ballots over a demonstration.
+ *
+ * A stale-empty set fails OPEN, which is worth saying plainly: if this were
+ * somehow never filled, `weightTokenProblem` loses one clause and everything
+ * else about the firewall still holds. That is why the rule is also written on
+ * the exchange's own side, where it reads a variable and needs no cache.
+ */
+const listedForTrade = new Set<string>();
+
+function rememberListings(rows: readonly ExchangeSettings[]): void {
+  listedForTrade.clear();
+  for (const s of rows) {
+    if (!s.isExample && s.active && (s.purchasable || s.swappable)) listedForTrade.add(s.tokenSlug);
+  }
+}
+
+/** Whether this token is on the exchange right now, purchasable or swappable. */
+export function isListedForTrade(slug: string): boolean {
+  return listedForTrade.has(slug);
+}
+
 export async function exchangeSettings(pool: Pool): Promise<ExchangeSettings[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT * FROM token_exchange_settings ORDER BY sort_order, token_slug",
   );
-  return rows.map(rowToSettings);
+  const settings = rows.map(rowToSettings);
+  rememberListings(settings);
+  return settings;
 }
 
 export async function settingsFor(pool: Pool, slug: string): Promise<ExchangeSettings | null> {
@@ -108,9 +154,41 @@ export function moduleSoldTokens(): Set<string> {
 export const NEVER_LISTED: ReadonlySet<string> = new Set(["library-credit"]);
 
 /**
- * The rules true of BOTH buying and swapping. Returns a human refusal or
- * null. Enforced at write time and re-proven at boot, so a hand-edited row
- * can never outlive a deploy.
+ * ── WHAT MONEY MAY BUY, AND THE HOLE THIS CLOSED ────────────────────────────
+ *
+ * The header's promise is that recognition is earned and share-like things do
+ * not trade. Measured against the built server on 2026-08-30, this function
+ * enforced that promise for exactly two of the four token kinds:
+ *
+ *   recognition  refused by name.
+ *   equity       refused only when `governance` is `hypha`. The 0006 seed
+ *                makes the equity row a hypha mirror, so the refusal held by
+ *                accident of the seed, not by rule.
+ *   voice        NOT REFUSED AT ALL. `server/lib/economy.ts` registers
+ *                `village-voice` as kind `voice` with governance `platform`,
+ *                precisely because a hypha mirror cannot accrue. That token
+ *                passed every check here: it could be listed, priced, stocked
+ *                out of `sys:mint`, and sold for a card payment. And
+ *                `server/lib/voiceClaim.ts` exists to bridge a voice balance
+ *                to on-chain governance the day `BRIDGE_DISPATCH_BUILT`
+ *                flips, so bought voice becomes real voting power then.
+ *   credit       the one kind the exchange is actually for.
+ *
+ * `server/seeds/examples-seed.json` already states the intended rule in its
+ * own note ("Only credit-kind tokens can list ... and the boot firewalls
+ * re-prove that every deploy"). The seed was right and the code was not.
+ *
+ * So the test is now the POSITIVE one, the same one-line kind test
+ * `isPriceableToken` in `server/lib/spending.ts` already uses: a thing bought
+ * with money is a credit. That fails closed for any kind a later migration
+ * invents, where a list of refusals would have let it through.
+ *
+ * Kind-specific sentences come FIRST anyway, because "gratitude is earned" and
+ * "nothing share-like trades here" say why in the village's own words, and the
+ * generic sentence is the catch-all behind them.
+ *
+ * Returns a human refusal or null. Enforced at write time, at buy time, and
+ * re-proven at boot, so a hand-edited row can never outlive a deploy.
  */
 export function tradingProblem(slug: string): string | null {
   if (NEVER_LISTED.has(slug)) {
@@ -124,10 +202,59 @@ export function tradingProblem(slug: string): string | null {
   if (def.governance === "hypha") {
     return `${slug} is governed on Hypha. Nothing share-like trades on this platform`;
   }
+  if (def.kind === "voice") {
+    return `${def.name} is voice. A say in what this village decides is earned from work the village confirmed, and it is not the platform's to sell`;
+  }
+  if (def.kind !== "credit") {
+    return `${def.name} is a ${def.kind} token. Only credits are bought and swapped here`;
+  }
+  const weighs = weightTokenListingProblem(slug);
+  if (weighs) return weighs;
   if (moduleSoldTokens().has(slug)) {
     return `${slug} already has a selling module, and there is one seller per token, so the exchange would be a second`;
   }
   return null;
+}
+
+/**
+ * ── THE SECOND DOOR TO THE SAME ROOM ────────────────────────────────────────
+ *
+ * Refusing voice-kind tokens closes the obvious path to buying votes. It does
+ * not close the other one: `governance.weight_token` may name ANY
+ * platform-governed token (`weightTokenProblem` in `server/lib/governanceWeights.ts`
+ * refused only hypha mirrors), so a founder in `token` weight mode can point
+ * the weight at an ordinary CREDIT token that is listed on the exchange, and
+ * from that moment a card payment is voting weight without a voice token
+ * anywhere in the story.
+ *
+ * Both doors now carry the same rule, from their two sides:
+ *
+ *   here                 the token that weighs votes may not be listed.
+ *   weightTokenProblem   a token that is listed may not weigh votes.
+ *
+ * ── WHY THIS ONE READS THE MODE AND THE KIND TEST DOES NOT ──────────────────
+ *
+ * `weight_token` holds a value in every mode and only MEANS anything in
+ * `token` mode; its shipped default is `gratitude`, which is recognition and
+ * refused two clauses up regardless. Refusing a listing on account of a dial
+ * that is currently inert would delist a legal market for a reason that is not
+ * true yet, and `assertExchangeFirewalls` runs BEFORE `repairTaintedListings`
+ * at boot, so a false positive here is a village that will not start rather
+ * than a listing quietly narrowed.
+ *
+ * The moment the mode is flipped to `token` the refusal becomes true, and the
+ * window between the flip and the next boot is covered from the other side:
+ * `weightTokenProblem` refuses to resolve weights at all, so no ballot can
+ * open on a purchasable weight token even while the listing still stands.
+ */
+export function weightTokenListingProblem(slug: string): string | null {
+  if (stringVar("governance.weight_mode") !== "token") return null;
+  if (stringVar("governance.weight_token").trim() !== slug) return null;
+  const name = tokenDef(slug)?.name ?? slug;
+  return (
+    `${name} is what weighs every vote in this village right now (governance.weight_mode is set to token), ` +
+    `so listing it would put voting weight on sale. Point governance.weight_token at something else first`
+  );
 }
 
 /**
@@ -158,12 +285,18 @@ export function creditSaleOpen(): boolean {
 /** Buying refuses what v1 refused — except behind the L9 caution card. */
 export function purchaseProblem(slug: string): string | null {
   if (NEVER_LISTED.has(slug) && creditSaleOpen()) {
-    // The card is accepted: run every OTHER shared rule (recognition,
-    // hypha, one-seller) without the shelf-backing refusal.
+    // The card is accepted: run every OTHER shared rule (recognition, kind,
+    // hypha, weight token, one-seller) without the shelf-backing refusal.
+    // This branch is a hand-copy of `tradingProblem` minus one clause, so
+    // every rule added there has to be added here or the card opens a door
+    // wider than the one it was written for.
     const def = tokenDef(slug);
     if (!def) return `"${slug}" is not a registered token`;
     if (def.kind === "recognition") return `${slug} is recognition, never for sale`;
     if (def.governance === "hypha") return `${slug} is governed on Hypha`;
+    if (def.kind !== "credit") return `${def.name} is a ${def.kind} token, and only credits are sold here`;
+    const weighs = weightTokenListingProblem(slug);
+    if (weighs) return weighs;
     if (moduleSoldTokens().has(slug)) return `${slug} already has a selling module`;
     return null;
   }
@@ -297,6 +430,9 @@ export async function upsertSettings(
       Math.max(0, Math.floor(input.maxSwapOutPerMemberPerCycle ?? current?.maxSwapOutPerMemberPerCycle ?? 0)),
     ],
   );
+  // Write through, so the weight-token rule on the governance side sees this
+  // listing before the next boot rather than after it.
+  await exchangeSettings(pool);
   return { ok: true };
 }
 
@@ -822,6 +958,9 @@ export async function repairTaintedListings(pool: Pool): Promise<string[]> {
     );
     repaired.push(`${s.tokenSlug}: ${purchaseBad ?? swapBad}`);
   }
+  // Same write-through as upsertSettings: the set was filled from the rows
+  // this pass has just narrowed, so re-read before anything is served.
+  if (repaired.length) await exchangeSettings(pool);
   return repaired;
 }
 
