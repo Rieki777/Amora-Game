@@ -141,6 +141,14 @@ const CONTENT_SECTIONS = [
   // read through the same generic content routes. Without a registry entry
   // here a founder has no door to write their own jurisdiction's notices.
   { key: "legal", label: "Legal & Jurisdiction Notices", icon: FileText },
+  // S3 pages lane: the two paragraphs of the Love Letter covenant that
+  // describe this village's own land and its own plan for forming a
+  // governance council. They shipped compiled in, so every founder's members
+  // were asked to SIGN a description of Amora's jungle and Amora's lot count.
+  // LoveLetter.tsx reads `covenant.opening` and `covenant.governance`; with
+  // nothing saved it falls back to the same sentences minus the geography and
+  // the number. Amora's own wording is in server/seeds/pages-covenant-seed.json.
+  { key: "covenant", label: "Love Letter Covenant", icon: FileText },
 ] as const;
 
 /**
@@ -1855,6 +1863,139 @@ interface InvestorDoc {
   inPacket: boolean;
 }
 
+/**
+ * WHO RECEIVES AN INVESTOR ENQUIRY, edited where a founder is already
+ * standing (founder ruling R10, 2026-08-31, verbatim: "Add a section in admin
+ * where new instances can add the emails that receive investor requests -
+ * this should stay editable and be found right next to where they upload
+ * investor packet details.").
+ *
+ * NO NEW STORE, AND NO SECOND COPY OF THE ADDRESSES. These are the same two
+ * inboxes Email Settings has always written, on the same
+ * `/api/admin/email-config` document, read back by `recipientsForType` on the
+ * server. A second field holding a second copy of an address is a second
+ * chance for the two to disagree, and the one a founder had just edited would
+ * not be the one the server read. So this is a SECOND DOOR onto one value,
+ * not a second value: change it here and Email Settings shows the change, and
+ * the other way round.
+ *
+ * TWO ADDRESSES, NOT ONE. The server already routes these apart
+ * (`FORM_TYPE_TO_PATHWAY`): `investor`, `investor-pack`, `investor-call` and
+ * `investor-doc-request` reach the investor inbox, while `prosperity`,
+ * `contact` and `work-with-us` reach the business one. The code this replaced
+ * carried two literal addresses for exactly that reason. A village that wants
+ * one inbox types one address into both fields, which costs it nothing;
+ * merging the fields would delete a routing choice the server can already
+ * make and no founder could get it back from this screen.
+ *
+ * The PUT sends only these two keys on purpose. The route merges per field
+ * (an absent key keeps its stored value), so saving here cannot blank the
+ * steward and resident inboxes that this card deliberately does not show.
+ */
+function InvestorInboxCard({ password }: { password: string }) {
+  const [investor, setInvestor] = useState("");
+  const [business, setBusiness] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/email-config`, { headers: authHeaders(password) });
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      setInvestor(String(data?.investor ?? ""));
+      setBusiness(String(data?.prosperity ?? ""));
+      setLoadFailed(false);
+    } catch {
+      // Say so rather than showing two empty boxes, which read as "no address
+      // set" and invite a founder to type over an address that is really there.
+      setLoadFailed(true);
+    }
+    setLoading(false);
+  }, [password]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/email-config`, {
+        method: "PUT",
+        headers: authHeaders(password, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ investor, prosperity: business }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(refusal(body, `The server refused that (${res.status}). Nothing changed.`));
+        setSaving(false);
+        return;
+      }
+      toast.success("Investor and business addresses saved");
+      load();
+    } catch {
+      toast.error("That did not reach the server. Nothing changed.");
+    }
+    setSaving(false);
+  };
+
+  const nobodyHome = !loading && !loadFailed && !investor.trim() && !business.trim();
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+      <div className="flex items-start justify-between gap-4 mb-1">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Who receives investor requests</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            When somebody asks for the packet below, the documents go to them and
+            the alert comes to you. These are the addresses it reaches. They are
+            the same two inboxes as Email Settings, so an edit in either place is
+            the same edit.
+          </p>
+        </div>
+        <button
+          onClick={save}
+          disabled={saving || loading || loadFailed}
+          className="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-teal-deep text-white rounded-lg text-xs font-medium hover:bg-teal-deep/90 disabled:opacity-50 transition-colors"
+        >
+          <Save className="w-3.5 h-3.5" /> {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="text-xs text-gray-400 py-4">Loading the current addresses...</p>
+      ) : loadFailed ? (
+        <p className="text-xs text-red-600 py-4">
+          The current addresses did not load. Reload the page before editing,
+          so a save here cannot overwrite an address you never saw.
+        </p>
+      ) : (
+        <div className="space-y-4 mt-4">
+          {nobodyHome && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              No address is set. A visitor can still request the packet and still
+              receives it, and nobody here is told the request happened.
+            </p>
+          )}
+          <EmailField
+            label="Investor requests"
+            value={investor}
+            onChange={setInvestor}
+            hint="Receives investor enquiries, calls, and every request for the packet below."
+          />
+          <EmailField
+            label="Business enquiries"
+            value={business}
+            onChange={setBusiness}
+            hint="Receives business, contact and work-with-us enquiries."
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InvestorVaultTab({ password }: { password: string }) {
   const [docs, setDocs] = useState<InvestorDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1983,6 +2124,15 @@ function InvestorVaultTab({ password }: { password: string }) {
           )}
         </div>
       </div>
+
+      {/*
+        Above the upload, not below it (R10 asks for "right next to", and of
+        the two adjacencies this is the useful one): a founder who uploads
+        first and sets the address never sees the gap, while a founder who
+        meets the address first cannot fill the packet without being told who
+        hears about it.
+      */}
+      <InvestorInboxCard password={password} />
 
       <form onSubmit={upload} className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6 space-y-3">
         <div className="grid grid-cols-2 gap-3">
