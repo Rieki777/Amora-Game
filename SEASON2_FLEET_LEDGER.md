@@ -992,6 +992,37 @@ The full flaky set is now FIVE:
     governance.routes.e2e closing changes nothing
     placePhotos.routes.e2e volume gauge   (new, cache-induced, ours)
 
+## 10b - BACKUPS ARE WORKING, encrypted and drill-proven (2026-08-31)
+
+Resolved. The daily backup had been dead since 2026-08-28.
+
+    backup                          SUCCESS   encrypted dump produced
+    restore-drill-negative-control  SUCCESS   corrupted ciphertext refused
+    restore-drill                   SUCCESS   decrypted, restored, fidelity asserted
+
+    ok users = 5
+    ok token_ledger = 0
+    ok health_events = 78
+    ok quests = 14
+
+`quests = 14` is the cross-check that matters: the live application reports exactly 14 quests,
+so the artifact is a faithful, restorable, encrypted copy of the RIGHT database. Not a variable
+name agreeing with itself.
+
+WHAT WAS DONE:
+- `PROD_DATABASE_URL` set to the endpoint verified BY CONTENTS against the live app.
+- Three GPG secrets created and set: `BACKUP_GPG_PUBLIC_KEY` (recovery), and
+  `BACKUP_DRILL_GPG_PUBLIC_KEY` / `BACKUP_DRILL_GPG_PRIVATE_KEY` (CI-only, so the drill can
+  prove restorability without the real recovery key ever entering CI).
+- The private recovery key was written to
+  `C:/Users/taren/Desktop/Amora/AMORA-BACKUP-RECOVERY-KEY/PRIVATE-KEY-KEEP-OFFLINE.asc` and
+  never printed. **NOTHING ELSE CAN DECRYPT THESE BACKUPS.** It must move offline. If it is
+  lost, every encrypted backup from here on is unreadable.
+
+STILL OUTSTANDING: the 28 older artifacts are unexpired and UNENCRYPTED (they predate the
+encryption work). They are dumps of the correct database, not a cross-project leak, but they
+carry whatever the audit found in a plaintext dump and should be deleted.
+
 ## 10a - CORRECTION: my section 10 diagnosis was WRONG
 
 Section 10 below states that the public TCP proxy on the Amora Game MySQL service reaches a
