@@ -146,7 +146,7 @@ export default function NotificationToasts() {
                 <Link
                   href={m.link ?? "/profile"}
                   onClick={() => drop(m.id)}
-                  className="block text-sm font-semibold text-gray-900 leading-snug hover:underline"
+                  className="block text-sm font-semibold text-foreground leading-snug hover:underline"
                 >
                   {m.title}
                 </Link>
@@ -155,7 +155,7 @@ export default function NotificationToasts() {
                 type="button"
                 onClick={() => drop(m.id)}
                 aria-label="Dismiss this"
-                className="shrink-0 inline-flex items-center justify-center min-h-11 min-w-11 -m-2 text-gray-400 hover:text-gray-700"
+                className="shrink-0 inline-flex items-center justify-center min-h-11 min-w-11 -m-2 text-muted-foreground hover:text-foreground"
               >
                 <X aria-hidden="true" className="w-4 h-4" />
               </button>

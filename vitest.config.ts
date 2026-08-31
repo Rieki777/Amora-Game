@@ -1,4 +1,5 @@
 import path from "node:path";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -7,10 +8,25 @@ import { defineConfig } from "vitest/config";
  * and onto MySQL. Moving that much code with no safety net is how a live site
  * breaks.
  *
- * Node environment, not jsdom: the tests that matter here drive the real HTTP
- * API of the real built server, not React components.
+ * The GLOBAL environment is node, not jsdom: most of what matters here drives
+ * the real HTTP API of the real built server, not React components. That
+ * default is deliberately left alone (2026-08-31) rather than flipped to
+ * jsdom now that component tests exist - jsdom is heavier to boot per file
+ * and would be an unreviewed behaviour change touching every server test at
+ * once for a benefit only the component tests need. Those opt into jsdom
+ * individually with a `// @vitest-environment jsdom` docblock; see
+ * client/src/test/setup.ts for the matcher/cleanup wiring they share.
  */
 export default defineConfig({
+  // Same react() plugin vite.config.ts builds with, and needed for the same
+  // reason a server test never needed it before now: it is what turns JSX
+  // into the automatic runtime's `jsx(...)` calls rather than classic-mode
+  // `React.createElement`, which throws "React is not defined" the moment a
+  // component test actually renders anything (there is no bare `React` import
+  // anywhere in this codebase's own .tsx files - vite's plugin is the only
+  // reason that has ever worked). Costs server tests nothing: esbuild only
+  // reaches for it on a `.tsx`/`.jsx` file.
+  plugins: [react()],
   /*
    * The same aliases vite.config.ts builds with. Without them a client module
    * that imports `@shared/...` typechecks (tsconfig paths) and builds (vite)
@@ -28,7 +44,11 @@ export default defineConfig({
     environment: "node",
     // S5: load .env so TEST_DATABASE_URL reaches the DB-backed suites locally
     // (CI sets it as a job env var; both paths land in process.env).
-    setupFiles: ["dotenv/config"],
+    // client/src/test/setup.ts registers @testing-library/jest-dom's
+    // matchers and RTL's cleanup, for the component tests below. See that
+    // file for why it is safe to run ahead of every test, not just client
+    // ones.
+    setupFiles: ["dotenv/config", "./client/src/test/setup.ts"],
     /*
      * Prints what provisioning cost when the run ends: template builds, clones,
      * and the per-migration-file price. The cost this comment block warns about
@@ -36,17 +56,19 @@ export default defineConfig({
      * every CI job. A number nobody prints is a number nobody defends.
      */
     globalSetup: ["server/db/provisioningReport.ts"],
-    // Client tests are pure-logic only (no jsdom, see above): helpers like
-    // the nav's gesture thresholds, which are far easier to check against
-    // numbers than by waving a thumb at a phone. `.tsx` is included on
-    // purpose even though nothing here is a component test today: this
-    // config has no jsdom environment, so a `.tsx` file that imports React
-    // and expects a DOM would fail loudly the first time it ran, not
-    // disappear. Excluding `.tsx` used to mean the opposite of loud: a
-    // contributor could write `Foo.test.tsx`, watch it sit beside real
-    // tests, and never have it run at all, with `pnpm test` reporting green
-    // the whole time. A file that never runs must never be the quiet
-    // option.
+    // Most client tests are still pure-logic (`.test.ts`, environment
+    // "node" - helpers like the nav's gesture thresholds, far easier to check
+    // against numbers than by waving a thumb at a phone). `.tsx` component
+    // tests now exist too (2026-08-31): the global environment stays "node"
+    // (see the top-level comment), so each component test file opts into a
+    // DOM itself with a `// @vitest-environment jsdom` docblock as its FIRST
+    // line - Vitest reads that per file, before any import runs. A `.tsx`
+    // file that forgets the docblock and renders a component still fails
+    // loudly (no `document`), which is what this comment used to promise
+    // before any component test existed to test that promise: `.tsx` was
+    // included in this glob from the start specifically so a forgotten test
+    // file could never sit unrun beside real ones while `pnpm test` stayed
+    // green.
     include: ["server/**/*.test.ts", "shared/**/*.test.ts", "client/**/*.test.{ts,tsx}"],
     // The end-to-end loop test builds and boots the server, so it needs room.
     testTimeout: 120_000,
