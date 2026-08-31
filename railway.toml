@@ -40,6 +40,16 @@
 # end by .github/workflows/release.yml before any of this, so an image that
 # cannot start has already been caught somewhere cheaper.
 #
+# THE START COMMAND BELOW SURVIVES EITHER ANSWER. Railway's start command
+# replaces the image's CMD. The Dockerfile sets WORKDIR /app, USER node, and
+# ships the bundle at /app/dist/index.js, which is the path the line below
+# names and the same relative path nixpacks produces. It also sets
+# NODE_ENV=production itself, so the prefix is redundant rather than wrong.
+# The one thing an override costs is the tini ENTRYPOINT if Railway replaces
+# that too, which would leave production where it already is today: no SIGTERM
+# handler, so a deploy waits out the grace period and is SIGKILLed. That is
+# the current behaviour, so it is not a regression either way.
+#
 # WHAT TO DO ON THAT FIRST DEPLOY: read the first two lines of the build log
 # (`railway logs --build <deploymentId>`). If they name a driver other than
 # nixpacks, the Dockerfile won: set `builder = "DOCKERFILE"` here so the file
