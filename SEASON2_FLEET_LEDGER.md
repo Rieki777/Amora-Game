@@ -93,7 +93,16 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   once. Proved idempotent against the real local MySQL, not reviewed: the row is
   byte-identical after the second and third runs (a re-seal would change the ciphertext,
   since the iv is fresh per call, so equality is what proves nothing ran).
-- **Reserved fork band.** Proposal: village-local migrations use `9000+`. Owned by safety.
+- **Reserved fork band. DECIDED AND ENFORCED (safety, `c551f70`).** Village-local migrations
+  use `9000+`. `scripts/check-migration-numbers.mjs` fails this repo's CI if any file here
+  reaches 9000, which is upstream keeping its half; a fork adding its own runs the same script
+  with `--village`. The band works because the runner sorts BY FILENAME, so `9001_` sorts after
+  every upstream number that will ever exist and a village migration always runs last.
+- **Burned numbers: the register is now redundant, and it was incomplete.** Measured across all
+  local refs and worktree HEADs: 0111 and 0115-0119 never existed as files in ANY ref, and
+  0064, 0065, 0080, 0094, 0100, 0103 and 0107 are gaps of the same kind that the register does
+  not name. The gate enforces the general rule instead: a migration added since the base ref
+  must be numbered above every number that ref already has. Only forward, no list to maintain.
 - **Ports.** Test MySQL is 127.0.0.1:3307 (local, not production). Preview servers pick
   their own; record any long-lived port here.
 
@@ -725,6 +734,117 @@ row for the three guard regression tests.
 - `InvestorJourney.tsx` carries an **accredited-investor self-certification gate**, a US securities-law concept that gates the investor-pack request form. It is a functional compliance control, not prose. The brochure lane deliberately did not touch it and escalated it. Real legal judgement required.
 - One background-check step claims the check itself is tax deductible, which looks like a copy-paste artifact. Preserved verbatim as data rather than silently corrected.
 
+## 7i - safety lane landed (2026-08-30, on `wt/s2-safety`, not yet merged to main)
+
+(Numbered 7i, not 7g: the section letters have already collided three times in this file. There
+are two `7b`, two `7e` and two `7g` headings as of this write. Nobody's text was touched to fix
+that, since each belongs to the lane that wrote it, but a reader following a cross-reference
+will land on the wrong one, and the changelog's "See 7g for full detail" means the GATES lane's
+7g at line 619.)
+
+Branch `wt/s2-safety`, six commits off 052d042, head **`c551f70`**.
+
+**`scripts/check-migration-numbers.mjs`.** Four rules, all working-tree cheap: every `.sql` in
+`drizzle/` matches the runner's OWN discovery regex (a file that does not is a migration nothing
+will ever apply, on any instance, silently); no number is used twice; nothing sits at 9000 or
+above unless `--village`; and a migration added since the base ref is numbered above every
+number that ref already reached. Watched RED six ways: duplicate number, undiscoverable
+filename, 9000-band file without `--village`, a burned gap reused with no duplicate, and an
+unresolvable base ref. `--village` on the same 9000-band file goes green, and a correctly
+numbered `0121` goes green.
+
+**`scripts/check-migration-compat.mjs`.** Four phases, each with its own count in the log so
+none can hide behind another's success: (1) git-only immutability of shipped files, (2) a
+destructive-statement scan for things the schema diff structurally cannot see, (3) the new
+migrations applied to SEEDED ROWS on the real MySQL after the base ref's migrations, (4) an
+information_schema contract diff. Both snapshots come from one server, so MariaDB-vs-MySQL-8
+dialect cancels. One escape hatch, `-- compat-ok: <reason>`, which waives phases 2 and 4 and
+never waives 1 or 3.
+
+**The proof that phase 3 is the load-bearing one.** The historical LPAD collapse (LPAD truncates
+as well as pads, so a rename put two ids on one value) passes reading, passes the destructive
+scan because it carries a WHERE, and changes no column, type or constraint, so phase 4 sees
+nothing at all. Against seeded rows: `Duplicate entry 'comp' for key 'PRIMARY'`, exit 1. Against
+empty tables the byte-identical file exits 0. Measured both ways in the same session.
+
+**A real defect the gate caught in my own probe.** A widening probe converted `quests.gratitude`
+to bigint. That column reads like an int and has been `varchar(64)` since 0004, because every
+quest advertises a range like "50-100". `pnpm check`, reading and every other gate here pass
+that change; this one refuses it. On thirteen instances it would have erased the reward label.
+
+Also watched RED: dropped column, dropped table, TRUNCATE, DELETE and UPDATE with no WHERE,
+nullable tightened to NOT NULL, new NOT NULL with no default, new UNIQUE index, new FOREIGN KEY,
+narrowed varchar, edited shipped file, deleted shipped file, a `splitStatements` copy drifting
+from `server/db/migrate.ts`, and new migrations with no `TEST_DATABASE_URL`. Watched GREEN:
+additive-only, `varchar(32)->varchar(64)`, `int->bigint`, `varchar->text`.
+
+### Corrections to the coordinator, with evidence
+
+- **Duplicate migration numbers are not hypothetical here; they have happened three times.**
+  `git log --all --diff-filter=A` over `drizzle/*.sql`: 0062, 0063 and 0090 each carried two
+  different files. Two of those pairs were added on `main`. The renumbering is its own commit,
+  `d0e09b9`, "Renumber 0062-0065 to 0063-0066, around a collision on main". A person caught it.
+- **The stated mechanism for burned numbers is backwards.** Section 3 said a reused filename
+  "would replay". It does the opposite: `_migrations_applied` keys on filename, so an instance
+  that already ran that name SKIPS the new body. Not replayed, skipped, silently, and every
+  later migration then assumes a schema that instance does not have. That is the worse failure
+  and it is why the band and the only-forward rule matter.
+- **The gate-set step count in section 4 is stale and was undercounted even for its own day.**
+  Enumerated with a YAML parser, not by eye. At 052d042: **24 steps total, 21 `run` steps, 3
+  action steps.** The recorded 20 omitted `Bundle budget` (a multi-line `run: |`) and all three
+  `uses:` steps. On `wt/s2-safety` at `c551f70`: **30 total, 27 `run`, 3 action.**
+- **`check-hyphen-dash.mjs` cannot see anything outside `client/src`.** Line 42 is
+  `for (const f of walk("client/src"))`. It is a real gate for client copy and it is NOT the
+  authoritative dash check for scripts, docs or workflows, so a green from it says nothing about
+  those files. My own content was scanned with a Node Unicode pass over eight dash code points
+  (U+2012, U+2013, U+2014, U+2015, U+2212, U+FE58, U+FE63, U+FF0D) across 1486 lines: 0 found.
+  Worth noting for the gates lane's `grep -P` finding: `grep -P` on this machine does not return
+  a false clean so much as refuse to run, exiting 2 with "supports only unibyte and UTF-8
+  locales", which reads as a failure and not as a pass. Either way, Node is the reliable tool.
+- **`ops/roll.mjs` workflow_dispatch (section 6) NOT wired, on purpose.** `ops/` does not exist
+  on main or on this branch (it is on `wt/s2-fleet`), no image has been published, and the
+  request itself says to file it when release lands. A rollout job also belongs in its own
+  workflow file rather than in `ci.yml`, which runs on every push. Redispatch it after release
+  and fleet are on main.
+
+### CI wiring (safety owns `ci.yml`; every request in section 6 is now answered)
+
+`fetch-depth: 0` on the checkout, because both migration guards resolve the previous release
+from git and the default single-commit clone cannot see `origin/main`. Steps added: `Migration
+numbers` and `Migration compatibility` after the typechecks; the gates lane's three guard
+self-tests before `Brand guard`; the tokens lane's `Theme literals` after `Image budget`.
+
+The three guard self-tests were verified as genuinely unrun before wiring, not taken on report:
+`vitest.config.ts` includes only `server/**/*.test.ts`, `shared/**/*.test.ts` and
+`client/**/*.test.ts`, so those three `.mjs` files under `scripts/` are excluded by two separate
+rules at once.
+
+### Gates at `c551f70`, exit codes read with no pipe
+
+    pnpm check 0 | tsc -p tsconfig.tests.json 0 | pnpm build 0 (dist/index.js built @ c551f70)
+
+    check-migration-numbers 0   check-migration-compat 0    check-brand-refs.test 0
+    contribution-scan.test 0    intake-classify.test 0      check-brand-refs 0
+    check-voice 0               check-hyphen-dash 0         check-auth-fetch 0
+    check-admin-reach 0         check-save-honesty 0        check-repo-payloads 0
+    check-mirror-annotations 0  check-upload-strip 0        check-artifact-budget 0
+    check-doc-links 0           check-route-reachability 0  check-map-routes 0
+    check-image-budget 0        check-dist-budget 0         check-theme-literals 1
+
+`check-theme-literals` is 1 BY DESIGN on this branch: the script and its baseline are on
+`wt/s2-tokens`, not here. It goes green when the two land together. It is wired hard rather than
+guarded with a skip-if-missing, because a step that quietly does nothing when its script is
+absent is the exact failure the rest of that file exists to stop.
+
+Per the no-full-suite protocol, one targeted suite: **`server/db/harness.test.ts`, 1 file passed,
+6 tests passed, 0 skipped, 0 failed, 75.6s.** It is the suite closest to this lane's domain (it
+asserts a cloned scratch schema is column-for-column identical to one that ran the migrations
+itself). Nothing else was run, and nothing needed to be: this branch changes five files, none of
+them application code, none of them imported by any test.
+
+`drizzle/` was verified byte-identical to `origin/main` after roughly twenty throwaway probe
+migrations: 107 files, zero tracked diffs, zero untracked.
+
 ## 8 - Changelog
 
 - 2026-08-30. Ledger created. Nine worktrees cut off 052d042. Gate set enumerated from the
@@ -777,3 +897,17 @@ row for the three guard regression tests.
   workflow yet, filed as one CI blocker row in section 6 for safety. See 7g for full detail,
   including the four red/green proofs and the false-clean `grep -P` this lane's own dash check
   hit on this machine before switching to a Node Unicode scan.
+- 2026-08-30. safety lane landed on `wt/s2-safety` (not yet merged) at `c551f70`:
+  `scripts/check-migration-numbers.mjs` and `scripts/check-migration-compat.mjs`, both wired
+  into `ci.yml` along with `fetch-depth: 0` and every outstanding CI-step request in section 6
+  (gates lane's three guard self-tests, tokens lane's theme-literal ratchet). The village
+  migration band is decided and enforced at `9000+`; the expand/contract rule is written up in
+  `CLAUDE.md` under "Writing a migration" and in `docs/FORK_RUNBOOK.md` for a village writing
+  its own. Watched RED on 19 deliberately broken inputs and GREEN on 5 correct ones, including
+  the proof that matters: the historical LPAD collapse exits 1 against seeded rows and 0 against
+  empty tables, byte-identical file. Caught a real defect in its own probe (`quests.gratitude`
+  has been varchar since 0004, not int). Corrected four coordinator claims with evidence: three
+  duplicate-number collisions HAVE happened here (0062, 0063, 0090; fixed by hand in `d0e09b9`),
+  the burned-number mechanism is backwards (a reused filename is silently SKIPPED, not
+  replayed), the section 4 step count was 24/21/3 rather than 20, and `check-hyphen-dash.mjs`
+  only walks `client/src` so it is not the authoritative dash check for scripts or docs. See 7i.
