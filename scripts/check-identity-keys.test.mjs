@@ -189,6 +189,19 @@ check("ACCEPTS the shrink when the ceiling comes down with it", () => {
   assert.deepStrictEqual(r.unexpected, []);
 });
 
+check("the guard carries no shebang, which would break the Vitest import", () => {
+  // shared/gameConfig.test.ts imports this module, so it goes through Vite's
+  // transform as well as node. A shebang and CRLF line endings together make
+  // that transform throw `SyntaxError: Invalid or unexpected token`; either
+  // alone is fine, which is how it passed on an LF working copy and failed
+  // the moment a checkout rewrote the file with CRLF. Named here so the next
+  // person to add `#!` gets this sentence rather than that SyntaxError.
+  const source = fs.readFileSync(GUARD, "utf8");
+  assert.ok(!source.startsWith("#!"), "check-identity-keys.mjs must not open with a shebang");
+  // Control: the assertion is looking at the right file, and would see one.
+  assert.ok(source.includes("IDENTITY_KEYS"), "the file being read is the guard");
+});
+
 check("the shipped list and the shipped ceiling agree", () => {
   assert.strictEqual(KNOWN_PENDING.length, PENDING_CEILING);
   assert.deepStrictEqual(

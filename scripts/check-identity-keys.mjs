@@ -1,6 +1,18 @@
-#!/usr/bin/env node
 /**
  * The identity-key guard: platform defaults name no village.
+ *
+ * NO SHEBANG, and it has to stay that way. Every other guard in this directory
+ * opens with `#!/usr/bin/env node`, and none of them is imported by a Vitest
+ * test. This one is, by `shared/gameConfig.test.ts`, so it goes through Vite's
+ * transform as well as node. A shebang and CRLF line endings TOGETHER make
+ * that transform throw `SyntaxError: Invalid or unexpected token`; either one
+ * alone is fine, which is why this ran green half a dozen times on a working
+ * copy that still had LF and then failed the moment a checkout rewrote the
+ * file with CRLF. Same carriage-return class that gave check-brand-refs a
+ * different answer per machine (see scripts/check-brand-refs.test.mjs).
+ *
+ * Every caller runs it as `node scripts/check-identity-keys.mjs`, so the
+ * shebang bought nothing. Its own test asserts the line is still absent.
  *
  * WHY THIS IS NOT THE BRAND GUARD. `scripts/check-brand-refs.mjs` matches
  * WORDS, and it exempts `shared/gameConfig.ts` by name because that file is

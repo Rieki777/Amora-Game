@@ -29,7 +29,7 @@
  * in the identity block this file gates, and widening the gate is a decision
  * for whoever owns the season config rather than a line to add quietly here.
  */
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { GAME_CONFIG } from "./gameConfig";
 
 /**
@@ -38,6 +38,14 @@ import { GAME_CONFIG } from "./gameConfig";
  * The specifier is built at runtime on purpose: `tsconfig.tests.json` is a CI
  * gate and does not include `scripts/`, so a static import of a `.mjs` there
  * would fail the typecheck rather than the thing being tested.
+ *
+ * Loaded in `beforeAll` rather than with a top-level await. The top-level form
+ * ran green half a dozen times, including two full suite runs, and then failed
+ * collection with `SyntaxError: Invalid or unexpected token` on the `await`
+ * itself, which depends on how the file happened to be transformed that run. A
+ * guard that reports a different answer depending on a cache is the failure
+ * this whole file exists to catch, so the await lives inside an async function
+ * where it is unambiguous.
  */
 type IdentityGuard = {
   IDENTITY_KEYS: string[];
@@ -48,12 +56,20 @@ type IdentityGuard = {
   isViolation: (key: string, value: string) => boolean;
 };
 
-const guard: IdentityGuard = await import(
-  /* @vite-ignore */ new URL("../scripts/check-identity-keys.mjs", import.meta.url).href
-);
+let guard!: IdentityGuard;
+let IDENTITY_KEYS!: string[];
+let NEUTRAL!: Record<string, string[]>;
+let KNOWN_PENDING!: { key: string; since: string; why: string }[];
+let PENDING_CEILING!: number;
+let isViolation!: (key: string, value: string) => boolean;
+let PENDING_KEYS!: string[];
 
-const { IDENTITY_KEYS, NEUTRAL, KNOWN_PENDING, PENDING_CEILING, isViolation } = guard;
-const PENDING_KEYS = KNOWN_PENDING.map((p) => p.key);
+beforeAll(async () => {
+  const url = new URL("../scripts/check-identity-keys.mjs", import.meta.url).href;
+  guard = (await import(/* @vite-ignore */ url)) as IdentityGuard;
+  ({ IDENTITY_KEYS, NEUTRAL, KNOWN_PENDING, PENDING_CEILING, isViolation } = guard);
+  PENDING_KEYS = KNOWN_PENDING.map((p) => p.key);
+});
 
 /** Walk a dotted path into the real, typed config object. */
 function valueAt(key: string): unknown {
