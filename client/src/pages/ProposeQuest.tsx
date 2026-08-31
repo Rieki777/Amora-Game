@@ -31,8 +31,14 @@ export default function ProposeQuest() {
    * has not named itself yet. This read "Amora" on every instance, so the
    * platform's first tenant's name was what every founder's page showed on
    * first paint, whatever they had called their own village. The word is
-   * chosen for the one sentence that interpolates it, which already carries
-   * its own article: "It moves to the {projectName} team".
+   * chosen for the sentences that interpolate it, which already carry their
+   * own article: "It moves to the {projectName} team".
+   *
+   * S3 pages lane: a previous pass fixed only the loading-state flash. Three
+   * PERMANENT sentences still shipped the literal, and unlike a flash they
+   * were what a founder's member read after the config had landed: the
+   * confirmation screen shown once a proposal is accepted, the label on the
+   * "what do you need" field, and the fine print under the submit button.
    */
   const [projectName, setProjectName] = useState("village");
   // LANE Q: the guide's name is a per-deployment persona set in the Setup
@@ -100,7 +106,7 @@ export default function ProposeQuest() {
                 Your quest idea is in.
               </h1>
               <p className="text-muted-foreground mb-8">
-                Thank you for bringing your gift. The Amora team will review your
+                Thank you for bringing your gift. The {projectName} team will review your
                 proposal and reach out to explore it with you. Every quest starts as
                 someone caring enough to imagine it.
               </p>
@@ -308,7 +314,7 @@ export default function ProposeQuest() {
 
             <div>
               <label htmlFor="quest-needed" className="block text-sm font-medium text-foreground mb-2">
-                What do you need from Amora?
+                What do you need from {projectName}?
               </label>
               <textarea
                 id="quest-needed"
@@ -361,7 +367,7 @@ export default function ProposeQuest() {
               {submitting ? "Sending…" : "Submit Your Quest Proposal"}
             </button>
             <p className="text-xs text-muted-foreground text-center">
-              Your proposal goes straight to the Amora team. No idea is too small. The
+              Your proposal goes straight to the {projectName} team. No idea is too small. The
               village is built from them.
             </p>
           </motion.form>
