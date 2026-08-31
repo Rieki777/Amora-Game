@@ -1028,7 +1028,7 @@ const DEFAULT_INVESTOR_SUMMARY = SITE_CONTENT.investorSummary;
 // values until they change them. This is what makes a new project live-editable
 // from the browser without a code deploy. Merged over GAME_CONFIG on read.
 const DEFAULT_BRAND = {
-  project: { name: "", tagline: "", memberName: "", location: "", country: "", fiatCurrency: "", siteUrl: "", eventsUrl: "", footerBlurb: "" },
+  project: { name: "", tagline: "", memberName: "", location: "", country: "", fiatCurrency: "", siteUrl: "", eventsUrl: "", contactEmail: "", footerBlurb: "" },
   currency: { name: "", nameLower: "" },
   images: { hero: "", investorHero: "", residentHero: "", stewardHero: "", prosperityHero: "", masterPlanHero: "", logo: "", heartLogo: "", favicon: "" },
   // Setup Wizard progress — projects tick these off as they make the site theirs.
@@ -2818,6 +2818,11 @@ function mergedConfig() {
       // shell hides any link whose URL is empty.
       siteUrl: pick((brand.project as any).siteUrl, p.siteUrl),
       eventsUrl: pick((brand.project as any).eventsUrl, p.eventsUrl),
+      // Where a visitor's enquiry goes. Same inherit-on-blank rule, and the
+      // platform default is deliberately blank: the shopfront's "email us"
+      // controls hide themselves rather than post a stranger's investment
+      // enquiry to an address this village does not own.
+      contactEmail: pick((brand.project as any).contactEmail, p.contactEmail),
       footerBlurb: pick((brand.project as any).footerBlurb, p.footerBlurb),
     },
     // THE TOKEN REGISTRY IS THE SINGLE SOURCE OF TRUTH FOR A TOKEN'S NAME

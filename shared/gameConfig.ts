@@ -97,6 +97,12 @@ export interface GameConfig {
     siteUrl: string;
     /** Optional events page. Blank hides the footer Events link. */
     eventsUrl: string;
+    /** Where a visitor's business or investment enquiry should go. Blank hides
+     *  every "email us" control on the shopfront pages rather than sending a
+     *  stranger's enquiry to whichever address happened to be compiled in.
+     *  This is a PUBLIC role address: it renders into the page as a mailto
+     *  link and is served by /api/game/config, so never a personal inbox. */
+    contactEmail: string;
     /** The one-sentence footer introduction under the logo. */
     footerBlurb: string;
   };
@@ -227,9 +233,16 @@ export const GAME_CONFIG: GameConfig = {
     // marks below: Layout.tsx and Quests.tsx already render these links only
     // when truthy ({siteUrl && (...)}), so a fresh instance with no outside
     // site or events page shows no dead or wrong-owner link rather than one
-    // pointing at amora.cr.
+    // pointing at the first village that shipped from this codebase.
+    //
+    // contactEmail follows the same rule and matters more, because its failure
+    // is silent: a compiled-in address takes a visitor's enquiry, sends it to
+    // somebody else's inbox, and shows the visitor a normal mail composer. No
+    // error, and the founder never learns the lead existed. Blank hides the
+    // control (useVillageLinks in client/src/lib/gameApi.ts).
     siteUrl: "",
     eventsUrl: "",
+    contactEmail: "",
     footerBlurb: "A regenerative village in Costa Rica where all beings belong and thrive.",
   },
 
