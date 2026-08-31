@@ -4260,7 +4260,7 @@ const DB_PROBE_BUDGET_MS = 3000;
  *
  * `SELECT 1` through the live pool: it needs no table, so it survives a schema
  * a migration has not reached, and it fails for exactly the reasons a member's
- * request would fail — the host is gone, the credentials rotated, the pool is
+ * request would fail: the host is gone, the credentials rotated, the pool is
  * exhausted, the network partitioned.
  *
  * The deadline is the point. Without it a probe against a black-holed MySQL
@@ -4307,8 +4307,8 @@ interface UploadsGauge {
  * WHAT THE UPLOADS GAUGE COSTS, AND WHY IT NO LONGER COSTS IT PER REQUEST.
  *
  * The volume had no gauge at all before this: no byte count, no file count,
- * nothing on this probe. It fills silently — every hero photo retried in the
- * wizard leaves its predecessor behind forever — and the first sign of a full
+ * nothing on this probe. It fills silently (every hero photo retried in the
+ * wizard leaves its predecessor behind forever), and the first sign of a full
  * volume would have been every upload failing at once.
  *
  * Deliberately a REPORT, not a reclaim. An orphan sweep was specced and then
@@ -5224,7 +5224,7 @@ async function assistantDailyCapAtLimit(max: number): Promise<boolean> {
  *
  * `moduleId` is the module whose own data the check is about, or null when the
  * check is about something with no module to quarantine (the capability
- * holding table) — in that case the failure is recorded and the village serves,
+ * holding table). In that case the failure is recorded and the village serves,
  * because the harm it guards against is already closed one layer down.
  *
  * ── WHY THE CONSOLE IS CAPTURED ──────────────────────────────────────────────
@@ -5235,7 +5235,7 @@ async function assistantDailyCapAtLimit(max: number): Promise<boolean> {
  * the rows, and they exist already, so this listens for them for the duration
  * of the call rather than editing four library files to restate them.
  *
- * The real console still gets every line — this forwards, it does not swallow.
+ * The real console still gets every line. This forwards, it does not swallow.
  * It is boot-time and single-threaded, one check at a time, and it is restored
  * in a `finally` so a throw cannot leave the process with a patched console.
  */
@@ -6093,7 +6093,7 @@ async function startServer() {
   MODULES_BY_ID["events"].openStateCheck = () => eventsOpenState(getPool());
 
   /*
-   * S33/S37/S42: config and economy firewalls are re-proven at every boot —
+   * S33/S37/S42: config and economy firewalls are re-proven at every boot, so
    * a hand-edited listing, badge row, or drained escrow can never outlive a
    * deploy.
    *
@@ -6120,7 +6120,7 @@ async function startServer() {
    *
    * WHAT STAYS FATAL, and why: migrations above, and the ledger conservation
    * check above. Those are village-wide truths with no single module to
-   * quarantine — serving over a schema that does not match the code, or over
+   * quarantine. Serving over a schema that does not match the code, or over
    * an economy that does not conserve, would normalise a break rather than
    * contain one.
    */
@@ -6138,7 +6138,7 @@ async function startServer() {
    * fatal either, and the reason is that the door it guards is already shut
    * one layer down.
    *
-   * `villageHeldCapabilities` — the actual permission gate — filters every row
+   * `villageHeldCapabilities`, the actual permission gate, filters every row
    * through TRANSFERABLE before it grants anything, and says so in as many
    * words: "two locks on the same door, because the failure mode being guarded
    * against is a row nobody reviewed". So a hand-written row naming a
@@ -6150,7 +6150,7 @@ async function startServer() {
    * error webhook, and written into the village's health events for an admin
    * who was asleep when it happened.
    */
-  await quarantineOnInvariantFailure(null, "capability holding", () =>
+  await quarantineOnInvariantFailure(null, "capability holding table", () =>
     assertCapabilityHoldingInvariants(getPool()),
   );
 
@@ -7712,8 +7712,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
      * to react to because nothing ever went red. A liveness probe that cannot
      * fail is not a probe; it is a constant.
      *
-     * So the database is now asked one question it cannot bluff — `SELECT 1`
-     * through the live pool — with its own deadline, and the answer decides
+     * So the database is now asked one question it cannot bluff, a `SELECT 1`
+     * through the live pool, with its own deadline, and the answer decides
      * both the payload and the status code. A probe that did not RUN reports
      * `ok: false` with the reason, never a cheerful default: "we could not
      * ask" and "we asked and it was fine" are different facts and this
@@ -32724,8 +32724,11 @@ startServer().catch(async (e) => {
   // socket would otherwise hold a broken process up forever). Set BEFORE the
   // await, so an exit racing the alarm is still an exit 1.
   process.exitCode = 1;
+  // REF'D on purpose. The unref'd form only fires if something else is already
+  // holding the event loop, which is the exact case it is not needed for; on an
+  // early failure the loop is empty and an unref'd backstop never runs at all.
+  // Held: if the alarm somehow never settles, this exits anyway.
   const hardStop = setTimeout(() => process.exit(1), BOOT_ALERT_BUDGET_MS + 2000);
-  hardStop.unref();
   try {
     const delivery = await reportErrorWithin(BOOT_ALERT_BUDGET_MS, e, {
       where: "the village's boot",
@@ -32763,5 +32766,11 @@ startServer().catch(async (e) => {
     console.error("[startup] boot alert failed outright:", alarmErr);
   }
   clearTimeout(hardStop);
-  process.exit(1);
+  // NOT an immediate process.exit. On Windows and on a pipe, stdout writes are
+  // asynchronous, and exiting on the same tick as the last console.error can
+  // discard it, which would throw away precisely the lines an operator opens
+  // the log to find. This timer is ref'd, so it holds the loop open long enough
+  // to drain and then forces the exit for anything (an open pool, a socket)
+  // that would otherwise keep a broken process alive forever.
+  setTimeout(() => process.exit(1), 500);
 });

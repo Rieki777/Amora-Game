@@ -5,7 +5,7 @@
  * alert from an alert that reached nobody. That distinction is the whole point
  * on the boot path: a village whose database has just died cannot reach its own
  * admin table, so the webhook is the only sink left, and on a fresh instance
- * `ERROR_WEBHOOK_URL` is unset — which means the honest answer is "nobody was
+ * `ERROR_WEBHOOK_URL` is unset, which means the honest answer is "nobody was
  * told" and the process should say so rather than exit implying otherwise.
  *
  * The webhook is mocked here rather than dialled. The real dialler

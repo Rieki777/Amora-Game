@@ -144,7 +144,7 @@ export async function reportError(err: unknown, ctx: ErrorContext): Promise<Erro
  *
  * `reportError` awaits two sinks that can both hang for longer than a dying
  * process should wait. The admin sink is a database write, and the failure
- * that most needs reporting — a boot that could not reach MySQL — is exactly
+ * that most needs reporting, a boot that could not reach MySQL, is exactly
  * the one where that write sits on a connect timeout. So the caller gets a
  * deadline and an answer either way: the webhook needs no database and no
  * schema, which is what makes it the sink that survives the interesting
