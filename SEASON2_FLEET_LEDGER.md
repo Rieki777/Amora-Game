@@ -1217,6 +1217,78 @@ unlocked check-then-act shape and fell out once the guard had lock access.
    `gratitude_received:<entryId>`. Anyone building a gratitude reversal feature on top of either
    query needs to know this first.
 
+## 12 - A SILENT-GREEN BUG THAT HAS NOW BITTEN THREE LANES
+
+Three independent lanes hit the same thing, and it produces a permanently passing check:
+
+**A backslash-b written through a shell heredoc becomes a literal BACKSPACE character, not a
+regex word boundary.** The regex then matches nothing, and the script reports a clean zero.
+
+- The PAGES lane's classification script reported `TOTAL 0` for a file holding 18 hits.
+- The SRVHARD lane's gate scanner reported "241 of 241 admin routes ungated", a complete
+  fabrication, caught only because the number was implausible rather than because anything
+  failed.
+- Both then added a self-check that exits non-zero if the pattern cannot match a KNOWN POSITIVE,
+  which is the correct defence and should be the house pattern.
+
+VERIFIED SAFE: the shipped `scripts/check-brand-refs.mjs` carries a correctly escaped
+double-backslash. But this repository builds regexes from template literals in more than one
+script, and anyone writing a scanner through a heredoc should assume this bug until they have
+proven otherwise with a positive control.
+
+This is the programme's recurring lesson in its purest form: for every count a check reports,
+ask what value it takes when the check did not run.
+
+## 13 - The five flakes, diagnosed rather than suppressed
+
+The FLAKES lane added no retries, skipped nothing, and widened no timeout. What it found:
+
+**S15 tools hub - MECHANISM FOUND.** `toolsRepo` is a `dbCollection`, whose `replaceAll` is
+DELETE-then-reinsert of a caller-held snapshot with no version guard.
+`PUT /api/admin/tools/:id` does read-all, mutate, replaceAll with no lock between read and
+write. Separately, `server/lib/scheduler.ts` fires its first tick 15 seconds after boot and runs
+every job with no `scheduled_jobs` row yet, INCLUDING `tools-link-check`, which also calls
+`toolsRepo.replaceAll()`. `startScheduler()` runs unconditionally in the same boot path the e2e
+harness spawns, with no test-mode gate. So a suite slow enough to still be inside S15 at the
+15-second mark races a background job on the same table. That is exactly the lost-update shape
+the original architecture audit predicted for `replaceAll`. The fix lives in
+`server/repos/store-db.ts` and `server/lib/scheduler.ts`, which no lane owns. ROUTE IT.
+
+**G1 and the two governance tests - NO DEFECT FOUND, and that is the honest answer.** Governance
+and mechanics proposals use raw parameterised SQL, never a `dbCollection`; only seven tables use
+one at all and none is a governance table. The lane ran a full 209-file suite plus eight reps of
+four-way concurrent replay and never reproduced them. Conclusion: generic MySQL contention under
+the coordinator's own twelve-lane pileup. Nothing was fixed because nothing broken was found,
+which is a better outcome than a speculative change.
+
+**placePhotos volume gauge - MEASURED.** The cache returns its value unconditionally when under
+the 1000 ms floor, before even checking mtime. The lane instrumented the real gap between cache
+population and the test's own read: **1460 ms, a 46 percent margin over the floor**, tight
+enough to flip under ordinary jitter. Fix filed to SRVHARD; the test's spawn env already sets
+the override variable, so it takes effect the moment that lands.
+
+**A SIXTH FLAKE, never named in any brief, found and FIXED.** `server/loop.e2e.test.ts` binds its
+mock RPC and LLM stub servers to HARDCODED ports 3782 and 3783, while the file's own main port
+correctly derives from the pid. The file's own header warns that a shared fixed port is a shared
+mutable global with extra steps. Two concurrent processes collide on EADDRINUSE every time,
+failing whichever test is mid-bind. Reproduced at 4 of 8 reps, fixed by deriving both stub ports
+from PORT, verified green afterwards.
+
+## 14 - Guard scope: disclosed rather than widened, with the counts behind each call
+
+The FLAKES lane measured before deciding, which is why these are decisions rather than opinions:
+
+- **`check-hyphen-dash.mjs` scans only `client/src`.** Widening it to server, scripts and docs
+  surfaces 111 hits, and every sampled one is a false positive: test fixture ids like `place-a`,
+  a URL fragment inside `jsx-a11y`, legitimate compounds like `use-it-or-lose-it`. Widening would
+  drown the signal. KEPT, and the header and exit message now state the scope out loud.
+- **`check-voice.mjs` excludes test files and most of docs.** Removing just the test exclusion
+  surfaces 141 violations across 76 files, confirming the exclusion is doing deliberate work
+  rather than hiding a bug. KEPT and disclosed.
+- **`check-brand-refs.mjs` exempts 19 SHOPFRONT files holding 165 references** (not the 171 I
+  briefed; the difference is per-line dedup). KEPT, and both the pass and fail output now print
+  the SHOPFRONT total, so "brand guard green" can never again read as "no village name anywhere".
+
 ## 9 - SHIPPED, and the live regression it caused
 
 **PUSHED AND DEPLOYED.** `052d042..1871034` to origin/main. Railway deploy SUCCESS.
