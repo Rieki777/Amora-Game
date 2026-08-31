@@ -1178,6 +1178,45 @@ not only Amora's. THIS NEEDS CHECKING BEFORE ANYTHING ELSE.
 Amora Game database. Then re-set `PROD_DATABASE_URL` and re-run the workflow; the drill will
 tell you truthfully whether it is right, because it just did.
 
+## 11 - Wave 3 landings
+
+### econ (`be9e84b`) - the gratitude concurrency hole, reproduced and closed
+
+REPRODUCED FIRST, against real MySQL, on the code as it stood: five concurrent sends of 25
+against a total allowance of 100 all landed. `after.spent = 125, before.total = 100,
+accepted = 5/5`. The village's own promised allowance exceeded by 25 percent. A second
+reproduction against the per-recipient concentration cap hit a genuine `ER_LOCK_DEADLOCK`
+instead, because with no giver lock at all five callers reached a shared faucet pair together.
+
+FIXED by extracting `give()`'s proven lock (SERIALIZABLE, `FOR UPDATE` on the giver's row,
+allowance read and write in one transaction) into a shared primitive `writeGratitudeRow`, which
+BOTH doors now call, each passing its own guard closure that runs INSIDE the lock. That keeps
+one locking mechanism while letting each door keep its own refusal wording and dials, which the
+existing suite asserts.
+
+VERIFIED AFTER: one of five lands, allowance held exactly, and the behaviour is byte-identical
+to `give()`'s already-trusted five-simultaneous-gives test on the same database, down to the
+same SERIALIZABLE conflict error on the other four. Both races are now permanent tests in
+`server/lib/gratitude.concurrency.test.ts`.
+
+THE LANE ALSO CLOSED A THIRD RACE I NEVER BRIEFED: the heart-tap-count cap had the identical
+unlocked check-then-act shape and fell out once the guard had lock access.
+
+### Two findings the econ lane surfaced OUTSIDE its zone, owned by nobody yet
+
+1. **`postTransfer` can still deadlock between different givers.** In `server/lib/ledger.ts`,
+   `postTransfer`'s account lock is a `SELECT ... FOR UPDATE` with NO `ORDER BY`, unlike its
+   sibling `postTransferPair` which orders explicitly. The econ fix serialises one giver's
+   concurrent sends before they reach it, but two DIFFERENT givers thanking the same popular
+   recipient at the same moment can still collide, on both doors. This is a real ordering bug in
+   a file no lane owns this wave. Route it.
+
+2. **The two doors use different idempotency key schemes**, so the known unscoped reversal query
+   could never match a `sendGratitude` posting even if it were fixed: `give()` posts under
+   `gratitude.given:<village>:<noteId>` while `sendGratitude` posts under
+   `gratitude_received:<entryId>`. Anyone building a gratitude reversal feature on top of either
+   query needs to know this first.
+
 ## 9 - SHIPPED, and the live regression it caused
 
 **PUSHED AND DEPLOYED.** `052d042..1871034` to origin/main. Railway deploy SUCCESS.
