@@ -194,14 +194,28 @@ if (isMain) {
   const asJson = args.includes("--json");
   const roots = args.filter((a) => !a.startsWith("--"));
   
+  const activeRoots = roots.length ? roots : SCAN_ROOTS;
   const files = [];
-  for (const r of (roots.length ? roots : SCAN_ROOTS)) {
+  for (const r of activeRoots) {
     const abs = path.join(ROOT, r);
     if (!fs.existsSync(abs)) continue;
     if (fs.statSync(abs).isDirectory()) walkFiles(abs, files);
     else files.push(abs);
   }
-  
+
+  // "0 violations" and "the walk found nothing to check" must never print the
+  // same line: a moved or deleted scan root would otherwise report a clean
+  // pass forever. This is the ONE thing that stays a hard failure regardless
+  // of --json, because a caller parsing JSON output deserves the same
+  // distinction a human reading the console gets.
+  if (!files.length) {
+    console.error(
+      `Voice guard: found ZERO files under ${activeRoots.join(", ")} (resolved from ${ROOT}). ` +
+      `That means the walk did not run, not that the repo is clean. Refusing to report a pass.`,
+    );
+    process.exit(1);
+  }
+
   const findings = [];
   let waived = 0;
   
@@ -279,7 +293,7 @@ if (isMain) {
   }
   
   if (!findings.length) {
-    console.log(`Voice guard: clean across ${files.length} file(s) in ${SCAN_ROOTS.join(", ")}.` +
+    console.log(`Voice guard: clean across ${files.length} file(s) in ${activeRoots.join(", ")}.` +
       ` Excludes *.test.ts/*.spec.ts/__tests__ (developer language) and docs/ outside docs/knowledge.` +
       (waived ? ` ${waived} waiver(s).` : ""));
     process.exit(0);
@@ -291,7 +305,7 @@ if (isMain) {
   for (const f of findings) (byFile[f.file] ||= []).push(f);
   
   console.log(`Voice guard: ${findings.length} violation(s) in ${Object.keys(byFile).length} file(s)` +
-    ` (scanned ${SCAN_ROOTS.join(", ")}; excludes tests and docs/ outside docs/knowledge).\n`);
+    ` (scanned ${activeRoots.join(", ")}; excludes tests and docs/ outside docs/knowledge).\n`);
   for (const [k, n] of Object.entries(byKind).sort((a, b) => b[1] - a[1])) {
     console.log(`  ${String(n).padStart(4)}  ${k}`);
   }

@@ -27,8 +27,10 @@ import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { checkSpan, isTest, SCAN_ROOTS } from "./check-voice.mjs";
 
+const SCRIPT = fileURLToPath(new URL("./check-voice.mjs", import.meta.url));
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 let run = 0;
 const check = (name, fn) => { fn(); run += 1; console.log(`  PASS  ${name}`); };
@@ -94,6 +96,15 @@ check("isTest excludes anything under __tests__/", () => {
 check("SCAN_ROOTS covers docs/knowledge only, not the rest of docs/", () => {
   assert.deepStrictEqual(SCAN_ROOTS, ["client/src", "server", "shared", "docs/knowledge"]);
   assert.ok(!SCAN_ROOTS.includes("docs"), "docs/ at large must not be a default scan root");
+});
+
+// ── "0 violations" must never read the same as "the walk did not run" ──────
+
+check("a scan root that resolves to nothing is a hard failure, not a clean pass", () => {
+  const r = spawnSync(process.execPath, [SCRIPT, "this-path-does-not-exist-anywhere"], { encoding: "utf8" });
+  assert.notStrictEqual(r.status, 0, `expected a non-zero exit, got ${r.status}\n${r.stdout}${r.stderr}`);
+  assert.match(r.stderr + r.stdout, /found ZERO files/, "must say WHY it refused, not print a silent pass");
+  assert.doesNotMatch(r.stderr + r.stdout, /clean across/, "a zero-file run must never use the clean-pass wording");
 });
 
 // ── Re-verification against THIS repo's real files, not a fixture ──────────
