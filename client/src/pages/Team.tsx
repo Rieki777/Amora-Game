@@ -4,7 +4,7 @@ import { Users, ArrowRight, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import { Image } from "@/components/Image";
 import { useEffect, useState } from "react";
-import { gameFetch, useGameConfig } from "@/lib/gameApi";
+import { gameFetch, useGameConfig, useVillageLinks } from "@/lib/gameApi";
 import { PeopleLockNote, type PeopleTier } from "@/components/PeopleLock";
 
 interface TeamMember {
@@ -26,6 +26,8 @@ const advisoryHighlights = [
 
 export default function Team() {
   const config = useGameConfig();
+  // Blank hides the button rather than pointing at another village.
+  const { eventsUrl } = useVillageLinks();
   const [team, setTeam] = useState<TeamMember[] | null>(null);
   // The tier this page's copy of /api/org came back at, plus the two counts
   // that are public on every tier. Held for the lock note below.
@@ -326,15 +328,17 @@ export default function Team() {
                   <ArrowRight className="w-4 h-4" />
                 </span>
               </Link>
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors font-medium"
-              >
-                Join Community Call
-                <ExternalLink className="w-4 h-4" />
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors font-medium"
+                >
+                  Join Community Call
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              )}
             </div>
           </motion.div>
         </div>

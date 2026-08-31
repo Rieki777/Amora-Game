@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useVillageLinks } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { 
@@ -129,6 +130,8 @@ const statusColors: Record<string, string> = {
 };
 
 export default function Opportunities() {
+  // Blank hides the button rather than pointing at another village.
+  const { eventsUrl } = useVillageLinks();
   return (
     <Layout>
       {/* Hero */}
@@ -233,15 +236,17 @@ export default function Opportunities() {
               the application process, and how the economics work.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-8 py-4 bg-teal-light text-white rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join Community Call
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-8 py-4 bg-teal-light text-white rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join Community Call
+                </a>
+              )}
               <Link
                 href="/prosperity"
                 className="px-8 py-4 bg-muted text-foreground rounded-lg font-semibold hover:bg-muted/80 transition-colors"

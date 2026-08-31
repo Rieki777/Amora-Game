@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { altOr, useBrandImages, useGameConfig } from "@/lib/gameApi";
+import { altOr, useBrandImages, useGameConfig, useVillageLinks } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
@@ -33,7 +33,10 @@ const journeySteps = [
     title: "Attend Community Call",
     description: "Learn about business opportunities at Amora and ask questions about our economic model.",
     icon: Calendar,
-    link: "https://amora.cr/event/discover-amora-webinar-qa/",
+    // Resolved at render from this village's own eventsUrl (see below). Blank
+    // here on purpose: a destination compiled into the array is a destination
+    // every village inherits.
+    link: "",
     linkText: "Join Community Call",
     external: true,
     details: ["Understand our economic vision", "Learn how Gratitude tracks contributions", "Meet other entrepreneurs", "Ask questions live"]
@@ -44,7 +47,8 @@ const journeySteps = [
     title: "Explore the Prosperity Packet",
     description: "Request the full guide to launching a business at Amora.",
     icon: Download,
-    link: "mailto:business@amora.cr?subject=Prosperity%20Packet%20Request",
+    // Resolved at render from this village's own contactEmail (see below).
+    link: "",
     linkText: "Request Packet",
     external: true,
     details: ["Business model overview", "Revenue share structure", "Integration requirements", "Success stories"]
@@ -144,9 +148,23 @@ const ariTiers = [
   },
 ];
 
+const PACKET_SUBJECT = "Prosperity Packet Request";
+
 export default function ProsperityJourney() {
   const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
   const brand = useBrandImages();
+  // This village's own destinations. Blank hides the control that would use
+  // one, which is the whole point: the renderer below already draws no button
+  // for a step whose link is empty (the "launch" step has shipped that way
+  // from the start), so an unconfigured village shows nothing rather than a
+  // button that mails a stranger's enquiry to a different village.
+  const { eventsUrl, mailTo } = useVillageLinks();
+  const packetHref = mailTo(PACKET_SUBJECT);
+  const steps = journeySteps.map((step) => {
+    if (step.id === "community-call") return { ...step, link: eventsUrl };
+    if (step.id === "prosperity-packet") return { ...step, link: packetHref };
+    return step;
+  });
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("community-call");
   // LANE Q: the guide's name is per-deployment config, never a constant.
@@ -243,21 +261,25 @@ export default function ProsperityJourney() {
               transition={{ delay: 0.3 }}
               className="flex flex-wrap gap-4"
             >
-              <a
-                href="mailto:business@amora.cr?subject=Prosperity%20Packet%20Request"
-                className="btn-amora flex items-center gap-2"
-              >
-                <Download className="w-5 h-5" />
-                Request Prosperity Packet
-              </a>
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-6 py-3 bg-white/90 text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white transition-all"
-              >
-                Join Community Call
-              </a>
+              {packetHref && (
+                <a
+                  href={packetHref}
+                  className="btn-amora flex items-center gap-2"
+                >
+                  <Download className="w-5 h-5" />
+                  Request Prosperity Packet
+                </a>
+              )}
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-6 py-3 bg-white/90 text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white transition-all"
+                >
+                  Join Community Call
+                </a>
+              )}
             </motion.div>
           </div>
         </div>
@@ -346,7 +368,7 @@ export default function ProsperityJourney() {
 
           <div className="max-w-3xl mx-auto">
             <div className="space-y-3">
-              {journeySteps.map((step, index) => {
+              {steps.map((step, index) => {
                 const isCompleted = completedSteps.includes(step.id);
                 const isExpanded = expandedStep === step.id;
                 
@@ -546,7 +568,11 @@ export default function ProsperityJourney() {
         </div>
       </section>
 
-      {/* Download Packet CTA */}
+      {/* Download Packet CTA. This section's only control is the packet
+          request, so the whole section hides when the village has published no
+          contact address: a heading and a promise over an empty band is a
+          worse answer than saying nothing. */}
+      {packetHref && (
       <section className="py-20 bg-gold/5">
         <div className="container">
           <motion.div 
@@ -562,7 +588,7 @@ export default function ProsperityJourney() {
               Request the Prosperity Packet to learn everything about launching a business at Amora.
             </p>
             <a
-              href="mailto:business@amora.cr?subject=Prosperity%20Packet%20Request"
+              href={packetHref}
               className="btn-amora inline-flex items-center gap-2"
             >
               <Download className="w-5 h-5" />
@@ -571,8 +597,10 @@ export default function ProsperityJourney() {
           </motion.div>
         </div>
       </section>
+      )}
 
-      {/* Final CTA */}
+      {/* Final CTA. Two controls, so it survives on either one. */}
+      {(eventsUrl || packetHref) && (
       <section className="py-20 bg-background">
         <div className="container">
           <motion.div 
@@ -595,26 +623,31 @@ export default function ProsperityJourney() {
               then request the Prosperity Packet and begin your journey.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-amora flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join Community Call
-              </a>
-              <a
-                href="mailto:business@amora.cr?subject=Prosperity%20Packet%20Request"
-                className="px-6 py-3 bg-white text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white/90 transition-all border border-border inline-flex items-center gap-2"
-              >
-                <Download className="w-5 h-5" />
-                Request Packet
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-amora flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join Community Call
+                </a>
+              )}
+              {packetHref && (
+                <a
+                  href={packetHref}
+                  className="px-6 py-3 bg-white text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white/90 transition-all border border-border inline-flex items-center gap-2"
+                >
+                  <Download className="w-5 h-5" />
+                  Request Packet
+                </a>
+              )}
             </div>
           </motion.div>
         </div>
       </section>
+      )}
 
       <FaqSection pathway="prosperity" />
     </Layout>

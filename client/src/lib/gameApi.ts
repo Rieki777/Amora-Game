@@ -61,6 +61,9 @@ export interface PublicGameConfig {
     /** Blank = the village has no outside site; render no link. */
     siteUrl?: string;
     eventsUrl?: string;
+    /** Blank = this village has published no contact address; render no
+     *  "email us" control. See useVillageLinks below for why blank hides. */
+    contactEmail?: string;
     footerBlurb?: string;
   };
   currency: {
@@ -127,6 +130,50 @@ export function useGameConfig(): PublicGameConfig | null {
     return () => { alive = false; };
   }, []);
   return config;
+}
+
+/**
+ * The village's own outward destinations, and the rule that a blank one HIDES
+ * its control rather than rendering it broken.
+ *
+ * The rule already existed for links: Layout.tsx and Quests.tsx both guard
+ * with `{siteUrl && (...)}`, so a village with no outside site shows no "Main
+ * Site" button instead of a dead one. This hook is that same rule given one
+ * home, extended to the contact address, because the shopfront pages carried
+ * the opposite arrangement and it failed silently.
+ *
+ * Why silently: a compiled-in `mailto:` on a page shipped to thirteen villages
+ * opens a perfectly normal mail composer addressed to a fourteenth. The
+ * visitor sends their investment enquiry, sees no error, and the founder whose
+ * site it was never learns the lead existed. A wrong URL is at least visibly
+ * wrong when the page loads. A wrong recipient is not visible to anybody.
+ *
+ * So: HIDE, never disable. A disabled button still promises that the pack
+ * exists and is being withheld; an absent one promises nothing, which is the
+ * true statement about a village that has not set an address yet. Every one of
+ * these controls sits in a row beside a sibling that still works, so nothing
+ * is left with a hole where a button was.
+ *
+ * Returns "" (never undefined) so callers can guard with a plain truthiness
+ * check, and `mailTo` returns "" for a blank address so the same check covers
+ * links and mail alike.
+ */
+export function useVillageLinks(): {
+  siteUrl: string;
+  eventsUrl: string;
+  contactEmail: string;
+  mailTo: (subject: string) => string;
+} {
+  const config = useGameConfig();
+  const p = config?.project;
+  const contactEmail = String(p?.contactEmail ?? "").trim();
+  return {
+    siteUrl: String(p?.siteUrl ?? "").trim(),
+    eventsUrl: String(p?.eventsUrl ?? "").trim(),
+    contactEmail,
+    mailTo: (subject: string) =>
+      contactEmail ? `mailto:${contactEmail}?subject=${encodeURIComponent(subject)}` : "",
+  };
 }
 
 /** Live (brand-overlaid) hero image URLs, empty until loaded — callers fall back

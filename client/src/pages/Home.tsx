@@ -3,7 +3,7 @@ import BuildProgress from "@/components/BuildProgress";
 import SeasonBanner from "@/components/SeasonBanner";
 import VillagePulse from "@/components/VillagePulse";
 import MapPeek from "@/components/MapPeek";
-import { altOr, useBrandImages } from "@/lib/gameApi";
+import { altOr, useBrandImages, useVillageLinks } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -129,6 +129,8 @@ const journeyStages = [
 ];
 
 export default function Home() {
+  // Blank hides both buttons rather than pointing at another village.
+  const { eventsUrl } = useVillageLinks();
   const brand = useBrandImages();
   return (
     <Layout>
@@ -508,23 +510,27 @@ export default function Home() {
               transition={{ delay: 0.2 }}
               className="flex flex-wrap justify-center gap-4"
             >
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-8 py-4 bg-primary text-primary-foreground rounded-lg font-semibold text-lg hover:opacity-90 transition-all duration-200 flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join Community Call
-              </a>
-              <a
-                href="https://amora.cr/events/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-8 py-4 bg-secondary text-secondary-foreground rounded-lg font-semibold text-lg hover:opacity-90 transition-all duration-200"
-              >
-                View All Events
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-8 py-4 bg-primary text-primary-foreground rounded-lg font-semibold text-lg hover:opacity-90 transition-all duration-200 flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join Community Call
+                </a>
+              )}
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-8 py-4 bg-secondary text-secondary-foreground rounded-lg font-semibold text-lg hover:opacity-90 transition-all duration-200"
+                >
+                  View All Events
+                </a>
+              )}
             </motion.div>
           </div>
         </div>
