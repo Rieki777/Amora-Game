@@ -24,17 +24,32 @@ restartPolicyMaxRetries = 3
 
 # The probe. server/index.ts serves /health, and it answers with the build
 # marker, so a green health check also says which commit is live.
+#
+# As of the ops lane's change this is a REAL probe, not a liveness ping: it
+# runs SELECT 1 through the live pool and answers 503 with status "degraded"
+# when the database is unreachable. So a deploy against a broken database now
+# fails instead of going live and serving 500s behind a green light. That is
+# the point of pairing it with a timeout that a slow boot can survive.
 healthcheckPath = "/health"
 
-# Seconds, and deliberately generous.
+# Seconds, and the number is a measurement, not a hunch.
 #
 # The server calls listen() LAST. Before it does, boot applies every pending
 # migration, loads the token registry, seeds the economy, and walks the ledger
-# invariants across the whole ledger. On an empty instance that is seconds. On
-# a village with real history, or on a deploy that carries a migration
-# rewriting a large table, it is minutes. Railway's default is 300s, and a
-# health check that gives up before a legitimate boot finishes does not report
-# a slow start, it reports a failed deploy and rolls back a good release.
+# invariants across the whole ledger. MEASURED 2026-08-30, booting the exact
+# production file set against a COMPLETELY EMPTY MySQL schema on a local disk:
+# 228 seconds from process start to "Server listening", 107 migrations
+# applied. That is the cheapest possible boot this app has, and it already
+# spends three quarters of Railway's 300 second default.
 #
-# 900 is a ceiling, not a wait: a fast boot passes at the first probe.
+# So the default is not merely tight, it is close to failing the very first
+# deploy of every new village instance, and it would fail on a slower disk or
+# a database that is a network hop away. A later deploy applies fewer
+# migrations but walks a bigger ledger.
+#
+# 900 gives roughly four times the measured cold boot. It is a ceiling and not
+# a wait: a fast boot passes on the first probe. If a deploy ever fails this
+# check while the container log still shows migrations running, RAISE THIS
+# NUMBER. Do not remove the probe: a village serving 500s behind a green light
+# is the failure this pairing exists to prevent.
 healthcheckTimeout = 900

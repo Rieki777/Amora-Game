@@ -243,8 +243,14 @@ jobs:
             -e AUTH_TOKEN_SECRET='ci-smoke-not-a-secret' \
             -e PORT=3000 \
             village-os:candidate
+          # 900 seconds. A cold boot against an empty schema was MEASURED at
+          # 228 seconds on 2026-08-30 (107 migrations, then the token
+          # registry, the seeds and the ledger invariant walk, all before
+          # listen()). A CI runner is not obviously faster than that, and a
+          # release gate that goes red on a slow boot teaches people to
+          # ignore it.
           echo "waiting for /health (boot applies every migration before it listens)"
-          for _ in $(seq 1 120); do
+          for _ in $(seq 1 180); do
             if body=$(curl -fsS http://127.0.0.1:3000/health 2>/dev/null); then
               echo "$body"
               printf '%s' "$body" > health.json
@@ -258,7 +264,7 @@ jobs:
             sleep 5
           done
           if [ ! -s health.json ]; then
-            echo "::error::/health never answered inside ten minutes"
+            echo "::error::/health never answered inside fifteen minutes"
             docker logs village || true
             exit 1
           fi

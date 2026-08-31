@@ -202,9 +202,10 @@ COPY --from=build /app/package.json ./package.json
 #   docs/prototypes/grounds-v0.html  server/index.ts:31976 (the Living Map)
 #
 # The rest of docs/ is not copied. It is 21 MB, of which 19 MB is
-# docs/prototypes, and nothing outside the five paths above is opened at
-# runtime (verified by grepping the built bundle for its own path literals,
-# not by reading the source).
+# docs/prototypes, and nothing outside the paths above is opened at runtime.
+# Verified by grepping the BUILT BUNDLE for its own path literals rather than
+# by reading the source: dist/index.js contains exactly six repo-path
+# constants (the six above) plus DATA_DIR/uploads, which is runtime state.
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/server/seeds ./server/seeds
 COPY --from=build /app/docs/knowledge ./docs/knowledge
@@ -241,12 +242,18 @@ EXPOSE 3000
 # Asks the same question the platform health check asks. node 22 has a global
 # fetch, so this needs no curl in the image.
 #
-# start-period is long because boot is long: it applies every pending
+# /health is a real probe, not a liveness ping: it runs SELECT 1 through the
+# live pool and answers 503 when the database is unreachable, so `r.ok` here
+# means "serving AND can reach its database".
+#
+# start-period is long because boot is long. It applies every pending
 # migration, loads the token registry, seeds the economy and walks the ledger
-# invariants BEFORE it calls listen(). On a village with real history that is
-# minutes, and a health check that gives up first turns a slow boot into a
-# crash loop.
-HEALTHCHECK --start-period=300s --interval=30s --timeout=10s --retries=3 \
+# invariants BEFORE it calls listen(). MEASURED 2026-08-30 against a
+# completely empty schema: 228 seconds and 107 migrations. That is the
+# cheapest boot this app has, so a 300s start period would leave a first boot
+# 72 seconds of margin. 600 is the honest number; see railway.toml for the
+# same reasoning applied to the platform's own probe.
+HEALTHCHECK --start-period=600s --interval=30s --timeout=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
