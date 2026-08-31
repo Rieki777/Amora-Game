@@ -1226,6 +1226,137 @@ unlocked check-then-act shape and fell out once the guard had lock access.
    `gratitude_received:<entryId>`. Anyone building a gratitude reversal feature on top of either
    query needs to know this first.
 
+## 12 - A SILENT-GREEN BUG THAT HAS NOW BITTEN THREE LANES
+
+Three independent lanes hit the same thing, and it produces a permanently passing check:
+
+**A backslash-b written through a shell heredoc becomes a literal BACKSPACE character, not a
+regex word boundary.** The regex then matches nothing, and the script reports a clean zero.
+
+- The PAGES lane's classification script reported `TOTAL 0` for a file holding 18 hits.
+- The SRVHARD lane's gate scanner reported "241 of 241 admin routes ungated", a complete
+  fabrication, caught only because the number was implausible rather than because anything
+  failed.
+- Both then added a self-check that exits non-zero if the pattern cannot match a KNOWN POSITIVE,
+  which is the correct defence and should be the house pattern.
+
+VERIFIED SAFE: the shipped `scripts/check-brand-refs.mjs` carries a correctly escaped
+double-backslash. But this repository builds regexes from template literals in more than one
+script, and anyone writing a scanner through a heredoc should assume this bug until they have
+proven otherwise with a positive control.
+
+This is the programme's recurring lesson in its purest form: for every count a check reports,
+ask what value it takes when the check did not run.
+
+## 13 - The five flakes, diagnosed rather than suppressed
+
+The FLAKES lane added no retries, skipped nothing, and widened no timeout. What it found:
+
+**S15 tools hub - MECHANISM FOUND.** `toolsRepo` is a `dbCollection`, whose `replaceAll` is
+DELETE-then-reinsert of a caller-held snapshot with no version guard.
+`PUT /api/admin/tools/:id` does read-all, mutate, replaceAll with no lock between read and
+write. Separately, `server/lib/scheduler.ts` fires its first tick 15 seconds after boot and runs
+every job with no `scheduled_jobs` row yet, INCLUDING `tools-link-check`, which also calls
+`toolsRepo.replaceAll()`. `startScheduler()` runs unconditionally in the same boot path the e2e
+harness spawns, with no test-mode gate. So a suite slow enough to still be inside S15 at the
+15-second mark races a background job on the same table. That is exactly the lost-update shape
+the original architecture audit predicted for `replaceAll`. The fix lives in
+`server/repos/store-db.ts` and `server/lib/scheduler.ts`, which no lane owns. ROUTE IT.
+
+**G1 and the two governance tests - NO DEFECT FOUND, and that is the honest answer.** Governance
+and mechanics proposals use raw parameterised SQL, never a `dbCollection`; only seven tables use
+one at all and none is a governance table. The lane ran a full 209-file suite plus eight reps of
+four-way concurrent replay and never reproduced them. Conclusion: generic MySQL contention under
+the coordinator's own twelve-lane pileup. Nothing was fixed because nothing broken was found,
+which is a better outcome than a speculative change.
+
+**placePhotos volume gauge - MEASURED.** The cache returns its value unconditionally when under
+the 1000 ms floor, before even checking mtime. The lane instrumented the real gap between cache
+population and the test's own read: **1460 ms, a 46 percent margin over the floor**, tight
+enough to flip under ordinary jitter. Fix filed to SRVHARD; the test's spawn env already sets
+the override variable, so it takes effect the moment that lands.
+
+**A SIXTH FLAKE, never named in any brief, found and FIXED.** `server/loop.e2e.test.ts` binds its
+mock RPC and LLM stub servers to HARDCODED ports 3782 and 3783, while the file's own main port
+correctly derives from the pid. The file's own header warns that a shared fixed port is a shared
+mutable global with extra steps. Two concurrent processes collide on EADDRINUSE every time,
+failing whichever test is mid-bind. Reproduced at 4 of 8 reps, fixed by deriving both stub ports
+from PORT, verified green afterwards.
+
+## 14 - Guard scope: disclosed rather than widened, with the counts behind each call
+
+The FLAKES lane measured before deciding, which is why these are decisions rather than opinions:
+
+- **`check-hyphen-dash.mjs` scans only `client/src`.** Widening it to server, scripts and docs
+  surfaces 111 hits, and every sampled one is a false positive: test fixture ids like `place-a`,
+  a URL fragment inside `jsx-a11y`, legitimate compounds like `use-it-or-lose-it`. Widening would
+  drown the signal. KEPT, and the header and exit message now state the scope out loud.
+- **`check-voice.mjs` excludes test files and most of docs.** Removing just the test exclusion
+  surfaces 141 violations across 76 files, confirming the exclusion is doing deliberate work
+  rather than hiding a bug. KEPT and disclosed.
+- **`check-brand-refs.mjs` exempts 19 SHOPFRONT files holding 165 references** (not the 171 I
+  briefed; the difference is per-line dedup). KEPT, and both the pass and fail output now print
+  the SHOPFRONT total, so "brand guard green" can never again read as "no village name anywhere".
+
+## 15 - Wave 3 complete: ten lanes, and the two things that settled
+
+### The container image exists and was PROVEN before it published
+
+Tag `v1.1.0`, run 33408792012, green first try. The step order is the reason to trust it:
+
+    plan   require a green ci run on this commit
+    image  build -> boots against an empty database -> knows which commit it is
+           -> serves the village, not just the probe -> THEN push
+
+    ghcr.io/rieki777/village-os:1.1.0 and :stable
+    digest sha256:0f8187622c9a813c6f0a57d716464fa9076326f4774c16c16b767841c3e4af77
+    /health -> build 2026-07-28-wave1-95df5c3, database ok
+
+107 migrations applied in **5 seconds** in CI, against 228 seconds measured on 2026-08-30. Not a
+contradiction: the 228 was against a REMOTE Railway database and is dominated by network round
+trips per migration, not by work. Worth knowing before anyone sizes a timeout off it again.
+
+**The package published PRIVATE**, inheriting the repository. There is no API fix; the packages
+REST API offers list, get, delete and restore only. Founder action, once, in the GitHub UI.
+Until then the self-hosted half of ruling R2 is stranded.
+
+### The Railway builder question, MEASURED not reasoned
+
+Production build log, deployment 0eaaf3fa, line 2: `using build driver nixpacks-v1.41.0`.
+
+So `builder = "nixpacks"` IS live and honoured today. **The worry I relayed twice, that the line
+had already gone inert because NIXPACKS is undocumented, is FALSE.** What remains unsettled is
+whether the file's PRESENCE overrides the line; Railway's reference says it always builds with a
+Dockerfile if it finds one, but that is the same sentence a previous lane had, so citing it is
+reasoning and not evidence. The lane refused to upgrade it to a decision and rewrote
+`railway.toml` to separate the measured half from the read half, with the procedure for either
+answer. Finding out by deploying is safe: the healthcheck must return 200 before Railway makes a
+deployment active, so a bad image fails the deploy and the running one keeps serving.
+
+### THE MECHANISM BEHIND MY OWN WRONG-DATABASE ERROR, found at last
+
+**A fresh worktree with no Railway link resolves to project "ReGen Civics", service "MySQL".**
+That is the default any new lane inherits. It is exactly how I captured a URL to a 262-table
+regen-civics database while believing I had asked for Amora's, set it as a backup secret, and
+briefly concluded the public proxy was misrouted (section 10, retracted in 10a). My error now
+has a mechanism rather than a shrug. **Any lane touching Railway must link explicitly and verify
+by CONTENTS.**
+
+### The fifth flake, closed by the coordinator
+
+The uploads-gauge fix had been filed to a lane that had already finished, so it never landed,
+and release2 confirmed it was still failing `main` roughly three runs in nine. The test had been
+setting `UPLOADS_GAUGE_MIN_INTERVAL_MS=0` for hours with nothing reading it. One line. Three
+consecutive clean reps.
+
+### What the ratchets caught in our own work, hours old
+
+Merging pages and ui together put three violations BACK that each had removed on its own branch,
+and both ratchets refused to raise. The new investor-inbox card reached for Tailwind's default
+gray palette, which a founder's brand colour never reaches; the new ModuleGate component test
+used the first tenant's name as its fixture WHILE asserting that the village name interpolates.
+The code moved, not the numbers.
+
 ## 9 - SHIPPED, and the live regression it caused
 
 **PUSHED AND DEPLOYED.** `052d042..1871034` to origin/main. Railway deploy SUCCESS.
