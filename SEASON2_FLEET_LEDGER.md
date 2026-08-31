@@ -1867,10 +1867,29 @@ a Dockerfile build if the ARG is declared; without the declaration the value is 
 absent, so if Railway turns out not to pass it, the marker goes on reading an honest "dev"
 instead of guessing.
 
-STATED PLAINLY: this is verified as correct Dockerfile mechanics, NOT yet verified as something
-Railway does. The next deploy is the measurement. If it still reads "dev", the fallback needs no
-code: set a Railway service variable `GIT_SHA=${{RAILWAY_GIT_COMMIT_SHA}}`, which needs founder
-auth (`railway login`) and nothing else.
+MEASURED, and the answer is yes. Deploy of `2b15882`:
+
+    "build":"2026-07-28-wave1-2b15882"
+
+So **Railway does pass `RAILWAY_GIT_COMMIT_SHA` into a Dockerfile build once the ARG is
+declared**, and the undeclared ARG really was the whole reason the value was being dropped. When
+I shipped this I wrote that it was verified as correct Dockerfile mechanics but NOT verified as
+something Railway does, and named the fallback if I was wrong (a service variable, needing
+`railway login`). The fallback is not needed. Recording the confirmation at the same prominence
+as the hedge, because a hedge that is never resolved reads as a permanent unknown.
+
+### The probe, rebuilt so it could actually answer
+
+Having just burned an hour on a probe that keyed on the value under repair, I keyed this one on
+something the deploy PROVABLY changes: the client bundle's content hash. The arch-admin merge
+moved 404 lines out of `Admin.tsx`, so `/assets/index-DxwKuu1h.js` had to become something else.
+It became `index-C4iH4Tdf.js` on the second poll, roughly a minute after the push. Only THEN did
+the probe read the marker, as the thing being tested rather than the thing being waited on.
+
+Worth noting from the same measurement: Railway's bundle hash (`C4iH4Tdf`) differs from the one
+my Windows machine built from the identical tree (`x_-6vhs6`). The build is not byte-reproducible
+across platforms, which is expected for vite but means a local `dist/` is never proof of what
+production is serving. Anything asserting "the deployed bundle contains X" has to fetch it.
 
 WHY IT MATTERS BEYOND TIDINESS: `FORK_RUNBOOK` tells a village to confirm its deploy by reading
 this marker, and the feedback relay sends it upstream as the identity of the deployment a bug
@@ -1905,3 +1924,72 @@ SEPARATE, and a landmine for the villages rather than for us: the repo-local `.d
 locally with the same 1045. It is not a CI gate, so nothing caught it. Anyone running the seed
 gate on a fresh clone gets an opaque access-denied and no hint that the file is stale. Work item:
 either refresh it, delete it, or make the script say which source it took the URL from.
+
+## 17 - THE LIVE VILLAGE LOST ITS IDENTITY, and the neutralization is half done in both directions
+
+Found by the founder, on a phone, from a broken-image glyph in the hero. Not found by any gate.
+
+### What is true on production right now (measured 2026-08-31 ~17:15Z)
+
+    GET /api/game/config        project.name = "Unnamed Village"
+                                all NINE images.* fields = "" (six heroes, logo, heartLogo, favicon)
+    GET /api/brand/theme.css    HTTP 200, body length ZERO
+    GET /manifest.webmanifest   name and short_name both "Unnamed Village"
+    GET /.well-known/village.json   name "Unnamed Village"
+
+That last one is the worst of them. It is the SIGNED, PUBLIC, federated identity document, so
+Amora has been publishing itself to the network under a placeholder name.
+
+### The mechanism, and it is our work rather than the Docker migration
+
+A village's identity lived in the PLATFORM DEFAULTS (`shared/gameConfig.ts`), merged under a
+DB `brand` document by `server/index.ts:1377`, where an empty overlay field inherits the default.
+Three commits emptied the defaults and nothing moved Amora's values into Amora's own document
+first:
+
+- `6cdca0e` emptied the six hero slots. Old values were absolute URLs on Amora's WordPress site.
+- `17eb052` emptied logo / heartLogo / favicon. Old values were repo-local `/assets/images/` paths.
+- `452ab2b` deleted 15 Amora image files from `client/public/assets/images/`, which now holds
+  exactly one file (`platform-favicon.svg`).
+
+Every one of those commits was individually CORRECT. Amora's brand welded into platform code is
+precisely what makes thirteen forks impossible, and the code comment says so honestly: "the old
+Amora URLs point at a private domain a fork cannot make its own." The defect is that a removal
+shipped with no migration for the deployment that was standing on it.
+
+### The other direction, which is aimed at the thirteen rather than at Amora
+
+The same pass left Amora's other identity strings AS PLATFORM DEFAULTS:
+
+    shared/gameConfig.ts:226   tagline: "Co-Become the Most Beautiful Village"
+    shared/gameConfig.ts:228   location: "Dominicalito, Costa Rica"
+    shared/gameConfig.ts:246   footerBlurb: "A regenerative village in Costa Rica where all
+                               beings belong and thrive."
+
+So a fresh install for any of the thirteen founders opens already claiming to be in Costa Rica.
+The founder's screenshot catches both failures in one frame: no name and no image, above a
+sentence naming Dominicalito.
+
+`scripts/check-brand-refs.mjs` exists and drove brand references 169 -> 36. Why it permits these
+three is an open question handed to the audit.
+
+### Recoverability, measured rather than assumed
+
+- The 15 logo and mark files: RECOVERABLE. Deleted by `452ab2b`, not rewritten, intact in history.
+- The six hero photos: NOT recoverable from source. They were never in this repo; they were
+  hotlinked to `amora.cr`. All five distinct URLs now return HTTP 404 with a 58559-byte WordPress
+  error page. The founder must supply these, which is what the new brand kit is for.
+
+### The call, made rather than deferred
+
+Restoring Amora's images into the platform defaults would un-break the live site tonight and
+un-fix the thing the neutralization was for. Refused. A village's identity belongs in that
+village's brand document, installed through the founder path, with Amora as village number one.
+That makes the founder path the blocker rather than the images, which is why the audit's
+highest-value lane is the one testing whether a brand kit can actually be installed end to end,
+including whether an upload survives a container restart under the new `/app/data` volume with
+the process running as `USER node`. If it cannot, that is a blocker for all thirteen.
+
+Audit dispatched as workflow `village-identity-recovery`: five read-only lanes, every blocker and
+high finding independently refuted before it reaches the founder. The two live architecture lanes
+own `server/**`, so every lane in it is report-only and the coordinator sequences the writes.
