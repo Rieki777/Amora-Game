@@ -319,7 +319,7 @@ export default function ResourcesLens({
           return (
             <g key={`ap-${rule.id}`} data-resources-approval={rule.approval}>
               <rect x={from.x - w / 2} y={from.y - 34} width={w} height={14} rx={7} fill={FLOW_TONE} opacity={0.85} />
-              <text x={from.x} y={from.y - 24} textAnchor="middle" fill="#fff" style={{ fontSize: 9 }}>
+              <text x={from.x} y={from.y - 24} textAnchor="middle" fill="var(--color-card, #fff)" style={{ fontSize: 9 }}>
                 {word}
               </text>
             </g>
