@@ -20,6 +20,37 @@ To turn it on, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (and
 [auth] sign-in methods: email and password, Google. Google callback: https://your-village.example/api/auth/google/callback
 ```
 
+### Set `FOUNDER_EMAILS` at the same time, or you will sign in and still be stuck
+
+Signing in and being able to do anything are two different things. A founder who
+signs in with Google and lands as an ordinary member cannot name their village,
+cannot open the admin surface, and cannot tell that apart from being locked out.
+
+```
+FOUNDER_EMAILS=you@example.com
+```
+
+Comma separated if more than one. On any Google sign-in whose address Google
+verified and which appears in that list, the account is given the `founder`
+role.
+
+It runs on **every** matching sign-in, not just the first, so this is also the
+recovery path: a role lost to a restore from backup, a bad migration or a
+hand-edit comes back by signing in again. No shell, no shared password, no
+`/api/admin/bootstrap`.
+
+Three things it will not do, each on purpose:
+
+- **It never lowers a role.** Deleting a line here cannot demote a working
+  founder, so a typo cannot lock a village out of itself. Demotion is a
+  deliberate act on the admin surface.
+- **It never accepts an unverified address.** Google reports whether the account
+  actually proved it owns the mailbox, and an unverified one is refused before
+  any account is looked up. Without that, somebody could register at Google
+  claiming a founder's address and collect the village with it.
+- **Blank means nobody.** It never means anyone. That is the default for every
+  fresh village.
+
 ### Getting the two values, the ten-minute version
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/) and create a
