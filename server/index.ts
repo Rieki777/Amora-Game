@@ -305,7 +305,7 @@ import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, remove
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
 import { assertVoiceSecret, checkVoiceSecret, claimHistory, claimReadiness, requestVoiceClaim, settleVoiceClaim } from "./lib/voiceClaim";
-import { installCrashHandlers, reportError, wireErrorReporting } from "./lib/errors";
+import { installCrashHandlers, reachedSomebody, reportError, reportErrorWithin, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
   ensureStayToken,
@@ -4225,6 +4225,188 @@ function stayPostingHooks() {
  */
 let lastUploadsReport: UploadsSweepReport | null = null;
 
+/** What `/health` says about the database, and never a default. */
+type DatabaseProbe = { ok: true; ms: number } | { ok: false; error: string };
+
+/** A probe that hangs is a probe that never answers; give it a deadline. */
+const DB_PROBE_BUDGET_MS = 3000;
+
+/**
+ * ONE QUESTION THE DATABASE CANNOT BLUFF.
+ *
+ * `SELECT 1` through the live pool: it needs no table, so it survives a schema
+ * a migration has not reached, and it fails for exactly the reasons a member's
+ * request would fail — the host is gone, the credentials rotated, the pool is
+ * exhausted, the network partitioned.
+ *
+ * The deadline is the point. Without it a probe against a black-holed MySQL
+ * hangs on the connect timeout, Railway's healthcheck times out too, and the
+ * only thing anybody learns is that something took too long. With it the probe
+ * answers inside three seconds with the reason in words, and a timeout is
+ * reported as a FAILURE rather than as an unfinished check: a question we
+ * could not ask is not a question that came back fine.
+ */
+async function probeDatabase(): Promise<DatabaseProbe> {
+  const started = Date.now();
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const outcome = await Promise.race<"ok" | "timed out">([
+      getPool().query("SELECT 1").then(() => "ok" as const),
+      new Promise<"timed out">((resolve) => {
+        timer = setTimeout(() => resolve("timed out"), DB_PROBE_BUDGET_MS);
+      }),
+    ]);
+    if (outcome === "timed out") {
+      return { ok: false, error: `the database did not answer within ${DB_PROBE_BUDGET_MS}ms` };
+    }
+    return { ok: true, ms: Date.now() - started };
+  } catch (e) {
+    // The message, not the stack, and never the connection string: this
+    // endpoint is unauthenticated. mysql2 messages name the error class
+    // (ECONNREFUSED, ER_ACCESS_DENIED_ERROR) without the credentials.
+    return { ok: false, error: String((e as any)?.message ?? e ?? "unknown error").slice(0, 200) };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+interface UploadsGauge {
+  files: number;
+  mb: number;
+  photoFiles: number;
+  photoMb: number;
+  orphanFiles?: number;
+  orphanMb?: number;
+}
+
+/**
+ * WHAT THE UPLOADS GAUGE COSTS, AND WHY IT NO LONGER COSTS IT PER REQUEST.
+ *
+ * The volume had no gauge at all before this: no byte count, no file count,
+ * nothing on this probe. It fills silently — every hero photo retried in the
+ * wizard leaves its predecessor behind forever — and the first sign of a full
+ * volume would have been every upload failing at once.
+ *
+ * Deliberately a REPORT, not a reclaim. An orphan sweep was specced and then
+ * refuted by review: the investor vault stamps filenames from the uploaded
+ * file's own name, which the reference scan could not see, so the sweep would
+ * have deleted live cap tables. Measurement first; deletion only behind the
+ * amendments in docs/DESIGN_TOKENS_SPEC.md §A1. `orphanFiles` / `orphanMb` are
+ * the amended version of that, served from the last daily sweep and never
+ * measured here. 0093 splits the community's photographs out of the total,
+ * because member uploads grow the volume without anybody pressing a button.
+ *
+ * ── WHY THIS IS A CACHE ──────────────────────────────────────────────────
+ *
+ * The measurement shipped as a `readdirSync` plus a `statSync` per file, run
+ * inline on every request to an UNAUTHENTICATED endpoint. Both halves of that
+ * are wrong and the file said so itself in two places: the comment over
+ * `lastUploadsReport` claims the figures are kept in memory "so /health can
+ * report it without walking the volume", and docs/DESIGN_TOKENS_SPEC.md §9.4
+ * states outright that /health must never stat the volume per request. It did
+ * both anyway, and it did them SYNCHRONOUSLY, so every file on the volume was
+ * a syscall that blocked the single event loop for every other member's
+ * request. Probe traffic is about to multiply against it: railway.toml is
+ * gaining a healthcheckPath and the fleet roller polls this route per instance
+ * per rollout step.
+ *
+ * The cache is keyed on the volume's own mtime rather than a timer, so it is
+ * not a staleness trade. A flat directory's mtime changes whenever a file is
+ * added or removed, which is the only way these counts move, so an unchanged
+ * mtime is proof the previous answer is still exact. Steady state is therefore
+ * one `stat` per probe and no walk at all, while a volume that genuinely
+ * changed is re-measured on the next probe rather than on a schedule.
+ *
+ * Three guards around that:
+ *   - mtime is read BEFORE and AFTER the walk. If it moved mid-walk the result
+ *     is served but NOT cached, so a count taken across a concurrent write can
+ *     never be mistaken for a settled one.
+ *   - a floor (`MIN_INTERVAL_MS`) caps the cost of a directory being written
+ *     continuously, which is otherwise a way for an authenticated uploader to
+ *     make every probe pay for a walk.
+ *   - a ceiling (`MAX_AGE_MS`) re-measures anyway, because directory mtime is
+ *     a filesystem promise and network mounts have been known to break it.
+ *
+ * The walk itself is now async, so even the re-measure yields the event loop
+ * between files instead of stopping the village while it counts.
+ */
+const UPLOADS_GAUGE_MIN_INTERVAL_MS = 1000;
+const UPLOADS_GAUGE_MAX_AGE_MS = 5 * 60 * 1000;
+let uploadsGaugeCache: { at: number; dirMtimeMs: number; value: UploadsGauge } | null = null;
+/** One walk at a time: concurrent probes share the answer instead of racing. */
+let uploadsGaugeInFlight: Promise<UploadsGauge | undefined> | null = null;
+
+/** The orphan half comes from the daily sweep, not from the walk. Cheap, always current. */
+function withOrphanTally(g: UploadsGauge): UploadsGauge {
+  if (!lastUploadsReport?.complete) {
+    // Absent until the first sweep has run, and absent whenever a scan could
+    // not finish. A zero would read as "none found", which is a different
+    // statement from "not measured yet".
+    const { orphanFiles: _f, orphanMb: _m, ...rest } = g;
+    return rest;
+  }
+  return {
+    ...g,
+    orphanFiles: lastUploadsReport.tally.orphan.files,
+    orphanMb: Math.round(lastUploadsReport.tally.orphan.bytes / (1024 * 1024)),
+  };
+}
+
+async function walkUploadsVolume(): Promise<UploadsGauge> {
+  const entries = await fs.promises.readdir(UPLOADS_DIR, { withFileTypes: true });
+  let bytes = 0;
+  let files = 0;
+  let photoBytes = 0;
+  let photoFiles = 0;
+  for (const e of entries) {
+    if (!e.isFile()) continue;
+    files += 1;
+    let size = 0;
+    try { size = (await fs.promises.stat(path.join(UPLOADS_DIR, e.name))).size; } catch { /* raced a delete */ }
+    bytes += size;
+    if (isPhotoFile(e.name)) { photoFiles += 1; photoBytes += size; }
+  }
+  return {
+    files,
+    mb: Math.round(bytes / (1024 * 1024)),
+    photoFiles,
+    photoMb: Math.round(photoBytes / (1024 * 1024)),
+  };
+}
+
+async function readUploadsGauge(): Promise<UploadsGauge | undefined> {
+  try {
+    const now = Date.now();
+    const cached = uploadsGaugeCache;
+    if (cached && now - cached.at < UPLOADS_GAUGE_MIN_INTERVAL_MS) return withOrphanTally(cached.value);
+    const before = await fs.promises.stat(UPLOADS_DIR);
+    if (
+      cached &&
+      cached.dirMtimeMs === before.mtimeMs &&
+      now - cached.at < UPLOADS_GAUGE_MAX_AGE_MS
+    ) {
+      return withOrphanTally(cached.value);
+    }
+    if (!uploadsGaugeInFlight) {
+      uploadsGaugeInFlight = (async () => {
+        const value = await walkUploadsVolume();
+        const after = await fs.promises.stat(UPLOADS_DIR);
+        // Only a walk the volume held still for becomes the cached answer.
+        if (after.mtimeMs === before.mtimeMs) {
+          uploadsGaugeCache = { at: Date.now(), dirMtimeMs: after.mtimeMs, value };
+        }
+        return value;
+      })().finally(() => { uploadsGaugeInFlight = null; });
+    }
+    const fresh = await uploadsGaugeInFlight;
+    return fresh ? withOrphanTally(fresh) : undefined;
+  } catch {
+    // Volume not mounted yet: report nothing rather than a zero that reads as
+    // healthy. This is NOT part of the /health verdict, for the same reason.
+    return undefined;
+  }
+}
+
 /**
  * Walk the volume, ask the database about every file on it, and classify.
  *
@@ -7345,68 +7527,45 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   app.get("/health", async (_req, res) => {
-    // The uploads volume had no gauge at all: no byte count, no file count,
-    // nothing on this probe. It fills silently — every hero photo retried in
-    // the wizard leaves its predecessor behind forever — and the first sign
-    // of a full volume would have been every upload failing at once. This is
-    // a synchronous directory walk, but the volume is flat (no recursion) and
-    // the railway probe cadence is minutes, not milliseconds.
-    //
-    // Deliberately a REPORT, not a reclaim. An orphan sweep was specced and
-    // then refuted by review: the investor vault stamps filenames from the
-    // uploaded file's own name, which the reference scan could not see, so
-    // the sweep would have deleted live cap tables. Measurement first;
-    // deletion only behind the amendments in docs/DESIGN_TOKENS_SPEC.md §A1.
-    //
-    // `orphanFiles` / `orphanMb` are the amended version of that: the scan now
-    // reads EVERY text column of every table in the live schema instead of a
-    // hand-kept list, so the vault's own naming convention is no longer
-    // invisible to it (server/repos/uploadRefs.ts). Nothing here reclaims even
-    // so. The figure is served from the last daily sweep and never measured on
-    // this probe, which fires every few minutes.
-    //
-    // 0093 splits the community's photographs out of that total, and the
-    // reason is that they changed what this gauge is FOR. Until now the
-    // volume only moved when a founder pressed a button, so a number that
-    // climbed was a founder's own doing. Member uploads grow it without
-    // anybody watching, so the operational question is no longer "how full"
-    // but "how full, and how much of it is the part that grows on its own".
-    // Every writer stamps its own filename prefix, so the split costs one
-    // comparison inside a walk this probe already does and no query at all.
-    let uploads:
-      | { files: number; mb: number; photoFiles: number; photoMb: number; orphanFiles?: number; orphanMb?: number }
-      | undefined;
-    try {
-      const entries = fs.readdirSync(UPLOADS_DIR, { withFileTypes: true });
-      let bytes = 0;
-      let files = 0;
-      let photoBytes = 0;
-      let photoFiles = 0;
-      for (const e of entries) {
-        if (!e.isFile()) continue;
-        files += 1;
-        let size = 0;
-        try { size = fs.statSync(path.join(UPLOADS_DIR, e.name)).size; } catch { /* raced a delete */ }
-        bytes += size;
-        if (isPhotoFile(e.name)) { photoFiles += 1; photoBytes += size; }
-      }
-      uploads = {
-        files,
-        mb: Math.round(bytes / (1024 * 1024)),
-        photoFiles,
-        photoMb: Math.round(photoBytes / (1024 * 1024)),
-        // Absent until the first sweep has run, and absent whenever a scan
-        // could not finish. A zero would read as "none found", which is a
-        // different statement from "not measured yet".
-        ...(lastUploadsReport?.complete
-          ? {
-              orphanFiles: lastUploadsReport.tally.orphan.files,
-              orphanMb: Math.round(lastUploadsReport.tally.orphan.bytes / (1024 * 1024)),
-            }
-          : {}),
-      };
-    } catch { /* volume not mounted yet: report nothing rather than a zero that reads as healthy */ }
-    res.json({ status: "ok", build: BUILD_MARKER, timestamp: new Date().toISOString(), uploads });
+    /*
+     * WHAT THIS PROBE IS ALLOWED TO CLAIM.
+     *
+     * It used to answer `{ status: "ok" }` unconditionally. It touched no
+     * database, so a village whose MySQL had died served 500s to every member
+     * from behind a green health endpoint, and the restart policy had nothing
+     * to react to because nothing ever went red. A liveness probe that cannot
+     * fail is not a probe; it is a constant.
+     *
+     * So the database is now asked one question it cannot bluff — `SELECT 1`
+     * through the live pool — with its own deadline, and the answer decides
+     * both the payload and the status code. A probe that did not RUN reports
+     * `ok: false` with the reason, never a cheerful default: "we could not
+     * ask" and "we asked and it was fine" are different facts and this
+     * endpoint says which one it has.
+     */
+    const db = await probeDatabase();
+
+    // What the uploads volume is holding, and why this line is a cache read
+    // rather than a directory walk: see readUploadsGauge().
+    const uploads = await readUploadsGauge();
+
+    /*
+     * The status code is the half of this answer that machines read, and it is
+     * the half that has to be honest first. Railway's healthcheck and the
+     * fleet roller both decide "did that deploy work" from it, and a 200 over
+     * a dead database tells them to keep rolling the outage forward.
+     *
+     * The uploads volume is NOT part of the verdict. A missing gauge means the
+     * mount is not there yet, which is worth reporting and is not a reason to
+     * refuse traffic to a village whose database is fine.
+     */
+    res.status(db.ok ? 200 : 503).json({
+      status: db.ok ? "ok" : "degraded",
+      build: BUILD_MARKER,
+      timestamp: new Date().toISOString(),
+      database: db,
+      uploads,
+    });
   });
 
   // Form Submission
@@ -32352,12 +32511,63 @@ ${inner}
 // that never served yet kept running jobs that move value. Exit inside 2s —
 // safely under the scheduler's 15s first tick — and let the platform's restart
 // policy make the outage visible instead of silent.
-startServer().catch((e) => {
+//
+// "Visible" was the word doing the work, and it was not earned. The comment at
+// the top of startServer() says error reporting is wired FIRST precisely so a
+// boot death is seen, and then this handler never called the reporter: a failed
+// boot printed to stdout and stopped there. railway.toml sets
+// restartPolicyMaxRetries = 3, so three bad boots took a village fully dark
+// with nothing sent anywhere. A village has no developer watching a log stream
+// at 2am; it has, at best, a webhook. This is the one crash where the alarm
+// matters most and it was the one crash that did not ring.
+//
+// The budget is deliberate. reportError awaits an admin notification (a
+// database write) and then an HTTPS POST, and the boot failure most worth
+// reporting is a database that will not answer, where that first await sits on
+// a connect timeout. So the whole report gets ONE deadline and the process
+// exits either way. The webhook is the sink that survives: it needs no pool, no
+// schema and no migration, so it still fires when the database is the casualty.
+const BOOT_ALERT_BUDGET_MS = 8000;
+startServer().catch(async (e) => {
   console.error("[startup] refusing to serve:", e);
   // exitCode covers the drain path (an early failure leaves nothing on the
   // event loop, so the unref'd timer below would never fire and the process
   // would exit 0); the timer covers the keep-alive path (an open pool or
-  // socket would otherwise hold a broken process up forever).
+  // socket would otherwise hold a broken process up forever). Set BEFORE the
+  // await, so an exit racing the alarm is still an exit 1.
   process.exitCode = 1;
-  setTimeout(() => process.exit(1), 2000).unref();
+  const hardStop = setTimeout(() => process.exit(1), BOOT_ALERT_BUDGET_MS + 2000);
+  hardStop.unref();
+  try {
+    const delivery = await reportErrorWithin(BOOT_ALERT_BUDGET_MS, e, {
+      where: "the village's boot",
+      detail: {
+        build: BUILD_MARKER,
+        // Which stage died, in the words the log above already used. No
+        // connection strings, no secrets: this payload leaves the building.
+        stage: String((e as any)?.message ?? e ?? "unknown").slice(0, 200),
+      },
+    });
+    // ASK WHAT THE NUMBER READS WHEN THE CHECK DID NOT RUN. "We sent an alert"
+    // is a claim, and on a village with no ERROR_WEBHOOK_URL and a dead
+    // database it is a false one. Say which sinks answered, so the operator
+    // reading the log afterwards knows whether anyone was told.
+    if (delivery === "timed out") {
+      console.error(
+        `[startup] boot alert did not confirm inside ${BOOT_ALERT_BUDGET_MS}ms; nobody may have been told`,
+      );
+    } else if (reachedSomebody(delivery)) {
+      console.error(`[startup] boot alert sent (admins: ${delivery.admins}, webhook: ${delivery.webhook})`);
+    } else {
+      console.error(
+        `[startup] boot alert reached NOBODY (admins: ${delivery.admins}, webhook: ${delivery.webhook}). ` +
+          "Set ERROR_WEBHOOK_URL so a failed boot can reach a person without a working database.",
+      );
+    }
+  } catch (alarmErr) {
+    // An alarm that throws must not replace the crash it was reporting.
+    console.error("[startup] boot alert failed outright:", alarmErr);
+  }
+  clearTimeout(hardStop);
+  process.exit(1);
 });

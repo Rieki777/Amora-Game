@@ -161,7 +161,7 @@ outside.
 | `GET /api/game/mechanics` | The village's rules as data: every behaviour variable with its bounds, default, current value, who may change it, and when a change takes effect. Plus the constitution and which modules are running |
 | `GET /api/platform/info` | The v0 handshake. Kept answering forever; prefer the well-known document |
 | `GET /api/network/published` | Needs and offers this village has chosen to publish |
-| `GET /health` | Liveness and the running build marker |
+| `GET /health` | Liveness, the running build marker, and the verdict. `200` with `status: "ok"` means the village answered a `SELECT 1` through its live pool; `503` with `status: "degraded"` and a `database.error` in plain words means it did not, and the village is up but cannot serve members. `uploads` is a volume gauge and never part of the verdict |
 
 **Branch on `supports`, never on version ordering.** A village that disabled a
 module is differently shaped, not older, and semver cannot say that.
