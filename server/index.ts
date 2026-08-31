@@ -785,6 +785,7 @@ import { BUILD_A_MODULE_URL, BUILDERS_POOL_URL, MODULE_CATALOG, MODULE_GROUPS } 
 import { resolveHyphaLinks } from "../shared/hypha";
 import { closePool, getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
+import { startMaintenanceServer } from "./db/maintenanceMode";
 import { alignTableCollations } from "./db/collation";
 import { dbCollection, dbDocument } from "./repos/store-db";
 import { loadVariables } from "./lib/variables";
@@ -5460,7 +5461,25 @@ async function startServer() {
     const conn = await dbConnect(url);
     try {
       const result = await applyPending(conn, undefined, (line) => console.log(`[db] ${line}`));
-      if (result.failed) throw new Error(`migration failed: ${result.failed}`);
+      if (result.failed) {
+          // A VILLAGE MUST NOT GO DARK AND SILENT. Migrations stay fail-loud, which
+          // is right: serving over a half-applied schema normalises the break. But
+          // the blast radius was wrong for the operator this platform is built for.
+          // Before this, the process threw before binding a port, Railway retried
+          // three times and stopped, members saw a bare 502, and a steward who
+          // cannot read a stack trace had nothing at all. Now the port is bound and
+          // one plain-language page says what failed, that no data was lost, and
+          // what to send their operator.
+          await startMaintenanceServer({
+            detail: result.failedDetail ?? {
+              kind: "tamper-detected" as const,
+              file: String(result.failed),
+              message: `migration failed: ${result.failed}`,
+            },
+            port: Number(process.env.PORT) || 3000,
+          });
+          return;
+        }
       if (result.applied.length) console.log(`[db] applied ${result.applied.length} migration(s)`);
     } finally {
       await conn.end();
@@ -26706,27 +26725,24 @@ ${inner}
     let synced = false;
     const hubBase = stringVar("governance.hub_url").replace(/\/+$/, "");
     if (hubBase && secretConfigured("governance_hub_secret")) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
-      try {
-        const hubRes = await fetch(`${hubBase}/api/webhooks/governance-fork-link`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-governance-hub-secret": secretValue("governance_hub_secret"),
-          },
-          body: JSON.stringify({ marker: `[gm:${p.id}]`, hyphaProposalId: hyphaId, proposalUrl: storedUrl ?? undefined }),
-          signal: controller.signal,
-        });
-        synced = hubRes.ok;
-      } catch {
-        synced = false; // stored locally; re-linking retries
-      } finally {
-        clearTimeout(timer);
-      }
-      if (synced) {
-        await getPool().query("UPDATE mechanics_proposals SET hub_link_synced = 1 WHERE id = ?", [p.id]);
-      }
+      // THROUGH THE PINNED DIALER, NEVER A BARE FETCH. This call carries the shared
+        // governance secret in a header to an operator-typed address, and Node's fetch
+        // forwards custom headers across a cross-origin redirect: a lane proved it with
+        // two local servers, watching it strip Authorization and keep this one. So a hub
+        // URL that redirects, or a founder-ring variable pointed somewhere hostile, handed
+        // the secret away. guardedFetchJson is https-only, refuses private, loopback,
+        // link-local and CGNAT ranges, pins the vetted IP against DNS rebinding, and
+        // re-validates every redirect hop.
+        try {
+          await guardedFetchJson(`${hubBase}/api/webhooks/governance-fork-link`, 5000, {
+            method: "POST",
+            headers: { "x-governance-hub-secret": secretValue("governance_hub_secret") },
+            body: { marker: `[gm:${p.id}]`, hyphaProposalId: hyphaId, proposalUrl: storedUrl ?? undefined },
+          });
+          synced = true;
+        } catch {
+          synced = false; // stored locally; re-linking retries
+        }
     }
     res.json({
       success: true,

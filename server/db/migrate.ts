@@ -244,7 +244,7 @@ export async function applyPending(
   lockTimeoutSeconds: number = MIGRATION_LOCK_TIMEOUT_SECONDS,
 ): Promise<ApplyResult> {
   const dbName = await currentDatabaseName(conn);
-  const lockName = `amora-migrate:${dbName}`.slice(0, 64);
+  const lockName = `village-migrate:${dbName}`.slice(0, 64);
   const gotLock = await acquireMigrationLock(conn, lockName, lockTimeoutSeconds);
   if (!gotLock) {
     const message =

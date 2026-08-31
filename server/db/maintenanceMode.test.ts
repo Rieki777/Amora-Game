@@ -24,12 +24,12 @@ describe("the maintenance page's content, per refusal kind", () => {
   const cases: ApplyFailureDetail[] = [
     { kind: "migration-failed", file: "0099_example.sql", statementIndex: 3, statementsTotal: 7, message: "ER_DUP_ENTRY: Duplicate entry for key PRIMARY" },
     { kind: "tamper-detected", file: "0050_example.sql", message: "0050_example.sql was applied here with checksum abc but the file on disk now hashes to def." },
-    { kind: "lock-timeout", lockName: "amora-migrate:village_x", timeoutSeconds: 600, message: "could not take the migration lock" },
+    { kind: "lock-timeout", lockName: "village-migrate:village_x", timeoutSeconds: 600, message: "could not take the migration lock" },
   ];
 
   for (const detail of cases) {
     it(`renders a plain page for "${detail.kind}"`, () => {
-      const html = renderMaintenanceHtml({ detail, port: 0, instanceLabel: "Amora" });
+      const html = renderMaintenanceHtml({ detail, port: 0, instanceLabel: "Riverbend" });
       expect(html).toContain("<html");
       expect(html).toContain("temporarily unavailable");
       // The raw technical detail is always shown verbatim, so an operator can
@@ -52,10 +52,10 @@ describe("the maintenance page's content, per refusal kind", () => {
     const html = renderMaintenanceHtml({
       detail: { kind: "migration-failed", file: "0001.sql", statementIndex: 1, statementsTotal: 1, message: '<script>alert(1)</script> & "quoted"' },
       port: 0,
-      instanceLabel: '<b>Not Amora</b>',
+      instanceLabel: '<b>Not Riverbend</b>',
     });
     expect(html).not.toContain("<script>alert(1)</script>");
-    expect(html).not.toContain("<b>Not Amora</b>");
+    expect(html).not.toContain("<b>Not Riverbend</b>");
     expect(html).toContain("&lt;script&gt;");
   });
 });
@@ -81,14 +81,14 @@ describe.skipIf(!configured)("breaking a real migration and watching the page ap
       password: decodeURIComponent(u.password),
       timezone: "Z",
     });
-    schema = `amora_maint_proof_${Date.now()}_${process.pid}`;
+    schema = `maint_proof_${Date.now()}_${process.pid}`;
     await admin.query(`DROP DATABASE IF EXISTS \`${schema}\``);
     await admin.query(`CREATE DATABASE \`${schema}\` CHARACTER SET utf8mb4`);
 
     // A deliberately broken migration set: the first file is fine, the
     // second is not valid SQL. This is the exact shape item 3 names: an
     // update that stops partway through a file.
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), "amora-maintenance-proof-"));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "village-maintenance-proof-"));
     fs.writeFileSync(path.join(dir, "0001_ok.sql"), "CREATE TABLE probe (id varchar(16) PRIMARY KEY);\n");
     fs.writeFileSync(
       path.join(dir, "0002_broken.sql"),
@@ -127,7 +127,7 @@ describe.skipIf(!configured)("breaking a real migration and watching the page ap
     const server = startMaintenanceServer({
       detail: result.failedDetail,
       port: 0, // let the OS pick a free port
-      instanceLabel: "Amora",
+      instanceLabel: "Riverbend",
     });
     await new Promise<void>((resolve) => server.once("listening", () => resolve()));
     const address = server.address();
