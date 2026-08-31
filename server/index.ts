@@ -83,6 +83,7 @@ import {
   removeFiles,
   stampOf,
 } from "./lib/uploadsSweep";
+import { planUploadsArchive, streamUploadsArchive } from "./lib/uploadsArchive";
 import type { UploadsSweepReport } from "../shared/uploadsSweep";
 import { scanUploadReferences } from "./repos/uploadRefs";
 import {
@@ -305,7 +306,7 @@ import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, remove
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
 import { assertVoiceSecret, checkVoiceSecret, claimHistory, claimReadiness, requestVoiceClaim, settleVoiceClaim } from "./lib/voiceClaim";
-import { installCrashHandlers, reachedSomebody, reportError, reportErrorWithin, wireErrorReporting } from "./lib/errors";
+import { installCrashHandlers, installShutdownHandlers, reachedSomebody, reportError, reportErrorWithin, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
   ensureStayToken,
@@ -521,14 +522,17 @@ import {
 import {
   buildOrgExport,
   circleMarkdown,
+  canSign,
   ensureSigningKey,
   EXPORT_PROTOCOL,
   isSlug,
+  NO_SIGNING_KEY_SENTENCE,
   orgIndexMarkdown,
   publicKeyBlock,
   seatMarkdown,
   signDocument,
   signingKey,
+  signingKeyAtRest,
 } from "./lib/villageExport";
 import { feedbackStatusNotice, recordFeedback, relayFeedback } from "./lib/feedback";
 import { submissionStatusNotice } from "./lib/submissionNotices";
@@ -779,7 +783,7 @@ import { computeModulePoolShares, MODULE_POOL_PER_CYCLE, nextCyclePool } from ".
 import { initModuleUsage, villageUsageReport } from "./lib/moduleUsage";
 import { BUILD_A_MODULE_URL, BUILDERS_POOL_URL, MODULE_CATALOG, MODULE_GROUPS } from "../shared/moduleCatalog";
 import { resolveHyphaLinks } from "../shared/hypha";
-import { getPool } from "./db/pool";
+import { closePool, getPool } from "./db/pool";
 import { applyPending, connect as dbConnect } from "./db/migrate";
 import { alignTableCollations } from "./db/collation";
 import { dbCollection, dbDocument } from "./repos/store-db";
@@ -1537,7 +1541,11 @@ async function initStores(): Promise<void> {
   // unsigned payloads, adding signatures later either breaks them or is
   // ignored forever.
   const vk = await ensureSigningKey(getPool());
-  console.log(`[identity] publishing key ed25519 kid ${vk.kid}`);
+  // `atRest` is on this line because a boot log that says only "kid abc123"
+  // reads identically whether the private half is sealed, sitting in the clear
+  // in every database dump, or unreadable and about to refuse every published
+  // document. Three very different villages, one indistinguishable log line.
+  console.log(`[identity] publishing key ed25519 kid ${vk.kid} (private half: ${signingKeyAtRest()})`);
 
   // S63: the write-only secrets store, plus a one-time migration of the keys
   // that used to live in the email-config doc. They are REMOVED from the doc
@@ -1722,6 +1730,41 @@ function authPassword(req: express.Request): string | undefined {
   return undefined;
 }
 
+/**
+ * DEFAULT-DENY UNDER /api/admin: the half that records that a gate ran.
+ *
+ * There are 241 `/api/admin` route registrations and every one of them calls a
+ * gate inside its own handler. That is 241 correct decisions and zero
+ * enforcement: nothing in the framework requires the 242nd to make it. The
+ * failure is not hypothetical bookkeeping either, because the guard that was
+ * supposed to catch it cannot. `scripts/check-auth-fetch.mjs` derives the set
+ * of routes it checks FROM THE PRESENCE of a gate call in the handler
+ * (`/\b(authedUser|isAdmin|mayManage\w*)\b/` over the route body), so a route
+ * with no gate is not a route that fails the guard, it is a route the guard
+ * has never heard of. Forgetting the gate deletes you from the checked set.
+ *
+ * So the gate helpers now say out loud that they ran, and one middleware
+ * refuses to let an admin response SUCCEED unless one of them did. The flag
+ * means "a gate was consulted", never "a gate said yes": the helpers keep
+ * owning the answer, and this only owns the question having been asked.
+ *
+ * Deliberately request-scoped and set by the helpers themselves rather than
+ * inferred by a middleware from a route table. A route table has to be kept in
+ * step with the routes; a helper that marks on entry cannot drift from the
+ * thing it is describing, because it IS the thing.
+ */
+const ADMIN_GATE_CONSULTED = Symbol.for("amora.adminGateConsulted");
+
+/** Called by every gate helper on entry. Idempotent, and never a decision. */
+function markAdminGate(req: express.Request): void {
+  (req as any)[ADMIN_GATE_CONSULTED] = true;
+}
+
+/** True when some gate helper ran for this request. Never a grant on its own. */
+function adminGateWasConsulted(req: express.Request): boolean {
+  return (req as any)[ADMIN_GATE_CONSULTED] === true;
+}
+
 /** Constant-time compare, so a shared secret cannot be probed a byte at a time. */
 function secretEquals(provided: string | undefined, expected: string): boolean {
   if (!provided) return false;
@@ -1747,6 +1790,7 @@ function secretEquals(provided: string | undefined, expected: string): boolean {
  *             by non-founders, and the last founder cannot be demoted at all.
  */
 async function isAdmin(req: express.Request): Promise<boolean> {
+  markAdminGate(req);
   const user = await authedUser(req);
   if (!user || (user.role !== "admin" && user.role !== "founder")) return false;
   (req as any).adminUser = user;
@@ -2726,6 +2770,7 @@ async function retireBlendedTokenCopy() {
  * set-password page render two of those strings verbatim.
  */
 async function authedUser(req: express.Request): Promise<any | null> {
+  markAdminGate(req);
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer ")) return null;
   const decoded = decodeToken(header.slice(7));
@@ -3372,6 +3417,7 @@ function sealReachOnResponse(res: express.Response, pending: PendingReach[]): vo
 }
 
 async function mayAct(req: express.Request, cap: Capability): Promise<CapabilityVerdict> {
+  markAdminGate(req);
   const user = await authedUser(req);
   if (!user) {
     return {
@@ -3482,6 +3528,7 @@ async function guardCapability(
    */
   refusal?: { status: number; body: Record<string, unknown> },
 ): Promise<boolean> {
+  markAdminGate(req);
   const verdict = await mayAct(req, cap);
   if (verdict.ok) return true;
   const hatch = overrideRefusal(cap, verdict);
@@ -3582,6 +3629,7 @@ function overrideRefusal(
  * commit's comments.
  */
 async function mayStillSee(req: express.Request, cap: Capability): Promise<boolean> {
+  markAdminGate(req);
   const user = await authedUser(req);
   if (!user) return false;
   if (user.role === "admin" || user.role === "founder") {
@@ -7734,6 +7782,223 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     next();
   });
 
+  /**
+   * DEFAULT-DENY UNDER /api/admin. Nothing here succeeds unless a gate ran.
+   *
+   * See `markAdminGate` above for the class this closes. Short version: 241
+   * admin routes each call a gate by hand, every one of them correctly, and
+   * nothing makes the 242nd do it, while the static guard meant to notice is
+   * blind to exactly that case, because it derives its checked set from the
+   * presence of a gate call.
+   *
+   * ── WHY IT CANNOT BE A PLAIN `next()` REFUSAL ────────────────────────────
+   *
+   * The obvious shape is "check the flag, refuse or continue". It cannot work:
+   * the gates run INSIDE the handlers, which is after every middleware. At
+   * middleware time the flag is false on every request, including the 241
+   * correct ones. So the decision has to be taken at the moment the handler
+   * tries to answer, which is why `write` and `end` are wrapped rather than a
+   * `next()` being withheld.
+   *
+   * ── WHAT IT REFUSES, AND WHAT IT DELIBERATELY DOES NOT ───────────────────
+   *
+   * Only a SUCCESS (status < 400). A 401, a 403, a 404 from `requireModule`
+   * on a disabled module, a 429 from a rate limiter, a 500 from the terminal
+   * error handler: all of those are already refusals and already leak nothing,
+   * and rewriting them to 403 would break callers that read their bodies while
+   * making nobody safer. The dangerous case is the only one this touches: an
+   * admin route answering 2xx without anybody having asked who is calling.
+   *
+   * ── WHAT THE NUMBER READS WHEN THE CHECK DID NOT RUN ─────────────────────
+   *
+   * It reads DENY. There is no path here where an unknown gate state is
+   * treated as satisfied. If the handler somehow got bytes out before this
+   * could answer, the socket is destroyed rather than the response allowed to
+   * finish, because a half-sent admin payload that this could not vet is not a
+   * response worth completing. That branch is not expected to run: `write` and
+   * `end` are the only two ways bytes leave a `ServerResponse`, and both are
+   * wrapped before the router ever sees the request.
+   *
+   * ── THE ONE EXCEPTION, NAMED ─────────────────────────────────────────────
+   *
+   * `POST /api/admin/bootstrap`. It creates the first founder on a village
+   * that has no admin to authenticate as, so there is no gate for it to call;
+   * it authenticates against ADMIN_PASSWORD and refuses once any admin exists.
+   * It is the same single entry `scripts/check-admin-reach.mjs` already
+   * carries in its own `ALLOWED` list, for the same reason.
+   */
+  const ADMIN_DENY_EXCEPTIONS = new Set(["/bootstrap"]);
+  app.use("/api/admin", (req, res, next) => {
+    // A preflight carries no credentials by design and no body worth vetting.
+    if (req.method === "OPTIONS") return next();
+    if (ADMIN_DENY_EXCEPTIONS.has(req.path)) return next();
+
+    const write = res.write.bind(res);
+    const end = res.end.bind(res);
+    let refused = false;
+
+    const refuse = (): void => {
+      refused = true;
+      const where = `${req.method} ${String(req.originalUrl).split("?")[0]}`;
+      // LOUD. A route reaching this is a bug in the route, not an attack, and
+      // the person who has to fix it needs to be told which one and how.
+      console.error(
+        `[admin-deny] ${where} tried to answer ${res.statusCode} with no gate consulted. ` +
+          "Call isAdmin / guardCapability / mayAct (or another gate helper) in the handler.",
+      );
+      if (res.headersSent) {
+        // Cannot take back what already left. Cut the response rather than let
+        // an unvetted admin payload finish arriving.
+        req.socket?.destroy();
+        return;
+      }
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.removeHeader("Content-Length");
+      res.removeHeader("ETag");
+      end(JSON.stringify({ error: "admin_gate_missing" }));
+    };
+
+    /** Let it through when a gate ran, or when this is already a refusal. */
+    const permitted = (): boolean => adminGateWasConsulted(req) || res.statusCode >= 400;
+
+    res.write = ((...args: any[]) => {
+      if (refused) return true;
+      if (!permitted()) {
+        refuse();
+        return true;
+      }
+      return (write as any)(...args);
+    }) as typeof res.write;
+
+    res.end = ((...args: any[]) => {
+      if (refused) return res;
+      if (!permitted()) {
+        refuse();
+        return res;
+      }
+      return (end as any)(...args);
+    }) as typeof res.end;
+
+    next();
+  });
+
+  /**
+   * THE UPLOADS VOLUME, HANDING ITSELF OUT SO SOMETHING CAN BACK IT UP.
+   *
+   * `db-backup.yml` has covered MySQL since 2026-08-30, encrypted to two GPG
+   * recipients with a restore drill and a corruption negative control on every
+   * run. It has never covered `data/uploads/`: member photographs, brand
+   * images and investor documents, on a Railway volume, with no copy anywhere.
+   * docs/FORK_RUNBOOK.md says plainly that a photograph lost from there is not
+   * recoverable, and specifies this route as the fix. This is that route.
+   *
+   * ── WHY THE VOLUME HAS TO HAND ITSELF OUT ────────────────────────────────
+   *
+   * A scheduled GitHub Action cannot reach into a Railway volume. There is no
+   * "tarball this mount" API to call, and the one alternative this repository
+   * has ever exercised is `railway ssh`, by hand, once. Nothing here has run
+   * it headless, and a scheduled workflow built on an unverified interactive
+   * subcommand is the sort of check that reports success while doing nothing.
+   *
+   * ── AUTH: A TOKEN, NOT A SESSION, AND FAIL-CLOSED BOTH WAYS ──────────────
+   *
+   * A runner cannot hold an admin cookie or a member bearer token. So a
+   * dedicated `BACKUP_EXPORT_TOKEN`, Railway env var on this service and
+   * GitHub Actions secret on the workflow, compared in constant time against
+   * the `x-backup-export-token` header. Unset is 503 and says so (a village
+   * that never configured this should learn that, not be told "unauthorized"
+   * for a token that is technically correct); wrong is 401. Neither is ever a
+   * pass-through. Same shape as the webhook secrets above.
+   *
+   * ── ONE AT A TIME ────────────────────────────────────────────────────────
+   *
+   * This walks the whole volume on the process that serves every member. Two
+   * concurrent exports double that for no benefit, and a stuck one plus a
+   * retry is how a scheduled job becomes an outage, so a second caller gets
+   * 409 rather than a queue.
+   */
+  const BACKUP_TOKEN_HEADER = "x-backup-export-token";
+  let uploadsExportInFlight = false;
+  app.get("/api/admin/backup/uploads-archive", async (req, res) => {
+    // This route's gate is the token, not a session. It still has to say a
+    // gate ran, or the default-deny above would refuse its own success.
+    markAdminGate(req);
+
+    const expected = String(process.env.BACKUP_EXPORT_TOKEN ?? "").trim();
+    if (!expected) {
+      return res.status(503).json({
+        error:
+          "This deployment has no BACKUP_EXPORT_TOKEN set, so there is nothing to authenticate against. " +
+          "Set it in the environment (openssl rand -hex 32), mirror it as the backup workflow's secret, and redeploy.",
+      });
+    }
+    const offered = req.headers[BACKUP_TOKEN_HEADER];
+    if (!secretEquals(typeof offered === "string" ? offered : undefined, expected)) {
+      // Rate-limited like the bootstrap route: the compare is constant time,
+      // but an unlimited endpoint is still a place to grind at a secret.
+      if (await overLimit(`uploads-archive:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
+        return res.status(429).json({ error: "Too many attempts." });
+      }
+      return res.status(401).json({ error: "auth_required" });
+    }
+    if (uploadsExportInFlight) {
+      return res.status(409).json({ error: "An uploads export is already running on this instance." });
+    }
+
+    uploadsExportInFlight = true;
+    const startedAt = Date.now();
+    try {
+      const plan = await planUploadsArchive(UPLOADS_DIR);
+      /*
+       * The manifest goes out as headers TOO, not only as the first tar entry.
+       * A drill that wants to check the counts before spending disk on an
+       * untar can read them from the response; a drill that untars gets the
+       * same numbers from MANIFEST.txt. They are written from one plan object,
+       * so they cannot disagree.
+       */
+      res.setHeader("Content-Type", "application/x-tar");
+      res.setHeader("Content-Disposition", 'attachment; filename="uploads-archive.tar"');
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("x-uploads-taken-at", plan.takenAt);
+      res.setHeader("x-uploads-files", String(plan.files.length));
+      res.setHeader("x-uploads-bytes", String(plan.totalBytes));
+      res.setHeader("x-uploads-canary", plan.canary ?? "");
+      res.setHeader("x-uploads-canary-sha256", plan.canarySha256 ?? "");
+      // No Content-Length on purpose: the trailer's length depends on what the
+      // walk finds. Chunked means a truncated response is an error at the
+      // client rather than a short file that looks complete.
+      const outcome = await streamUploadsArchive(UPLOADS_DIR, plan, res);
+      res.end();
+      const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
+      console.log(
+        `[backup] uploads archive served: ${outcome.entries} file(s), ${outcome.contentBytes} byte(s), ` +
+          `complete=${outcome.complete}, degraded=${outcome.degraded.length}, ${seconds}s`,
+      );
+      // Audited, because the /api/admin audit middleware skips GET and this is
+      // the one GET on the surface that hands out every member's photograph. A
+      // call outside the daily schedule has to be visible to a steward.
+      void recordEvent(getPool(), {
+        kind: "audit",
+        text:
+          `GET /api/admin/backup/uploads-archive (${outcome.entries} files, ${outcome.contentBytes} bytes, ` +
+          `complete=${outcome.complete})`,
+        actorKind: "system",
+        audience: "admin",
+      });
+    } catch (e) {
+      console.error("[backup] uploads archive failed mid-stream", e);
+      // Headers are long gone by the time most failures here happen, so there
+      // is no status left to set. Destroying the socket is what makes the
+      // client's `curl` exit non-zero instead of writing a short tar that
+      // untars into a partial backup nobody questions.
+      if (!res.headersSent) res.status(500).json({ error: "uploads export failed" });
+      else res.destroy();
+    } finally {
+      uploadsExportInFlight = false;
+    }
+  });
+
   /*
    * CORS, and the first place this server learns its own address.
    *
@@ -8942,6 +9207,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * same distinction for the same reason.
    */
   app.get("/api/platform/module-usage", async (req, res) => {
+    // A signed surface that cannot sign refuses. Serving the report unsigned
+    // would teach every counter that a proof block is optional here.
+    if (!canSign()) return res.status(503).json({ error: NO_SIGNING_KEY_SENTENCE });
     try {
       const report = await villageUsageReport(requestedCycle(req));
       res.json(signDocument(report, signingKey(), report.sealedAt ?? new Date().toISOString()));
@@ -16404,6 +16672,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     orgRoles: OrgRole[];
     user: any | null;
   }> {
+    markAdminGate(req);
     const user = await authedUser(req);
     const admin = await isAdmin(req);
     const ctx = user ? await capabilityCtx(user) : null;
@@ -18151,6 +18420,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * the helper that cannot write.
    */
   async function seesExchangeDesk(req: express.Request): Promise<boolean> {
+    markAdminGate(req);
     return mayStillSee(req, "exchange.manage");
   }
 
@@ -20564,6 +20834,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * byte is written.
    */
   const adminOnly = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    markAdminGate(req);
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     next();
   };
@@ -23858,6 +24129,7 @@ ${inner}
     | { ok: false; status: number; body: Record<string, unknown> };
 
   async function consentActor(req: express.Request): Promise<ConsentActor> {
+    markAdminGate(req);
     const verdict = await mayAct(req, "quest.consent");
     const viewer = await authedUser(req);
     if (verdict.ok) {
@@ -23898,6 +24170,7 @@ ${inner}
   async function consentQueueViewer(
     req: express.Request,
   ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+    markAdminGate(req);
     if (!(await authedUser(req))) return { ok: false, status: 401, error: "Unauthorized" };
     if (!(await mayStillSee(req, "quest.consent"))) {
       return { ok: false, status: 403, error: "Consenting to finished work is for stewards" };
@@ -31316,6 +31589,10 @@ ${inner}
    */
   app.get("/.well-known/village.json", (_req, res) => {
     publicDoc(res);
+    // Discovery is the document peers pin a key from, so an unsigned one is
+    // the worst possible thing to serve. See `ensureSigningKey`: this is only
+    // reachable when the key was sealed and VILLAGE_SECRETS_KEY has since gone.
+    if (!canSign()) return res.status(503).json({ error: NO_SIGNING_KEY_SENTENCE });
     const cfg = mergedConfig();
     const live = orgExportLive();
     const doc = {
@@ -31370,6 +31647,7 @@ ${inner}
   /** The org chart as data, signed, with no names in it. */
   app.get("/api/public/org.json", async (_req, res) => {
     publicDoc(res);
+    if (!canSign()) return res.status(503).json({ error: NO_SIGNING_KEY_SENTENCE });
     if (!orgExportLive()) {
       return res.status(404).json({ error: "This village does not publish its structure" });
     }
@@ -32846,6 +33124,20 @@ ${inner}
   server.listen(port, "0.0.0.0", () => {
     console.log(`[startup] Server listening on 0.0.0.0:${port}`);
   });
+  /*
+   * A DEPLOY IS NOT A CRASH, and until now this process could not tell the
+   * difference. `installCrashHandlers` above wires `unhandledRejection` and
+   * `uncaughtException` and nothing else, so SIGTERM took Node's default,
+   * which is to terminate at once. Railway sends SIGTERM on every push. Every
+   * deploy therefore cut whatever was mid-flight: an upload half-written, a
+   * settle between two ledger writes, a founder's save that had answered
+   * nothing yet.
+   *
+   * Wired AFTER `listen`, because there is nothing to drain before it, and
+   * given the pool so a redeploy does not leave MySQL connections behind to
+   * time out on their own.
+   */
+  installShutdownHandlers({ server, closePool });
 }
 
 // A failed boot must be fatal, not a log line: the scheduler timer used to be
