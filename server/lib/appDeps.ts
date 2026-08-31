@@ -40,10 +40,11 @@
 import type express from "express";
 import type { Pool } from "mysql2/promise";
 import type { Capability, CapabilityCtx } from "../../shared/capabilities";
+import type { CrewsRepo } from "./crews";
 import type { WeightModeSnapshot } from "./governanceWeights";
 import type { NotifyInput, NotifyResult } from "./notify";
 import type { LapseContext } from "./orgChart";
-import type { ClaimsRepo } from "../repos/quests";
+import type { ClaimsRepo, QuestsRepo } from "../repos/quests";
 import type { DbCollection, DbDocument, Row } from "../repos/store-db";
 import type { MemberRecord, UsersRepo } from "../repos/users";
 
@@ -146,6 +147,12 @@ export interface AppDeps {
   /** Quest claims. `consentedCounts()` is one grouped read for a whole list. */
   claimsRepo: ClaimsRepo;
 
+  /** The quest board. */
+  questsRepo: QuestsRepo;
+
+  /** Quest crews: forming, joining, leaving, and the invite codes. */
+  crewsRepo: CrewsRepo;
+
   // RAW DATABASE AND VOLUME ACCESS
   // Wider than a repository, so an entry here is a bigger claim than a repo
   // entry and is worth a second look in review. A domain whose table is read
@@ -194,6 +201,19 @@ export interface AppDeps {
 
   /** A person's first name, or "Someone". The one place that decides that. */
   firstName(name: string): string;
+
+  /** Every role this village defines. Read live; the repo caches. */
+  loadRoles(): { id: string; name: string }[];
+
+  /** The ids of the roles one member holds. */
+  roleIdsFor(userId: string): string[];
+
+  /**
+   * Everyone who may consent to a quest claim: admins, plus anyone the gate
+   * grants `quest.consent`. A read across every member, so a caller should
+   * ask once per request and not once per row.
+   */
+  questConsentRecipients(): Promise<string[]>;
 
   /** The season banner payload. Extracted routes read `current` from it. */
   seasonState(): { current: any };
