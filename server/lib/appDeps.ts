@@ -97,6 +97,16 @@ export interface AppDeps {
   /** The read-side gate: may this actor still SEE a thing they cannot change. */
   mayStillSee(req: express.Request, cap: Capability): Promise<boolean>;
 
+  // ATTRIBUTION, WHICH IS NOT ONE OF THE GATES
+  // It answers nothing about permission. It reads the account a gate above
+  // attached to the request on its way past, so it is null until one of them
+  // has already run and passed on this same request. It exists so an audit
+  // line can name a person. Anything that calls it in place of a gate lets
+  // every request through.
+
+  /** The admin account a passing gate attached, for audit attribution. */
+  adminActor(req: express.Request): { id: string; name?: string } | null;
+
   // REPOSITORIES
   // One entry per document or collection an extracted route module reads.
 
