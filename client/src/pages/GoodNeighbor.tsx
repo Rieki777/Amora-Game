@@ -1,5 +1,6 @@
 import Layout from "@/components/Layout";
 import { useVillageLinks } from "@/lib/gameApi";
+import { useVillageName } from "@/hooks/useVillageName";
 import { motion } from "framer-motion";
 import { Link } from "wouter";
 import {
@@ -17,14 +18,14 @@ import {
   Calendar,
 } from "lucide-react";
 
-const criteria = [
+const buildCriteria = (villageName: string) => [
   {
     number: "01",
     icon: Heart,
     title: "Core Values Alignment",
     subtitle: "You Live the Vision",
     description:
-      "You understand and embrace Amora's vision of regenerative living and community stewardship. You're genuinely interested in being part of a living experiment, not just finding a nice place to live.",
+      `You understand and embrace ${villageName}'s vision of regenerative living and community stewardship. You're genuinely interested in being part of a living experiment, not just finding a nice place to live.`,
     practices: [
       "You engage with the community intentionally: show up to potlucks, participate in circles, take your voice seriously.",
       "You're curious about how things work here: our governance, our economy, our values.",
@@ -55,13 +56,13 @@ const criteria = [
     title: "Financial Responsibility",
     subtitle: "You Can Meet Your Obligations",
     description:
-      "You have the financial capacity to sustain your commitment to Amora. You're honest about your resources and realistic about what you can afford.",
+      `You have the financial capacity to sustain your commitment to ${villageName}. You're honest about your resources and realistic about what you can afford.`,
     practices: [
       "You've done the math on housing, land leases, HOA fees, village dues, and shared costs.",
       "You have a clear income source or savings to cover your commitment for at least 3-5 years.",
       "If circumstances change, you communicate early. You don't disappear or default.",
     ],
-    note: "This is not about wealth. Amora welcomes teachers, artists, young families, retirees, and remote workers. What matters is alignment and honesty.",
+    note: `This is not about wealth. ${villageName} welcomes teachers, artists, young families, retirees, and remote workers. What matters is alignment and honesty.`,
     color: "bg-amber/20",
     iconColor: "text-amber-700",
   },
@@ -73,7 +74,7 @@ const criteria = [
     description:
       "You give your time, energy, or skills to the community in some way. You're not just a consumer of community benefits, you're a co-creator.",
     practices: [
-      "You identify your Amora R-Ikigai: the intersection of what you love, what you're good at, and what Amora needs.",
+      `You identify your ${villageName} R-Ikigai: the intersection of what you love, what you're good at, and what ${villageName} needs.`,
       "You propose contributions and earn Gratitude through meaningful work.",
       "You participate in circles aligned with your interests and gifts.",
     ],
@@ -87,7 +88,7 @@ const criteria = [
     title: "Respect for Land, Nature, and All Beings",
     subtitle: "You Are a Steward",
     description:
-      "You understand that Amora's land is sacred and alive. You practice stewardship: protecting water, supporting regeneration, leaving no trace where possible.",
+      `You understand that ${villageName}'s land is sacred and alive. You practice stewardship: protecting water, supporting regeneration, leaving no trace where possible.`,
     practices: [
       "You follow our water conservation guidelines and waste reduction practices.",
       "You participate in land stewardship (gardening, trail maintenance, reforestation) or support those who do.",
@@ -104,8 +105,12 @@ const criteria = [
     description:
       "You genuinely value diversity and different ways of being. You're open to learning from people of different cultures, ages, backgrounds, and perspectives.",
     practices: [
-      "You engage respectfully with our Costa Rican neighbors and team members.",
-      "You support the goal of 30%+ Costa Rican representation in leadership and decision-making.",
+      // Was "our Costa Rican neighbors" and "30%+ Costa Rican
+      // representation". The commitment is a real one and belongs here; the
+      // nationality was Amora's, and a village elsewhere was publishing a
+      // leadership quota for a country it is not in.
+      "You engage respectfully with our local neighbors and team members.",
+      "You support the goal of 30%+ local representation in leadership and decision-making.",
       "You honor elders, welcome children, and understand that multi-generational living is central to our vision.",
     ],
     color: "bg-teal-light/30",
@@ -133,7 +138,7 @@ const criteria = [
     title: "Children's Play Day Participation",
     subtitle: "For Families",
     description:
-      "If you're a parent or guardian, you understand that children are central to Amora's vision. You participate in at least one Children's Play Day as part of the joining process.",
+      `If you're a parent or guardian, you understand that children are central to ${villageName}'s vision. You participate in at least one Children's Play Day as part of the joining process.`,
     practices: [
       "You attend one Children's Play Day as part of your onboarding, a chance for the village to meet your family.",
       "You practice village parenting, understanding that raising children is a collective responsibility.",
@@ -195,6 +200,8 @@ const commitments = [
 export default function GoodNeighbor() {
   // Blank hides the button rather than pointing at another village.
   const { eventsUrl } = useVillageLinks();
+  const villageName = useVillageName();
+  const criteria = buildCriteria(villageName);
   return (
     <Layout>
       {/* Hero */}
@@ -245,12 +252,12 @@ export default function GoodNeighbor() {
         </div>
       </section>
 
-      {/* What Amora Values */}
+      {/* What this village values */}
       <section className="py-16 bg-primary/5">
         <div className="container">
           <div className="max-w-3xl mx-auto">
             <h2 className="font-display text-3xl font-bold text-foreground mb-8 text-center">
-              What Amora Values, and Why It Matters
+              What {villageName} Values, and Why It Matters
             </h2>
             <div className="grid md:grid-cols-3 gap-6">
               {[
@@ -264,7 +271,7 @@ export default function GoodNeighbor() {
                 },
                 {
                   title: "Regenerative Purpose",
-                  body: "Your life here has meaning. You're not just living in a nice place, you're aligning your unique gifts with what Amora needs. This is the heart of the Amora R-Ikigai.",
+                  body: `Your life here has meaning. You're not just living in a nice place, you're aligning your unique gifts with what ${villageName} needs. This is the heart of the ${villageName} R-Ikigai.`,
                 },
               ].map((item) => (
                 <div
@@ -295,7 +302,7 @@ export default function GoodNeighbor() {
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
                 Think of these as the operating system for our shared life. They
                 describe who we are, how we show up for each other, and what
-                makes Amora work as a living organism.
+                makes {villageName} work as a living organism.
               </p>
             </div>
 
@@ -373,7 +380,7 @@ export default function GoodNeighbor() {
             </div>
             <p className="text-muted-foreground mb-10 max-w-2xl">
               We want to be honest about this. Some behaviors or commitments are
-              incompatible with Amora's vision.
+              incompatible with {villageName}'s vision.
             </p>
             <div className="grid md:grid-cols-2 gap-6">
               {dealbreakers.map((group) => (
@@ -412,7 +419,7 @@ export default function GoodNeighbor() {
                 {
                   step: "1",
                   title: "Initial Exploration",
-                  body: "You learn about Amora through events, tours, and conversations. You ask hard questions.",
+                  body: `You learn about ${villageName} through events, tours, and conversations. You ask hard questions.`,
                 },
                 {
                   step: "2",
@@ -470,16 +477,16 @@ export default function GoodNeighbor() {
         </div>
       </section>
 
-      {/* What Amora Commits to You */}
+      {/* What this village commits to you */}
       <section className="py-20 bg-primary/5">
         <div className="container">
           <div className="max-w-3xl mx-auto">
             <h2 className="font-display text-3xl font-bold text-foreground mb-4">
-              What Amora Commits to You
+              What {villageName} Commits to You
             </h2>
             <p className="text-muted-foreground mb-8">
               This covenant is two-way. If you commit to the Good Neighbor
-              Criteria, Amora commits to you:
+              Criteria, {villageName} commits to you:
             </p>
             <div className="grid sm:grid-cols-2 gap-3">
               {commitments.map((commitment, i) => (

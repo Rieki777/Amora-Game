@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Image } from "@/components/Image";
+import { useVillageLocation, useVillageName } from "@/hooks/useVillageName";
 
 
 
@@ -77,7 +78,7 @@ function JourneyArt({ src, alt }: { src: string | undefined; alt: string }) {
   );
 }
 
-const journeyCards = [
+const journeyCards = (villageName: string) => [
   {
     id: "investor",
     title: "Investor",
@@ -102,7 +103,7 @@ const journeyCards = [
     id: "resident",
     title: "Resident",
     subtitle: "Co-Creator",
-    description: "Make Amora your home. Explore housing options, join the waitlist, and become part of a loving village where all beings belong.",
+    description: `Make ${villageName} your home. Explore housing options, join the waitlist, and become part of a loving village where all beings belong.`,
     icon: HomeIcon,
     href: "/resident",
     color: "bg-teal",
@@ -131,6 +132,11 @@ const journeyStages = [
 export default function Home() {
   // Blank hides both buttons rather than pointing at another village.
   const { eventsUrl } = useVillageLinks();
+  const villageName = useVillageName();
+  // The most-read sentence on the site said "in Costa Rica" in compiled JSX.
+  // Blank means the village has not said where it is, and the sentence then
+  // omits the place rather than naming somebody else's.
+  const location = useVillageLocation();
   const brand = useBrandImages();
   return (
     <Layout>
@@ -178,7 +184,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.2 }}
               className="text-xl text-white/80 leading-relaxed mb-8"
             >
-              A regenerative village in Costa Rica where all beings{" "}
+              A regenerative village{location ? ` in ${location}` : ""} where all beings{" "}
               <span className="font-semibold text-white">belong</span> and{" "}
               <span className="font-semibold text-white">thrive</span>. Find your path to participation.
             </motion.p>
@@ -231,7 +237,7 @@ export default function Home() {
               From First Visit to Home
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              Each stage is a chance to get to know each other. You figure out if Amora fits your life; we figure out if you're a good fit for the village.
+              Each stage is a chance to get to know each other. You figure out if {villageName} fits your life; we figure out if you're a good fit for the village.
             </p>
           </div>
 
@@ -301,12 +307,12 @@ export default function Home() {
               transition={{ delay: 0.1 }}
               className="text-xl text-muted-foreground max-w-2xl mx-auto"
             >
-              Four unique journeys to participate in the Amora community. Each path leads to belonging.
+              Four unique journeys to participate in the {villageName} community. Each path leads to belonging.
             </motion.p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-8">
-            {journeyCards.map((card, index) => (
+            {journeyCards(villageName).map((card, index) => (
               <motion.div
                 key={card.id}
                 initial={{ opacity: 0, y: 30 }}
@@ -352,7 +358,7 @@ export default function Home() {
       </section>
 
 
-      {/* Who Comes to Amora */}
+      {/* Who comes to this village */}
       <section className="py-24 bg-background">
         <div className="container">
           <div className="text-center mb-16">
@@ -370,7 +376,7 @@ export default function Home() {
               viewport={{ once: true }}
               className="font-display text-4xl md:text-5xl font-bold text-foreground mb-4"
             >
-              Who Comes to Amora?
+              Who Comes to {villageName}?
             </motion.h2>
             <motion.p
               initial={{ opacity: 0, y: 20 }}
@@ -379,7 +385,7 @@ export default function Home() {
               transition={{ delay: 0.1 }}
               className="text-xl text-muted-foreground max-w-2xl mx-auto"
             >
-              Amora attracts people who are done half-living. Here are some of
+              {villageName} attracts people who are done half-living. Here are some of
               the souls who find their way here.
             </motion.p>
           </div>
@@ -406,7 +412,9 @@ export default function Home() {
                 icon: Sunset,
                 label: "Retiree & Snowbird",
                 tagline: "Finally, a second chapter worth living.",
-                body: "Post-career dreamers who want warmth, beauty, belonging, and a role that still matters, not a golf course. Costa Rica's Pura Vida calls them home.",
+                // The closing line was one country's tourism slogan, which a
+                // village elsewhere cannot honour and should not print.
+                body: "Post-career dreamers who want warmth, beauty, belonging, and a role that still matters, not a golf course.",
                 color: "bg-amber/20",
                 iconColor: "text-amber-700",
               },
@@ -428,9 +436,18 @@ export default function Home() {
               },
               {
                 icon: Globe,
-                label: "Costa Rican & LatAm Professional",
+                /*
+                 * This card used to read "Costa Rican & LatAm Professional",
+                 * offering "the regenerative future of Central America". Every
+                 * other persona here describes a KIND of person and travels
+                 * to any village; this one named one continent, so a founder
+                 * in Portugal or Vermont published an invitation to a region
+                 * they are not in. Generalised rather than deleted: the
+                 * audience is real everywhere, only the map was Amora's.
+                 */
+                label: "Regional Changemaker",
                 tagline: "I want to build something here.",
-                body: "Local and regional changemakers who see Amora as the proving ground for the regenerative future of Central America, and want to help shape it.",
+                body: `Local and regional changemakers who see ${villageName} as the proving ground for a regenerative future in their own part of the world, and want to help shape it.`,
                 color: "bg-sage-light/40",
                 iconColor: "text-sage",
               },

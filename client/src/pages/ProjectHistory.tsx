@@ -1,4 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { useVillageName } from "@/hooks/useVillageName";
 import { authToken } from "@/lib/gameApi";
 import { useState, useEffect, FormEvent } from "react";
 import Layout from "@/components/Layout";
@@ -51,7 +52,17 @@ interface ResourceLink {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-// "collab" = ReGen + Amora working on it together; "amora" = Amora-only action required
+/*
+ * The two parties on every row: the build side and the VILLAGE side.
+ *
+ * "collab" = both working on it together; "amora" = the village's own action.
+ *
+ * THE STORED VALUE STAYS `"amora"` DELIBERATELY. It is a persisted status,
+ * written into `app_config['journey-state']` by every press of the dropdown,
+ * so renaming the token would silently reclassify every saved row as the
+ * default. What a founder READS is their own village's name, resolved at
+ * render; what the server STORES is this id, forever.
+ */
 type DeliveryStatus = "done" | "amora" | "collab" | "pending";
 
 interface Deliverable {
@@ -69,7 +80,18 @@ interface Week {
 
 // ─── Timeline Data ────────────────────────────────────────────────────────────
 
-const WEEKS: Week[] = [
+/*
+ * The build plan this village is working through.
+ *
+ * Still one specific engagement's six weeks, with its own dates and its own
+ * deliverables, and still compiled in: see the S3 pages lane report for why
+ * moving the PLAN itself to runtime content is a bigger job than moving its
+ * NAME (every `id` here is a key the server stores checkbox, kanban and
+ * decision state against, so the list cannot change shape without carrying
+ * that state with it). What is fixed here is the name: a founder reading
+ * this tracker sees their own village named, not the platform's first one.
+ */
+const buildWeeks = (villageName: string): Week[] => [
   {
     id: "w1",
     label: "Week 1 | Mar 17-23",
@@ -82,21 +104,25 @@ const WEEKS: Week[] = [
       { id: "w2-2", text: "Village Steward Journey - Community Connection Calls CTA live", status: "pending" },
       { id: "w2-3", text: "Village Steward Journey - Potluck, Events, Workshops, Village Weaving links live", status: "pending" },
       { id: "w2-6", text: "Village Steward Journey - Explore Quests section linked", status: "pending" },
-      { id: "w2-7", text: "Village Steward Journey - Amora Game Guide linked (Roles, Co-Creator criteria)", status: "pending" },
+      { id: "w2-7", text: `Village Steward Journey - ${villageName} Game Guide linked (Roles, Co-Creator criteria)`, status: "pending" },
       { id: "w2-8", text: "Village Steward Journey - Role Application for Upcoming Season CTA live", status: "pending" },
       { id: "w2-9", text: "Resident Space - Rights and Responsibilities page linked and drafted", status: "done" },
       { id: "w2-10", text: "Resident Journey - Community Call and Discovery Call CTA live", status: "pending" },
       { id: "wt-1", text: "Decision needed - name the community contribution token (currently 'Gratitude'): tracks contributions to be resolved as debt, equity, or community currency, with a percentage split for early contributors", status: "amora" },
-      { id: "w1-6", text: "AMORA: Provide brand kit assets (colors, fonts, logos)", status: "amora" },
+      // The "AMORA:" prefix these three carried said the same thing as their
+      // own `status: "amora"`, which already draws the village's name as the
+      // owner pill next to the row. One of the two was a village's brand
+      // welded into the text; the other follows the config. Kept the pill.
+      { id: "w1-6", text: "Provide brand kit assets (colors, fonts, logos)", status: "amora" },
     ],
   },
   {
     id: "w2",
     label: "Week 2 | Mar 24-30",
-    goal: "Build the Roles and Circles infrastructure. Publish the Amora Game Guide as a navigable resource. Wire all governance links and role application flows.",
+    goal: `Build the Roles and Circles infrastructure. Publish the ${villageName} Game Guide as a navigable resource. Wire all governance links and role application flows.`,
     deliverables: [
       { id: "w4-11", text: "Pages: Governance Roles, Circles, Team - copy delivered", status: "done" },
-      { id: "w4-1", text: "Amora Game Guide - published as linked resource with Co-Creator criteria section", status: "pending" },
+      { id: "w4-1", text: `${villageName} Game Guide - published as linked resource with Co-Creator criteria section`, status: "pending" },
       { id: "w4-2", text: "Roles section - all initial roles documented (Community Engagement, Land Liaison, Marketing, Operations, Visionary, Financial Mgmt)", status: "pending" },
       { id: "w4-3", text: "Investor Journey - Request Investor Pack drop-down and Pack created", status: "pending" },
       { id: "w4-4", text: "Circles section - Explore Roles page complete", status: "pending" },
@@ -148,7 +174,7 @@ const WEEKS: Week[] = [
   {
     id: "w5",
     label: "Week 5 | Apr 14-20",
-    goal: "Polish all pages, complete event CTAs. If the retainer is confirmed, begin scoping the backend and CRM integration. Final content review with the Amora team.",
+    goal: `Polish all pages, complete event CTAs. If the retainer is confirmed, begin scoping the backend and CRM integration. Final content review with the ${villageName} team.`,
     deliverables: [
       { id: "w5-10", text: "Pages: Master Plan, Opportunities, Housing - copy delivered", status: "done" },
       { id: "w2-11", text: "Resident Journey - Housing Options page linked", status: "pending" },
@@ -162,22 +188,22 @@ const WEEKS: Week[] = [
       { id: "w5-5", text: "Love Letter page - final design and membership dues confirmed", status: "pending" },
       { id: "w5-6", text: "Waitlist page - final design and fee structure confirmed", status: "pending" },
       { id: "w5-7", text: "Mobile responsiveness - full site tested on mobile", status: "pending" },
-      { id: "w5-8", text: "Content audit - all placeholder values resolved by Amora", status: "pending" },
+      { id: "w5-8", text: `Content audit - all placeholder values resolved by ${villageName}`, status: "pending" },
       { id: "w5-9", text: "Backend and CRM scoping - if retainer confirmed, spec document drafted", status: "pending" },
-      { id: "w5-11", text: "AMORA: Final content approval pass (all journeys, roles, game guide)", status: "amora" },
-      { id: "w5-12", text: "AMORA: Confirm retainer decision for ongoing updates and CRM build", status: "amora" },
+      { id: "w5-11", text: "Final content approval pass (all journeys, roles, game guide)", status: "amora" },
+      { id: "w5-12", text: "Confirm retainer decision for ongoing updates and CRM build", status: "amora" },
     ],
   },
   {
     id: "w6",
     label: "Week 6 | Apr 21-28",
-    goal: "Complete final quality checks, fix any remaining issues, and deliver a fully functional site. If not on retainer, make sure Amora has full admin access before the engagement ends.",
+    goal: `Complete final quality checks, fix any remaining issues, and deliver a fully functional site. If not on retainer, make sure ${villageName} has full admin access before the engagement ends.`,
     deliverables: [
       { id: "w6-1", text: "Full site QA - all pages, links, forms, and drop-downs tested", status: "pending" },
       { id: "w6-2", text: "Bug fixes - all outstanding visual and functional issues resolved", status: "pending" },
       { id: "w6-3", text: "Cross-browser test - Chrome, Safari, Firefox verified", status: "pending" },
-      { id: "w6-4", text: "Amora admin access - site control transferred if not on retainer", status: "pending" },
-      { id: "w6-5", text: "Handoff documentation - editing guide delivered to Amora team", status: "pending" },
+      { id: "w6-4", text: `${villageName} admin access - site control transferred if not on retainer`, status: "pending" },
+      { id: "w6-5", text: `Handoff documentation - editing guide delivered to the ${villageName} team`, status: "pending" },
       { id: "w6-6", text: "LAUNCH - site goes live for interested parties", status: "pending" },
       { id: "w6-7", text: "Post-launch check-in call scheduled", status: "pending" },
       { id: "w6-8", text: "Retainer and next-phase agreement signed (if continuing)", status: "pending" },
@@ -202,10 +228,10 @@ const WEEKS: Week[] = [
  * The old list also hid /seasonal-festivals behind a filter saying the route
  * did not exist yet. It exists (App.tsx), so it is here with the rest.
  */
-const QUICK_LINKS: { emoji: string; title: string; url: string }[] = [
+const buildQuickLinks = (villageName: string): { emoji: string; title: string; url: string }[] => [
   { emoji: "🏠", title: "Home", url: "/" },
   { emoji: "💌", title: "Love Letter", url: "/love-letter" },
-  { emoji: "📖", title: "Amora Game Guide", url: "/co-creators-guide" },
+  { emoji: "📖", title: `${villageName} Game Guide`, url: "/co-creators-guide" },
   { emoji: "🤝", title: "Good Neighbor", url: "/good-neighbor" },
   { emoji: "💰", title: "Investor Journey", url: "/investor" },
   { emoji: "🌿", title: "Village Steward", url: "/steward" },
@@ -226,7 +252,7 @@ const QUICK_LINKS: { emoji: string; title: string; url: string }[] = [
 
 // ─── Decision Log Data ────────────────────────────────────────────────────────
 
-const DECISIONS: DecisionDef[] = [
+const buildDecisions = (villageName: string): DecisionDef[] => [
   {
     id: "dec-token-name",
     title: "Name the community contribution token",
@@ -274,7 +300,7 @@ const DECISIONS: DecisionDef[] = [
   {
     id: "dec-ari-tiers",
     title: "ARI tier names and criteria",
-    description: "Define the Amora Regenerative Impact tier system: names, specific metrics, Voice allocations, and how businesses progress through tiers.",
+    description: `Define the ${villageName} Regenerative Impact tier system: names, specific metrics, Voice allocations, and how businesses progress through tiers.`,
     linkedItem: "w3-6",
   },
   {
@@ -366,17 +392,17 @@ function getBucket(
   return "urgent";
 }
 
-const BUCKETS: { id: BucketId; emoji: string; label: string; goal: string; tone: string }[] = [
+const buildBuckets = (villageName: string): { id: BucketId; emoji: string; label: string; goal: string; tone: string }[] => [
   { id: "urgent", emoji: "🔴", label: "Urgent", goal: "Pending items that need attention now.", tone: "bg-red-50 border-red-200 text-red-700" },
-  { id: "in-motion", emoji: "🟡", label: "In Motion", goal: "Currently in progress. ReGen delivered, awaiting Amora.", tone: "bg-amber-50 border-amber-200 text-amber-800" },
-  { id: "completed", emoji: "🟢", label: "Completed", goal: "Done and confirmed by Amora.", tone: "bg-emerald-50 border-emerald-200 text-emerald-700" },
-  { id: "amora-call", emoji: "🔵", label: "Amora's Call", goal: "Decisions or actions for the Amora team to lead.", tone: "bg-violet-50 border-violet-200 text-violet-700" },
+  { id: "in-motion", emoji: "🟡", label: "In Motion", goal: `Currently in progress. Delivered, awaiting ${villageName}.`, tone: "bg-amber-50 border-amber-200 text-amber-800" },
+  { id: "completed", emoji: "🟢", label: "Completed", goal: `Done and confirmed by ${villageName}.`, tone: "bg-emerald-50 border-emerald-200 text-emerald-700" },
+  { id: "amora-call", emoji: "🔵", label: `${villageName}'s Call`, goal: `Decisions or actions for the ${villageName} team to lead.`, tone: "bg-violet-50 border-violet-200 text-violet-700" },
 ];
 
 // Two axes, read at a glance: WHO owns an item (from the status dropdown) and
 // WHAT STAGE it's at (from the checkbox). The pills below derive from those.
-function ownerMeta(status: DeliveryStatus): { label: string; cls: string } {
-  if (status === "amora") return { label: "Amora", cls: "bg-amber/20 text-amber-800 border-amber/40" };
+function ownerMeta(status: DeliveryStatus, villageName: string): { label: string; cls: string } {
+  if (status === "amora") return { label: villageName, cls: "bg-amber/20 text-amber-800 border-amber/40" };
   if (status === "collab") return { label: "Both", cls: "bg-violet-100 text-violet-700 border-violet-200" };
   return { label: "ReGen", cls: "bg-teal-deep/10 text-teal-deep border-teal-deep/20" };
 }
@@ -657,6 +683,11 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ProjectHistory() {
+  const villageName = useVillageName();
+  const buckets = buildBuckets(villageName);
+  const WEEKS = buildWeeks(villageName);
+  const QUICK_LINKS = buildQuickLinks(villageName);
+  const DECISIONS = buildDecisions(villageName);
   const [authenticated, setAuthenticated] = useState(false);
   const [journeyPassword, setJourneyPassword] = useState<string>("");
   const journeyHeaders = (extra: Record<string, string> = {}): Record<string, string> => ({
@@ -971,7 +1002,7 @@ export default function ProjectHistory() {
     )
   );
 
-  // Progress: weighted - ReGen Delivered (state 1) = 50%, Amora Confirmed (state 2) = 100%
+  // Progress: weighted - delivered (state 1) = 50%, village-confirmed (state 2) = 100%
   const allDeliverables = WEEKS.flatMap((w) => w.deliverables);
   const deliveryScore = allDeliverables.reduce((acc, d) => {
     const state = getEffectiveState(d.id, d, serverState.checkboxes);
@@ -1129,7 +1160,7 @@ export default function ProjectHistory() {
             </div>
             <span className="text-amber-on-band text-sm font-semibold">{progressPct}%</span>
             <span className="text-white text-xs">
-              {deliveredCount} with Amora · {confirmedCount} confirmed
+              {deliveredCount} with {villageName} · {confirmedCount} confirmed
             </span>
           </div>
         </div>
@@ -1293,7 +1324,7 @@ export default function ProjectHistory() {
                         <p className="font-semibold text-stone-500 uppercase tracking-wide mb-2">Who owns it</p>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="px-2 py-0.5 rounded-full border font-semibold bg-teal-deep/10 text-teal-deep border-teal-deep/20">ReGen</span>
-                          <span className="px-2 py-0.5 rounded-full border font-semibold bg-amber/20 text-amber-800 border-amber/40">Amora</span>
+                          <span className="px-2 py-0.5 rounded-full border font-semibold bg-amber/20 text-amber-800 border-amber/40">{villageName}</span>
                           <span className="px-2 py-0.5 rounded-full border font-semibold bg-violet-100 text-violet-700 border-violet-200">Both</span>
                           <span className="text-stone-400">(set with the dropdown on each row)</span>
                         </div>
@@ -1312,7 +1343,7 @@ export default function ProjectHistory() {
 
                   {(() => {
                     const allItems = WEEKS.flatMap((w) => w.deliverables);
-                    return BUCKETS.map((bucket) => {
+                    return buckets.map((bucket) => {
                       const bucketItems = allItems.filter((d) => {
                         const st = getEffectiveState(d.id, d, serverState.checkboxes);
                         return getBucket(d, st, statusOverrides) === bucket.id;
@@ -1343,7 +1374,7 @@ export default function ProjectHistory() {
                           )}
                           {bucketItems.map((d) => {
                             const effStatus = getEffectiveStatus(d, statusOverrides);
-                            const isAmora = effStatus === "amora";
+                            const isVillageOwned = effStatus === "amora";
                             const isCollab = effStatus === "collab";
                             const state = getEffectiveState(d.id, d, serverState.checkboxes);
                             const isExpanded = expandedItems.has(d.id);
@@ -1355,7 +1386,7 @@ export default function ProjectHistory() {
                                 {/* Main row */}
                                 <div
                                   className={`flex items-start gap-3 px-5 py-3 transition-colors ${
-                                    isAmora
+                                    isVillageOwned
                                       ? "bg-amber/5"
                                       : isCollab
                                       ? "bg-violet-50/30"
@@ -1389,7 +1420,7 @@ export default function ProjectHistory() {
 
                                   <span
                                     className={`flex-1 text-sm leading-relaxed ${
-                                      isAmora
+                                      isVillageOwned
                                         ? "text-amber-800 font-medium"
                                         : isCollab
                                         ? "text-violet-800 font-medium"
@@ -1405,7 +1436,7 @@ export default function ProjectHistory() {
 
                                   {/* At-a-glance: who owns it + what stage it's at */}
                                   {(() => {
-                                    const owner = ownerMeta(effStatus);
+                                    const owner = ownerMeta(effStatus, villageName);
                                     const stage = stageMeta(state, effStatus);
                                     return (
                                       <>
@@ -1425,7 +1456,7 @@ export default function ProjectHistory() {
                                     onChange={(e) => setItemStatus(d.id, e.target.value as DeliveryStatus)}
                                     title="Set who owns this item"
                                     className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded border outline-none cursor-pointer ${
-                                      isAmora
+                                      isVillageOwned
                                         ? "bg-amber text-foreground border-amber"
                                         : isCollab
                                         ? "bg-violet-100 text-violet-700 border-violet-200"
@@ -1436,7 +1467,7 @@ export default function ProjectHistory() {
                                   >
                                     <option value="pending">ReGen · to do</option>
                                     <option value="done">ReGen · in motion</option>
-                                    <option value="amora">Amora's call</option>
+                                    <option value="amora">{villageName}'s call</option>
                                     <option value="collab">Collab (both)</option>
                                   </select>
                                   {assigneeName && (
@@ -1514,7 +1545,7 @@ export default function ProjectHistory() {
                   })()}
 
                   <p className="text-stone-400 text-xs text-center mt-4">
-                    The <strong>checkbox</strong> advances the stage: To do → In progress → Confirmed → back to To do. The <strong>dropdown</strong> sets who owns it (ReGen, Amora, or both), which sorts it into the buckets above. Everything is shared and synced to the server.
+                    The <strong>checkbox</strong> advances the stage: To do → In progress → Confirmed → back to To do. The <strong>dropdown</strong> sets who owns it (the build side, {villageName}, or both), which sorts it into the buckets above. Everything is shared and synced to the server.
                   </p>
                 </div>
               )}
@@ -1555,13 +1586,13 @@ export default function ProjectHistory() {
                               )}
                               {colCards.map((d) => {
                                 const entry = serverState.kanban[d.id];
-                                const isAmora = d.status === "amora";
+                                const isVillageOwned = d.status === "amora";
                                 const isCollab = d.status === "collab";
                                 return (
                                   <div
                                     key={d.id}
                                     className={`bg-white rounded-lg border shadow-sm p-3 ${
-                                      isAmora
+                                      isVillageOwned
                                         ? "border-l-4 border-l-amber border-r border-t border-b border-stone-200"
                                         : isCollab
                                         ? "border-l-4 border-l-violet-400 border-r border-t border-b border-stone-200"
@@ -1570,9 +1601,9 @@ export default function ProjectHistory() {
                                   >
                                     <p className="text-xs text-stone-700 leading-relaxed mb-2">{d.text}</p>
                                     <div className="text-xs text-stone-400 mb-2">{d.weekLabel}</div>
-                                    {isAmora && (
+                                    {isVillageOwned && (
                                       <span className="inline-block text-xs bg-amber text-foreground font-semibold px-1.5 py-0.5 rounded mb-2">
-                                        Amora
+                                        {villageName}
                                       </span>
                                     )}
                                     {isCollab && (
@@ -1628,7 +1659,7 @@ export default function ProjectHistory() {
                   <div className="mb-6">
                     <h2 className="font-display text-2xl font-bold text-teal-deep">Decision Log</h2>
                     <p className="text-stone-500 text-sm mt-1">
-                      Track key decisions for the Amora launch. Marking a decision as decided will reflect on the timeline.
+                      Track key decisions for the {villageName} launch. Marking a decision as decided will reflect on the timeline.
                     </p>
                   </div>
 

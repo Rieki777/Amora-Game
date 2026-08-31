@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useVillageName } from "@/hooks/useVillageName";
 import { Link } from "wouter";
 import LiveDecisionsBand from "@/components/governance/LiveDecisionsBand";
 import {
@@ -44,6 +45,7 @@ const DECISION_STEPS = [
 ];
 
 export default function Governance() {
+  const villageName = useVillageName();
   return (
     <Layout>
       {/* Hero */}
@@ -59,7 +61,7 @@ export default function Governance() {
             Power Belongs to the Circle, Not the Person
           </h1>
           <p className="text-white/80 text-lg max-w-3xl leading-relaxed">
-            Amora uses sociocracy, a consent-based governance system where every voice can influence decisions and no single person holds veto power.
+            {villageName} uses sociocracy, a consent-based governance system where every voice can influence decisions and no single person holds veto power.
           </p>
         </div>
       </section>

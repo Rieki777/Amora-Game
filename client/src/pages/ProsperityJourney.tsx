@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import { altOr, useBrandImages, useGameConfig, useVillageLinks } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
+import { useVillageName } from "@/hooks/useVillageName";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -26,12 +27,12 @@ import {
 } from "lucide-react";
 
 
-const journeySteps = [
+const buildJourneySteps = (villageName: string) => [
   {
     id: "community-call",
     stage: "Researcher",
     title: "Attend Community Call",
-    description: "Learn about business opportunities at Amora and ask questions about our economic model.",
+    description: `Learn about business opportunities at ${villageName} and ask questions about our economic model.`,
     icon: Calendar,
     // Resolved at render from this village's own eventsUrl (see below). Blank
     // here on purpose: a destination compiled into the array is a destination
@@ -45,7 +46,7 @@ const journeySteps = [
     id: "prosperity-packet",
     stage: "Dreamer",
     title: "Explore the Prosperity Packet",
-    description: "Request the full guide to launching a business at Amora.",
+    description: `Request the full guide to launching a business at ${villageName}.`,
     icon: Download,
     // Resolved at render from this village's own contactEmail (see below).
     link: "",
@@ -97,7 +98,7 @@ const journeySteps = [
     id: "launch",
     stage: "Builder",
     title: "Launch Your Business",
-    description: "Integrate with the Gratitude contribution system and begin serving the Amora community.",
+    description: `Integrate with the Gratitude contribution system and begin serving the ${villageName} community.`,
     icon: PartyPopper,
     link: "",
     linkText: "",
@@ -152,6 +153,8 @@ const PACKET_SUBJECT = "Prosperity Packet Request";
 
 export default function ProsperityJourney() {
   const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
+  const villageName = useVillageName();
+  const journeySteps = buildJourneySteps(villageName);
   const brand = useBrandImages();
   // This village's own destinations. Blank hides the control that would use
   // one, which is the whole point: the renderer below already draws no button
@@ -305,7 +308,7 @@ export default function ProsperityJourney() {
                 Gratitude Economy
               </h2>
               <p className="text-muted-foreground text-sm">
-                All businesses integrate with our contribution tracking system. Revenue shares are acknowledged in Gratitude (the recognition signal, with no financial value of its own), and each cycle a real pool of {valueName} is shared across everyone's Gratitude. As Amora matures, {valueName} can convert to cash, equity, or community currency.
+                All businesses integrate with our contribution tracking system. Revenue shares are acknowledged in Gratitude (the recognition signal, with no financial value of its own), and each cycle a real pool of {valueName} is shared across everyone's Gratitude. As {villageName} matures, {valueName} can convert to cash, equity, or community currency.
               </p>
             </motion.div>
 
@@ -326,7 +329,7 @@ export default function ProsperityJourney() {
                 Co-Ownership Model
               </h2>
               <p className="text-muted-foreground text-sm">
-                All Amora businesses are co-owned by the village community. You operate and manage your 
+                All {villageName} businesses are co-owned by the village community. You operate and manage your 
                 enterprise while the community shares in success through revenue participation.
               </p>
             </motion.div>
@@ -347,7 +350,7 @@ export default function ProsperityJourney() {
               Your Path to Prosperity
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-6">
-              Follow these seven steps to launch your regenerative business at Amora.
+              Follow these seven steps to launch your regenerative business at {villageName}.
             </p>
             
             {/* Progress Bar */}
@@ -523,10 +526,10 @@ export default function ProsperityJourney() {
             viewport={{ once: true }}
           >
             <h2 className="font-display text-3xl md:text-4xl font-semibold text-foreground mb-4">
-              ARI Tiers: Amora Regenerative Impact
+              ARI Tiers: {villageName} Regenerative Impact
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              Measure and grow your impact through our Amora Regenerative Impact framework. 
+              Measure and grow your impact through our {villageName} Regenerative Impact framework. 
               Advance through tiers based on community contribution and regenerative outcomes.
             </p>
           </motion.div>
@@ -585,7 +588,7 @@ export default function ProsperityJourney() {
               Ready to Explore Opportunities?
             </h2>
             <p className="text-muted-foreground mb-8">
-              Request the Prosperity Packet to learn everything about launching a business at Amora.
+              Request the Prosperity Packet to learn everything about launching a business at {villageName}.
             </p>
             <a
               href={packetHref}

@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import { useHypha } from "@/modules/ModuleProvider";
 import { useGameConfig, useVillageLinks } from "@/lib/gameApi";
+import { useVillageName } from "@/hooks/useVillageName";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -56,13 +57,13 @@ const navPills: ScrollNavPill[] = [
 // server and read through useHypha) — the live [YOUR-DHO-SLUG] placeholder
 // this file used to ship is gone. Cards carry suffixes; the render resolves.
 
-const hyphaActions = [
+const buildHyphaActions = (villageName: string) => [
   {
     icon: ClipboardList,
     title: "Start with an Agreement",
     subtitle: "Proposing a role, quest, or new contribution",
     description:
-      "Before you begin any new type of contribution, a seasonal role, a quest, or a new initiative, you open it to the community with an Agreement. Describe what you're bringing, what Amora receives, and what you're requesting in return. The community votes. Value in = value out.",
+      `Before you begin any new type of contribution, a seasonal role, a quest, or a new initiative, you open it to the community with an Agreement. Describe what you're bringing, what ${villageName} receives, and what you're requesting in return. The community votes. Value in = value out.`,
     cta: "Create Agreement",
     suffix: "/agreements/create",
     color: "border-teal-deep/30 bg-teal-deep/5",
@@ -74,7 +75,7 @@ const hyphaActions = [
     title: "Claim Your Gratitude",
     subtitle: "After completing a task, pay period, or season",
     description:
-      "When you've done the work, completed a quest, finished a season as a role holder, or reached a milestone, you come back and propose a Contribution Claim. Detail what you delivered, what Amora gained, and claim your Gratitude. This is how the value you create becomes visible and rewarded.",
+      `When you've done the work, completed a quest, finished a season as a role holder, or reached a milestone, you come back and propose a Contribution Claim. Detail what you delivered, what ${villageName} gained, and claim your Gratitude. This is how the value you create becomes visible and rewarded.`,
     cta: "Propose a Contribution",
     suffix: "/agreements/create/propose-contribution",
     color: "border-sage/30 bg-sage/5",
@@ -98,7 +99,7 @@ const hyphaActions = [
     title: "Delegate Your Voice",
     subtitle: "Trust someone to vote on your behalf",
     description:
-      "Your voice is your governance power, it grows as you contribute. If you trust another member to represent your perspective while you're away or unavailable, you can delegate your voice to them. Choose someone whose judgment aligns with yours and whose commitment to Amora you trust deeply.",
+      `Your voice is your governance power, it grows as you contribute. If you trust another member to represent your perspective while you're away or unavailable, you can delegate your voice to them. Choose someone whose judgment aligns with yours and whose commitment to ${villageName} you trust deeply.`,
     cta: "View Members",
     suffix: "/members",
     color: "border-coral/30 bg-coral/5",
@@ -109,7 +110,7 @@ const hyphaActions = [
 
 // A function of the live value-token name (Admin → Tokens): a fork's rename
 // reaches every card below without a code change.
-const recognitionItems = (valueName: string) => ({
+const recognitionItems = (valueName: string, villageName: string) => ({
   earn: [
     { label: "Quests", range: "40-300 Gratitude" },
     { label: "Circle Roles", range: "200-500/month" },
@@ -126,7 +127,7 @@ const recognitionItems = (valueName: string) => ({
     `Each cycle, a real pool of ${valueName} is shared across everyone's Gratitude`,
     "Village dues & utilities",
     "Cafe & shop services",
-    `Future: ${valueName} convert to cash or equity as Amora matures`,
+    `Future: ${valueName} convert to cash or equity as ${villageName} matures`,
   ],
 });
 
@@ -177,12 +178,12 @@ const spaces = [
   },
 ];
 
-const progressionStages = [
+const buildProgressionStages = (villageName: string) => [
   { label: "Visitor", phase: "early" },
   { label: "Guest", phase: "early" },
   { label: "Immersant", phase: "early" },
   { label: "Participant", phase: "early" },
-  { label: "Member", phase: "member", subLabel: "(Amora Family)" },
+  { label: "Member", phase: "member", subLabel: `(${villageName} Family)` },
   { label: "Contributor", phase: "member" },
   { label: "Quest Seeker", phase: "member" },
   { label: "Initiate", phase: "cocreator" },
@@ -247,6 +248,9 @@ const ctaCards = [
 export default function CoCreatorsGuide() {
   const hypha = useHypha();
   const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
+  const villageName = useVillageName();
+  const hyphaActions = buildHyphaActions(villageName);
+  const progressionStages = buildProgressionStages(villageName);
   // The one external card points at this village's own events page.
   // No events page, no card: better an absent invitation than one that
   // takes a reader to a different village's calendar.
@@ -254,7 +258,7 @@ export default function CoCreatorsGuide() {
   const cards = ctaCards
     .map((card) => (card.external ? { ...card, href: eventsUrl } : card))
     .filter((card) => card.href);
-  const recognition = recognitionItems(valueName);
+  const recognition = recognitionItems(valueName, villageName);
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
     if (element) {
@@ -279,7 +283,7 @@ export default function CoCreatorsGuide() {
             >
               <BookOpen className="w-16 h-16 mx-auto mb-6 opacity-90" />
               <h1 className="font-display text-5xl md:text-6xl font-bold mb-6 leading-tight">
-                The Amora Game Guide
+                The {villageName} Game Guide
               </h1>
               <p className="text-lg md:text-xl text-white leading-relaxed max-w-2xl mx-auto">
                 Your complete guide to co-creating this village. How the economy works, how decisions get made, how to use our governance platform, and what the journey from visitor to Sage looks like.
@@ -329,7 +333,7 @@ export default function CoCreatorsGuide() {
                 Your R-Ikigai
               </h2>
               <p className="text-muted-foreground text-lg">
-                The intersection of what you love, what you're good at, what Amora needs,
+                The intersection of what you love, what you're good at, what {villageName} needs,
                 and what earns you Gratitude.
               </p>
             </div>
@@ -382,8 +386,16 @@ export default function CoCreatorsGuide() {
                   <text x="320" y="260" textAnchor="middle" className="text-sm font-bold fill-sage">
                     What You&apos;re GOOD AT
                   </text>
+                  {/*
+                    Generic on purpose, and the one label on this page that is.
+                    This is an SVG <text> at a fixed x with no wrapping, and the
+                    three labels around it name generic roles ("You", "GRATITUDE"),
+                    so a village name of unknown length would be the only variable
+                    thing in a fixed layout and would run off the diagram. The
+                    heading below, which flows, does name the village.
+                  */}
                   <text x="80" y="320" textAnchor="middle" className="text-sm font-bold fill-sage">
-                    What AMORA NEEDS
+                    What the VILLAGE NEEDS
                   </text>
                   <text x="280" y="150" textAnchor="middle" className="text-sm font-bold fill-amber">
                     What Earns GRATITUDE
@@ -436,7 +448,7 @@ export default function CoCreatorsGuide() {
                 <div className="p-4 rounded-lg bg-emerald-100/50 border-l-4 border-emerald-600">
                   <h3 className="font-bold text-foreground mb-2 flex items-center gap-2">
                     <Leaf className="w-5 h-5 text-emerald-600" />
-                    What AMORA NEEDS (Regeneration)
+                    What {villageName} NEEDS (Regeneration)
                   </h3>
                   <p className="text-sm text-muted-foreground">
                     The gaps we need filled to create a thriving, regenerative community.
@@ -474,9 +486,9 @@ export default function CoCreatorsGuide() {
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
                 Two tokens, two jobs. Gratitude is the recognition signal. It acknowledges the
-                work, time, and resources you contribute to Amora, and carries no financial value
+                work, time, and resources you contribute to {villageName}, and carries no financial value
                 of its own. {valueName} are the tracked value: each cycle the community shares a
-                real pool of {valueName} across everyone's Gratitude, and as Amora matures they
+                real pool of {valueName} across everyone's Gratitude, and as {villageName} matures they
                 can convert to cash, equity, or community currency.
               </p>
             </div>
@@ -562,7 +574,7 @@ export default function CoCreatorsGuide() {
             {/* GRATITUDE FLOW DIAGRAM */}
             <div className="bg-card rounded-xl p-8 border border-muted">
               <h3 className="font-bold text-lg text-foreground mb-6 text-center">
-                How Value Flows Through Amora
+                How Value Flows Through {villageName}
               </h3>
               <div className="flex flex-col md:flex-row items-center justify-center gap-4 flex-wrap">
                 <div className="flex items-center gap-3">
@@ -613,7 +625,7 @@ export default function CoCreatorsGuide() {
                 Voice & Governance
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Amora practices consent-based decision making where everyone's voice matters,
+                {villageName} practices consent-based decision making where everyone's voice matters,
                 circles hold authority within their domains, and all concerns are heard.
               </p>
             </div>
@@ -744,7 +756,7 @@ export default function CoCreatorsGuide() {
                 Meet Hypha
               </h2>
               <p className="text-cream/80 text-lg leading-relaxed">
-                Hypha is the platform where every Amora decision lives, recorded, verifiable,
+                Hypha is the platform where every {villageName} decision lives, recorded, verifiable,
                 and tamper-proof on a distributed ledger. This isn't a shared Google Doc or a
                 Discord vote that disappears. It's an{" "}
                 <strong className="text-cream">incredibly secure, globally trusted governance
@@ -754,7 +766,7 @@ export default function CoCreatorsGuide() {
               </p>
               <p className="text-cream/70 text-base mt-4 leading-relaxed">
                 No single person, not even the founders, can override a community consent
-                vote on Hypha. That's the point. When we say Amora is community-governed, this
+                vote on Hypha. That's the point. When we say {villageName} is community-governed, this
                 is what makes it true.
               </p>
               <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
@@ -767,8 +779,15 @@ export default function CoCreatorsGuide() {
                   Open Hypha Platform
                   <ExternalLink className="w-4 h-4" />
                 </a>
+                {/*
+                  This read "[AMORA: Add your Hypha DHO link...]": a note written
+                  to one client during a build, shipped to every village and
+                  rendered to every anonymous visitor of every one of them. It is
+                  an instruction for whoever runs this village, so it addresses
+                  them and names nobody.
+                */}
                 <p className="text-xs text-cream/50 self-center italic">
-                  [AMORA: Add your Hypha DHO link in the Variables panel to go live]
+                  Add this village's Hypha DHO link in Admin, Variables, to make this live.
                 </p>
               </div>
             </div>
@@ -785,7 +804,7 @@ export default function CoCreatorsGuide() {
                   </h3>
                   <p className="text-cream/70 text-sm leading-relaxed">
                     Every proposal puts one question to the community: does this contribution serve
-                    Amora at the level of Gratitude being requested? Not hours logged, hours are
+                    {villageName} at the level of Gratitude being requested? Not hours logged, hours are
                     not a contribution. What matters is the actual value created, articulated
                     clearly, and assessed honestly by your peers. The more you contribute, the more
                     weight your voice carries in those votes.
@@ -843,7 +862,7 @@ export default function CoCreatorsGuide() {
             {/* The loop */}
             <div className="mt-14 max-w-3xl mx-auto">
               <p className="text-center text-cream/60 text-xs uppercase tracking-widest font-medium mb-5">
-                The Amora Contribution Loop
+                The {villageName} Contribution Loop
               </p>
               <div className="grid sm:grid-cols-3 gap-4 text-center">
                 {[
@@ -877,7 +896,7 @@ export default function CoCreatorsGuide() {
                 The Four Spaces
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Amora is organized into four interconnected circles, each stewarding
+                {villageName} is organized into four interconnected circles, each stewarding
                 a different dimension of our community.
               </p>
             </div>
@@ -925,7 +944,7 @@ export default function CoCreatorsGuide() {
                 Path of Growth
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Your journey through Amora, from first contact to deepest participation.
+                Your journey through {villageName}, from first contact to deepest participation.
                 Each stage has its own gifts and responsibilities.
               </p>
             </div>
@@ -1016,7 +1035,7 @@ export default function CoCreatorsGuide() {
                 </div>
                 <p className="text-amber-800 mb-4">
                   After 21+ years, a Guide may become a Sage. Sages are the living embodiment
-                  of Amora's values and vision, holding space for the village's evolution.
+                  of {villageName}'s values and vision, holding space for the village's evolution.
                 </p>
                 <p className="text-sm text-amber-700">
                   <span className="font-semibold">Responsibilities:</span> Long-term vision,
@@ -1042,7 +1061,7 @@ export default function CoCreatorsGuide() {
                 Good Neighbor Criteria
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                To become a resident of Amora, you commit to embodying these four pillars.
+                To become a resident of {villageName}, you commit to embodying these four pillars.
               </p>
             </div>
 
@@ -1175,14 +1194,14 @@ export default function CoCreatorsGuide() {
         <div className="container relative z-10">
           <div className="max-w-2xl mx-auto text-center">
             <p className="text-lg italic text-white leading-relaxed">
-              "Amora is an Infinite Game, played to keep creating
+              "{villageName} is an Infinite Game, played to keep creating
               together. We co-become the most beautiful village, where all beings belong and
               thrive. Success is measured by the flourishing of our
               community, land, and relationships."
             </p>
             <div className="mt-8 flex items-center justify-center gap-4 text-white">
               <Heart className="w-5 h-5" />
-              <span className="text-sm">Welcome to Amora</span>
+              <span className="text-sm">Welcome to {villageName}</span>
               <Heart className="w-5 h-5" />
             </div>
           </div>

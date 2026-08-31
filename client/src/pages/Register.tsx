@@ -4,12 +4,16 @@ import { motion } from "framer-motion";
 import { Heart, ArrowRight, Mail, Lock, User, CheckCircle2, Circle } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useVillageName } from "@/hooks/useVillageName";
 
-const PATHS = [
+// Parameterised the way HowWeCreate.tsx parameterises its recognition cards:
+// the copy names the village, so the list has to be built after the config
+// answers rather than frozen at module load.
+const paths = (villageName: string) => [
   {
     id: "investor",
     label: "Investor",
-    description: "Support Amora's vision through financial investment",
+    description: `Support ${villageName}'s vision through financial investment`,
     color: "bg-amber/10 border-amber/30 text-amber hover:bg-amber/20",
   },
   {
@@ -21,7 +25,7 @@ const PATHS = [
   {
     id: "resident",
     label: "Resident",
-    description: "Make Amora your home and live the village vision",
+    description: `Make ${villageName} your home and live the village vision`,
     color: "bg-teal/10 border-teal/30 text-teal hover:bg-teal/20",
   },
   {
@@ -33,6 +37,8 @@ const PATHS = [
 ];
 
 export default function Register() {
+  const villageName = useVillageName();
+  const PATHS = paths(villageName);
   const [, navigate] = useLocation();
   const { register } = useAuth();
   const [name, setName] = useState("");
@@ -89,7 +95,7 @@ export default function Register() {
                 </div>
               </div>
               <h1 className="text-4xl font-display font-bold text-teal-deep mb-2">
-                Join Amora
+                Join {villageName}
               </h1>
               <p className="text-gray-600">Begin your village journey and choose your path</p>
             </div>

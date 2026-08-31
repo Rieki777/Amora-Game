@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { altOr, statedFacts, useBrandImages, useVillageLinks, useVillageSettings } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
+import { useVillageName } from "@/hooks/useVillageName";
 import InvestorSummary from "@/components/InvestorSummary";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
@@ -36,11 +37,11 @@ import {
 
 // New investor-focused image showing sustainable luxury development
 
-const journeySteps = [
+const buildJourneySteps = (villageName: string) => [
   {
     id: "discover",
     stage: "Curious",
-    title: "Discover Amora",
+    title: `Discover ${villageName}`,
     description: "Learn about our vision, values, and regenerative approach to community development.",
     icon: Sparkles,
     action: "Join Community Call",
@@ -74,7 +75,7 @@ const journeySteps = [
     id: "call",
     stage: "Exploring",
     title: "Schedule Investment Call",
-    description: "Connect one-on-one with our team to discuss your investment goals and how they align with Amora.",
+    description: `Connect one-on-one with our team to discuss your investment goals and how they align with ${villageName}.`,
     icon: Calendar,
     action: "Schedule Call",
     formType: "investor-call",
@@ -89,7 +90,7 @@ const journeySteps = [
     id: "commit",
     stage: "Committed",
     title: "Make Your Commitment",
-    description: "Choose your investment vehicle and formalize your contribution to the Amora vision.",
+    description: `Choose your investment vehicle and formalize your contribution to the ${villageName} vision.`,
     icon: Heart,
     action: "Contact Team",
     // Resolved at render from this village's own contactEmail. An investment
@@ -153,7 +154,7 @@ const buyerPersonas = [
   },
   {
     title: "Retiree/Snowbird",
-    subtitle: "Your Costa Rica sanctuary with community and returns",
+    subtitle: "A sanctuary of your own, with community and returns",
     icon: Heart,
     color: "from-sage to-teal-deep"
   },
@@ -170,7 +171,10 @@ const buyerPersonas = [
     color: "from-teal-deep to-sage"
   },
   {
-    title: "Costa Rican/LatAm Professional",
+    // Was "Costa Rican/LatAm Professional". The persona is real in every
+    // region; only the region was one village's. The subtitle already said
+    // "your homeland", which carries the whole idea without a map.
+    title: "Local & Regional Professional",
     subtitle: "Invest in your homeland's regenerative future",
     icon: Building,
     color: "from-gold to-teal-deep"
@@ -179,6 +183,8 @@ const buyerPersonas = [
 
 
 export default function InvestorJourney() {
+  const villageName = useVillageName();
+  const journeySteps = buildJourneySteps(villageName);
   const brand = useBrandImages();
   const settings = useVillageSettings();
   // NULL IS "NOT LOADED YET", NEVER "NOTHING STATED". Without this line the
@@ -459,7 +465,7 @@ export default function InvestorJourney() {
 
       <InvestorSummary />
 
-      {/* Who Invests in Amora Section */}
+      {/* Who invests in this village */}
       <section className="py-20 bg-cream">
         <div className="container">
           <motion.div 
@@ -469,10 +475,10 @@ export default function InvestorJourney() {
             viewport={{ once: true }}
           >
             <h2 className="font-display text-3xl md:text-4xl font-semibold text-foreground mb-4">
-              Who Invests in Amora?
+              Who Invests in {villageName}?
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              People with different goals and backgrounds are building at Amora. See if your story is here.
+              People with different goals and backgrounds are building at {villageName}. See if your story is here.
             </p>
           </motion.div>
 
@@ -518,7 +524,7 @@ export default function InvestorJourney() {
                 Your Investment Journey
               </h2>
               <p className="text-muted-foreground mb-6">
-                Track your progress as you explore investment opportunities at Amora.
+                Track your progress as you explore investment opportunities at {villageName}.
               </p>
               
               {/* Progress Bar */}
@@ -767,7 +773,7 @@ export default function InvestorJourney() {
               Ready to Explore?
             </h2>
             <p className="text-muted-foreground mb-8">
-              Connect with our team to discuss how Amora fits your investment goals.
+              Connect with our team to discuss how {villageName} fits your investment goals.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <button
