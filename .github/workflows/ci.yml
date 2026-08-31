@@ -402,6 +402,22 @@ jobs:
         # Before the build, same reason as the artifact budget above.
         run: node scripts/check-image-budget.mjs
 
+      - name: Theme literals
+        # A ratchet on hard-coded colour literals in the client, filed by the
+        # tokens lane and wired here because ci.yml has one owner. Same shape
+        # and same neighbourhood as the two budgets above: dependency-free, no
+        # database, may only burn down. Baseline in
+        # scripts/theme-literals-baseline.json, and --update-baseline refuses
+        # to write a total above the one already committed.
+        #
+        # scripts/check-theme-literals.mjs AND its baseline live on
+        # `wt/s2-tokens` and are NOT on the safety branch, so this step is red
+        # here on purpose and goes green the moment the two branches are on
+        # main together. It is wired hard rather than guarded with a "skip if
+        # missing", because a step that quietly does nothing when its script is
+        # absent is exactly the failure the rest of this file exists to stop.
+        run: node scripts/check-theme-literals.mjs
+
       - name: Build
         run: pnpm build
 
