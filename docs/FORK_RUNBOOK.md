@@ -1232,9 +1232,77 @@ server**, specified here precisely enough for the lane that owns
   restore-drill step that decrypts with the drill key and asserts the
   manifest.
 
-This is flagged in the fleet ledger's blocker list (section 6) against the
-lane that owns `server/index.ts`, with a link back to this section, rather
-than attempted here.
+**Built 2026-08-31.** The route above exists. What follows is the contract, so
+the lane that owns `.github/workflows/**` can wire the workflow half without
+reading the server.
+
+### The uploads export contract, as built (2026-08-31)
+
+```
+GET  {origin}/api/admin/backup/uploads-archive
+     x-backup-export-token: $BACKUP_EXPORT_TOKEN
+```
+
+**Statuses.** `200` with the archive. `401` for a missing or wrong token (rate
+limited to 10 failures per IP per hour). `503`, with a sentence naming
+`BACKUP_EXPORT_TOKEN`, when the variable is unset on the server, so a village
+that never configured it learns that instead of being told its correct token
+is unauthorized. `409` when an export is already running on that instance.
+
+**Body.** `Content-Type: application/x-tar`, chunked, no `Content-Length`. The
+volume is streamed 64 KB at a time and is never assembled in memory, because
+this is the same Node process that serves every member.
+
+**Entries, in order.**
+
+| Entry | Position | What it holds |
+|---|---|---|
+| `MANIFEST.txt` | first | `takenAt`, `files`, `bytes`, `canary`, `canarySha256`, `manifestEntry`, `statusEntry`, `archiveEntries`, `excludedOversize` |
+| every upload file | middle | the volume, byte for byte, original filenames (long names travel as PAX records) |
+| `EXPORT-STATUS.txt` | last | `complete=yes\|no`, `entries`, `contentBytes`, `degradedCount`, one `degraded=<name>` line per file that changed under the walk |
+
+`files` and `bytes` count the upload files only. `archiveEntries` is that
+count plus the two manifest entries, so a drill counting `tar -t` output has a
+number to compare against rather than a subtraction to remember.
+
+**The same manifest also rides in response headers**, so a drill can check the
+numbers before spending disk on an untar: `x-uploads-taken-at`,
+`x-uploads-files`, `x-uploads-bytes`, `x-uploads-canary`,
+`x-uploads-canary-sha256`. They are written from one plan object, so the
+headers and `MANIFEST.txt` cannot disagree.
+
+**What a restore drill should assert**, in the shape the MySQL drill already
+uses: decrypt, `tar -x`, count the files (minus the two manifest entries),
+sum their bytes, re-hash the canary named in `MANIFEST.txt`, compare all three
+against the manifest, and require `complete=yes` in `EXPORT-STATUS.txt`.
+
+That last one is the assertion that stops a false green, and it is worth
+saying why. A tar is a stream. One that dies at 60 percent still untars: you
+get most of the files and no error worth noticing, and counts alone cannot
+tell a truncated export from a small volume. `EXPORT-STATUS.txt` is written
+after the last file, so a drill that can read it has proof the server reached
+the end. `degraded` covers the other half: a file deleted between the stat
+pass and the read pass leaves a correctly sized, zero padded hole, so the
+count matches, the byte total matches, and the contents are wrong. Nothing
+else in the archive would ever say so.
+
+**`files=0` is a young village, not a broken export.** A fresh instance with no
+uploads answers 200 with an archive holding only the two manifest entries,
+`canary=` empty, and `complete=yes`. A drill that treats zero as failure will
+go red on every new village.
+
+**Two things this route does NOT do**, both deliberate. It does not encrypt:
+the workflow reuses the two-recipient GPG pattern already landed for the
+database dump (`BACKUP_GPG_PUBLIC_KEY` plus `BACKUP_DRILL_GPG_PUBLIC_KEY`, no
+new keys), so there is one encryption implementation rather than two. And it
+does not prove a fresh deploy boots from the bytes, because there is no
+scratch Railway volume to redeploy into inside a GitHub Action. Intact and
+complete is the honest ceiling.
+
+**Still needed from a human**, and blocked on them: `BACKUP_EXPORT_TOKEN` has
+to be generated (`openssl rand -hex 32`), set as a Railway environment
+variable on the app service, and mirrored as a GitHub Actions secret. Until
+both exist the route answers 503 and the workflow step has nothing to call.
 
 ### Secrets rotation checklist, for a steward, after any suspected exposure
 

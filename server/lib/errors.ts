@@ -194,3 +194,195 @@ export function installCrashHandlers(): void {
     setTimeout(() => process.exit(1), 2000).unref();
   });
 }
+
+/*
+ * ────────────────────────────────────────────────────────────────────────────
+ * SHUTDOWN. What happens to the requests that were in the middle of happening.
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * Until this landed, this process handled `unhandledRejection` and
+ * `uncaughtException` and NOTHING ELSE. No SIGTERM handler at all. Node's own
+ * default for SIGTERM is to terminate immediately, so every deploy killed
+ * whatever was in flight: a member's upload half-written, a settle handler
+ * between two ledger writes, an admin's save that had answered nothing yet.
+ * Railway redeploys on every push. This is not a rare path.
+ *
+ * ── WHAT DRAINING ACTUALLY REQUIRES, AND THE PART EVERY VERSION MISSES ───
+ *
+ * `server.close()` alone does not drain. It stops the listener and then waits
+ * for every open connection to end, and a browser or a fetch client with
+ * keep-alive holds its socket open for MINUTES after its last request. So the
+ * naive version hangs until the platform's grace period runs out and SIGKILLs
+ * it, which drops exactly the in-flight requests it was trying to save. The
+ * two pieces that make it real are `closeIdleConnections()` (sockets with no
+ * request on them go now) and, at the deadline, `closeAllConnections()`.
+ *
+ * ── ASK WHAT THE NUMBER READS WHEN THE CHECK DID NOT RUN ─────────────────
+ *
+ * A drain that cannot finish must still END. The deadline is not advisory: at
+ * `drainMs` every remaining connection is cut and the process exits anyway,
+ * and the outcome says `forced: true` so the log records that requests were
+ * severed rather than implying a clean stop. "Waited politely forever" is the
+ * same outcome as no handler at all, arrived at more slowly.
+ *
+ * ── WHY THE SEAMS ARE ARGUMENTS ──────────────────────────────────────────
+ *
+ * `exit` and the clock are injected so the behaviour can be tested against a
+ * real HTTP server with a real in-flight request. They are not injected so
+ * they can be mocked away: the tests drive a real `http.Server` and a real
+ * socket, and only the final `process.exit` is stubbed, because a test that
+ * exits the runner proves nothing to anybody.
+ */
+
+/** How long in-flight work gets before its connection is cut. */
+export const DEFAULT_DRAIN_MS = 15_000;
+
+export interface ShutdownOutcome {
+  /** The signal or reason that started it. */
+  reason: string;
+  /** True when the deadline expired and open connections were severed. */
+  forced: boolean;
+  /** Milliseconds from first signal to exit. */
+  ms: number;
+  pool: "closed" | "failed" | "not wired";
+}
+
+export interface ShutdownDeps {
+  /** The listening server. Node's http.Server satisfies this structurally. */
+  server: {
+    close(cb?: (err?: Error) => void): unknown;
+    closeIdleConnections?: () => void;
+    closeAllConnections?: () => void;
+  };
+  /** The database pool, so a redeploy does not leave connections behind. */
+  closePool?: () => Promise<void>;
+  /** Defaults to DEFAULT_DRAIN_MS, or SHUTDOWN_DRAIN_MS from the environment. */
+  drainMs?: number;
+  /** Defaults to `process.exit`. Stubbed in tests, never in production. */
+  exit?: (code: number) => void;
+}
+
+/** True once a shutdown has begun. Idempotent guard, and readable by callers. */
+let shuttingDown = false;
+export function isShuttingDown(): boolean {
+  return shuttingDown;
+}
+
+/** Test-only reset. Module state that a suite cannot clear is a flaky suite. */
+export function resetShutdownStateForTests(): void {
+  shuttingDown = false;
+}
+
+function drainBudget(deps: ShutdownDeps): number {
+  if (typeof deps.drainMs === "number") return deps.drainMs;
+  const fromEnv = Number(process.env.SHUTDOWN_DRAIN_MS);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_DRAIN_MS;
+}
+
+/**
+ * Stop listening, let what is in flight finish, close the pool, exit.
+ *
+ * Returns the outcome rather than only logging it, for the same reason
+ * `reportError` returns an `ErrorDelivery`: "we shut down cleanly" is a claim,
+ * and a caller that cannot inspect it cannot tell a drain from a severing.
+ */
+export async function gracefulShutdown(
+  deps: ShutdownDeps,
+  reason: string,
+): Promise<ShutdownOutcome> {
+  const startedAt = Date.now();
+  const budget = drainBudget(deps);
+  let forced = false;
+
+  console.log(`[shutdown] ${reason}: no longer accepting connections, draining up to ${budget}ms`);
+
+  const closed = new Promise<void>((resolve) => {
+    // `close` fires its callback when the LAST connection ends, which is the
+    // event worth waiting for; the listener itself stops on the call.
+    deps.server.close(() => resolve());
+  });
+  /*
+   * Keep-alive sockets with nothing on them are not work in progress. Cutting
+   * them is the difference between draining and hanging.
+   *
+   * ON A SWEEP, NOT ONCE. The single call was measured taking three seconds to
+   * drain one request that finished in milliseconds: the socket was BUSY when
+   * the sweep ran, went idle the instant the response was written, and then
+   * nothing released it until the client felt like it. Every real deploy has
+   * browsers and fetch clients holding exactly that kind of socket, so a
+   * one-shot sweep spends the whole budget on connections with nothing left to
+   * say. Sweeping releases each one on the tick after it goes quiet.
+   */
+  deps.server.closeIdleConnections?.();
+  const sweep = setInterval(() => deps.server.closeIdleConnections?.(), 250);
+  sweep.unref?.();
+
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<"forced">((resolve) => {
+    timer = setTimeout(() => resolve("forced"), budget);
+  });
+  const outcome = await Promise.race([closed.then(() => "drained" as const), deadline]);
+  if (timer) clearTimeout(timer);
+  clearInterval(sweep);
+
+  if (outcome === "forced") {
+    forced = true;
+    console.error(
+      `[shutdown] ${budget}ms elapsed with requests still open; cutting them. ` +
+        "Some in-flight work was severed.",
+    );
+    deps.server.closeAllConnections?.();
+  } else {
+    console.log("[shutdown] every in-flight request finished");
+  }
+
+  let pool: ShutdownOutcome["pool"] = "not wired";
+  if (deps.closePool) {
+    try {
+      await deps.closePool();
+      pool = "closed";
+    } catch (e) {
+      pool = "failed";
+      console.error("[shutdown] the pool did not close cleanly", e);
+    }
+  }
+
+  const result: ShutdownOutcome = { reason, forced, ms: Date.now() - startedAt, pool };
+  console.log(
+    `[shutdown] done in ${result.ms}ms (forced: ${result.forced}, pool: ${result.pool})`,
+  );
+  (deps.exit ?? ((code: number) => process.exit(code)))(0);
+  return result;
+}
+
+/**
+ * Wire SIGTERM and SIGINT to the drain above.
+ *
+ * SIGTERM is the platform's; SIGINT is the operator's Ctrl-C, and it gets the
+ * same treatment because a local run that severs its own requests teaches the
+ * wrong thing about what a deploy does.
+ *
+ * A SECOND signal does not start a second drain. It shortens the first one to
+ * nothing: somebody pressing Ctrl-C twice means "now", and a handler that
+ * ignored them would be one more reason to reach for `kill -9`.
+ *
+ * ON WINDOWS THIS WIRING CANNOT BE EXERCISED. Node on Windows terminates the
+ * target process unconditionally for SIGTERM (measured: a listener registered
+ * in a child never ran, and neither did one registered for a self-kill), so
+ * the signal-delivery hop is provable only on the Linux container this
+ * actually deploys to. Everything downstream of the listener is driven
+ * directly by the tests, which is why `gracefulShutdown` is exported.
+ */
+export function installShutdownHandlers(deps: ShutdownDeps): void {
+  const start = (signal: string) => {
+    if (shuttingDown) {
+      console.error(`[shutdown] ${signal} again: exiting now, without draining`);
+      (deps.exit ?? ((code: number) => process.exit(code)))(1);
+      return;
+    }
+    shuttingDown = true;
+    void gracefulShutdown(deps, signal);
+  };
+  process.on("SIGTERM", () => start("SIGTERM"));
+  process.on("SIGINT", () => start("SIGINT"));
+}

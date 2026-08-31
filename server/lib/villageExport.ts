@@ -46,6 +46,8 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as edSign, verify as edVerify } from "crypto";
 import type { Pool } from "mysql2/promise";
 import { seatState, type OrgAssignment, type OrgRole } from "./orgChart";
+import { keyFromEnv, openWith, sealWith, type Sealed } from "./sealedBox";
+import { VILLAGE_SECRETS_ENV } from "./secrets";
 import { DECIDES_BY, DOMAINS, SHAPES } from "../../shared/power";
 
 /*
@@ -108,14 +110,107 @@ export function isSlug(v: unknown): boolean {
 // authenticated only by TLS to the origin, which evaporates the moment a
 // document is cached, relayed or handed to an agent.
 
+/*
+ * ── THE PRIVATE HALF AT REST (2026-08-31) ────────────────────────────────
+ *
+ * This key used to sit in `app_config` as plaintext JSON. It therefore rode,
+ * in the clear, in every one of the daily database dumps that were uploaded
+ * as GitHub Actions artifacts, downloadable by anyone with repository read
+ * access for a 30-day window. It is the key every peer village pins. Whoever
+ * held a copy of that dump can sign documents as this village, and no peer
+ * could tell.
+ *
+ * The integration secrets next door were sealed with AES-256-GCM in the same
+ * round and this one was left, for a stated reason: it is MINTED AT FIRST
+ * BOOT. `secrets.ts` can throw when `VILLAGE_SECRETS_KEY` is absent because
+ * somebody is typing a Stripe key into a form and can be told to come back;
+ * this runs inside `startServer`, before anything serves, and the same
+ * fail-closed rule would refuse to boot a fresh village whose operator had not
+ * set the variable yet. A backup that costs a village its ability to start is
+ * not a security improvement.
+ *
+ * ── WHAT WAS CHOSEN, AND WHY ─────────────────────────────────────────────
+ *
+ * Seal when a key is available, keep working when it is not, and NEVER refuse
+ * to boot for this. Four states, all of them reachable, none of them silent:
+ *
+ *   key set, no document yet     mint and store SEALED. The normal path for
+ *                                any village provisioned from now on.
+ *   key set, plaintext document  open it, RE-SEAL IT IN PLACE, carry on. An
+ *                                existing village stops leaking on its next
+ *                                boot with no operator action beyond setting
+ *                                the variable. Same upgrade-on-read shape the
+ *                                password hashes already use.
+ *   no key, no document yet      mint and store PLAINTEXT, and say so loudly
+ *                                on every boot. First boot works. The village
+ *                                is exactly as exposed as it was yesterday,
+ *                                which is the honest floor: this change is not
+ *                                allowed to make a fresh install worse, and
+ *                                pretending is not one of the options.
+ *   sealed document, no key      the public half still loads, the private half
+ *                                is unavailable, THE SIGNED DOCUMENTS REFUSE
+ *                                with a 503 naming the variable. Boot
+ *                                continues, and so does everything that does
+ *                                not carry a proof block (the /org/**.md
+ *                                mirror included). This is an operator who
+ *                                removed a variable, and the answer to "I
+ *                                cannot prove who I am" is to stop claiming,
+ *                                not to publish documents peers would learn to
+ *                                accept unsigned.
+ *
+ * `VILLAGE_SECRETS_KEY` rather than a third variable on purpose. It already
+ * seals every other village-scope credential, the same process reads both, and
+ * a separate variable would buy no isolation while adding one more thing 13
+ * founder instances have to be provisioned with before they can boot cleanly.
+ */
+
 export interface SigningKey {
   kid: string;
   publicKeyPem: string;
-  privateKeyPem: string;
+  /**
+   * Null when this deployment holds the public half and cannot open the
+   * private one. `signDocument` refuses on null rather than signing with
+   * something it guessed.
+   */
+  privateKeyPem: string | null;
   createdAt: string;
 }
 
+/** How the private half is stored. Both shapes are read; only one is written. */
+interface SigningKeyDoc {
+  publicKeyPem: string;
+  /** Pre-2026-08-31, and any village with no VILLAGE_SECRETS_KEY set. */
+  privateKeyPem?: string;
+  /** AES-256-GCM under VILLAGE_SECRETS_KEY. */
+  privateKeySealed?: Sealed;
+  createdAt: string;
+}
+
+/** How the private half of the loaded key is being held. Reported, never guessed. */
+export type SigningKeyAtRest = "sealed" | "plaintext" | "unreadable";
+
 let cachedKey: SigningKey | null = null;
+let cachedAtRest: SigningKeyAtRest | null = null;
+
+export const NO_SIGNING_KEY_SENTENCE =
+  "this village cannot sign published documents: its signing key is sealed and " +
+  `${VILLAGE_SECRETS_ENV} is unset or does not match`;
+
+/** Whether this deployment can sign. False is a refusal, never an unsigned doc. */
+export function canSign(): boolean {
+  return typeof cachedKey?.privateKeyPem === "string";
+}
+
+/** How the loaded key is held at rest, or null before boot loaded one. */
+export function signingKeyAtRest(): SigningKeyAtRest | null {
+  return cachedAtRest;
+}
+
+/** Test-only. Module-level caches a suite cannot clear are a flaky suite. */
+export function resetSigningKeyForTests(): void {
+  cachedKey = null;
+  cachedAtRest = null;
+}
 
 /** Raw 32-byte ed25519 public key, base64url. */
 function rawPublicKeyB64(publicKeyPem: string): string {
@@ -152,42 +247,116 @@ export function pemFromRawPublicKey(base64url: string): string | null {
   }
 }
 
-export async function ensureSigningKey(pool: Pool): Promise<SigningKey> {
+const SIGNING_KEY_ROW = "village-signing-key";
+
+/** Build the stored document for a private half, sealed if a key is available. */
+function storedDoc(publicKeyPem: string, privateKeyPem: string, key: Buffer | null, createdAt: string): SigningKeyDoc {
+  return key
+    ? { publicKeyPem, privateKeySealed: sealWith(key, privateKeyPem), createdAt }
+    : { publicKeyPem, privateKeyPem, createdAt };
+}
+
+export async function ensureSigningKey(
+  pool: Pool,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<SigningKey> {
   if (cachedKey) return cachedKey;
+  const key = keyFromEnv(VILLAGE_SECRETS_ENV, env);
+
   // Look before minting. `identity.ts` generates its candidate unconditionally
   // because a UUID is free; a keypair is not, and every boot after the first
   // would generate one only to throw it away. The INSERT IGNORE below still
   // does the real work of settling concurrent first boots on one key, so this
   // is a fast path and not the correctness mechanism.
   const [existing] = await pool.query<any[]>(
-    "SELECT value FROM app_config WHERE config_key = 'village-signing-key'",
+    `SELECT value FROM app_config WHERE config_key = '${SIGNING_KEY_ROW}'`,
   );
   if (!existing.length) {
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-    const fresh = JSON.stringify({
-      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
-      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
-      createdAt: new Date().toISOString(),
-    });
+    const fresh = storedDoc(
+      publicKey.export({ type: "spki", format: "pem" }).toString(),
+      privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+      key,
+      new Date().toISOString(),
+    );
     await pool.query(
-      "INSERT IGNORE INTO app_config (config_key, value) VALUES ('village-signing-key', ?)",
-      [fresh],
+      `INSERT IGNORE INTO app_config (config_key, value) VALUES ('${SIGNING_KEY_ROW}', ?)`,
+      [JSON.stringify(fresh)],
     );
   }
   const [[row]] = await pool.query<any[]>(
-    "SELECT value FROM app_config WHERE config_key = 'village-signing-key'",
+    `SELECT value FROM app_config WHERE config_key = '${SIGNING_KEY_ROW}'`,
   );
-  const doc = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
-  if (!doc?.publicKeyPem || !doc?.privateKeyPem) {
+  const doc: SigningKeyDoc = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+  // A document with no public half is corrupt, not a state to work around.
+  // Everything below can degrade; this cannot, because a village with no
+  // public key has no identity for a peer to have pinned in the first place.
+  if (!doc?.publicKeyPem || (!doc.privateKeyPem && !doc.privateKeySealed)) {
     throw new Error("village-signing-key document exists but carries no keypair, refusing to guess");
   }
+
   const pub = String(doc.publicKeyPem);
+  const createdAt = String(doc.createdAt ?? "");
+  let priv: string | null = null;
+  let atRest: SigningKeyAtRest;
+
+  if (doc.privateKeySealed) {
+    priv = key ? openWith(key, doc.privateKeySealed) : null;
+    atRest = priv ? "sealed" : "unreadable";
+    if (!priv) {
+      // Never a throw. An operator who dropped the variable gets a village
+      // that boots and serves everything except signed publication, which is
+      // the only surface the missing half actually gates.
+      console.error(
+        `[identity] the signing key is sealed and this deployment cannot open it. ` +
+          `Set ${VILLAGE_SECRETS_ENV} to the value used when it was sealed. ` +
+          "The SIGNED documents (/.well-known/village.json, /api/public/org.json, /api/platform/module-usage) " +
+          "will refuse until then; the /org/**.md mirror carries no proof block and keeps serving. " +
+          "If that value is genuinely lost, the key must be re-minted and every peer village will have to accept the change by hand.",
+      );
+    }
+  } else {
+    priv = String(doc.privateKeyPem);
+    atRest = "plaintext";
+    if (key) {
+      /*
+       * UPGRADE ON READ. The plaintext row is what rides in a database dump,
+       * so leaving it until somebody remembers to migrate is leaving it. The
+       * re-seal is a plain UPDATE of the same row with the same keypair: the
+       * kid does not change, no peer sees anything change, and a boot that
+       * fails halfway leaves the old readable row in place.
+       */
+      const resealed = storedDoc(pub, priv, key, createdAt);
+      try {
+        await pool.query(
+          `UPDATE app_config SET value = ? WHERE config_key = '${SIGNING_KEY_ROW}'`,
+          [JSON.stringify(resealed)],
+        );
+        atRest = "sealed";
+        console.log("[identity] signing key re-sealed at rest; the plaintext copy is gone from app_config");
+      } catch (e) {
+        // Still usable, still exposed, and now said out loud rather than
+        // assumed to have worked.
+        console.error("[identity] could not re-seal the signing key; it stays plaintext in app_config", e);
+      }
+    } else {
+      // The honest floor. A fresh village with no key set boots and publishes
+      // exactly as it did yesterday, and every boot says what that costs.
+      console.warn(
+        `[identity] the signing key is stored in PLAINTEXT because ${VILLAGE_SECRETS_ENV} is not set. ` +
+          "It travels in every database dump. Set it (openssl rand -hex 32) and restart; " +
+          "this boot will seal the existing key in place, with no change visible to peers.",
+      );
+    }
+  }
+
   cachedKey = {
     kid: createHash("sha256").update(rawPublicKeyB64(pub)).digest("hex").slice(0, 16),
     publicKeyPem: pub,
-    privateKeyPem: String(doc.privateKeyPem),
-    createdAt: String(doc.createdAt ?? ""),
+    privateKeyPem: priv,
+    createdAt,
   };
+  cachedAtRest = atRest;
   return cachedKey;
 }
 
@@ -239,8 +408,16 @@ export interface Proof {
   signature: string;
 }
 
-/** Sign a document and return it with a `proof` block attached. */
+/**
+ * Sign a document and return it with a `proof` block attached.
+ *
+ * Throws when the private half is unavailable rather than returning the
+ * document unsigned. An unsigned copy of a document peers expect a proof on is
+ * the one outcome worse than no document: it teaches every reader that this
+ * village's payloads are sometimes fine without one.
+ */
 export function signDocument<T extends Record<string, any>>(doc: T, k: SigningKey, signedAt: string): T & { proof: Proof } {
+  if (!k.privateKeyPem) throw new Error(NO_SIGNING_KEY_SENTENCE);
   const body = canonicalJson({ ...doc, signedAt });
   const signature = edSign(null, Buffer.from(body, "utf8"), createPrivateKey(k.privateKeyPem));
   return { ...doc, proof: { alg: "ed25519", kid: k.kid, signedAt, signature: signature.toString("base64url") } };
