@@ -498,6 +498,30 @@ VERIFIED means the coordinator confirmed it. Nothing here is merged to main yet.
   with access denied for user root. Consistent with the database password having been rotated
   without updating the `PROD_DATABASE_URL` repository secret. Verified with `gh run list`.
 
+## 7f - Integration branch (coordinator-run, not pushed)
+
+`wt/s2-integration` in `../s2-integration` carries main plus the three landed lanes, merged in
+this order with no conflicts at any step, ledger sections included:
+
+    main ffb3199 + wt/s2-backup -> 57f1fb8 + wt/s2-fleet -> ec94684 + wt/s2-tokens -> 80a874c
+
+GATES RUN BY THE COORDINATOR on the integrated tree at **80a874c**, exit codes captured with no
+pipe, in a worktree with dependencies installed and a test env present:
+
+    install 0 | pnpm check 0 | pnpm build 0 (dist/index.js built @ 80a874c)
+    check-brand-refs 0 | check-voice 0 | check-hyphen-dash 0 | check-doc-links 0
+    check-image-budget 0 | check-theme-literals 0 | check-dist-budget 0
+
+Theme-literal guard reports 162 literals across 14 files against a baseline of 162, 7 waivers.
+
+STATE IS "CODED, COORDINATOR-VERIFIED LOCALLY". It is NOT the ladder's VERIFIED state, which
+requires CI green on that exact SHA. Nothing has been pushed, so GitHub CI has never run on any
+of this. Pushing `main` in this repository deploys production, so the push is a founder
+decision and is deliberately not the coordinator's to take.
+
+The full test suite has NOT been run on the integrated tree. It will be, serially, once the
+lanes stop competing for the one local MySQL, and compared against the pristine control.
+
 ## 8 - Changelog
 
 - 2026-08-30. Ledger created. Nine worktrees cut off 052d042. Gate set enumerated from the
