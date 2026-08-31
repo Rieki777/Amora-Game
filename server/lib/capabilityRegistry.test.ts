@@ -19,7 +19,32 @@ import {
 import { ALL_CAPABILITIES, TRANSFERABLE, type Capability } from "../../shared/capabilities";
 import { CAPABILITY_CONSEQUENCE } from "../../shared/draftKinds";
 
-const SERVER = fs.readFileSync(path.join(process.cwd(), "server", "index.ts"), "utf8");
+/**
+ * Every file that mounts routes, concatenated, not just the big one.
+ *
+ * This read `server/index.ts` alone. Route handlers are moving out into
+ * `server/routes/<domain>.ts` modules, and the first three that moved took
+ * their paths with them: the rot test below went red naming four routes as
+ * "no longer mounted" when all four were mounted, one file over. Read the
+ * whole set, so a route module joins by existing rather than by somebody
+ * remembering to add it here.
+ */
+function routeSources(): string {
+  const files = [path.join(process.cwd(), "server", "index.ts")];
+  const dir = path.join(process.cwd(), "server", "routes");
+  const walk = (d: string) => {
+    if (!fs.existsSync(d)) return;
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) files.push(full);
+    }
+  };
+  walk(dir);
+  return files.map((f) => fs.readFileSync(f, "utf8")).join("\n");
+}
+
+const SERVER = routeSources();
 
 describe("the powers registry", () => {
   it("describes every power that can move, in one list or the other", () => {
