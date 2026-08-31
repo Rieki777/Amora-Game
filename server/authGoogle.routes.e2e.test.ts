@@ -241,10 +241,23 @@ async function waitForLog(needle: string, ms = 5000): Promise<boolean> {
 }
 
 describe.skipIf(!DB_CONFIGURED)("a village with no Google credentials degrades honestly", () => {
-  it("says so on /api/auth/methods, so the client draws no button", () => {
-    return fetch(`${BARE_BASE}/api/auth/methods`)
-      .then((r) => r.json())
-      .then((body) => expect(body).toEqual({ password: true, google: false }));
+  it("says so on /api/auth/methods, and names what is missing", async () => {
+    // `missing` is here because `google: false` on its own read exactly the
+    // same whether a founder had forgotten one variable or all three, and the
+    // founder who needs to know is by definition the one who cannot sign in
+    // yet. It cost a real round trip on 2026-08-31: three variables were set,
+    // Google stayed off, and the only place that said which one was absent was
+    // a boot log inside a hosting dashboard.
+    //
+    // Asserted exactly rather than loosely. A response that grew a field
+    // nobody meant to publish is the other half of this endpoint's contract,
+    // and the values here are variable NAMES, never values.
+    const body = await fetch(`${BARE_BASE}/api/auth/methods`).then((r) => r.json());
+    expect(body).toEqual({
+      password: true,
+      google: false,
+      missing: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+    });
   });
 
   it("answers 404 on /start instead of redirecting somewhere broken", async () => {

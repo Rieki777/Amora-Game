@@ -150,7 +150,30 @@ export function register(app: Express, deps: GoogleAuthDeps): void {
    * platform has always had and the one a member with no Google account needs.
    */
   app.get("/api/auth/methods", (_req: Request, res: Response) => {
-    res.json({ password: true, google: deps.availability().available });
+    const avail = deps.availability();
+    // WHY `missing` IS IN THE RESPONSE, and why it is unauthenticated.
+    //
+    // This answered `{password, google}` and nothing else, so `google: false`
+    // read exactly the same whether a founder had forgotten one variable or
+    // all three. `resolveGoogleConfig` already works out precisely which are
+    // absent and names every one of them at once, and that list was going only
+    // to the boot log, where a founder has to go digging in a hosting
+    // dashboard to find it. That is the same empty-versus-zero confusion this
+    // codebase has already been burned by: one state, two very different
+    // causes, one indistinguishable answer.
+    //
+    // It has to be unauthenticated to be worth anything. The founder who needs
+    // it is the one who cannot sign in yet, which is the entire situation.
+    //
+    // Safe because these are variable NAMES and never values. The names are
+    // published in .env.example and docs/GOOGLE_SIGN_IN.md, and the one fact
+    // the list adds, that this village has not finished setting Google up, is
+    // already told by `google: false` sitting beside it.
+    res.json({
+      password: true,
+      google: avail.available,
+      ...(avail.available ? {} : { missing: avail.missing }),
+    });
   });
 
   app.get("/api/auth/google/start", async (req: Request, res: Response) => {
