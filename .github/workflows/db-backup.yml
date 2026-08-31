@@ -4,12 +4,58 @@
 # economy invariant #12: tested backup+restore is a go-live precondition for
 # funds-bearing modules). So this workflow never just dumps: a second job
 # restores the dump into a scratch MySQL and asserts fidelity against a
-# manifest taken at dump time — row counts AND a round-tripped timestamp,
+# manifest taken at dump time, row counts AND a round-tripped timestamp,
 # because the timezone lesson (rule 2.3) says counts can match while every
 # date shifted six hours.
 #
+# 2026-08-30: ENCRYPTED AT REST BEFORE UPLOAD.
+#
+# This workflow used to gzip the dump and upload it as a plain GitHub Actions
+# artifact. Artifact download follows repository read access, not a separate
+# permission, so on a public repository that was a daily plaintext copy of
+# every table (Stripe keys and every other app_config secret, the village
+# signing key, private message bodies, ballot reasons, legacy unsalted
+# SHA-256 password hashes) sitting behind nothing but "can read this repo".
+# See docs/FORK_RUNBOOK.md, Backups section, 2026-08-30 entry.
+#
+# The fix is GPG public-key encryption, to TWO recipients, for two different
+# reasons:
+#
+#   1. BACKUP_GPG_PUBLIC_KEY: the real recovery key. Its PRIVATE half is
+#      generated and held by the founder, offline, and never touches this
+#      repository or any CI runner. A stolen artifact is ciphertext nobody
+#      here can open.
+#   2. BACKUP_DRILL_GPG_PUBLIC_KEY / BACKUP_DRILL_GPG_PRIVATE_KEY: a SEPARATE
+#      keypair that exists only so the restore-drill job below can prove,
+#      automatically, on every run, that the encrypted artifact genuinely
+#      decrypts and restores. Its private half DOES live in CI secrets. That
+#      is deliberate and safe: this key carries no real recovery value (it
+#      is not the founder's key, and losing it loses nothing a rotation
+#      cannot fix), and multi-recipient GPG stores an independent encrypted
+#      session key per recipient, so the drill decrypting its own copy never
+#      needs and never sees the founder's private key.
+#
+# Both public keys are supplied as --recipient-file (GnuPG >= 2.1.13), which
+# encrypts straight from the key material with no import into a trust
+# database, so there is no keyring trust-model question to get wrong.
+#
+# FAILS CLOSED: if either public-key secret is missing, the backup job
+# refuses to run rather than falling back to an unencrypted upload. A gate
+# that silently degrades to "no encryption" on a missing secret is worse
+# than no gate; see ledger section 7 on silent-false-green.
+#
+# manifest.txt now travels INSIDE the encrypted bundle, not as a second
+# plaintext artifact file, because its own `probe` line carries one real
+# member's id and join timestamp. Nothing this workflow uploads is legible
+# without a private key.
+#
 # PROD_DATABASE_URL secret = the Railway MySQL public-proxy URL (same value
-# as the local .env's TEST_DATABASE_URL). Artifacts retain 30 days of dailies.
+# as the local .env's TEST_DATABASE_URL). Artifacts retain 30 days of
+# dailies, now as ciphertext.
+#
+# See docs/FORK_RUNBOOK.md for exactly how to generate both keypairs, which
+# secret gets which half, and the steward-facing rotation checklist to run
+# after any suspected exposure.
 name: db-backup
 
 on:
@@ -17,11 +63,34 @@ on:
     - cron: "17 9 * * *" # daily, 09:17 UTC
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   backup:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Require both encryption public keys before doing anything else
+        env:
+          PROD_PUB: ${{ secrets.BACKUP_GPG_PUBLIC_KEY }}
+          DRILL_PUB: ${{ secrets.BACKUP_DRILL_GPG_PUBLIC_KEY }}
+        run: |
+          if [ -z "$PROD_PUB" ]; then
+            echo "BACKUP_GPG_PUBLIC_KEY secret is not set. Refusing to dump: an" >&2
+            echo "unencrypted backup is the exact exposure this workflow exists" >&2
+            echo "to close. See docs/FORK_RUNBOOK.md, Backups section." >&2
+            exit 1
+          fi
+          if [ -z "$DRILL_PUB" ]; then
+            echo "BACKUP_DRILL_GPG_PUBLIC_KEY secret is not set. Refusing to dump:" >&2
+            echo "with no drill recipient, restore-drill below cannot prove this" >&2
+            echo "backup is restorable, and an unverified backup is a hope, not a" >&2
+            echo "backup. See docs/FORK_RUNBOOK.md, Backups section." >&2
+            exit 1
+          fi
+          echo "Both encryption public keys are present."
+
       - name: Dump production
         env:
           DB_URL: ${{ secrets.PROD_DATABASE_URL }}
@@ -64,12 +133,27 @@ jobs:
           } > manifest.txt
           cat manifest.txt
 
+      - name: Bundle and encrypt (dump + manifest travel together, ciphertext only from here on)
+        env:
+          PROD_PUB: ${{ secrets.BACKUP_GPG_PUBLIC_KEY }}
+          DRILL_PUB: ${{ secrets.BACKUP_DRILL_GPG_PUBLIC_KEY }}
+        run: |
+          tar czf bundle.tar.gz dump.sql.gz manifest.txt
+          printf '%s' "$PROD_PUB" > prod_pub.asc
+          printf '%s' "$DRILL_PUB" > drill_pub.asc
+          gpg --batch --yes --output bundle.tar.gz.gpg \
+            --recipient-file prod_pub.asc \
+            --recipient-file drill_pub.asc \
+            --encrypt bundle.tar.gz
+          # The plaintext bundle and the raw dump/manifest must not survive
+          # past this step. Only bundle.tar.gz.gpg gets uploaded.
+          rm -f bundle.tar.gz dump.sql.gz manifest.txt prod_pub.asc drill_pub.asc
+          ls -la bundle.tar.gz.gpg
+
       - uses: actions/upload-artifact@v4
         with:
           name: db-backup-${{ github.run_id }}
-          path: |
-            dump.sql.gz
-            manifest.txt
+          path: bundle.tar.gz.gpg
           retention-days: 30
 
   restore-drill:
@@ -88,13 +172,38 @@ jobs:
           --health-cmd "mysqladmin ping -h localhost -pdrill"
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
+      - name: Require the drill private key before doing anything else
+        env:
+          DRILL_PRIV: ${{ secrets.BACKUP_DRILL_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$DRILL_PRIV" ]; then
+            echo "BACKUP_DRILL_GPG_PRIVATE_KEY secret is not set. Refusing to" >&2
+            echo "report a result: a drill that cannot decrypt cannot prove" >&2
+            echo "anything, and a job that skips its own assertion and exits 0" >&2
+            echo "is exactly the false green ledger section 7 warns about." >&2
+            exit 1
+          fi
+
       - uses: actions/download-artifact@v4
         with:
           name: db-backup-${{ github.run_id }}
 
+      - name: Decrypt with the drill key only (never the founder's recovery key)
+        env:
+          DRILL_PRIV: ${{ secrets.BACKUP_DRILL_GPG_PRIVATE_KEY }}
+        run: |
+          printf '%s' "$DRILL_PRIV" | gpg --batch --yes --import
+          gpg --batch --yes --pinentry-mode loopback --passphrase '' \
+            --output bundle.tar.gz --decrypt bundle.tar.gz.gpg
+          tar xzf bundle.tar.gz
+          gunzip -c dump.sql.gz > dump.sql
+          test -s dump.sql
+          test -s manifest.txt
+          echo "Decrypted and unpacked. Proceeding to restore."
+
       - name: Restore into scratch MySQL
         run: |
-          gunzip -c dump.sql.gz | mysql --host=127.0.0.1 --port=3306 --user=root --password=drill restored
+          mysql --host=127.0.0.1 --port=3306 --user=root --password=drill restored < dump.sql
           echo "Restore completed."
 
       - name: Assert fidelity against the manifest
@@ -117,7 +226,63 @@ jobs:
             fi
           done < manifest.txt
           if [ "$fail" = "1" ]; then
-            echo "RESTORE DRILL FAILED — this backup does not faithfully restore."
+            echo "RESTORE DRILL FAILED, this backup does not faithfully restore."
             exit 1
           fi
-          echo "Restore drill passed: counts match and the probe timestamp round-tripped exactly."
+          echo "Restore drill passed: counts match and the probe timestamp round-tripped exactly, from an encrypted artifact decrypted with the drill key alone."
+
+  restore-drill-negative-control:
+    # Proves the drill is not a rubber stamp: a tampered artifact must be
+    # REFUSED, not silently accepted. Runs the same decrypt step against a
+    # deliberately corrupted copy of the real ciphertext and asserts that it
+    # fails. If corruption ever decrypts cleanly, that is worse than any
+    # single bad backup, it means the drill above cannot be trusted when it
+    # says green, so this job fails loudly rather than passing quietly.
+    needs: backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require the drill private key before doing anything else
+        env:
+          DRILL_PRIV: ${{ secrets.BACKUP_DRILL_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$DRILL_PRIV" ]; then
+            echo "BACKUP_DRILL_GPG_PRIVATE_KEY secret is not set. Refusing to" >&2
+            echo "report a result for the same reason restore-drill does." >&2
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+
+      - name: Import the drill key
+        env:
+          DRILL_PRIV: ${{ secrets.BACKUP_DRILL_GPG_PRIVATE_KEY }}
+        run: printf '%s' "$DRILL_PRIV" | gpg --batch --yes --import
+
+      - name: Corrupt a copy of the real artifact
+        run: |
+          cp bundle.tar.gz.gpg corrupt.tar.gz.gpg
+          size=$(stat -c%s corrupt.tar.gz.gpg)
+          offset=$((size / 2))
+          dd if=/dev/urandom of=corrupt.tar.gz.gpg bs=1 seek="$offset" count=32 conv=notrunc status=none
+          cmp -s bundle.tar.gz.gpg corrupt.tar.gz.gpg && { echo "corruption step did not change the file"; exit 1; }
+          echo "Ciphertext corrupted at byte offset $offset."
+
+      - name: Attempt to decrypt the corrupted artifact (must fail)
+        id: corrupt_decrypt
+        continue-on-error: true
+        run: |
+          gpg --batch --yes --pinentry-mode loopback --passphrase '' \
+            --output corrupt.tar.gz --decrypt corrupt.tar.gz.gpg
+
+      - name: Assert the corrupted artifact was refused
+        run: |
+          if [ "${{ steps.corrupt_decrypt.outcome }}" = "success" ]; then
+            echo "NEGATIVE CONTROL FAILED: a corrupted, tampered backup decrypted" >&2
+            echo "without complaint. The restore-drill's green cannot be trusted" >&2
+            echo "until this is fixed." >&2
+            exit 1
+          fi
+          echo "Negative control passed: GPG's integrity check refused the corrupted ciphertext, exactly as required. A tampered or truncated real backup would fail restore-drill the same way, not pass it silently."
