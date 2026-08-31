@@ -71,6 +71,15 @@ const ALLOWLIST = {
   // would be a link to an error message. /forgot-password keeps its one door
   // on the sign-in page, which is the only place a person wants it.
   "/set-password": "entered from a one-time email link; a site link has no token",
+  // The founder's way in on day one, and the way back in after a lockout. It
+  // is handed over out of band, the way a reset link is: FORK_RUNBOOK and the
+  // provisioning docs name it, and the person who needs it has been told to go
+  // there. A public nav entry saying "claim this village" would invite every
+  // visitor to try, and the page's whole job is to be useless to all of them.
+  // It refuses anyone without the deployment's own ADMIN_PASSWORD, and refuses
+  // everyone once a village has a founder.
+  "/claim": "handed over in the runbook, like a reset link; a public door would invite the wrong people",
+
   "/forgot-password": "one door, on the sign-in page, which is where a locked-out person already is",
 
   // The alias. /tokens is what the nav links to and what a member sees;
