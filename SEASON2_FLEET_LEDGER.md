@@ -952,7 +952,61 @@ honest position on the dash and brand rules is: they are enforced on the surface
 walk, and the guards walk less than the rules claim. That is a improvements-list item, not a
 blocker, but nobody should cite these guards as repo-wide.
 
-## 9 - Post-deploy actions (queued, not yet done)
+## 9 - SHIPPED, and the live regression it caused
+
+**PUSHED AND DEPLOYED.** `052d042..1871034` to origin/main. Railway deploy SUCCESS.
+`GET https://amora.regencivics.earth/health` returns:
+
+    {"status":"ok","build":"2026-07-28-wave1-1871034","database":{"ok":true,"ms":1},
+     "uploads":{"files":14,"mb":1,...}}
+
+The build marker carries the exact pushed SHA, so the new code IS the code serving. And
+`database:{ok:true,ms:1}` is the ops lane's honest health check live in production, where before
+this endpoint answered 200 without ever touching the database.
+
+### LIVE REGRESSION, caused by this work, found by checking rather than assuming
+
+`GET /api/game/config` on production now reports:
+
+    name        'Unnamed Village'      (was 'Amora')
+    memberName  'Village member'       (was 'Amora Family member')
+    logo        ''                     (was an Amora mark)
+    favicon     ''                     (was an Amora mark)
+    tagline     'Co-Become the Most Beautiful Village'   (set in Amora's own overlay, survived)
+
+CAUSE, and it is a fair consequence rather than a mistake: the identity lane changed the
+PLATFORM DEFAULT name from "Amora" to "Unnamed Village", which is correct and is the whole point
+for the 13 villages. But Amora's own brand overlay never set a name, a logo or a favicon: it was
+relying on BEING the default. Tenant one was the default. The tagline is set in its overlay and
+came through untouched, which proves the overlay mechanism works and only these fields were
+missing from it.
+
+The architecturally correct fix is to put Amora's identity in Amora's OWN overlay, exactly as
+each of the 13 will, NOT to move the platform default back.
+
+**I DID NOT WRITE TO THE PRODUCTION DATABASE TO FIX IT, deliberately.** `DATABASE_URL` is a
+service reference that does not resolve through `railway run`, and more importantly THIS
+VILLAGE HAS NO WORKING BACKUP: the daily job has failed since 2026-08-28 on a stale
+`PROD_DATABASE_URL` secret. Writing to a production database with no restore point, to fix a
+display name, is the exact risk this whole programme exists to prevent. The founder sets it in
+Admin, Make This Yours, in seconds.
+
+Also live and expected: `GET /api/content/legal` returns 404, so Amora's legal pages show the
+honest placeholders rather than Amora's own text. `server/seeds/brochure-legal-seed.json` holds
+that text and needs one authenticated admin PUT to `/api/admin/content/legal`.
+
+### Founder actions, in priority order
+
+1. **Set Amora's name and member name** in Admin, Make This Yours. Restores the live site.
+2. **Fix `PROD_DATABASE_URL`** so backups resume. Two days dark and counting.
+3. **Apply the legal seed** with one admin PUT, so Amora's own legal text returns.
+4. **Re-upload Amora's logo and favicon** through the wizard's Pictures step. The 8 Amora marks
+   were deleted from `client/public` (correctly, they were platform-level branding); a village's
+   art belongs in its own uploads volume, which is what that step writes to.
+5. **Delete the 29 stale unencrypted backup artifacts**, and confirm Stripe and the signing key
+   were rotated alongside the database password.
+
+
 
 1. **Apply `server/seeds/brochure-legal-seed.json` to Amora's live content document.** Amora already has a `content` row, so the boot-time seed-on-empty path will not touch it, and Amora's own legal wording would render as placeholders until this is applied. One authenticated admin PUT to `/api/admin/content/legal`. Coordinator to run after deploy.
 2. Verify the Railway deploy reaches SUCCESS and that `/health` reports the pushed SHA.
