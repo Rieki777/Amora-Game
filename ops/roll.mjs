@@ -530,12 +530,41 @@ function resolveManifestPath(args) {
   return path.resolve(ROOT, args.manifest || "ops/fleet.json");
 }
 
+/**
+ * Every exit below sets `process.exitCode` and returns, rather than calling
+ * `process.exit()`. The difference is not stylistic.
+ *
+ * `process.exit()` tears the process down while libuv handles are still open,
+ * and after this script has run several `fetch` calls there always are some:
+ * undici keeps its sockets alive by design. MEASURED 2026-08-31 on Windows
+ * with node v25.8.0, `plan` against a five village manifest printed its whole
+ * correct report and then aborted with
+ *
+ *     Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file
+ *     src\win\async.c, line 76
+ *
+ * exiting 127, deterministically, three runs out of three. Reduced to twelve
+ * lines containing none of this file: three fetches to three ports followed by
+ * `process.exit(0)` aborts the same way, and one fetch does not. So it is the
+ * runtime rather than this tool, and this repo pins node 22 (`.node-version`)
+ * where it does not happen. It still had to be fixed here, because the exit
+ * code is the whole interface: an operator who writes `roll.mjs plan &&
+ * roll.mjs apply` reads 127 from a run that did its job perfectly, and a
+ * rollout that stops for a reason nobody can find is worse than one that never
+ * started.
+ *
+ * Setting `exitCode` and letting the event loop drain exits with the right
+ * code and no abort, measured at no extra wall time. `fail()` above still
+ * calls `process.exit()` on purpose: it is a control flow terminator its
+ * callers rely on to not return, and it only ever runs before the first fetch.
+ */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const subcommand = args._[0] || "plan";
 
   if (subcommand === "check") {
-    process.exit(await cmdCheck(args));
+    process.exitCode = await cmdCheck(args);
+    return;
   }
 
   if (subcommand !== "plan" && subcommand !== "apply") {
@@ -548,17 +577,21 @@ async function main() {
   const manifest = loadManifest(manifestPath);
 
   if (subcommand === "plan") {
-    process.exit(await cmdPlan(manifest, { tag: args.tag, sha: args.sha }));
+    process.exitCode = await cmdPlan(manifest, { tag: args.tag, sha: args.sha });
   } else {
     const timeoutMs = args["timeout-ms"] ? Number(args["timeout-ms"]) : DEFAULT_TIMEOUT_MS;
     const intervalMs = args["interval-ms"] ? Number(args["interval-ms"]) : DEFAULT_INTERVAL_MS;
-    process.exit(
-      await cmdApply(manifest, { tag: args.tag, sha: args.sha, only: args.only, timeoutMs, intervalMs }),
-    );
+    process.exitCode = await cmdApply(manifest, {
+      tag: args.tag,
+      sha: args.sha,
+      only: args.only,
+      timeoutMs,
+      intervalMs,
+    });
   }
 }
 
 main().catch((err) => {
   console.error(`roll.mjs crashed: ${err && err.stack ? err.stack : err}`);
-  process.exit(2);
+  process.exitCode = 2;
 });

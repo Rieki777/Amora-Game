@@ -198,3 +198,36 @@ node ops/roll.mjs check --url http://127.0.0.1:8842/health --sha 1234567 --timeo
 
 Both print RED and exit non-zero. Full transcripts of both runs are in the
 lane's report to the fleet ledger.
+
+## Rehearsing a halt against fake villages
+
+`check` proves one URL reads correctly. The claim that actually matters is
+bigger: that a ring HALTS and that no later village is touched. Rehearse it
+with three local servers standing in for three villages, which takes a minute
+and needs no real infrastructure.
+
+Write a manifest whose villages point at `http://127.0.0.1:8851`, `:8852` and
+`:8853` in three different rings, and whose `stopCommand` and `startCommand`
+append a word to a marker file instead of deploying anything. Serve `:8851`
+and `:8853` a healthy `/health` carrying the SHA you will pass, and serve
+`:8852` either `{"status":"degraded"}` or a healthy body with a different
+SHA. Then run `apply`.
+
+What proves the rule is the marker files afterwards, rather than the output:
+the first ring's marker exists, the failing village's marker exists, and the
+marker for every village after the halt is ABSENT. Run 2026-08-31 against
+both failure shapes, the halted village reported `unhealthy_status` and
+`sha_mismatch` respectively, `apply` exited 1, and the later ring and the
+pinned village were never written to.
+
+Keep the drill manifest outside the repository. `ops/fleet.json` is the real
+one and a stray fake village in it is a rollout that skips a real village.
+
+## Node version
+
+Run this tool on the version in `.node-version` (22). On node 25 on Windows,
+`plan` and `apply` used to abort at exit with a libuv assertion after their
+work was already done and correct, returning 127 instead of their real exit
+code. `roll.mjs` no longer calls `process.exit()`, which avoids it, and the
+comment above `main()` records the measurement. Anything that reads this
+tool's exit code should still be run on a supported node.

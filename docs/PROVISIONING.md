@@ -255,6 +255,23 @@ unset is not a passing suite; it is an unrun third of one. Set it before
 trusting any local test result, and read the actual pass and skip counts,
 not just the exit code.
 
+## Which version you are running, and how to hold still
+
+The platform ships as numbered releases, each one a container image published
+at `ghcr.io/rieki777/village-os`. The package is open, so a self-hosted
+village can pull and run a named version with no account and no access token.
+
+- `CHANGELOG.md` says what each release contains, in plain language. Its
+  newest entry is the current release.
+- `ops/RELEASES.md` covers the rest: the `:stable` and `:edge` channels, the
+  `docker run` line for a self-hosted village, how to ask a running village
+  which version it is, and how to pin a version so your village stays put
+  while others move.
+
+Deploying from the repository, as step 5 describes, keeps you on whatever is
+newest. Naming a version in your deploy instead is what makes an instance
+reproducible, and it is worth doing before you have members depending on it.
+
 ## Where each step's file lives
 
 - `.env.example` names every variable this platform reads and what breaks
@@ -264,3 +281,7 @@ not just the exit code.
   distilled from.
 - `docs/FOUNDER_SETUP_PROMPT.md` is this same walkthrough, written for a
   founder to hand directly to their own Claude session.
+- `CHANGELOG.md` is what shipped in each release, and which release is
+  current.
+- `ops/RELEASES.md` is how to pull a release, pin one, and read the version a
+  running village reports.
