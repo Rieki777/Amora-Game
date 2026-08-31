@@ -105,29 +105,24 @@ COPY patches ./patches
 RUN pnpm install --frozen-lockfile --prod
 
 
-# ---------------------------------------------------------------------------
-# extras: packages the production bundle imports that --prod does not install.
-# ---------------------------------------------------------------------------
-FROM deps AS extra-deps
-# `dotenv` is declared in devDependencies, and server/index.ts line 3 is
-# `import "dotenv/config"`. That import survives into dist/index.js, so a
-# straight --prod tree boots to ERR_MODULE_NOT_FOUND on dotenv before it
-# reaches a single line of village code. Measured on this lockfile 2026-08-30
-# by booting the exact --prod tree, not inferred.
+# The `extra-deps` stage stood here until 2026-08-31, and its own comment said
+# when to remove it: "The honest fix is one word in package.json: dotenv is a
+# production dependency of this server and is declared as if it were not. When
+# package.json is fixed, delete this stage and the COPY that reads it."
 #
-# The honest fix is one word in package.json: dotenv is a production
-# dependency of this server and is declared as if it were not. That file is
-# shared across every lane in flight, so this lane files the correction rather
-# than making it, and bridges it here in the meantime. When package.json is
-# fixed, delete this stage and the COPY that reads it.
+# package.json is now fixed, and the removal was not optional. `prod-deps`
+# installs dotenv as a real dependency, so the stage copied its own dotenv over
+# a directory that already existed and buildkit refused the whole build:
 #
-# No version is written down anywhere here. The package comes from the tree
-# the build itself used, and `cp -RL` follows pnpm's symlink to the real
-# directory so the result does not depend on the virtual store coming along.
-ARG RUNTIME_EXTRAS="dotenv"
-RUN set -eux; \
-    mkdir -p /extra; \
-    for p in $RUNTIME_EXTRAS; do cp -RL "node_modules/$p" "/extra/$p"; done
+#   COPY --from=extra-deps /extra/ ./node_modules/
+#   ERROR: cannot copy to non-directory: .../app/node_modules/dotenv
+#
+# Every deploy failed on it, the release workflow included. The bridge outlived
+# the gap it bridged, which is the ordinary way a workaround turns into a bug:
+# it kept doing exactly what it was told long after that stopped being right.
+#
+# The image still proves for itself that every runtime import resolves. That
+# check is further down and is what would catch a genuine missing package now.
 
 
 # ---------------------------------------------------------------------------
@@ -189,9 +184,10 @@ ENV NODE_ENV=production
 ENV PORT=3000
 WORKDIR /app
 
-# Every package the bundle externalised.
+# Every package the bundle externalised. One COPY, because every runtime import
+# now resolves from `dependencies` alone. See the note where the extra-deps
+# stage used to sit.
 COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=extra-deps /extra/ ./node_modules/
 
 # The server bundle (dist/index.js) and the client bundle (dist/public).
 # server/index.ts:31939 resolves staticPath as `<dirname>/public` when
