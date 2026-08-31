@@ -40,6 +40,9 @@ import {
 } from "./lib/capabilityRegistry";
 import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
 import { adminGateWasConsulted, markAdminGate } from "./lib/adminGate";
+import { type FaqPathway, register as registerFaqRoutes } from "./routes/faqs";
+import { register as registerMilestonesRoutes } from "./routes/milestones";
+import { register as registerTrainingRoutes } from "./routes/training";
 import {
   decodeToken,
   encodeToken,
@@ -1006,8 +1009,9 @@ function validEmailSender(v: string): boolean {
   return /^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(s) || /^[^<>]+<[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>$/.test(s);
 }
 
-const FAQ_PATHWAYS = ["investor", "steward", "resident", "prosperity"] as const;
-type FaqPathway = (typeof FAQ_PATHWAYS)[number];
+// FAQ_PATHWAYS and FaqPathway now live with the domain that defines them, in
+// server/routes/faqs.ts, and are imported above. Still needed here for the
+// seed document's type.
 
 /**
  * The village-content defaults: FAQs, roadmap milestones, the visit page and
@@ -21307,187 +21311,21 @@ ${inner}
 
   // â”€â”€ Training Modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  app.get("/api/training-modules", async (_req, res) => {
-    const mods: any[] = trainingRepo.all();
-    mods.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    res.json(mods);
-  });
-
-  app.get("/api/admin/training-modules", async (req, res) => {
-    if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "auth_required" });
-    }
-    const mods: any[] = trainingRepo.all();
-    mods.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    res.json(mods);
-  });
-
-  app.post("/api/admin/training-modules", async (req, res) => {
-    if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "auth_required" });
-    }
-    const { title, description, type, url, order } = req.body ?? {};
-    if (!title || !type) return res.status(400).json({ error: "Missing title or type" });
-    const mods: any[] = trainingRepo.all();
-    const entry = {
-      id: `mod-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      title,
-      description: description ?? "",
-      type,
-      url: url ?? "",
-      order: typeof order === "number" ? order : mods.length + 1,
-    };
-    mods.push(entry);
-    await trainingRepo.replaceAll(mods);
-    res.json(entry);
-  });
-
-  app.put("/api/admin/training-modules/:id", async (req, res) => {
-    if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "auth_required" });
-    }
-    const mods: any[] = trainingRepo.all();
-    const idx = mods.findIndex((m) => m.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Not found" });
-    const allowed = ["title", "description", "type", "url", "order"];
-    for (const key of allowed) {
-      if (req.body[key] !== undefined) mods[idx][key] = req.body[key];
-    }
-    await trainingRepo.replaceAll(mods);
-    res.json(mods[idx]);
-  });
-
-  app.delete("/api/admin/training-modules/:id", async (req, res) => {
-    if (!(await isAdmin(req))) {
-      return res.status(401).json({ error: "auth_required" });
-    }
-    const mods: any[] = trainingRepo.all();
-    const filtered = mods.filter((m) => m.id !== req.params.id);
-    if (filtered.length === mods.length) return res.status(404).json({ error: "Not found" });
-    await trainingRepo.replaceAll(filtered);
-    res.json({ success: true });
-  });
+  // Registered at exactly this point: Express matches in registration order,
+  // so where register() is CALLED is part of the behaviour, not a detail.
+  registerTrainingRoutes(app, { isAdmin, trainingRepo });
 
   // â”€â”€ FAQs (NEW-1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  app.get("/api/faqs/:pathway", async (req, res) => {
-    const pathway = req.params.pathway;
-    if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
-    const all = faqsRepo.get();
-    res.json(all[pathway] ?? []);
-  });
-
-  app.get("/api/admin/faqs", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    res.json(faqsRepo.get());
-  });
-
-  app.put("/api/admin/faqs/:pathway", async (req, res) => {
-    if (!(await guardCapability(req, res, "story.tell"))) return;
-    const pathway = req.params.pathway;
-    if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
-    if (!Array.isArray(req.body)) return res.status(400).json({ error: "Body must be an array" });
-    const all = faqsRepo.get();
-    all[pathway] = req.body.map((item: any) => ({
-      id: item.id || `${pathway.slice(0, 3)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      question: String(item.question ?? "").trim(),
-      answer: String(item.answer ?? "").trim(),
-    }));
-    await faqsRepo.put(all);
-    res.json({ success: true, items: all[pathway] });
-  });
-
-  app.post("/api/admin/faqs/:pathway", async (req, res) => {
-    if (!(await guardCapability(req, res, "story.tell"))) return;
-    const pathway = req.params.pathway;
-    if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
-    const { question, answer } = req.body ?? {};
-    if (!question) return res.status(400).json({ error: "Missing question" });
-    const all = faqsRepo.get();
-    if (!all[pathway]) all[pathway] = [];
-    const item = {
-      id: `${pathway.slice(0, 3)}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      question: String(question).trim(),
-      answer: String(answer ?? "").trim(),
-    };
-    all[pathway].push(item);
-    await faqsRepo.put(all);
-    res.json(item);
-  });
-
-  app.delete("/api/admin/faqs/:pathway/:id", async (req, res) => {
-    if (!(await guardCapability(req, res, "story.tell"))) return;
-    const { pathway, id } = req.params;
-    if (!FAQ_PATHWAYS.includes(pathway as FaqPathway)) return res.status(404).json({ error: "Unknown pathway" });
-    const all = faqsRepo.get();
-    const before = (all[pathway] ?? []).length;
-    all[pathway] = (all[pathway] ?? []).filter((f: any) => f.id !== id);
-    if (all[pathway].length === before) return res.status(404).json({ error: "Not found" });
-    await faqsRepo.put(all);
-    res.json({ success: true });
-  });
+  // Registered at exactly this point: Express matches in registration order,
+  // so where register() is CALLED is part of the behaviour, not a detail.
+  registerFaqRoutes(app, { isAdmin, guardCapability, faqsRepo });
 
   // â”€â”€ Milestones (NEW-3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  app.get("/api/milestones", async (_req, res) => {
-    const mils: any[] = milestonesRepo.all();
-    mils.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    res.json(mils);
-  });
-
-  app.get("/api/admin/milestones", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const mils: any[] = milestonesRepo.all();
-    mils.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    res.json(mils);
-  });
-
-  app.post("/api/admin/milestones", async (req, res) => {
-    if (!(await guardCapability(req, res, "story.tell"))) return;
-    const { phase, title, description, status, completedDate, updateNote, order } = req.body ?? {};
-    if (!title || !phase) return res.status(400).json({ error: "Missing title or phase" });
-    const mils: any[] = milestonesRepo.all();
-    const entry = {
-      id: `mil-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      phase,
-      title,
-      description: description ?? "",
-      status: status ?? "upcoming",
-      completedDate: completedDate ?? null,
-      updateNote: updateNote ?? "",
-      order: typeof order === "number" ? order : mils.length + 1,
-      updatedAt: new Date().toISOString(),
-    };
-    mils.push(entry);
-    await milestonesRepo.replaceAll(mils);
-    res.json(entry);
-  });
-
-  app.put("/api/admin/milestones/:id", async (req, res) => {
-    if (!(await guardCapability(req, res, "story.tell"))) return;
-    const mils: any[] = milestonesRepo.all();
-    const idx = mils.findIndex((m) => m.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Not found" });
-    const allowed = ["phase", "title", "description", "status", "completedDate", "updateNote", "order"];
-    let touched = false;
-    for (const k of allowed) {
-      if (req.body[k] !== undefined && mils[idx][k] !== req.body[k]) { mils[idx][k] = req.body[k]; touched = true; }
-    }
-    // Stamped so the admin can surface milestones nobody has looked at in weeks —
-    // a board goes stale silently otherwise (see "Founding Team Assembled").
-    if (touched) mils[idx].updatedAt = new Date().toISOString();
-    await milestonesRepo.replaceAll(mils);
-    res.json(mils[idx]);
-  });
-
-  app.delete("/api/admin/milestones/:id", async (req, res) => {
-    if (!(await guardCapability(req, res, "story.tell"))) return;
-    const mils: any[] = milestonesRepo.all();
-    const filtered = mils.filter((m) => m.id !== req.params.id);
-    if (filtered.length === mils.length) return res.status(404).json({ error: "Not found" });
-    await milestonesRepo.replaceAll(filtered);
-    res.json({ success: true });
-  });
+  // Registered at exactly this point: Express matches in registration order,
+  // so where register() is CALLED is part of the behaviour, not a detail.
+  registerMilestonesRoutes(app, { isAdmin, guardCapability, milestonesRepo });
 
   // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

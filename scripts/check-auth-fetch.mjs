@@ -41,7 +41,31 @@ import ts from "typescript";
 
 const ROOT = process.cwd();
 const CLIENT = path.join(ROOT, "client", "src");
-const SERVER = path.join(ROOT, "server", "index.ts");
+
+/** Every .ts under server/routes, which is where route modules now live. */
+function routeModules(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...routeModules(full));
+    else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) out.push(full);
+  }
+  return out.sort();
+}
+
+/**
+ * Every file that registers routes, not just the big one.
+ *
+ * This was the single path `server/index.ts`. Route handlers are now moving
+ * out into `server/routes/<domain>.ts` modules, and the first three that moved
+ * took their routes out of this guard's sight with them: the count it reports
+ * fell from 348 route prefixes to 342 and it still said "clean". A guard that
+ * quietly checks fewer things than it did yesterday is the same class of
+ * failure this file was written to catch, one level up. So the source is a
+ * LIST, and a new route module joins it by existing.
+ */
+const SERVER_FILES = [path.join(ROOT, "server", "index.ts"), ...routeModules(path.join(ROOT, "server", "routes"))];
 const METHODS = new Set(["get", "post", "put", "delete", "patch"]);
 
 /**
@@ -73,9 +97,10 @@ const patternOf = (route) =>
  * exactly the way the map did.
  */
 function refusingRoutes() {
+  const routes = new Map();
+  for (const SERVER of SERVER_FILES) {
   const src = fs.readFileSync(SERVER, "utf8");
   const sf = ts.createSourceFile(SERVER, src, ts.ScriptTarget.Latest, true);
-  const routes = new Map();
   const visit = (node) => {
     if (
       ts.isCallExpression(node) &&
@@ -113,6 +138,7 @@ function refusingRoutes() {
     ts.forEachChild(node, visit);
   };
   visit(sf);
+  }
   return [...routes.values()];
 }
 

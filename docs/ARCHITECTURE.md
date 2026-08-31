@@ -41,8 +41,9 @@ authority; the `data/` volume holds only uploads and archived JSON
 
 | Path | What lives there |
 |---|---|
-| `server/index.ts` | The one Express server (~8,400 lines): auth, routes, boot |
-| `server/lib/*` | Domain libraries: ledger, modules, payments, exchange, notify, scheduler, events, secrets, identity, launch, feedback, exit, health, … |
+| `server/index.ts` | The one Express server: auth, boot, and the routes not yet extracted. **32,977 lines, 545 route registrations**, measured 2026-08-31 by `scripts/check-server-index-size.mjs`, which ratchets both numbers downward. This row said "~8,400 lines" from some earlier era until that guard existed; do not hand-edit these figures, run the script. |
+| `server/routes/*` | Route modules, one per domain, each exporting `register(app, deps)`. Where new routes go. |
+| `server/lib/*` | Domain libraries: ledger, modules, payments, exchange, notify, scheduler, events, secrets, identity, launch, feedback, exit, health, member tokens, the admin-gate marker, `appDeps` … |
 | `server/db/` | `migrate.ts` (the engine), `testDb.ts` (S5 harness), `schema.ts` |
 | `server/repos/` | `store-db.ts` (MySQL-authoritative, memory-cached, write-through stores), `users.ts`, `quests.ts`, `gratitude.ts` |
 | `server/seeds/` | Fork-onboarding seeds (content, quests) — a declared brand home |
@@ -105,8 +106,11 @@ pipeline by a one-time patch of the four registration verbs
     settle/reversal with the trio.
 11. **Seeds** (2111). Quest library seeds only into an *empty* table.
 12. **Routes serve** (2130 onward). Express app, webhook seam, middleware,
-    ~200 routes, static SPA fallback, `server.listen` on `PORT || 3000`
-    (8495–8505).
+    545 route registrations in `server/index.ts` plus the `register(app,
+    deps)` calls for each `server/routes/*` module, static SPA fallback,
+    `server.listen` on `PORT || 3000`. (This said "~200 routes" until the
+    count was measured; `scripts/check-server-index-size.mjs` owns the
+    number now.)
 
 ---
 
@@ -1230,10 +1234,59 @@ submission aged out.
    invariant check, like `ensureStayToken`, `server/index.ts:1871`), and
    issue only through `postTransfer` with idempotency keys. No private
    balance columns — the framework gives modules no place to keep one.
-4. **Routes** in `server/index.ts`, mounted behind
-   `app.use("<prefix>", requireModule("<id>"))` for every prefix declared
-   in the registry. Settlement webhooks (if fiat) go through
-   `registerPaymentHandlers`, never behind the module gate.
+4. **Routes** in `server/routes/<id>.ts`, **not** in `server/index.ts`,
+   mounted behind `app.use("<prefix>", requireModule("<id>"))` for every
+   prefix declared in the registry. Settlement webhooks (if fiat) go
+   through `registerPaymentHandlers`, never behind the module gate.
+
+   **The route module shape.** One export that touches Express, and an
+   explicit list of what the routes may reach:
+
+   ```ts
+   import type { Express } from "express";
+   import type { AppDeps } from "../lib/appDeps";
+
+   type Deps = Pick<AppDeps, "isAdmin" | "guardCapability" | "thingRepo">;
+
+   export function register(app: Express, deps: Deps): void {
+     const { isAdmin, guardCapability, thingRepo } = deps;
+     app.get("/api/thing", async (req, res) => { /* ... */ });
+   }
+   ```
+
+   Then one line in `startServer`, at the point in the file where the
+   routes belong: `registerThingRoutes(app, { isAdmin, guardCapability,
+   thingRepo });`. **Where you call it is part of the behaviour**, because
+   Express matches in registration order; moving a registration past
+   another route that could also match the same path changes which handler
+   answers.
+
+   Take a `Pick<AppDeps, …>`, never the whole `AppDeps`. Those names are
+   the complete list of what the module can reach, and widening it is then
+   a visible line in a diff rather than a new free variable nobody
+   notices. Add the entry you need to `server/lib/appDeps.ts`; that type
+   grows one entry per extraction on purpose.
+
+   **Take the gates from `deps`. Do not import your own.** `isAdmin`,
+   `authedUser`, `mayAct`, `guardCapability` and `mayStillSee` each call
+   `markAdminGate` (`server/lib/adminGate.ts`) on entry, and the
+   default-deny middleware under `/api/admin` refuses any admin response
+   that succeeds without that mark. A hand-rolled gate passes review and
+   then turns every admin route in your module into a 403.
+
+   `server/routes/faqs.ts`, `training.ts` and `milestones.ts` are the
+   worked examples, in ascending order of how much they need.
+
+   **Why not `server/index.ts` any more.** That file is 33,000 lines with
+   560 route registrations in one `startServer` closure, and this recipe
+   telling every contributor to add to it is a large part of why. It is
+   now ratcheted by `scripts/check-server-index-size.mjs`: its line count
+   and its route count may only ever fall, `--update-baseline` refuses to
+   write a higher number, and a file under `server/routes/` is capped at
+   2000 lines so the monolith cannot simply move house. A route added to
+   `server/index.ts` fails CI. Extraction work lowers the baseline; run
+   `node scripts/check-server-index-size.mjs --update-baseline` when you
+   have taken some out.
 
    **Capability checks: which of the two, and why it matters.** This line
    used to say `hasCapability(cap, await capabilityCtx(user))` for every
