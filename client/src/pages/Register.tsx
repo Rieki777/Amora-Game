@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion } from "framer-motion";
 import { Heart, ArrowRight, Mail, Lock, User, CheckCircle2, Circle } from "lucide-react";
@@ -253,6 +254,14 @@ export default function Register() {
                 {loading ? "Creating Account..." : "Create Account"}
                 {!loading && <ArrowRight className="w-5 h-5" />}
               </motion.button>
+
+              {/*
+                Joining with Google, beside the form and never in place of it.
+                A member with no Google account fills in the fields above, the
+                way they always have. On a village with no Google credentials
+                this renders nothing.
+              */}
+              <GoogleSignInButton label="Continue with Google" next="/profile" />
             </form>
 
             <div className="mt-8 text-center">

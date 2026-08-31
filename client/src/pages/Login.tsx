@@ -1,4 +1,6 @@
 import Layout from "@/components/Layout";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
+import { useGoogleSignInReturn } from "@/components/auth/useGoogleSignInReturn";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion } from "framer-motion";
 import { Heart, ArrowRight, Mail, Lock } from "lucide-react";
@@ -12,6 +14,10 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // Google sends members back to this page. The hook finishes the exchange and
+  // reloads onto the destination, so the only thing this page renders for it is
+  // a waiting line or a refusal.
+  const googleReturn = useGoogleSignInReturn();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -72,6 +78,22 @@ export default function Login() {
             </div>
 
             <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-lg p-8 space-y-6">
+              {/*
+                A Google round trip that failed says so here, in the same
+                spoken box a failed password gets. Silence would leave a
+                member staring at a sign-in form with no idea their click
+                went anywhere.
+              */}
+              {googleReturn.status === "failed" && (
+                <div role="alert" className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  {googleReturn.message}
+                </div>
+              )}
+              {googleReturn.status === "working" && (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Finishing your Google sign-in.
+                </p>
+              )}
               {/*
                 role="alert" so a failed sign-in is SPOKEN. A red box that
                 only appears visually leaves a screen-reader user pressing
@@ -147,6 +169,14 @@ export default function Login() {
                   Forgot your password?
                 </a>
               </p>
+
+              {/*
+                An ADDITIONAL way in, never a replacement. The form above stays
+                exactly where it was, because a village will have members with
+                no Google account. On a village that configured no Google
+                credentials this renders nothing at all.
+              */}
+              <GoogleSignInButton next={new URLSearchParams(window.location.search).get("next") ?? "/profile"} />
             </form>
 
             <div className="mt-8 text-center">

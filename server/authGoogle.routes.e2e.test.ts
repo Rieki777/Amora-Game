@@ -1,0 +1,620 @@
+/**
+ * Google sign-in, against the BUILT server, over real HTTP, on a real schema.
+ *
+ * ── WHY A STAND-IN FOR GOOGLE, AND WHAT IT DOES NOT WEAKEN ──────────────────
+ *
+ * Nothing here can drive accounts.google.com: there is no browser and no
+ * consent screen in a test run. So this suite starts a small HTTP server that
+ * plays ONE part, the token endpoint, and points the app at it through
+ * `GOOGLE_TOKEN_ENDPOINT` (accepted only for a loopback address, see
+ * resolveTokenEndpoint).
+ *
+ * Everything the app itself does still runs for real: the state signature, the
+ * nonce it minted being the nonce that comes back, the audience check, the
+ * expiry, the verified-email rule, the account decision, the row write, the
+ * handoff cookie, the single-use ledger, and the session token that comes out
+ * the far end. The stand-in supplies the one thing this process cannot: a
+ * response from Google.
+ *
+ * WHAT IS THEREFORE UNPROVEN HERE, stated plainly:
+ *
+ *  1. That a real Google authorization screen redirects back with a usable
+ *     code. The /start redirect is asserted to be a correct Google URL with
+ *     the right client id, redirect URI, scope, state and nonce, and no
+ *     further.
+ *  2. That a real Google client id and secret are accepted at the real token
+ *     endpoint. That is a credentials question and belongs to whoever
+ *     registers the OAuth client.
+ *  3. Google's id_token SIGNATURE. The shipped code does not verify it either,
+ *     deliberately and for a documented reason (see decodeIdTokenPayload): the
+ *     token arrives in the body of the server's own authenticated HTTPS POST.
+ *     A stand-in on loopback stands in that same position.
+ *
+ * Skips loudly without TEST_DATABASE_URL, like every DB-backed suite here.
+ */
+import fs from "fs";
+import http from "http";
+import os from "os";
+import path from "path";
+import { spawn, type ChildProcess } from "child_process";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+
+const DB_CONFIGURED = testDbConfigured();
+if (!DB_CONFIGURED) {
+  console.warn("[authGoogle.routes] TEST_DATABASE_URL not set. DB-backed tests SKIPPED.");
+}
+
+const DIST = path.resolve(process.cwd(), "dist/index.js");
+/** Its own range, above every other suite's (the highest in use ends at 20100). */
+const PORT = 20200 + (process.pid % 400);
+const GOOGLE_PORT = 20700 + (process.pid % 400);
+/** A second app, with no Google credentials at all, for the degrade case. */
+const BARE_PORT = 21200 + (process.pid % 400);
+const BASE = `http://localhost:${PORT}`;
+const BARE_BASE = `http://localhost:${BARE_PORT}`;
+const ADMIN = "google-e2e-admin-password";
+const CLIENT_ID = "test-client-id.apps.googleusercontent.com";
+const CLIENT_SECRET = "test-client-secret";
+
+let child: ChildProcess | undefined;
+let bareChild: ChildProcess | undefined;
+let googleServer: http.Server | undefined;
+let testDb: TestDb | undefined;
+let bareDb: TestDb | undefined;
+let dataDir = "";
+let bareDataDir = "";
+const logs: string[] = [];
+
+/**
+ * What the stand-in will answer next. A test sets this, then drives the
+ * callback. `claims` becomes the id_token payload verbatim, so a test can send
+ * a token with the wrong audience or an unverified address by writing one.
+ */
+let nextResponse: { status: number; claims: Record<string, unknown> | null; body?: unknown } = {
+  status: 200,
+  claims: null,
+};
+/** What the app sent to the token endpoint, for asserting the exchange itself. */
+let lastTokenRequest: Record<string, string> = {};
+
+function idTokenFor(claims: Record<string, unknown>): string {
+  // Header and signature are filler: nothing in the shipped path reads them,
+  // for the reason documented on decodeIdTokenPayload.
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+  return `${header}.${payload}.stand-in-signature`;
+}
+
+function startGoogleStandIn(): Promise<void> {
+  googleServer = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      lastTokenRequest = Object.fromEntries(new URLSearchParams(body));
+      if (nextResponse.status !== 200) {
+        res.writeHead(nextResponse.status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(nextResponse.body ?? { error: "invalid_grant" }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          access_token: "stand-in-access-token",
+          id_token: nextResponse.claims ? idTokenFor(nextResponse.claims) : "not-a-jwt",
+        }),
+      );
+    });
+  });
+  return new Promise((resolve) => googleServer!.listen(GOOGLE_PORT, "127.0.0.1", () => resolve()));
+}
+
+async function waitForHealth(base: string, tag: string): Promise<void> {
+  const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
+  for (;;) {
+    if (Date.now() > deadline) {
+      throw new Error(`${tag} did not start in ${E2E_BOOT_DEADLINE_MS / 1000}s:\n${logs.join("")}`);
+    }
+    try {
+      if ((await fetch(`${base}/health`)).ok) return;
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}
+
+beforeAll(async () => {
+  if (!DB_CONFIGURED) return;
+  if (!fs.existsSync(DIST)) {
+    throw new Error(`${DIST} is missing. Run \`pnpm build\` before the Google sign-in route test.`);
+  }
+  await startGoogleStandIn();
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-google-"));
+  bareDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-nogoogle-"));
+  testDb = await provisionTestDb();
+  bareDb = await provisionTestDb();
+
+  const shared = {
+    ...process.env,
+    NODE_ENV: "production",
+    ADMIN_PASSWORD: ADMIN,
+    AUTH_TOKEN_SECRET: "google-e2e-token-secret", // a throwaway signing key for a server this file starts and kills
+    RESEND_API_KEY: "",
+    ANTHROPIC_API_KEY: "",
+  };
+
+  child = spawn(process.execPath, [DIST], {
+    env: {
+      ...shared,
+      PORT: String(PORT),
+      DATA_DIR: dataDir,
+      DATABASE_URL: testDb.url,
+      FRONTEND_URL: BASE,
+      GOOGLE_CLIENT_ID: CLIENT_ID,
+      GOOGLE_CLIENT_SECRET: CLIENT_SECRET,
+      GOOGLE_TOKEN_ENDPOINT: `http://127.0.0.1:${GOOGLE_PORT}/token`,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout?.on("data", (d) => logs.push(String(d)));
+  child.stderr?.on("data", (d) => logs.push(String(d)));
+
+  // The same image with NO Google variables. This is the state every one of
+  // the thirteen villages boots in before its founder configures anything.
+  bareChild = spawn(process.execPath, [DIST], {
+    env: {
+      ...shared,
+      PORT: String(BARE_PORT),
+      DATA_DIR: bareDataDir,
+      DATABASE_URL: bareDb.url,
+      FRONTEND_URL: BARE_BASE,
+      GOOGLE_CLIENT_ID: "",
+      GOOGLE_CLIENT_SECRET: "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  bareChild.stdout?.on("data", (d) => logs.push(String(d)));
+  bareChild.stderr?.on("data", (d) => logs.push(String(d)));
+
+  await waitForHealth(BASE, "server");
+  await waitForHealth(BARE_BASE, "bare server");
+});
+
+afterAll(async () => {
+  child?.kill();
+  bareChild?.kill();
+  googleServer?.close();
+  await testDb?.drop();
+  await bareDb?.drop();
+  for (const d of [dataDir, bareDataDir]) if (d) fs.rmSync(d, { recursive: true, force: true });
+});
+
+/** Ask /start and read back the state and nonce the server actually minted. */
+async function beginSignIn(next?: string): Promise<{ state: string; nonce: string; location: URL }> {
+  const url = `${BASE}/api/auth/google/start${next ? `?next=${encodeURIComponent(next)}` : ""}`;
+  const res = await fetch(url, { redirect: "manual" });
+  expect(res.status).toBe(302);
+  const location = new URL(res.headers.get("location")!);
+  return {
+    state: location.searchParams.get("state")!,
+    nonce: location.searchParams.get("nonce")!,
+    location,
+  };
+}
+
+const claimsFor = (over: Record<string, unknown>) => ({
+  iss: "https://accounts.google.com",
+  aud: CLIENT_ID,
+  exp: Math.floor(Date.now() / 1000) + 600,
+  ...over,
+});
+
+/** Drive the callback and hand back its redirect and its handoff cookie. */
+async function callback(state: string, code = "an-authorization-code") {
+  const res = await fetch(
+    `${BASE}/api/auth/google/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`,
+    { redirect: "manual" },
+  );
+  const setCookie = res.headers.getSetCookie?.() ?? [];
+  const handoff = setCookie
+    .map((c) => /(?:^|;\s*)village_oauth_handoff=([^;]*)/.exec(c)?.[1])
+    .find((v) => v && v.length > 0);
+  return { res, location: res.headers.get("location") ?? "", cookie: handoff ?? null, setCookie };
+}
+
+async function exchange(cookie: string | null) {
+  return fetch(`${BASE}/api/auth/google/exchange`, {
+    method: "POST",
+    headers: cookie ? { cookie: `village_oauth_handoff=${cookie}` } : {},
+  });
+}
+
+/** Poll the captured child output for a line, so a slow flush is not a failure. */
+async function waitForLog(needle: string, ms = 5000): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    if (logs.join("").includes(needle)) return true;
+    if (Date.now() > deadline) return false;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+describe.skipIf(!DB_CONFIGURED)("a village with no Google credentials degrades honestly", () => {
+  it("says so on /api/auth/methods, so the client draws no button", () => {
+    return fetch(`${BARE_BASE}/api/auth/methods`)
+      .then((r) => r.json())
+      .then((body) => expect(body).toEqual({ password: true, google: false }));
+  });
+
+  it("answers 404 on /start instead of redirecting somewhere broken", async () => {
+    const res = await fetch(`${BARE_BASE}/api/auth/google/start`, { redirect: "manual" });
+    expect(res.status).toBe(404);
+  });
+
+  it("said at boot which methods it has, and named what is missing", async () => {
+    expect(await waitForLog("[auth] sign-in methods: email and password. Google is OFF")).toBe(true);
+    expect(logs.join("")).toContain("GOOGLE_CLIENT_ID");
+  });
+
+  it("keeps the password path working, which is the point of not replacing it", async () => {
+    const res = await fetch(`${BARE_BASE}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "No Google", email: "nogoogle@example.com", password: "a-password-1", paths: [] }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).token).toBeTruthy();
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("a village WITH credentials offers Google beside the password", () => {
+  it("reports both methods", async () => {
+    expect(await (await fetch(`${BASE}/api/auth/methods`)).json()).toEqual({ password: true, google: true });
+  });
+
+  it("sends the member to Google with the right client, scope, state and nonce", async () => {
+    const { location, state, nonce } = await beginSignIn("/admin");
+    expect(location.origin + location.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(location.searchParams.get("client_id")).toBe(CLIENT_ID);
+    expect(location.searchParams.get("redirect_uri")).toBe(`${BASE}/api/auth/google/callback`);
+    expect(location.searchParams.get("scope")).toBe("openid email profile");
+    expect(location.searchParams.get("response_type")).toBe("code");
+    expect(state).toBeTruthy();
+    expect(nonce).toMatch(/^[0-9a-f]{32}$/);
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("the happy path: a new member signs in with Google", () => {
+  it("creates the account, hands over a session, and that session is real", async () => {
+    const { state, nonce } = await beginSignIn("/quests");
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({
+        nonce,
+        sub: "google-sub-newcomer",
+        email: "Newcomer@Example.com",
+        email_verified: true,
+        name: "A Newcomer",
+      }),
+    };
+    const { res, location, cookie } = await callback(state);
+    expect(res.status).toBe(302);
+    expect(location).toBe(`/login?oauth=complete&next=${encodeURIComponent("/quests")}`);
+    expect(cookie).toBeTruthy();
+
+    // The exchange really did send this deployment's own client secret and
+    // redirect URI to the token endpoint.
+    expect(lastTokenRequest.client_id).toBe(CLIENT_ID);
+    expect(lastTokenRequest.client_secret).toBe(CLIENT_SECRET);
+    expect(lastTokenRequest.redirect_uri).toBe(`${BASE}/api/auth/google/callback`);
+    expect(lastTokenRequest.grant_type).toBe("authorization_code");
+
+    const ex = await exchange(cookie);
+    expect(ex.status).toBe(200);
+    const body = await ex.json();
+    expect(body.user.email).toBe("newcomer@example.com");
+
+    // The session token is the proof. A route that refuses strangers must now
+    // answer this caller.
+    const profile = await fetch(`${BASE}/api/profile`, {
+      headers: { Authorization: `Bearer ${body.token}` },
+    });
+    expect(profile.status).toBe(200);
+    const me = await profile.json();
+    expect(me.email).toBe("newcomer@example.com");
+
+    // The link never leaves the server. It is sign-in plumbing carrying the id
+    // that names this person at Google, and `prefs` is returned to the account
+    // owner and to an admin looking at a member, so it is stripped in
+    // publicUser beside the password hash.
+    expect(me.prefs?.googleLink).toBeUndefined();
+    expect(JSON.stringify(me)).not.toContain("googleLink");
+    expect(JSON.stringify(body.user)).not.toContain("googleLink");
+    // Positive control: the response really does carry prefs, so the two
+    // assertions above are not passing because the whole object is missing.
+    expect(me.prefs).toBeDefined();
+  });
+
+  it("signs the same person back in without making a second account", async () => {
+    const { state, nonce } = await beginSignIn();
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({
+        nonce,
+        sub: "google-sub-newcomer",
+        // A changed address at Google. The subject is the identity, so this
+        // must still land on the same village account.
+        email: "newcomer-changed@example.com",
+        email_verified: true,
+        name: "A Newcomer",
+      }),
+    };
+    const { cookie } = await callback(state);
+    const body = await (await exchange(cookie)).json();
+    expect(body.user.email).toBe("newcomer@example.com");
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("the link path", () => {
+  it("links a verified Google address to an existing PASSWORD account", async () => {
+    const email = "haspassword@example.com";
+    const reg = await fetch(`${BASE}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Has Password", email, password: "a-password-1", paths: [] }),
+    });
+    const registered = await reg.json();
+
+    const { state, nonce } = await beginSignIn();
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({ nonce, sub: "google-sub-haspassword", email, email_verified: true, name: "Has Password" }),
+    };
+    const { cookie } = await callback(state);
+    const body = await (await exchange(cookie)).json();
+    expect(body.user.id).toBe(registered.user.id);
+
+    // Linking must not disturb the credential that was already there.
+    const stillWorks = await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: "a-password-1" }),
+    });
+    expect(stillWorks.status).toBe(200);
+  });
+
+  it("unblocks the account with NO password, which is the founder's state today", async () => {
+    // Made the way the founder's account was made: bootstrap creates a founder
+    // with an empty password hash and mails a claim link. If the mail never
+    // arrives, that account cannot log in and, before this lane, could not ask
+    // for a reset either. Google sign-in is now a way back in.
+    const email = "locked-out-founder@example.com";
+    const boot = await fetch(`${BASE}/api/admin/bootstrap`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: ADMIN, email, name: "Locked Out Founder" }),
+    });
+    expect(boot.status).toBe(200);
+    const bootBody = await boot.json();
+    expect(bootBody.emailed).toBe(false); // no provider in this suite, which is the trap
+
+    // The password path is genuinely shut for this account: there is no
+    // password that opens it, because there is no hash to match.
+    for (const attempt of ["a-guessed-password", " ", "password"]) {
+      const cannotLogIn = await fetch(`${BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: attempt }),
+      });
+      expect(cannotLogIn.status, `password ${JSON.stringify(attempt)} must not open a hashless account`).toBe(401);
+    }
+
+    const { state, nonce } = await beginSignIn("/admin");
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({ nonce, sub: "google-sub-founder", email, email_verified: true, name: "Locked Out Founder" }),
+    };
+    const { cookie } = await callback(state);
+    const body = await (await exchange(cookie)).json();
+    expect(body.user.id).toBe(bootBody.userId);
+    expect(body.user.role).toBe("founder");
+
+    // In, as the founder, with a session that reaches an admin surface.
+    const admin = await fetch(`${BASE}/api/admin/content`, {
+      headers: { Authorization: `Bearer ${body.token}` },
+    });
+    expect(admin.status).toBe(200);
+  });
+
+  it("refuses to attach a SECOND Google account to an already linked member", async () => {
+    const { state, nonce } = await beginSignIn();
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({
+        nonce,
+        sub: "a-completely-different-google-subject",
+        email: "haspassword@example.com",
+        email_verified: true,
+      }),
+    };
+    const { location, cookie } = await callback(state);
+    expect(location).toBe("/login?oauth=error&reason=already_linked_elsewhere");
+    expect(cookie).toBeNull();
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("attacks the callback has to refuse", () => {
+  it("refuses a FORGED state, which is the login-CSRF attack", async () => {
+    // Without this an attacker drops a victim on this URL holding the
+    // attacker's own authorization code, and the victim's browser ends up
+    // signed in as, or linked to, the attacker's Google account.
+    const { state, nonce } = await beginSignIn();
+    nextResponse = { status: 200, claims: claimsFor({ nonce, sub: "s", email: "a@b.com", email_verified: true }) };
+    const [payload, sig] = state.split(".");
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
+    decoded.next = "/admin";
+    const forged = `${Buffer.from(JSON.stringify(decoded)).toString("base64url")}.${sig}`;
+
+    const good = await callback(state); // positive control: the untampered one works
+    expect(good.cookie).toBeTruthy();
+
+    const bad = await callback(forged);
+    expect(bad.location).toBe("/login?oauth=error&reason=bad_state");
+    expect(bad.cookie).toBeNull();
+  });
+
+  it("refuses a state this server never minted", async () => {
+    const bad = await callback("completely.invented");
+    expect(bad.location).toBe("/login?oauth=error&reason=bad_state");
+  });
+
+  it("refuses an UNVERIFIED Google address, which is the founder-impersonation attack", async () => {
+    // An attacker who registers a Google account carrying the founder's
+    // address without holding the mailbox must get nothing.
+    const { state, nonce } = await beginSignIn();
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({
+        nonce,
+        sub: "attacker-subject",
+        email: "locked-out-founder@example.com",
+        email_verified: false,
+        name: "Not The Founder",
+      }),
+    };
+    const { location, cookie } = await callback(state);
+    expect(location).toBe("/login?oauth=error&reason=email_unverified");
+    expect(cookie).toBeNull();
+  });
+
+  it("refuses an id_token minted for a different Google application", async () => {
+    const { state, nonce } = await beginSignIn();
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({
+        nonce,
+        aud: "some-other-app.apps.googleusercontent.com",
+        sub: "x",
+        email: "someone@example.com",
+        email_verified: true,
+      }),
+    };
+    expect((await callback(state)).location).toBe("/login?oauth=error&reason=wrong_audience");
+  });
+
+  it("refuses an id_token answering a DIFFERENT sign-in", async () => {
+    // Two flows started at once. The token from one cannot complete the other.
+    const first = await beginSignIn();
+    const second = await beginSignIn();
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({ nonce: first.nonce, sub: "x", email: "someone@example.com", email_verified: true }),
+    };
+    expect((await callback(second.state)).location).toBe("/login?oauth=error&reason=nonce_mismatch");
+  });
+
+  it("refuses an expired id_token", async () => {
+    const { state, nonce } = await beginSignIn();
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({
+        nonce,
+        exp: Math.floor(Date.now() / 1000) - 10,
+        sub: "x",
+        email: "someone@example.com",
+        email_verified: true,
+      }),
+    };
+    expect((await callback(state)).location).toBe("/login?oauth=error&reason=expired_id_token");
+  });
+
+  it("survives Google refusing the code, without leaking the reason to the browser", async () => {
+    const { state } = await beginSignIn();
+    nextResponse = { status: 400, claims: null, body: { error: "invalid_grant" } };
+    const { location } = await callback(state);
+    expect(location).toBe("/login?oauth=error&reason=exchange_failed");
+    // The operator still gets the detail, which is the half that has to survive.
+    expect(await waitForLog("Google token exchange failed: status=400")).toBe(true);
+  });
+
+  it("REPLAYING the handoff cookie buys a second session for nobody", async () => {
+    const { state, nonce } = await beginSignIn();
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({ nonce, sub: "replay-subject", email: "replay@example.com", email_verified: true }),
+    };
+    const { cookie } = await callback(state);
+    const first = await exchange(cookie);
+    expect(first.status).toBe(200); // positive control
+    const second = await exchange(cookie);
+    expect(second.status).toBe(401);
+  });
+
+  it("refuses a forged handoff cookie", async () => {
+    const res = await exchange("invented.cookie");
+    expect(res.status).toBe(401);
+  });
+
+  it("refuses an exchange with no cookie at all", async () => {
+    expect((await exchange(null)).status).toBe(401);
+  });
+
+  it("sets the handoff cookie HttpOnly, SameSite=Lax and scoped to this site", async () => {
+    const { state, nonce } = await beginSignIn();
+    nextResponse = {
+      status: 200,
+      claims: claimsFor({ nonce, sub: "cookie-shape", email: "cookieshape@example.com", email_verified: true }),
+    };
+    const { setCookie } = await callback(state);
+    const header = setCookie.find((c) => c.startsWith("village_oauth_handoff="))!;
+    expect(header).toMatch(/HttpOnly/i);
+    expect(header).toMatch(/SameSite=Lax/i);
+    expect(header).toMatch(/Path=\//);
+    // Not Secure here, because this suite is plain http on localhost. A Secure
+    // cookie on http is dropped by the browser, which would break local work
+    // silently; the flag follows the configured origin's scheme.
+    expect(header).not.toMatch(/Secure/i);
+  });
+});
+
+describe.skipIf(!DB_CONFIGURED)("forgot-password no longer strands an account with no password", () => {
+  const sameAnswer = "If an account exists for that address, a link to set a new password is on its way.";
+
+  async function forgot(email: string) {
+    const res = await fetch(`${BASE}/api/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    return { status: res.status, body: await res.json() };
+  }
+
+  it("answers every caller identically, which is the enumeration defence", async () => {
+    const unknown = await forgot("nobody-here@example.com");
+    const withPassword = await forgot("haspassword@example.com");
+    const withoutPassword = await forgot("locked-out-founder@example.com");
+    for (const r of [unknown, withPassword, withoutPassword]) {
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ success: true, message: sameAnswer });
+    }
+  });
+
+  it("actually tries to send a CLAIM letter for the account with no password", async () => {
+    // The bug: the old guard was `if (user?.passwordHash)`, so this account
+    // got the success message above and no email, on every attempt, forever.
+    // There is no mail provider in this suite, so the proof that the send was
+    // reached is the line the route logs when a send does not go.
+    expect(await waitForLog("(claim): reason=no_api_key")).toBe(true);
+  });
+
+  it("still sends a RESET letter for an account that has a password", async () => {
+    expect(await waitForLog("(reset): reason=no_api_key")).toBe(true);
+  });
+
+  it("says nothing at all about an address with no account", async () => {
+    // A log line for an unknown address would be its own enumeration oracle
+    // for anyone holding the logs.
+    expect(logs.join("")).not.toContain("nobody-here@example.com");
+  });
+});
