@@ -596,12 +596,36 @@ import {
 import {
   allSecretStatuses,
   loadSecrets,
+  NO_VILLAGE_SECRETS_KEY_SENTENCE,
   putSecret,
   SECRET_KEYS,
   secretConfigured,
   secretValue,
+  VILLAGE_SECRETS_ENV,
+  villageSecretsConfigured,
   type SecretKey,
 } from "./lib/secrets";
+/**
+ * The second line of the two refusals that stop a founder saving a key.
+ *
+ * `putSecret` fails closed and THROWS when this deployment has no sealing
+ * key, which is right. What it cannot do is answer a browser. Express 4 does
+ * not route an async handler rejection anywhere useful, and the registration
+ * wrapper this file installs turns it into `500 {"error":"Internal server
+ * error"}`, so a founder pasting a Stripe key got an opaque server error and
+ * nothing to act on. Measured against the built server before this existed,
+ * in server/secretsWiring.e2e.test.ts.
+ *
+ * `error` carries the store's own sentence verbatim, the same shape the
+ * member-key route answers with, so two refusals from one platform read like
+ * one platform. `message` carries what the sentence cannot: on a self-hosted
+ * instance the founder IS the operator it tells them to ask, so it names the
+ * variable and the recipe. Admin.tsx's `refusal()` prefers `message`.
+ */
+const SET_VILLAGE_SECRETS_KEY =
+  `Set ${VILLAGE_SECRETS_ENV} in this deployment's environment, then restart and save the key again. ` +
+  `It is 32 random bytes as 64 hex characters: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))". ` +
+  "Nothing was stored, and nothing already stored has changed.";
 import {
   confirmManual,
   launchStatus,
@@ -1561,13 +1585,44 @@ async function initStores(): Promise<void> {
   }
   // ── LANE A ZONE END: assistant wiring ────────────────────────────────────
   {
+    /*
+     * The move SEALS each key on the way across, so it needs
+     * VILLAGE_SECRETS_KEY, and `putSecret` throws without one. This block runs
+     * inside initStores, and a throw here is a boot failure: the process
+     * refuses to serve and exits 1. So a village that had never yet booted the
+     * sealed release, and had not set an optional new variable, went dark
+     * instead of starting. Measured before this guard existed, against the
+     * built server:
+     *
+     *   [startup] refusing to serve: Error: this deployment has no
+     *   village-secrets key; ask your operator
+     *       at putSecret (dist/index.js:12543:19)
+     *
+     * Reachable only from a document written before the sealed release, since
+     * the email-config route has blanked both fields on every save since S63.
+     * That narrowness is not a reason to leave it: a restored backup reaches
+     * it, and the cost of being wrong is the whole village, against a warning
+     * as the cost of being careful.
+     *
+     * So the keys STAY where they are, and the next boot with the variable set
+     * moves them. Staying put is the safe half in every direction: the
+     * assistant still reads its key from this document, and the blanking below
+     * is skipped along with the move, because blanking a field whose value
+     * never reached the store destroys the only copy of a working key.
+     */
     const legacy = emailConfigRepo.get() ?? {};
+    const canSeal = villageSecretsConfigured();
     let moved = 0;
+    const stranded: string[] = [];
     for (const [legacyField, key] of [
       ["resend_api_key", "resend_api_key"],
       ["assistant_api_key", "assistant_api_key"],
     ] as const) {
       const v = String((legacy as any)[legacyField] ?? "").trim();
+      if (v && !canSeal) {
+        stranded.push(legacyField);
+        continue;
+      }
       if (v && !allSecretStatuses().some((s) => s.key === key && s.source === "admin")) {
         await putSecret(getPool(), key, v, "migration:s63");
         moved += 1;
@@ -1579,6 +1634,18 @@ async function initStores(): Promise<void> {
     if (moved > 0) {
       await emailConfigRepo.put(legacy);
       console.log(`[secrets] migrated ${moved} legacy key(s) out of the email-config document`);
+    }
+    if (stranded.length > 0) {
+      // Names the KEYS and never their values, the same rule
+      // resealPlaintextSecrets logs by. This is the only warning an operator
+      // gets that a credential is sitting in the clear in a document every
+      // database dump carries.
+      console.warn(
+        `[secrets] ${stranded.length} legacy key(s) are still stored in the clear in the ` +
+          `email-config document and were NOT moved into the sealed store: ${VILLAGE_SECRETS_ENV} ` +
+          `is not set. Every database dump carries them. Keys: ${stranded.join(", ")}. ` +
+          "They keep working; set the variable and restart to move them.",
+      );
     }
   }
 }
@@ -19849,6 +19916,18 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!(await isAdmin(req))) {
       return res.status(401).json({ error: "auth_required" });
     }
+    // A key still arriving through this legacy route is sealed on the way to
+    // the store, so it needs the sealing key exactly as the Integrations
+    // route below does. The check runs BEFORE anything is written: a save
+    // that stores the routing addresses and then throws on the key is a
+    // half-applied write reported to the founder as a failure, which is the
+    // shape scripts/check-save-honesty.mjs exists to keep out of this file.
+    const carriesKey = (["resend_api_key", "assistant_api_key"] as const).some(
+      (k) => typeof req.body?.[k] === "string" && req.body[k].trim(),
+    );
+    if (carriesKey && !villageSecretsConfigured()) {
+      return res.status(503).json({ error: NO_VILLAGE_SECRETS_KEY_SENTENCE, message: SET_VILLAGE_SECRETS_KEY });
+    }
     const current = getEmailConfig();
     // Refuse a malformed sender at the door rather than storing something
     // that silently kills every email. Blank clears it (back to EMAIL_FROM).
@@ -20034,10 +20113,21 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (!SECRET_KEYS.includes(key)) return res.status(404).json({ error: `unknown integration key "${key}"` });
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
     if (!actor) return res.status(401).json({ error: "auth_required", message: "Setting a key needs a named admin" });
+    const value = String(req.body?.value ?? "");
+    // Storing seals, and sealing needs the key; clearing does not, and must
+    // stay open, because an operator who never had the key must still be able
+    // to take an exposed plaintext value back out. `villageSecretsConfigured`
+    // has no third answer: keyFromEnv re-reads process.env on every call and
+    // treats absent, short and non-hex alike as no key, so a half-typed
+    // variable refuses here rather than passing this check and throwing
+    // inside putSecret one line later.
+    if (value.trim() && !villageSecretsConfigured()) {
+      return res.status(503).json({ error: NO_VILLAGE_SECRETS_KEY_SENTENCE, message: SET_VILLAGE_SECRETS_KEY });
+    }
     // value: "" clears the admin-typed key (env fallback, if any, resumes).
-    await putSecret(getPool(), key, String(req.body?.value ?? ""), actor);
+    await putSecret(getPool(), key, value, actor);
     void recordEvent(getPool(), {
-      kind: "audit", text: `integrations:${key}:${String(req.body?.value ?? "").trim() ? "set" : "cleared"}`,
+      kind: "audit", text: `integrations:${key}:${value.trim() ? "set" : "cleared"}`,
       actorUserId: actor, entityType: "integration", entityRef: key, audience: "admin",
     });
     res.json({ success: true, secrets: allSecretStatuses() });

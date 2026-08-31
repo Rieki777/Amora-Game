@@ -50,7 +50,7 @@
  *                    existing file is left untouched and the script refuses,
  *                    because overwriting a live deployment's secrets logs
  *                    out every member and re-locks anything MEMBER_SECRETS_KEY
- *                    encrypted.
+ *                    or VILLAGE_SECRETS_KEY encrypted.
  *   --dry            report what WOULD be written; write nothing.
  */
 import fs from "node:fs";
@@ -137,7 +137,8 @@ if (fs.existsSync(outPath) && !FORCE && !DRY) {
   console.error(
     `fork-init: ${path.relative(ROOT, outPath)} already exists and was left untouched.\n` +
       "Overwriting it would replace a live deployment's secrets, which logs out every\n" +
-      "member and makes every member-stored key MEMBER_SECRETS_KEY encrypted unreadable.\n" +
+      "member, makes every member-stored key MEMBER_SECRETS_KEY encrypted unreadable, and\n" +
+      "makes every integration key VILLAGE_SECRETS_KEY encrypted unreadable too.\n" +
       "Pass --force if you are certain this is a fresh instance with nothing to lose,\n" +
       "or --dry to preview without writing.",
   );
@@ -164,6 +165,11 @@ const supportEmail = supportEmailOverride || adminEmail;
 const adminPassword = adminPasswordOverride || genPassword();
 const authTokenSecret = genHex32();
 const memberSecretsKey = genHex32();
+/* Its own value, never a copy of the one above: they seal different things
+ * (a member's own LLM key, and the village's third-party credentials), and
+ * one of them may have to be rotated without taking the other's stores down
+ * with it. Same recipe, separate draw. */
+const villageSecretsKey = genHex32();
 
 /**
  * What this script can resolve, keyed by the exact variable name in
@@ -178,6 +184,7 @@ const memberSecretsKey = genHex32();
 const RESOLVED = {
   AUTH_TOKEN_SECRET: { value: authTokenSecret, secret: true, note: "generated" },
   MEMBER_SECRETS_KEY: { value: memberSecretsKey, secret: true, note: "generated" },
+  VILLAGE_SECRETS_KEY: { value: villageSecretsKey, secret: true, note: "generated" },
   ADMIN_PASSWORD: { value: adminPassword, secret: false, note: "generated, one-time" },
   FRONTEND_URL: { value: frontendUrl, secret: false, note: domain ? "from --domain" : "" },
   EMAIL_FROM: { value: emailFrom, secret: false, note: domain ? "from --village-name and --domain" : "" },
