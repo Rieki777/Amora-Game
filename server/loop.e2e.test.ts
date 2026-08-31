@@ -143,6 +143,23 @@ beforeAll(async () => {
       // the same self-migrating path production takes on deploy.
       DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,
+      /*
+       * NO BACKGROUND WORK INSIDE THIS SUITE.
+       *
+       * The scheduler's first tick lands 15 seconds after boot and runs every
+       * job with no `scheduled_jobs` row, which on a fresh scratch schema is
+       * ALL of them. This suite is a long sequential run of HTTP assertions
+       * with no way to observe or order a job that fires in the middle of one,
+       * and S15's tools section was intermittently failing for exactly that
+       * reason: `tools-link-check` writes the same table `PUT
+       * /api/admin/tools/:id` writes. That lost update is fixed in
+       * server/repos/store-db.ts, at the store, where it lived. This is the
+       * other half: the suite drives library sweeps, exchange reconciliation
+       * and settlement through their admin routes on purpose, and asserts
+       * those routes are idempotent, so a background copy running the same
+       * work unobserved can only make the answers less trustworthy.
+       */
+      SCHEDULER_ENABLED: "0",
       JOURNEY_PASSWORD: "loop-test-journey",
       AUTH_TOKEN_SECRET: "loop-test-token-secret",
       // Integration secrets are sealed at rest and the store refuses to write

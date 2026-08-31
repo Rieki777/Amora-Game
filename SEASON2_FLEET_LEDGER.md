@@ -138,9 +138,17 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
 ## 3 - Resource registry
 
 - **Migration numbers.** Highest taken across all local refs, remote refs and 140+ worktrees:
-  **0120**. Next free: **0121**. Gaps at 0111 and 0115-0119 are BURNED, never reuse them
+  **0122**. Next free: **0123**. Gaps at 0111 and 0115-0119 are BURNED, never reuse them
   (the applied-ledger keys on filename and would replay).
 - **Claim a number here before creating the file.**
+- **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
+  new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
+  makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the
+  lock the original architecture audit said the read-modify-write cycle did not have. Verified
+  before claiming: 0121 IS taken (`drizzle/0121_migration_checksums.sql`, commit d97f100, the
+  data lane), and 0121 is the highest number in any local ref, so section 3's own "next free:
+  0121" line was stale and is corrected above. CREATE TABLE IF NOT EXISTS only, so it adds and
+  takes nothing away; run twice against seeded rows, second run a no-op.
 - **data lane, 2026-08-31: claims 0121 for `drizzle/0121_migration_checksums.sql`.** Adds a
   nullable `checksum` column to `_migrations_applied` (item 1 of this lane's brief: a sha256 of
   each shipped file's bytes, recorded on apply, backfilled for pre-0121 rows, checked at boot so
