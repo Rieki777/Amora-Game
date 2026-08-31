@@ -446,6 +446,40 @@ jobs:
         # absent is exactly the failure the rest of this file exists to stop.
         run: node scripts/check-theme-literals.mjs
 
+      - name: Identity keys
+        # No village's identity in the defaults every fork inherits.
+        #
+        # This exists because of a real outage on 2026-08-31: Amora's name,
+        # nine image slots and its whole theme lived in shared/gameConfig.ts,
+        # the file every future village copies. Emptying it so thirteen forks
+        # would not ship wearing one village's face also emptied the live site,
+        # because the live site was reading from those same defaults and its
+        # database had never been seeded with its own copy. Every gate was
+        # green throughout, and the founder found it on a phone.
+        #
+        # The brand guard cannot see this: shared/gameConfig.ts is its DECLARED
+        # HOME and therefore exempt, which is correct for a fork filling that
+        # file with its own name, and useless upstream. This check is
+        # key-presence rather than word-matching, so it does not care what
+        # proper nouns anyone used. Two of the three strings that leaked past
+        # the brand guard contain no village name at all.
+        #
+        # It carries a dated KNOWN_PENDING list of keys that are still
+        # populated on purpose, because blanking them before the founder has
+        # entered them in Admin would repeat the outage. That list may only
+        # shrink, and the guard prints it on every run so it cannot rot in
+        # silence.
+        #
+        # Wired hard, not guarded with a skip-if-missing, for the reason the
+        # step above gives: a step that quietly does nothing when its script is
+        # absent is the failure this whole file exists to stop.
+        run: node scripts/check-identity-keys.mjs
+
+      - name: Identity keys, self-test
+        # The guard's own fixture suite. A ratchet nobody has proven can refuse
+        # is a ratchet that reports green either way.
+        run: node scripts/check-identity-keys.test.mjs
+
       - name: Build
         run: pnpm build
 

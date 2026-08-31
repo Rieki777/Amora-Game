@@ -270,7 +270,21 @@ export default function Home() {
                   codebase already uses for a control on the band
                   (Decisions.tsx), at 15.13:1, and the second control keeps its
                   translucent fill with a border that clears 3:1 on its own.
-                  Measured after: 15.13:1 and 3.55:1. */}
+
+                  Measured after: 15.13:1 for the filled control, and 5.18:1
+                  for the outline one's border.
+
+                  That second number is the pixel a visitor's eye actually
+                  lands on, and it took three readings to get right. This
+                  comment first said 3.55:1 and the lane's own report said
+                  3.67:1, neither reproducible. The border is border-white/40
+                  over bg-white/20, and background-clip defaults to border-box,
+                  so the button's own translucent fill composites UNDER its
+                  border. Model the border against the bare band and you get
+                  3.68:1; measure what is painted and it is 5.18:1. Both clear
+                  the 3:1 requirement, so the conclusion never moved, but a
+                  comment carrying a measurement nobody can reproduce is the
+                  thing this whole exercise exists to stop. */}
               <a
                 href="#choose-path"
                 className="px-8 py-4 bg-white text-teal-band rounded-lg font-semibold text-lg hover:bg-cream transition-all duration-200 flex items-center gap-2"

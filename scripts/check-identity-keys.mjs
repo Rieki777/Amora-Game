@@ -292,7 +292,38 @@ export function isViolation(key, value) {
 }
 
 /**
- * The four rules, over an already-parsed config. Pure, so the test can drive
+ * A key that HAS a declared neutral default and now holds nothing.
+ *
+ * THIS IS THE RULE THAT WOULD HAVE CAUGHT THE OUTAGE, and it was missing from
+ * the first four. Those catch a village's identity being PUT INTO the
+ * defaults. The act that actually took the live site down was the opposite
+ * one: a value being TAKEN OUT of them, while the live deployment was still
+ * reading its identity from there and its own record had never been seeded.
+ *
+ * `isViolation` returns false for "" by design, so every one of the first four
+ * rules is silent on a blanking. The repair wave's proof lane replayed the
+ * incident against those rules and reported it in one sentence: the state that
+ * caused it is guarded, and the act that turned it into an outage is still
+ * green.
+ *
+ * The check needs no new list to maintain, which is what makes it hold. Every
+ * key in NEUTRAL is one somebody wrote an acceptable platform value for, and a
+ * key is in there precisely because a village RENDERS it and the default is
+ * the only fallback it has. So for those nine, empty is not a finished answer
+ * the way a blank hero is. Empty is the removal of a fallback that a
+ * deployment somewhere is standing on.
+ *
+ * Emptying one is still allowed. It just has to be said out loud, the same way
+ * KNOWN_PENDING makes the reverse direction explicit.
+ */
+export function emptiedNeutralDefaults(values) {
+  return Object.keys(NEUTRAL).filter(
+    (k) => k in values && String(values[k]).trim() === "",
+  );
+}
+
+/**
+ * The five rules, over an already-parsed config. Pure, so the test can drive
  * it with values that do not exist on disk.
  */
 export function auditIdentity(values, pending = KNOWN_PENDING, ceiling = PENDING_CEILING) {
@@ -309,6 +340,8 @@ export function auditIdentity(values, pending = KNOWN_PENDING, ceiling = PENDING
     stale: pendingKeys.filter((k) => !populated.includes(k)),
     /** The list grew, or it shrank without the ceiling following it down. */
     ceiling: pending.length === ceiling ? null : { listed: pending.length, ceiling },
+    /** A neutral fallback somebody removed. The outage's actual shape. */
+    emptied: emptiedNeutralDefaults(values),
     populated,
   };
 }
@@ -349,6 +382,14 @@ function main(argv) {
   }
   for (const key of result.stale) {
     problems.push(`${key} is listed as known-pending and is now clean. Good news, and it needs the bookkeeping: delete its entry from KNOWN_PENDING and lower PENDING_CEILING to ${KNOWN_PENDING.length - 1}. A pending entry left behind is a standing permission for that key to be repopulated without anybody noticing.`);
+  }
+  for (const key of result.emptied) {
+    problems.push(
+      `${key} is empty, and it is a key with a declared neutral default (${(NEUTRAL[key] ?? []).map((v) => JSON.stringify(v)).join(" or ")}). ` +
+        `THIS IS THE SHAPE OF THE 2026-08-31 OUTAGE. Emptying a default is not the same as never setting one: a village that renders this key and has no value of its own in its database was reading it from here, and clearing it takes that away with no error anywhere. ` +
+        `If a live deployment holds its own copy already, restore the neutral value here and let the record win, which is how the overlay works. ` +
+        `If the key genuinely should no longer exist, remove it from IDENTITY_KEYS and NEUTRAL together and say why in the same commit.`,
+    );
   }
   if (result.ceiling) {
     const { listed, ceiling } = result.ceiling;
