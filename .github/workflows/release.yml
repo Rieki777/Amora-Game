@@ -44,6 +44,14 @@ on:
   workflow_run:
     workflows: [ci]
     types: [completed]
+    # ONLY main. Without this filter every ci run fires a release run, and ci
+    # runs on every branch and every pull request. Enabling Dependabot on
+    # 2026-08-31 opened five PRs at once and produced eight release runs in
+    # seven minutes on one commit. Nothing was published, because the plan job
+    # correctly skipped its green-ci gate and took the image job with it, so
+    # the workflow's own guards held. The cost was eight runners started for
+    # work that could never publish, and that repeats on every batch.
+    branches: [main]
 
 permissions:
   contents: read
