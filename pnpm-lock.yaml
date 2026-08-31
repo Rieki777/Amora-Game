@@ -145,6 +145,9 @@ importers:
       d3-interpolate:
         specifier: 3.0.1
         version: 3.0.1
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(mysql2@3.23.1(@types/node@24.7.0))
@@ -260,9 +263,6 @@ importers:
       autoprefixer:
         specifier: ^10.5.4
         version: 10.5.4(postcss@8.5.26)
-      dotenv:
-        specifier: ^17.4.2
-        version: 17.4.2
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10

@@ -33,6 +33,38 @@ advisory records to 6. (pnpm's headline printed 99 and now prints 7; see
 it emits.) Three findings are worth keeping, because each one is a way a number
 can mislead rather than a package that needed bumping.
 
+### Only five of the 98 could ever have been reached
+
+A count that does not separate these three is anxiety rather than information,
+so here is the split as measured on 2026-08-31, before any of the fixes:
+
+| Bucket | Records | What it means |
+|---|---|---|
+| Reachable from production code | **5** | `express` and its `qs`, `path-to-regexp` and `body-parser`. Express answers every request a village makes. |
+| In the production dependency graph, absent from the shipped bundle | **35** | `streamdown` (32) and `recharts` (3). Both are installed, neither is imported by anything that reaches a bundle. |
+| Dev-only | **58** | Never installed on a village's server. |
+
+Of the five genuinely reachable ones, exactly **one** was a high, and it was
+GHSA-37ch-88jc-xwx2, which was on the ignore list behind a stale "no upstream
+fix" note. The gate was green over the only production high that mattered.
+
+The 35 in the middle bucket are the reason the raw number was frightening. Both
+packages are tree-shaken out completely, and that is measured rather than
+argued:
+
+- **`streamdown`** is imported by no file at all. Removing it changed the built
+  output by **zero bytes**: `scripts/check-dist-budget.mjs` reported 5660 KB
+  block-charged before and 5660 KB after. It cost nothing at runtime and 32
+  advisories on every audit.
+- **`recharts`** is imported by exactly one file, `client/src/components/ui/chart.tsx`,
+  and nothing imports that file. Neither `recharts` nor its `lodash` appears in
+  any chunk under `dist/public/assets`, against a control string from React that
+  appears five times in the main chunk.
+
+`recharts` is still installed, because deleting it means deleting
+`client/src/components/ui/chart.tsx` with it and that file belongs to another
+lane. It is the next cheapest removal in this manifest.
+
 ### Both accepted advisories had upstream fixes, and this page said they did not
 
 Both entries removed on 2026-08-31 were dated 2026-07-28 and both said "no
@@ -79,6 +111,35 @@ what moves a transitive dependency inside a range that already admits the fix.
 
 Check the resolved version in `pnpm-lock.yaml`, never the range in
 `package.json`. The range is a permission; the lockfile is the shipped fact.
+
+## What the blocking gate actually covers
+
+`pnpm audit --prod` walks the `dependencies` graph. That is the right graph only
+while everything that runs in production is declared there. On 2026-08-31 one
+package was not.
+
+`server/index.ts` line 3 is `import "dotenv/config"`, that import survives into
+`dist/index.js`, and `dotenv` sat in `devDependencies`, so the blocking gate
+never walked it. The Dockerfile already carried a whole stage to copy the
+package into the runtime image by hand, added on 2026-08-30 after a `--prod`
+image died at boot with `ERR_MODULE_NOT_FOUND`. Its comment says the honest fix
+is one word in `package.json` and that the lane which found it did not own that
+file. This lane owns it, so `dotenv` is a production dependency now.
+
+It carries no advisory, so no count moved. What moved is the graph the gate
+looks at: 312 production packages to 313. A package that runs in production and
+is invisible to the production audit is a gate reporting on a tree the product
+does not have.
+
+Checked for the same shape elsewhere, with controls: no other devDependency is
+imported by anything under `client/src`, `server` or `shared`. `tailwindcss` and
+`tw-animate-css` appear in `client/src/index.css` as `@import` directives, and
+neither string survives into the 223 KB built stylesheet, so both are correctly
+dev-only.
+
+The Dockerfile's `extra-deps` stage and the `COPY` that reads it are now
+redundant, as that stage's own comment predicted. Deleting them belongs to
+whoever owns the Dockerfile.
 
 ## Dev-only advisories that remain, and why none is on the ignore list
 
