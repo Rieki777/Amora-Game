@@ -140,16 +140,85 @@ export async function setup(): Promise<void> {
   }
 }
 
-/** vitest globalTeardown: print what the run paid. */
+/**
+ * The trapdoor this closes: dozens of suites gate on
+ * `describe.skipIf(!testDbConfigured())` (server/db/testDb.ts), which is a
+ * bare truthiness check on TEST_DATABASE_URL. Locally that is correct and
+ * must stay silent: no database, a smaller suite, still green. In CI,
+ * `.github/workflows/ci.yml` sets TEST_DATABASE_URL as a job env var, so
+ * every DB-backed suite is expected to run there. If that variable is ever
+ * renamed, mistyped, or dropped in a workflow edit, `testDbConfigured()`
+ * quietly returns false, every one of those suites skips, and vitest still
+ * exits 0: the acceptance loop test, every routes e2e suite and the whole
+ * economy suite gone with nothing louder than a skip count in a wall of
+ * green. `noteProvision` (above) already records one line per schema this
+ * run actually provisioned; a CI run that provisioned zero is that trapdoor,
+ * not a fast run, so it must fail the build rather than just report a number
+ * nobody is obligated to read.
+ */
+
+/**
+ * A live count, not a number frozen into this file the day it was written
+ * and wrong a month later. Every `describe.skipIf` in this tree today gates
+ * on `testDbConfigured()`; there is no other reason a whole describe block
+ * is conditionally skipped here, so counting the call site is an exact
+ * stand-in for "how many suites just went dark", read from the tree that
+ * actually ran rather than asserted from memory.
+ */
+function countDbGatedSuites(): number {
+  const SKIP_RE = /describe\.skipIf\(/g;
+  const TEST_FILE_RE = /\.test\.tsx?$/;
+  let count = 0;
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // a root that does not exist contributes nothing, not a crash
+    }
+    for (const entry of entries) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!TEST_FILE_RE.test(entry.name)) continue;
+      try {
+        const hits = fs.readFileSync(full, "utf8").match(SKIP_RE);
+        if (hits) count += hits.length;
+      } catch {
+        /* an unreadable file does not change the count meaningfully here */
+      }
+    }
+  };
+  for (const root of ["server", "shared", "client"]) walk(path.resolve(process.cwd(), root));
+  return count;
+}
+
+/** vitest globalTeardown: print what the run paid, and refuse to stay green if CI skipped every DB-backed suite. */
 export async function teardown(): Promise<void> {
-  const lines = summarise(readProvisionLog());
+  const rows = readProvisionLog();
+  const lines = summarise(rows);
   for (const line of lines) {
     // eslint-disable-next-line no-console
     console.log(line);
   }
+  const provisions = rows.filter((r) => r.kind === "clone" || r.kind === "full").length;
   try {
     fs.rmSync(PROVISION_LOG, { force: true });
   } catch {
     /* see noteProvision */
+  }
+  if (process.env.CI && provisions === 0) {
+    const gated = countDbGatedSuites();
+    throw new Error(
+      `[provisioningReport] CI is set and zero DB-backed suites provisioned a schema this run. ` +
+        `That almost certainly means TEST_DATABASE_URL is missing, misspelled, or the mysql ` +
+        `service is unreachable, and every one of the ${gated} \`describe.skipIf(!testDbConfigured())\` ` +
+        `suites in this tree (the economy suite and every routes e2e suite among them) silently ` +
+        `skipped instead of running. A skip is not a pass: fix the database connection, do not ` +
+        `relax this check.`,
+    );
   }
 }
