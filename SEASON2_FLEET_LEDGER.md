@@ -149,6 +149,26 @@ Order matters where noted; everything else lands when green.
   committed by the coordinator in the very act of measuring the baseline. Fixed by capturing
   exit codes with no pipe. Every lane: do not pipe a gate into anything before reading status.
 
+## 7a - Wave 1 dispatch (2026-08-30)
+
+All nine lanes dispatched concurrently off 052d042, disjoint file zones per the registry above.
+Full effort on the three that judge (release, safety, ops); cheap models on the six mechanical
+lanes (backup, neutral, kit, fleet, tokens, gates).
+
+Cross-lane contracts fixed at dispatch, so two lanes cannot invent different names:
+
+- Image: `ghcr.io/rieki777/village-os`, tags `:<semver>` plus moving `:stable` and `:edge`.
+  Provided by release, consumed by fleet.
+- Rollout probe: `GET /health` reports the build SHA stamped by `scripts/build-server.mjs`.
+  Made honest by ops, polled by fleet, exposed as `healthcheckPath` by release.
+- CI steps: `.github/workflows/ci.yml` has ONE owner (safety). tokens and gates each need a
+  step added and were told to file the request in the Blocker list below rather than edit it.
+
+Every brief carried: re-verify every claim (the numbers are timestamped measurements, a lane
+that corrects the coordinator is the lane working), run each new gate once against a
+deliberately broken input and prove it goes red, capture exit codes without piping, commit
+with `git add -p`, and do not push.
+
 ## 8 - Changelog
 
 - 2026-08-30. Ledger created. Nine worktrees cut off 052d042. Gate set enumerated from the
