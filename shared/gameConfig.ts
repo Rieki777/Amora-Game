@@ -34,9 +34,9 @@ export interface GamePath {
  * value itself. Empty `address` means "not deployed yet, show nothing".
  */
 export interface TokenRef {
-  /** Display symbol, e.g. "AMORA" or "VOICE". */
+  /** Display symbol, e.g. "EQUITY" or "VOICE". */
   symbol: string;
-  /** Human name, e.g. "Amora Equity". */
+  /** Human name, e.g. "Village Equity". */
   name: string;
   /** ERC-20 contract address on Base, or "" until deployed. */
   address: string;
@@ -223,20 +223,27 @@ export const GAME_CONFIG: GameConfig = {
     country: "CR",
     fiatCurrency: "CRC",
     adminPath: "/admin",
-    siteUrl: "https://amora.cr",
-    eventsUrl: "https://amora.cr/events/",
+    // Blank on purpose, same pattern as the hero images and the header/footer
+    // marks below: Layout.tsx and Quests.tsx already render these links only
+    // when truthy ({siteUrl && (...)}), so a fresh instance with no outside
+    // site or events page shows no dead or wrong-owner link rather than one
+    // pointing at amora.cr.
+    siteUrl: "",
+    eventsUrl: "",
     footerBlurb: "A regenerative village in Costa Rica where all beings belong and thrive.",
   },
 
   currency: {
     name: "Gratitude",
     nameLower: "gratitude",
-    // The equity token is also called "Amora" per the project's wish. It stays
-    // distinct from Gratitude above: Gratitude is in-site recognition, Amora is
-    // equity on Base under Hypha. Addresses are blank until the tokens deploy;
-    // the economics section shows nothing rather than a fake balance meanwhile.
-    equity: { symbol: "AMORA", name: "Amora Equity", address: "", chainId: 8453, decimals: 18 },
-    voice: { symbol: "VOICE", name: "Amora Voice", address: "", chainId: 8453, decimals: 18 },
+    // Platform-neutral defaults. A project's real token names and symbols are
+    // its own identity (Amora calls its equity token "Amora" per the
+    // project's wish); that belongs in the project's own fork of this file,
+    // not in the platform default every fork inherits. Addresses are blank
+    // until the tokens deploy; the economics section shows nothing rather
+    // than a fake balance meanwhile.
+    equity: { symbol: "EQUITY", name: "Village Equity", address: "", chainId: 8453, decimals: 18 },
+    voice: { symbol: "VOICE", name: "Village Voice", address: "", chainId: 8453, decimals: 18 },
   },
 
   images: {
@@ -269,14 +276,25 @@ export const GAME_CONFIG: GameConfig = {
     stewardHero: "",
     prosperityHero: "",
     masterPlanHero: "",
-    // WebP, and sized to what the markup actually draws: the header mark is
-    // 64px tall and the footer mark 90px, so 320px on the long edge covers a
-    // 3x screen with room over. The favicon stays PNG on purpose - it is also
-    // the apple-touch-icon and the sole PWA manifest icon, and neither of
-    // those has dependable WebP support.
-    logo: "/assets/images/Amora-2-Beige.webp",
-    heartLogo: "/assets/images/Amora-Beige.webp",
-    favicon: "/assets/images/Amora-2-Green1.png",
+    // Same "ship empty" fix as the six hero slots above, for the same two
+    // reasons: the old Amora URLs point at a private domain a fork cannot
+    // make its own, and (for logo/heartLogo specifically) no ship-ready
+    // neutral mark exists to put here instead - inventing one would just be
+    // a different brand welded into platform code. Blank is handled: Layout
+    // renders an empty spacer in place of the header logo and simply omits
+    // the footer mark, and the Setup Wizard's Pictures step is where a
+    // village uploads its own into the brand overlay above this.
+    //
+    // favicon is the one exception with a real answer: client/index.html
+    // already ships a neutral platform mark
+    // (/assets/images/platform-favicon.svg) as the static default, and
+    // /manifest.webmanifest and App.tsx's client-side swap both already fall
+    // back to it when this field is blank. So blank here is not a gap, it is
+    // what makes that fallback engage instead of being permanently shadowed
+    // by a non-empty default.
+    logo: "",
+    heartLogo: "",
+    favicon: "",
   },
 
   paths: [
@@ -293,7 +311,7 @@ export const GAME_CONFIG: GameConfig = {
     { id: "guest", name: "Guest", description: "Created a profile and stepped inside.", rule: { type: "account" }, gratitudeMultiplier: 1 },
     { id: "immersant", name: "Immersant", description: "Spent immersive time with the community.", rule: { type: "granted" }, gratitudeMultiplier: 1 },
     { id: "participant", name: "Participant", description: "Completed community training.", rule: { type: "training-complete" }, gratitudeMultiplier: 1 },
-    { id: "member", name: "Member", description: "Signed the Love Letter and joined the Amora Family.", rule: { type: "membership" }, gratitudeMultiplier: 2 },
+    { id: "member", name: "Member", description: "Signed the Love Letter and joined the community.", rule: { type: "membership" }, gratitudeMultiplier: 2 },
     { id: "contributor", name: "Contributor", description: "Completed a first quest for the village.", rule: { type: "quests", min: 1 }, gratitudeMultiplier: 2 },
     { id: "quest-seeker", name: "Quest Seeker", description: "Contributing steadily through quests.", rule: { type: "quests", min: 3 }, gratitudeMultiplier: 2 },
     { id: "initiate", name: "Initiate", description: "Walking the Co-Creator Right of Passage.", rule: { type: "granted" }, gratitudeMultiplier: 2 },
