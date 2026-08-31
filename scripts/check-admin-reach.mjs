@@ -91,8 +91,27 @@ const WRITE_METHODS = new Set(["post", "put", "delete", "patch"]);
  *
  * Worth keeping the shape of that: the waiver was honest when it was written
  * and became a lie without anyone editing it. That is what this check is for.
+ *
+ * ── REFILLED THE SAME DAY, BY THE LAND LANE ────────────────────────────────
+ *
+ * The two entries below are waiting on a SCREEN, not on a decision. The land
+ * routes (server/routes/land.ts, migration 0123) were built in a lane that was
+ * explicitly forbidden to edit client/src/pages/Admin.tsx, because another wave
+ * holds that file. The screen they need is specified field by field in
+ * docs/VILLAGE_LAND.md, down to the request bodies and the error copy, so
+ * wiring it is a small job for whoever owns Admin.tsx next.
+ *
+ * BOTH LINES COME OUT THE DAY THAT SCREEN LANDS. They keep a known, documented
+ * gap visible. They are not a claim that a founder should never reach these
+ * routes: a founder cannot set the village's location from the product at all
+ * until the screen exists, and that is the thing being recorded.
  */
-const ALLOWED = {};
+const ALLOWED = {
+  "PUT /api/admin/land":
+    "Waiting on the admin screen specified in docs/VILLAGE_LAND.md. The lane that built the route could not edit Admin.tsx, which another wave holds. Delete this line when the screen lands.",
+  "POST /api/admin/land/imagery":
+    "Waiting on the same screen as PUT /api/admin/land. Delete this line when the screen lands.",
+};
 
 /**
  * THE STANDING DEBT, and the reason this list is separate from `ALLOWED`.
