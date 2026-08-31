@@ -995,6 +995,40 @@ Also live and expected: `GET /api/content/legal` returns 404, so Amora's legal p
 honest placeholders rather than Amora's own text. `server/seeds/brochure-legal-seed.json` holds
 that text and needs one authenticated admin PUT to `/api/admin/content/legal`.
 
+### Live QA finding: ballot detail is anonymous, weights are not
+
+VERIFIED LIVE by me, independently of the QA lane that raised it:
+
+    GET /api/governance/weights      -> 401 auth_required
+    GET /api/governance/ballots      -> 200 anonymous
+    GET /api/governance/ballots/:id  -> 404 (no ballot exists on this village yet)
+
+`serveBallot` (`server/index.ts:28173`, route registered at :28651) has NO auth gate and
+returns, for any anonymous caller: every voter's name and choice and weight, every objection's
+author and FREE TEXT, ruling notes, and the names of members who have not voted yet. The code
+says this is deliberate: "Votes and weights are member-visible on purpose... This village does
+not run secret ballots."
+
+That is a legitimate governance stance and NOT something a coordinator should quietly change.
+Two things make it worth a decision before the first vote rather than after:
+
+1. **It is inconsistent with its own sibling.** `/api/governance/weights` carries
+   similarly-shaped data (names, weights, notes) and DOES require auth. One of the two pairings
+   was not considered.
+2. **Objection text is the sharp part.** A vote choice is a position. An objection is somebody
+   explaining, in their own words, why they are blocking their neighbours. Publishing choices to
+   the village is a defensible constitutional choice; publishing a member's reasoning to the
+   open internet, unauthenticated, is a different promise, and it sits oddly beside this
+   platform's own counts-never-names rule for session-less surfaces.
+
+LATENT TODAY: Amora has run zero ballots, so nothing is exposed right now. It stops being latent
+the first time any of the 13 villages opens one. This is pre-existing, NOT introduced by this
+programme.
+
+FOUNDER DECISION, with the default I will take if nothing is said: leave it exactly as it is,
+because it is a stated constitutional position and changing who can read a village's votes is
+not a coordinator's call.
+
 ### Founder actions, in priority order
 
 1. **Set Amora's name and member name** in Admin, Make This Yours. Restores the live site.
