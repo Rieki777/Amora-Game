@@ -621,6 +621,8 @@ import {
   moduleDemotions,
   moduleMaxLifecycle,
   moduleOrphans,
+  moduleQuarantines,
+  quarantineModule,
   listingStamp,
   requireModule,
   requireVendor,
@@ -5217,6 +5219,100 @@ async function assistantDailyCapAtLimit(max: number): Promise<boolean> {
   return atLimit(`assistant-day:${today}`, max, 24 * 60 * 60 * 1000);
 }
 
+/**
+ * RUN A BOOT INVARIANT WITHOUT LETTING IT TAKE THE VILLAGE.
+ *
+ * `moduleId` is the module whose own data the check is about, or null when the
+ * check is about something with no module to quarantine (the capability
+ * holding table) — in that case the failure is recorded and the village serves,
+ * because the harm it guards against is already closed one layer down.
+ *
+ * ── WHY THE CONSOLE IS CAPTURED ──────────────────────────────────────────────
+ *
+ * Every one of these checks prints its problems line by line and then throws a
+ * summary that carries only a COUNT: "badge invariants violated (2), refusing
+ * to serve". A count is useless to a founder. The lines are the part that names
+ * the rows, and they exist already, so this listens for them for the duration
+ * of the call rather than editing four library files to restate them.
+ *
+ * The real console still gets every line — this forwards, it does not swallow.
+ * It is boot-time and single-threaded, one check at a time, and it is restored
+ * in a `finally` so a throw cannot leave the process with a patched console.
+ */
+async function quarantineOnInvariantFailure(
+  moduleId: string | null,
+  what: string,
+  check: () => Promise<void>,
+): Promise<void> {
+  const printed: string[] = [];
+  const realError = console.error;
+  console.error = (...args: unknown[]) => {
+    if (printed.length < 20) {
+      printed.push(args.map((a) => (typeof a === "string" ? a : String(a))).join(" ").slice(0, 400));
+    }
+    realError(...(args as []));
+  };
+  try {
+    await check();
+    return;
+  } catch (e) {
+    console.error = realError;
+    // Every one of these errors ends "refusing to serve", which was true when
+    // the throw reached startServer() and is a lie now. Reprinting it would
+    // teach an operator that the village is down while the village is up, so
+    // the stale clause comes off and this function says what it actually did.
+    const summary = String((e as any)?.message ?? e ?? "unknown failure")
+      .replace(/[,;]?\s*refusing to serve\.?\s*$/i, "");
+    // The lines the check itself printed are the ones naming rows. Anything
+    // that is plainly not a problem line (a repair it performed on the way) is
+    // still true and still worth an admin seeing, so all of it is kept.
+    const detail = printed.length ? printed : [summary];
+    const name = moduleId ? MODULES_BY_ID[moduleId]?.name ?? moduleId : null;
+
+    if (moduleId) {
+      quarantineModule(moduleId, detail);
+      realError(
+        `[${what}] FATAL-LEVEL DATA: ${summary}\n` +
+          detail.map((d) => `  ${d}`).join("\n") +
+          `\n  Serving "${moduleId}" as OFF for this run. The rest of the village is up. ` +
+          `Mend the rows named above and restart; nothing about your configuration was changed.`,
+      );
+    } else {
+      realError(
+        `[${what}] FATAL-LEVEL DATA: ${summary}\n` +
+          detail.map((d) => `  ${d}`).join("\n") +
+          `\n  Serving anyway: the permission gate filters these rows out on every read, so they grant nothing.`,
+      );
+    }
+
+    // The village's own record, in words a founder can act on. recordEvent
+    // never throws into its caller, so a database that cannot take the event
+    // cannot turn a contained failure back into a boot failure.
+    await recordEvent(getPool(), {
+      kind: "module_quarantine",
+      text: name
+        ? `${name} was switched off at startup because its own records did not add up. ` +
+          `The rest of the village is running normally. What the check found: ${detail.join(" | ")}. ` +
+          `Once the records are mended, restart the village and ${name} comes back on its own.`
+        : `A startup check on the village's ${what} found records that do not add up, and the village is ` +
+          `serving normally because those records grant nothing on their own. What the check found: ${detail.join(" | ")}.`,
+      actorKind: "system",
+      entityType: moduleId ? "module" : "village",
+      entityRef: moduleId ?? "capability_holding",
+      audience: "admin",
+    });
+
+    // And out to whoever is watching, through the same sink a crash uses.
+    // Not awaited on the critical path: boot continues, the alert catches up.
+    void reportError(e, {
+      where: moduleId ? `the ${moduleId} module's boot invariant` : `the ${what} boot invariant`,
+      detail: { quarantined: moduleId ?? "none", problems: detail.length },
+    });
+  } finally {
+    console.error = realError;
+  }
+}
+
 async function startServer() {
   /*
    * PY6: crashes get somewhere before anything else can crash.
@@ -5996,16 +6092,67 @@ async function startServer() {
    */
   MODULES_BY_ID["events"].openStateCheck = () => eventsOpenState(getPool());
 
-  // S33/S37/S42: config and economy firewalls are re-proven at every boot —
-  // a hand-edited listing, badge row, or drained escrow can never outlive a
-  // deploy. Same posture as the ledger invariants above.
-  await assertExchangeFirewalls(getPool());
-  await assertBadgeInvariants(getPool());
-  await assertLibraryInvariants(getPool());
-  // 0098: the same posture for the holding table, and the same reason. A row
-  // naming a capability that may never move would close a door quietly, and
-  // the one thing a hand-written row is guaranteed to escape is code review.
-  await assertCapabilityHoldingInvariants(getPool());
+  /*
+   * S33/S37/S42: config and economy firewalls are re-proven at every boot —
+   * a hand-edited listing, badge row, or drained escrow can never outlive a
+   * deploy.
+   *
+   * ── WHY THESE NO LONGER REFUSE THE VILLAGE ───────────────────────────────
+   *
+   * They used to run bare, so each of them threw straight out of startServer()
+   * and the whole deployment refused to serve. The blast radius was wrong. Each
+   * of these checks is about ONE module's own data: one listing that must not
+   * be sold, one badge that no longer validates, one escrow account that does
+   * not reconcile. The punishment was every other module, for every member,
+   * until somebody ran SQL against production.
+   *
+   * Nobody here can run SQL against production. Thirteen founders are each
+   * designing a village in their own instance, and there is no developer at
+   * 2am. The realistic outcome of the old shape was a village that went dark
+   * and stayed dark: railway.toml gives up after three restarts and the boot
+   * failure was silent (fixed at the bottom of this file).
+   *
+   * So a per-module failure now quarantines that module and the village serves.
+   * OFF is the strict answer, not the lenient one: it unmounts the routes,
+   * stops the scheduler jobs, and closes the only code that could make the
+   * discrepancy worse. A dead process did none of that; it just took the
+   * forum, the map and the front door down alongside.
+   *
+   * WHAT STAYS FATAL, and why: migrations above, and the ledger conservation
+   * check above. Those are village-wide truths with no single module to
+   * quarantine — serving over a schema that does not match the code, or over
+   * an economy that does not conserve, would normalise a break rather than
+   * contain one.
+   */
+  await quarantineOnInvariantFailure("exchange", "exchange firewall", () =>
+    assertExchangeFirewalls(getPool()),
+  );
+  await quarantineOnInvariantFailure("badges", "badge invariant", () =>
+    assertBadgeInvariants(getPool()),
+  );
+  await quarantineOnInvariantFailure("library", "library escrow reconciliation", () =>
+    assertLibraryInvariants(getPool()),
+  );
+  /*
+   * 0098: the holding table. This one is NOT per-module and it is no longer
+   * fatal either, and the reason is that the door it guards is already shut
+   * one layer down.
+   *
+   * `villageHeldCapabilities` — the actual permission gate — filters every row
+   * through TRANSFERABLE before it grants anything, and says so in as many
+   * words: "two locks on the same door, because the failure mode being guarded
+   * against is a row nobody reviewed". So a hand-written row naming a
+   * capability that may never move grants nothing, locks nobody out, and is
+   * inert. Refusing the entire village over a row the permission system
+   * already ignores is all cost and no protection.
+   *
+   * It stays loud. The rows are named in the log, sent to whoever is on the
+   * error webhook, and written into the village's health events for an admin
+   * who was asleep when it happened.
+   */
+  await quarantineOnInvariantFailure(null, "capability holding", () =>
+    assertCapabilityHoldingInvariants(getPool()),
+  );
 
   /*
    * conversations.last_message_at is a denormalized cache, and the ledger's
@@ -8740,6 +8887,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   app.get("/api/admin/modules", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const demotions = new Map(moduleDemotions().map((d) => [d.id, d.missing]));
+    // The other reason a module is served as OFF against its configuration:
+    // its own records failed a startup check. Answered by mending rows and
+    // restarting, not by turning a dependency back on, so the panel carries
+    // them as separate fields rather than one "why is this dark".
+    const quarantines = new Map(moduleQuarantines().map((q) => [q.id, q.reasons]));
     // Read once per request: examplesAvailable below asks whether the seed
     // file carries a block for each module.
     const exampleSeed = loadExampleSeed(SEEDS_DIR);
@@ -8769,6 +8921,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         lifecycle: m.core ? "public" : storedLifecycle(m.id),
         served: effectiveLifecycle(m.id),
         demotedBecause: demotions.get(m.id) ?? null,
+        quarantinedBecause: quarantines.get(m.id) ?? null,
         // Standing examples: whether this module is currently showing them,
         // and whether they are gone for good. Drives the "showing examples"
         // chip and the clear button, and explains why a module that nobody
@@ -19280,6 +19433,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
     // Module health: stored intent vs what's actually served.
     const demotions = new Map(moduleDemotions().map((d) => [d.id, d.missing]));
+    // This is the screen a founder opens when something is dark, so it is the
+    // screen that has to distinguish the two reasons a module can be dark
+    // against its own configuration: a dependency is off (turn it back on) or
+    // its own records failed a startup check (mend the rows, then restart).
+    const quarantines = new Map(moduleQuarantines().map((q) => [q.id, q.reasons]));
     const modules = MODULES.map((m) => ({
       id: m.id,
       name: m.name,
@@ -19287,6 +19445,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       lifecycle: storedLifecycle(m.id),
       served: effectiveLifecycle(m.id),
       demotedBecause: demotions.get(m.id) ?? null,
+      quarantinedBecause: quarantines.get(m.id) ?? null,
       requires: m.requires,
       legalReview: !!m.legalReview,
       // ── Lane C: who answers for this one. This is the screen a founder
