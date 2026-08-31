@@ -43,6 +43,9 @@ import { adminGateWasConsulted, markAdminGate } from "./lib/adminGate";
 import { type FaqPathway, register as registerFaqRoutes } from "./routes/faqs";
 import { register as registerMilestonesRoutes } from "./routes/milestones";
 import { register as registerTrainingRoutes } from "./routes/training";
+import { register as registerGoogleAuthRoutes } from "./routes/authGoogle";
+import { register as registerRecoveryRoutes } from "./routes/authRecovery";
+import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
   encodeToken,
@@ -4012,6 +4015,13 @@ function deploymentOrigin(): string {
   }
   return "";
 }
+
+/**
+ * Whether this village can offer Google sign-in, asked fresh each time.
+ * FRONTEND_URL and never the observed origin: see the note in oauthGoogle.ts.
+ */
+const googleSignInAvailability = () =>
+  resolveGoogleConfig(process.env, String(process.env.FRONTEND_URL ?? ""));
 
 /**
  * Where this village's feedback relay sends, if anywhere.
@@ -8598,58 +8608,48 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     });
   });
 
-  /**
-   * Account recovery. Before this route the platform had none: a member who
-   * forgot their password had no path back in, because the only set-password
-   * token minter lived inside the one-shot founder bootstrap.
-   *
-   * Deliberately NOT an account-existence oracle: every outcome — unknown
-   * address, claim-pending account, tombstone, successful send — answers the
-   * same 200 with the same body. The copy stays honest about delivery
-   * ("if an account exists, a link is on its way") because a fork whose
-   * sender domain is unverified gets a 200 from the provider and delivers
-   * nothing; that failure is logged loudly here so it is findable.
-   */
-  app.post("/api/auth/forgot-password", async (req, res) => {
-    const sameAnswer = {
-      success: true,
-      message: "If an account exists for that address, a link to set a new password is on its way.",
-    };
-    if (await overLimit(`forgot:${clientIp(req)}`, Math.max(1, numberVar("abuse.password_reset_per_ip_hourly")), 60 * 60 * 1000)) {
-      return res.status(429).json({ error: "Too many attempts. Try again in a few minutes." });
-    }
-    const email = String(req.body?.email ?? "").trim();
-    if (!email) return res.status(400).json({ error: "An email address is required" });
-    // Per-address bucket too: without it, one address can be mail-bombed
-    // from a pool of IPs.
-    if (await overLimit(`forgot-acct:${email.toLowerCase()}`, 5, 60 * 60 * 1000)) {
-      return res.json(sameAnswer);
-    }
-    const user = await members.byEmail(email);
-    // A tombstone has no password and no name; a claim-pending account has no
-    // password either. Neither should receive a reset — bootstrap covers the
-    // second and the first is gone on purpose.
-    if (user?.passwordHash) {
-      const claim = makeSetPasswordToken(AUTH_TOKEN_SECRET, user.id, user.passwordHash);
-      const claimUrl = `${notifyDeps.origin()}/set-password?token=${encodeURIComponent(claim)}`;
-      try {
-        await sendResendEmail({
-          to: [user.email],
-          subject: "Set a new password",
-          html: `<p>Someone asked to set a new password for your account on ${escapeHtml(mergedConfig().project.name)}.</p>
-<p><a href="${escapeHtml(claimUrl)}">Set a new password</a> (link expires in 60 minutes, and works once).</p>
-<p>If the button does nothing, paste this into your browser:<br>${escapeHtml(claimUrl)}</p>
-<p>If this wasn't you, nothing has changed. You can ignore this message.</p>`,
-        });
-      } catch (e) {
-        console.error(`[auth] password-reset email FAILED for ${user.id}: the member got a 200 and no link`, e);
-      }
-      void recordEvent(getPool(), {
-        kind: "audit", text: "auth:password-reset-requested",
-        actorUserId: user.id, entityType: "user", entityRef: user.id, audience: "admin",
+  // Account recovery, and Google sign-in beside it.
+  //
+  // Registered at exactly this point: `/api/auth/forgot-password` used to be
+  // written here inline, and Express matches in registration order, so where
+  // register() is CALLED is part of the behaviour.
+  //
+  // Google sign-in is configuration-gated. `resolveGoogleConfig` is handed the
+  // CONFIGURED origin only, never the observed one: Google compares a redirect
+  // URI byte for byte against a registered value, and a value derived from
+  // whichever hostname a stranger happened to reach first is not that.
+  const recordAuthAudit = (text: string, userId: string) => {
+    void recordEvent(getPool(), {
+      kind: "audit", text, actorUserId: userId, entityType: "user", entityRef: userId, audience: "admin",
+    });
+  };
+  registerRecoveryRoutes(app, {
+    authSecret: AUTH_TOKEN_SECRET,
+    members,
+    overLimit,
+    clientIp,
+    resetPerIpHourly: () => numberVar("abuse.password_reset_per_ip_hourly"),
+    sendEmail: sendResendEmail,
+    escapeHtml,
+    origin: notifyDeps.origin,
+    projectName: () => mergedConfig().project.name,
+    recordAudit: recordAuthAudit,
+  });
+  registerGoogleAuthRoutes(app, {
+    authSecret: AUTH_TOKEN_SECRET,
+    availability: googleSignInAvailability,
+    members,
+    encodeToken: (userId, email, v) => encodeToken(AUTH_TOKEN_SECRET, userId, email, v),
+    publicUser,
+    makeHandle: (name) => uniqueHandle(slugifyHandle(name)),
+    overLimit,
+    clientIp,
+    recordAudit: recordAuthAudit,
+    onMemberJoined: (user) => {
+      void addActivity("join", `${firstName(user.name)} stepped into the village as a Guest`, {
+        actorUserId: user.id, entityType: "user", entityRef: user.id,
       });
-    }
-    res.json(sameAnswer);
+    },
   });
 
   /**
