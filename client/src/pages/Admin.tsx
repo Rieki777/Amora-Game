@@ -1,5 +1,7 @@
 ﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Lock, Eye, EyeOff, Inbox, Users, Circle, TrendingUp, Home, Sparkles, Users2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, Mail, MessageSquare, Moon, FileText, GraduationCap, Upload, ExternalLink, HelpCircle, Activity, Calendar, BarChart3, ArrowUp, ArrowDown, Plus, Coins, Handshake, KeyRound, PanelLeftClose, PanelLeftOpen, ToggleLeft, Scale, HardDrive } from "lucide-react";
+// Nineteen icons left this list when navGroups and CONTENT_SECTIONS moved to
+// client/src/components/admin/: they were the nav's icons, not this file's.
+import { Lock, Eye, EyeOff, Inbox, Circle, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, FileText, Upload, ExternalLink, ArrowUp, ArrowDown, Plus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { linesToList, listToLines } from "@/lib/questBoard";
@@ -28,15 +30,18 @@ import type { ModuleLifecycle } from "@shared/modules";
 import type { UploadsSweepReport } from "@shared/uploadsSweep";
 import { CIRCLE_STATUSES } from "@shared/draftKinds";
 
-const API_BASE = "/api";
 import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
 import MapSkinPanel from "@/components/MapSkinPanel";
+import { API_BASE, authHeaders, refusal } from "@/components/admin/adminApi";
 import MapVocabularyPanel from "@/components/admin/MapVocabularyPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
 import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
 import { CrowdpoolAdminTab, ForumCategoriesEditor, ToolsCategoriesEditor } from "@/components/admin/ModuleConfigPanels";
+import { CONTENT_SECTIONS } from "@/components/admin/contentSections";
+import { navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
+import HandoverTab from "@/components/admin/HandoverTab";
 import HyphaModulePanel from "@/components/admin/HyphaModulePanel";
 import VotingWeightsPanel from "@/components/admin/VotingWeightsPanel";
 import RelationsEditor from "@/components/admin/RelationsEditor";
@@ -48,10 +53,6 @@ import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "
 // membership. Both were reachable only by scrolling "All types". The strings are
 // the ones the pages actually POST, from Visit.tsx and LoveLetter.tsx.
 const FORM_TYPES = ["work-with-us", "quest-proposal", "visit-inquiry", "membership-508", "investor", "steward", "resident", "prosperity", "contact"] as const;
-
-function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
-  return { Authorization: `Bearer ${password}`, ...extra };
-}
 
 /**
  * THE SERVER'S OWN SENTENCE, WHEN IT HAS ONE.
@@ -93,63 +94,6 @@ function ResolutionNote({ report }: { report: { status: string; resolvedBy?: str
   if (!line) return null;
   return <p className="text-xs text-gray-500 mt-2">{line}</p>;
 }
-
-/**
- * A refusal, in English.
- *
- * Server refusal bodies are being unified to `{error, message}`, where `error`
- * is the machine code and `message` is the sentence a person should read. A
- * toast that prints the code hands a founder `auth_required` and calls it an
- * explanation. Both shapes are in flight, so this prefers the sentence, falls
- * back to the code, then to whatever the call site already knew to say.
- *
- * Every admin surface reads refusals through this one function. It was four
- * call sites in the module store first; the other twenty-four were the same
- * `d.error ||` by hand, and one of them dropping back to `d.error` later is
- * exactly the kind of thing nobody notices from a toast.
- */
-function refusal(d: any, fallback: string): string {
-  // Falsy-skipping, not nullish-coalescing: every call site this replaced was
-  // `d.error || "..."`, so a body carrying an empty string fell through to the
-  // words the call site chose. `??` would have shown a founder a blank toast
-  // and called that an improvement.
-  for (const value of [d?.message, d?.error]) {
-    const text = value == null ? "" : String(value).trim();
-    if (text) return text;
-  }
-  return fallback;
-}
-/*
- * ONE SECTION LEFT, and the six that went are why this comment exists.
- *
- * Investor, Steward, Resident and Prosperity saved into
- * `app_config['content'].<pathway>` and the four journey pages each hold their
- * own `journeySteps` constant and never fetched it, so every save was a green
- * toast over nothing. Circles and Roles had carried an amber banner since 0049
- * saying the public pages no longer read them, which is an editor admitting it
- * lies and staying on the rail anyway. /circles and /roles read `/api/org`;
- * their editor is Admin, Org Chart.
- *
- * Team stays because Team.tsx really does fetch `/api/content/team`: the cards
- * carry the portrait and the bio a seat row has no place for, and a card for
- * somebody who holds no seat is the only way they reach the page at all.
- */
-const CONTENT_SECTIONS = [
-  { key: "team", label: "Team Page", icon: Users },
-  // Added for the brochure lane's legal-content extraction (fe3f3e1): 22
-  // jurisdiction-specific claims moved out of compiled JSX into this section,
-  // read through the same generic content routes. Without a registry entry
-  // here a founder has no door to write their own jurisdiction's notices.
-  { key: "legal", label: "Legal & Jurisdiction Notices", icon: FileText },
-  // S3 pages lane: the two paragraphs of the Love Letter covenant that
-  // describe this village's own land and its own plan for forming a
-  // governance council. They shipped compiled in, so every founder's members
-  // were asked to SIGN a description of Amora's jungle and Amora's lot count.
-  // LoveLetter.tsx reads `covenant.opening` and `covenant.governance`; with
-  // nothing saved it falls back to the same sentences minus the geography and
-  // the number. Amora's own wording is in server/seeds/pages-covenant-seed.json.
-  { key: "covenant", label: "Love Letter Covenant", icon: FileText },
-] as const;
 
 /**
  * Forum moderation, which had no surface at all.
@@ -461,148 +405,6 @@ function MessageReportsTab({ password }: { password: string }) {
       </div>
     </div>
   );
-}
-
-/**
- * The admin nav, as data.
- *
- * It used to be ~11k characters of hand-copied <button> blocks, which is why
- * it could only ever be one width: every one of the thirty-odd items would
- * have had to learn about collapsing separately. One list renders once, and
- * the rail below decides how wide to draw it.
- *
- * `setup` moves: a front door while the village is still being set up, an
- * ordinary settings row once it is done.
- */
-type NavItem = { key: string; label: string; icon: LucideIcon; badge?: TabBadge };
-type NavGroup = { title: string; items: NavItem[] };
-
-function navGroups(setupComplete: boolean): NavGroup[] {
-  return [
-    ...(setupComplete ? [] : [{
-      title: "Start here",
-      items: [{ key: "setup", label: "Make This Yours", icon: Sparkles }],
-    }]),
-    {
-      title: "Submissions",
-      items: [
-        { key: "submissions", label: "All Forms", icon: Inbox },
-        { key: "feedback", label: "Feedback", icon: HelpCircle },
-        { key: "forum-moderation", label: "Moderation", icon: Users2 },
-        // Beside the forum queue on purpose: the same job, the same card, and
-        // the two are the only places a flag from a member ever lands.
-        { key: "message-reports", label: "Message Reports", icon: MessageSquare },
-        { key: "products", label: "Payments", icon: Handshake },
-      ],
-    },
-    { title: "Content", items: CONTENT_SECTIONS.map(s => ({ ...s })) },
-    {
-      title: "Notifications",
-      items: [
-        { key: "email-settings", label: "Email Settings", icon: Mail },
-        { key: "integrations", label: "Integrations", icon: KeyRound },
-      ],
-    },
-    {
-      // The guide's own two surfaces. What she knows, and what she has asked
-      // for. Both are hers to propose and yours to decide, so they sit
-      // together and away from the tabs that take effect the moment you save.
-      title: "The Guide",
-      items: [
-        { key: "brain", label: "Village Brain", icon: FileText },
-        { key: "drafts", label: "Her Drafts", icon: Inbox },
-      ],
-    },
-    {
-      // Beside the vault on purpose: the vault is the door that filled the
-      // volume with files nothing pointed at, and this is where a founder sees
-      // what is on it.
-      title: "Documents",
-      items: [
-        { key: "investor-vault", label: "Investor Vault", icon: FileText },
-        { key: "uploaded-files", label: "Uploaded Files", icon: HardDrive },
-      ],
-    },
-    { title: "Training", items: [{ key: "training-modules", label: "Training Modules", icon: GraduationCap }] },
-    {
-      title: "The Game",
-      items: [
-        // First in the group on purpose: this is the master switch for what
-        // the village runs, and it used to hide mid-list under the same
-        // label as the training-content tab above — nobody could find it.
-        // "Module Library" now (L1): the same page a founder browses at
-        // /modules, with the lifecycle controls only admins get. The key
-        // stays `modules` so every deep link survives.
-        { key: "modules", label: "Module Library", icon: ToggleLeft },
-        { key: "quests-admin", label: "Quests", icon: Sparkles },
-        { key: "quest-claims", label: "Quest Claims", icon: Sparkles },
-        { key: "players", label: "Players", icon: Users },
-        { key: "game-roles", label: "Game Roles", icon: Users2 },
-        // 0098. What the village looks after, and the two steps that move a
-        // power onto a role. Beside Game Roles because the first of those
-        // two steps is a role edit, and a founder who opens one wants the
-        // other in the same breath.
-        { key: "handover", label: "The Handover", icon: KeyRound },
-        // The sociocratic org chart. Distinct from "Game Roles" above, which
-        // edits permission groups; this is the seats people actually hold.
-        { key: "org-chart", label: "Org Chart", icon: Users2 },
-        // The allocation table `governance.weight_mode` promises by name: its
-        // Custom option says weight comes from "the allocation table you keep
-        // under Voting weights", and until this tab the table's only writers
-        // were two routes nothing in the browser called. It rides
-        // TAB_MODULE's governance mapping, so a village with the engine off
-        // never sees it.
-        { key: "governance-weights", label: "Voting Weights", icon: Scale },
-        // Season patterns and the retrospective. Separate from the Season
-        // tab's dates: this is what a season CARRIES, not when it runs.
-        { key: "seasons-patterns", label: "Season Shapes", icon: Calendar },
-        { key: "circles-map", label: "Circles & Map", icon: Circle },
-        // Beside the map on purpose: a hamlet's homes are keyed by the same
-        // structure key the map mints, and builder mode edits the same rows.
-        { key: "housing", label: "Housing & Reservations", icon: Home },
-        // Next to the map on purpose: a gathering's structure keys are what
-        // light the map's buildings, so the two are edited in the same visit.
-        { key: "events-admin", label: "Calendar", icon: Calendar },
-        { key: "tools-admin", label: "Tools", icon: Handshake },
-        // The crowdpool shipped with campaign linking in module config and no
-        // door to it, so a founder could enable the module and never link a
-        // raising. This is that door.
-        { key: "crowdpool-admin", label: "Crowdpool", icon: Coins },
-        { key: "stays-admin", label: "Stays & Payments", icon: Home },
-        { key: "exchange-admin", label: "Exchange", icon: TrendingUp },
-        { key: "badges-admin", label: "Badges", icon: GraduationCap },
-        { key: "library-admin", label: "Library", icon: Inbox },
-        { key: "health-admin", label: "Village Health", icon: Activity },
-        { key: "resources-admin", label: "How Resources Flow", icon: Coins },
-        { key: "exits-admin", label: "Departures", icon: LogOut },
-        { key: "calls-admin", label: "Calls", icon: Calendar },
-        { key: "intents-admin", label: "Introductions", icon: Handshake },
-        { key: "tokens", label: "Tokens", icon: Coins },
-        { key: "ledger", label: "Ledger", icon: BarChart3 },
-        // With the other economy desks, and after the Ledger on purpose: this
-        // is the one admin act that releases value, so it sits where a founder
-        // has just been reading what the ledger holds.
-        { key: "cycles", label: "Cycle Close", icon: Moon },
-        { key: "variables", label: "Game Mechanics", icon: Activity },
-        { key: "season", label: "Season", icon: Circle },
-      ],
-    },
-    {
-      title: "Site Content",
-      items: [
-        { key: "settings", label: "Settings", icon: Coins },
-        { key: "work-with-us", label: "Work With Us", icon: Handshake },
-        { key: "faqs", label: "FAQs", icon: HelpCircle },
-        { key: "milestones", label: "Build Progress", icon: Activity },
-        { key: "visit-config", label: "Visit Program", icon: Calendar },
-        { key: "investor-summary", label: "Investor Summary", icon: BarChart3 },
-      ],
-    },
-    ...(setupComplete ? [{
-      title: "Settings",
-      items: [{ key: "setup", label: "Project Settings", icon: Sparkles }],
-    }] : []),
-  ];
 }
 
 /**
@@ -3964,198 +3766,6 @@ function PlayersTab({ password }: { password: string }) {
 }
 
 // ── Game Admin: Role appointments (S3 — no more curl) ────────────────────────
-
-/**
- * THE HANDOVER (0098): what this village looks after, and how a power moves.
- *
- * R54, the founder's ruling: these villages are meant to be taken over by
- * their electorate, and the admin panel is scaffolding to be dismantled. This
- * tab is the scaffolding naming itself.
- *
- * TWO STEPS AND THE ORDER MATTERS, which is why the panel is shaped this way
- * and not as one button. First a role is given the power, so somebody can
- * act. Then the village takes the power on, and from that moment the admin
- * short-circuit stops answering for it. Handing a power to a role nobody
- * could act through would produce the one state worth refusing outright: the
- * admin stops passing, the named holder never passed, and the power belongs
- * to nobody. The server refuses it; this panel makes it hard to try.
- */
-function HandoverTab({ password }: { password: string }) {
-  const [data, setData] = useState<any>(null);
-  const [picking, setPicking] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState("");
-
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/admin/capabilities/holding`, { headers: authHeaders(password) });
-      setData(res.ok ? await res.json() : null);
-    } catch { setData(null); }
-  }, [password]);
-  useEffect(() => { load(); }, [load]);
-
-  const roles: any[] = data?.roles ?? [];
-
-  /** Give a role a capability it does not carry yet, escalation and all. */
-  const grant = async (roleId: string, capability: string) => {
-    const role = roles.find((r) => r.id === roleId);
-    if (!role) return;
-    const next = Array.from(new Set([...(role.capabilities ?? []), capability]));
-    setBusy(capability);
-    try {
-      let res = await fetch(`${API_BASE}/admin/roles/${roleId}/capabilities`, {
-        method: "PUT",
-        headers: authHeaders(password, { "Content-Type": "application/json" }),
-        body: JSON.stringify({ capabilities: next }),
-      });
-      let d = await res.json();
-      if (res.status === 409 && d?.requiresConfirmation) {
-        const lines = (d.escalations ?? []).map((e: any) => `Anyone in it could ${e.consequence}.`).join("\n");
-        if (!window.confirm(`${d.error}\n\n${lines}`)) { setBusy(""); return; }
-        res = await fetch(`${API_BASE}/admin/roles/${roleId}/capabilities`, {
-          method: "PUT",
-          headers: authHeaders(password, { "Content-Type": "application/json" }),
-          body: JSON.stringify({
-            capabilities: next,
-            grantedEscalations: (d.escalations ?? []).map((e: any) => e.capability),
-          }),
-        });
-        d = await res.json();
-      }
-      if (!res.ok) throw new Error(refusal(d, "The change did not go through"));
-      toast.success(`${role.name} carries it now`);
-      load();
-    } catch (e: any) { toast.error(e?.message || "The change did not go through"); }
-    setBusy("");
-  };
-
-  /** Hand the power to the village. */
-  const handOver = async (capability: string, roleId: string) => {
-    setBusy(capability);
-    try {
-      const res = await fetch(`${API_BASE}/admin/capabilities/${encodeURIComponent(capability)}/holding`, {
-        method: "PUT",
-        headers: authHeaders(password, { "Content-Type": "application/json" }),
-        body: JSON.stringify({ roleId }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(refusal(d, "The handover did not go through"));
-      toast.success("The village holds it now");
-      load();
-    } catch (e: any) { toast.error(e?.message || "The handover did not go through"); }
-    setBusy("");
-  };
-
-  const takeBack = async (capability: string) => {
-    if (!window.confirm("Bring this power back to the admin panel? The village sees this on its own feed.")) return;
-    setBusy(capability);
-    try {
-      const res = await fetch(`${API_BASE}/admin/capabilities/${encodeURIComponent(capability)}/holding`, {
-        method: "DELETE",
-        headers: authHeaders(password),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(refusal(d, "That did not go through"));
-      toast.success("Back with the admin panel");
-      load();
-    } catch (e: any) { toast.error(e?.message || "That did not go through"); }
-    setBusy("");
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="font-display text-xl font-semibold">The handover</h2>
-        <p className="text-sm text-muted-foreground mt-2">
-          Every power below has somebody behind it. A power the village holds is one
-          you stop passing by being an admin: whoever sits in the holding role acts on
-          their own account, and you can still reach past it on a day something has
-          gone wrong. Reaching past writes a line on the village feed naming the power
-          and your name, and tells whoever holds it.
-        </p>
-        <p className="text-sm text-muted-foreground mt-2">
-          Members read the same list, in their own words, at{" "}
-          <Link href="/powers" className="underline">What this village looks after</Link>.
-        </p>
-      </div>
-
-      {(data?.powers ?? []).map((p: any) => {
-        const holdingRole = p.heldBy ? roles.find((r) => r.id === p.heldBy.roleId) : null;
-        const canHold = roles.filter((r) => !r.isExample && (r.capabilities ?? []).includes(p.capability));
-        const chosen = picking[p.capability] ?? "";
-        return (
-          <div key={p.capability} className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="font-semibold">{p.title}</h3>
-                <p className="text-sm text-muted-foreground mt-1">{p.surface}.</p>
-                <p className="text-sm mt-2">Whoever holds this can {p.consequence}.</p>
-              </div>
-              <code className="text-xs text-muted-foreground shrink-0">{p.capability}</code>
-            </div>
-
-            {p.heldBy ? (
-              <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-                <p className="text-sm">
-                  {holdingRole?.name ?? p.heldBy.roleName ?? p.heldBy.roleId} holds this.{" "}
-                  {p.heldBy.byBallot ? "The village voted it across." : "An admin handed it over."}
-                </p>
-                <button
-                  className="text-sm underline text-muted-foreground"
-                  disabled={busy === p.capability}
-                  onClick={() => takeBack(p.capability)}
-                >
-                  Bring it back
-                </button>
-              </div>
-            ) : !p.movable ? (
-              <p className="text-sm text-muted-foreground mt-3">
-                This one stays with the admin panel for now. Its gate has no way back
-                through the product yet, and a power an operator cannot reach past is
-                an outage waiting for a bad day.
-              </p>
-            ) : (
-              <div className="mt-3 space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  The admin panel looks after this one.
-                </p>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <select
-                    className="border border-border rounded px-2 py-1 text-sm bg-background"
-                    value={chosen}
-                    onChange={(e) => setPicking((prev) => ({ ...prev, [p.capability]: e.target.value }))}
-                  >
-                    <option value="">Choose a role</option>
-                    {roles.filter((r) => !r.isExample).map((r) => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
-                  </select>
-                  {chosen && !canHold.some((r) => r.id === chosen) && (
-                    <button
-                      className="text-sm px-3 py-1 rounded border border-border"
-                      disabled={busy === p.capability}
-                      onClick={() => grant(chosen, p.capability)}
-                    >
-                      Give this role the power
-                    </button>
-                  )}
-                  {chosen && canHold.some((r) => r.id === chosen) && (
-                    <button
-                      className="text-sm px-3 py-1 rounded bg-primary text-primary-foreground"
-                      disabled={busy === p.capability}
-                      onClick={() => handOver(p.capability, chosen)}
-                    >
-                      Hand it to the village
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function GameRolesTab({ password }: { password: string }) {
   const [roles, setRoles] = useState<any[]>([]);
