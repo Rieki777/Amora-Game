@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { altOr, statedFacts, useBrandImages, useVillageSettings } from "@/lib/gameApi";
+import { altOr, statedFacts, useBrandImages, useVillageLinks, useVillageSettings } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { 
@@ -72,6 +72,8 @@ const zones = [
 ];
 
 export default function MasterPlan() {
+  // Blank hides the button rather than pointing at another village.
+  const { eventsUrl } = useVillageLinks();
   const brand = useBrandImages();
   const settings = useVillageSettings();
   const stats = statedFacts(settings, statShapes);
@@ -221,17 +223,15 @@ export default function MasterPlan() {
                 This village has not published a land valuation yet.
               </p>
             )}
-            <a
-              href="https://amora.cr"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              disabled
               className="inline-flex items-center gap-2 mt-6 px-6 py-3 bg-teal-deep/30 text-teal-deep rounded-lg font-semibold cursor-not-allowed opacity-60"
-              onClick={e => e.preventDefault()}
               title="Master Plan PDF coming soon"
             >
               <Map className="w-5 h-5" />
               Master Plan PDF, Coming Soon
-            </a>
+            </button>
           </div>
         </div>
       </section>
@@ -297,15 +297,17 @@ export default function MasterPlan() {
               there's a place for you in our master plan.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-8 py-4 bg-white text-teal-deep rounded-lg font-semibold hover:bg-white/90 transition-colors flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join Community Call
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-8 py-4 bg-white text-teal-deep rounded-lg font-semibold hover:bg-white/90 transition-colors flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join Community Call
+                </a>
+              )}
               <Link
                 href="/"
                 className="px-8 py-4 bg-white/20 text-white rounded-lg font-semibold hover:bg-white/30 transition-colors"

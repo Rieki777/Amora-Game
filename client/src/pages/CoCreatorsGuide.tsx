@@ -1,6 +1,6 @@
 import Layout from "@/components/Layout";
 import { useHypha } from "@/modules/ModuleProvider";
-import { useGameConfig } from "@/lib/gameApi";
+import { useGameConfig, useVillageLinks } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -236,7 +236,9 @@ const ctaCards = [
     title: "Join Community Call",
     description: "Meet us live and ask your questions",
     icon: Calendar,
-    href: "https://amora.cr/event/discover-amora-webinar-qa/",
+    // Resolved at render from this village's own eventsUrl, and the card drops
+    // out of the grid when there is none.
+    href: "",
     external: true,
     color: "text-sage",
   },
@@ -245,6 +247,13 @@ const ctaCards = [
 export default function CoCreatorsGuide() {
   const hypha = useHypha();
   const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
+  // The one external card points at this village's own events page.
+  // No events page, no card: better an absent invitation than one that
+  // takes a reader to a different village's calendar.
+  const { eventsUrl } = useVillageLinks();
+  const cards = ctaCards
+    .map((card) => (card.external ? { ...card, href: eventsUrl } : card))
+    .filter((card) => card.href);
   const recognition = recognitionItems(valueName);
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
@@ -1100,7 +1109,7 @@ export default function CoCreatorsGuide() {
             </div>
 
             <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-              {ctaCards.map((card, idx) => (
+              {cards.map((card, idx) => (
                 <motion.div
                   key={card.title}
                   initial={{ opacity: 0, y: 20 }}

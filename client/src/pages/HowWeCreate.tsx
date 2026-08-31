@@ -1,7 +1,7 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { useGameConfig } from "@/lib/gameApi";
+import { useGameConfig, useVillageLinks } from "@/lib/gameApi";
 import { 
   Sparkles, 
   ArrowRight, 
@@ -105,6 +105,8 @@ const itemVariants = {
 
 export default function HowWeCreate() {
   const config = useGameConfig();
+  // Blank hides the button rather than pointing at another village.
+  const { eventsUrl } = useVillageLinks();
   // Until the config lands (or on a fork that hasn't named one) speak
   // generically — never render a blank where the token's name belongs.
   const valueName = config?.currency?.value?.name ?? "village tokens";
@@ -478,15 +480,17 @@ export default function HowWeCreate() {
                 Read the Co-Creators Guide
                 <ArrowRight className="w-5 h-5" />
               </Link>
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-6 py-3 bg-muted text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-muted/80 transition-all hover:scale-105 flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join Community Call
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-6 py-3 bg-muted text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-muted/80 transition-all hover:scale-105 flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join Community Call
+                </a>
+              )}
             </div>
           </motion.div>
         </div>
