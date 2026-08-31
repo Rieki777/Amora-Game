@@ -1077,12 +1077,25 @@ const DEFAULT_SETTINGS = {
   },
 };
 
-const DEFAULT_TRAINING_MODULES = [
+/**
+ * The starter training list a fresh deployment gets, once, when the table is
+ * empty. Two of these descriptions named Amora outright, so every village that
+ * installed this platform opened its training page and read another village's
+ * name back at itself on day one. A FUNCTION rather than a const because the
+ * name is read at seed time from the merged config (brand overlay over the
+ * gameConfig default), which is not known at module load.
+ *
+ * Only the identity moved. The practices are the platform's opinion about what
+ * a village should learn first and they stay exactly as written.
+ */
+function defaultTrainingModules() {
+  const village = mergedConfig().project.name;
+  return [
   {
     id: "nvc-intro",
     title: "Introduction to Nonviolent Communication",
     description:
-      "The foundation of how we talk to each other at Amora. Learn the four components of NVC and why they matter.",
+      `The foundation of how we talk to each other at ${village}. Learn the four components of NVC and why they matter.`,
     type: "Video",
     url: "",
     order: 1,
@@ -1100,7 +1113,7 @@ const DEFAULT_TRAINING_MODULES = [
     id: "consent-decisions",
     title: "Consent-Based Decision Making",
     description:
-      "How Amora makes decisions together: the difference between consensus and consent, and why it matters.",
+      `How ${village} makes decisions together: the difference between consensus and consent, and why it matters.`,
     type: "Article",
     url: "",
     order: 3,
@@ -1114,7 +1127,8 @@ const DEFAULT_TRAINING_MODULES = [
     url: "",
     order: 4,
   },
-];
+  ];
+}
 
 const FORM_TYPE_TO_PATHWAY: Record<string, "investor" | "steward" | "resident" | "prosperity"> = {
   investor: "investor",
@@ -1861,8 +1875,12 @@ async function ensureDataFiles() {
       console.error("[seed] roles seed failed (continuing)", e);
     }
   }
-  if (trainingRepo.all().length === 0 && DEFAULT_TRAINING_MODULES.length) {
-    await trainingRepo.replaceAll(DEFAULT_TRAINING_MODULES as any[]);
+  if (trainingRepo.all().length === 0) {
+    // Built here rather than at module load: the descriptions carry the
+    // village's own name and the brand overlay is only readable once the
+    // repos are hydrated, which is true by the time this seed runs.
+    const starter = defaultTrainingModules();
+    await trainingRepo.replaceAll(starter as any[]);
     console.log("[seed] default training modules seeded");
   }
   if (milestonesRepo.all().length === 0 && DEFAULT_MILESTONES.length) {
@@ -2500,7 +2518,11 @@ async function markFoundingTeamInProgress() {
  * the old default. Anything a human has since edited is left exactly as it is.
  */
 async function retireLegacyPegCopy() {
-  const OLD_FAQ = "Contributions are compensated in Gratitude (1 Gratitude = $1 USD in value). As Amora's shared businesses generate revenue, Gratitude converts to cash.";
+  // brand-ok: a fossil, not a claim. This literal is compared character for
+  // character against copy already written to deployed volumes, so replacing
+  // the name here would stop the correction matching and silently leave the
+  // false peg in live copy on every village that booted before it.
+  const OLD_FAQ = "Contributions are compensated in Gratitude (1 Gratitude = $1 USD in value). As Amora's shared businesses generate revenue, Gratitude converts to cash."; // brand-ok: fossil compared byte for byte against deployed copy, see above
   const OLD_DUES_NOTE = "Village Dues cover utilities, maintenance, and community services. They can be offset through Gratitude (1 Gratitude = $1 USD of contribution).";
   try {
     const faqs = faqsRepo.get();
@@ -4921,6 +4943,13 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * The heading was the literal word "Amora", so every village that installed
+ * this platform emailed its own stewards under another village's name. Same
+ * rule as every other identity string: the name comes from the merged config,
+ * which is a brand override over the gameConfig default, and is escaped
+ * because a village types its own name.
+ */
 function buildSubmissionEmailHtml(type: string, data: Record<string, unknown>, adminUrl: string): string {
   const rows = Object.entries(data)
     .map(
@@ -4930,7 +4959,7 @@ function buildSubmissionEmailHtml(type: string, data: Record<string, unknown>, a
     .join("");
   return `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;background:#f9fafb;padding:24px;color:#1f2937">
 <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
-  <div style="background:#2D5A5A;color:#fff;padding:20px 24px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.7">New ${escapeHtml(type)} submission</div><div style="font-size:20px;font-weight:700;margin-top:4px">Amora</div></div>
+  <div style="background:#2D5A5A;color:#fff;padding:20px 24px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.7">New ${escapeHtml(type)} submission</div><div style="font-size:20px;font-weight:700;margin-top:4px">${escapeHtml(mergedConfig().project.name)}</div></div>
   <div style="padding:20px 24px">
     <table style="width:100%;border-collapse:collapse;font-size:14px">${rows}</table>
     <div style="margin-top:24px"><a href="${escapeHtml(adminUrl)}" style="display:inline-block;background:#2D5A5A;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Open Admin</a></div>
@@ -32559,9 +32588,15 @@ startServer().catch(async (e) => {
     } else if (reachedSomebody(delivery)) {
       console.error(`[startup] boot alert sent (admins: ${delivery.admins}, webhook: ${delivery.webhook})`);
     } else {
+      // The advice has to match the fact. "Set ERROR_WEBHOOK_URL" is wrong
+      // when it IS set and the collector refused, and an operator who acts on
+      // wrong advice loses the time this line exists to save.
+      const advice =
+        delivery.webhook === "not configured"
+          ? "Set ERROR_WEBHOOK_URL so a failed boot can reach a person without a working database."
+          : "ERROR_WEBHOOK_URL is set and the delivery failed; the reason is on the [error] line above.";
       console.error(
-        `[startup] boot alert reached NOBODY (admins: ${delivery.admins}, webhook: ${delivery.webhook}). ` +
-          "Set ERROR_WEBHOOK_URL so a failed boot can reach a person without a working database.",
+        `[startup] boot alert reached NOBODY (admins: ${delivery.admins}, webhook: ${delivery.webhook}). ${advice}`,
       );
     }
   } catch (alarmErr) {
