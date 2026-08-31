@@ -86,6 +86,13 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   **0120**. Next free: **0121**. Gaps at 0111 and 0115-0119 are BURNED, never reuse them
   (the applied-ledger keys on filename and would replay).
 - **Claim a number here before creating the file.** No number is claimed yet this round.
+- **secrets lane, 2026-08-30: claimed nothing, 0121 is still free.** Encryption at rest for
+  the village integration secrets needs NO numbered SQL migration and must not have one.
+  MySQL cannot do AES-256-GCM and must never be handed the key, so the conversion runs in
+  `loadSecrets` at boot: it seals any plaintext entry in place and writes the document back
+  once. Proved idempotent against the real local MySQL, not reviewed: the row is
+  byte-identical after the second and third runs (a re-seal would change the ciphertext,
+  since the iv is fresh per call, so equality is what proves nothing ran).
 - **Reserved fork band.** Proposal: village-local migrations use `9000+`. Owned by safety.
 - **Ports.** Test MySQL is 127.0.0.1:3307 (local, not production). Preview servers pick
   their own; record any long-lived port here.
@@ -159,6 +166,9 @@ Order matters where noted; everything else lands when green.
 | Repo is PUBLIC with unencrypted DB dumps as downloadable artifacts | founder (GitHub admin) | 2026-08-30 | **CORRECTION, backup lane, 2026-08-30 later same day, via `gh api repos/Rieki777/Amora-Game`: the repo is now `"private":true, "visibility":"private"`, not public.** `pushed_at` is 2026-08-30T16:57:30Z, `updated_at` (repo settings, not code) is 2026-08-31T03:21:16Z, after the push, consistent with the founder having already flipped visibility. Collaborators now list only `Rieki777`. **This does not close the exposure window that already happened**, and it does NOT make the 29 currently unexpired `db-backup-*` artifacts (dated 2026-08-02 through 2026-08-29, still unencrypted, still downloadable by anyone with current repo read access, expiring on their own only by late September) safe to leave in place, only safer than while public. Recommend the founder delete those 29 artifacts by hand once the encrypted workflow (this lane's commit `0aa1f71`) is confirmed producing encrypted ones; deleting them was not done here since it is destructive and outside this lane's asked-for deliverables. |
 | `PROD_DATABASE_URL` secret is rejected by MySQL as of the 2026-08-30T14:26 UTC scheduled run | founder / whoever holds Railway access | 2026-08-30, found by backup lane | `mysqldump: Got error: 1045: Access denied for user 'root'@'100.64.0.17' (using password: YES)`, failing in 7s, a NEW failure mode distinct from the prior week's runs (2026-08-25 through 2026-08-29 all failed later, at `restore-drill`'s scratch-MySQL service with `ERROR 2013 Lost connection`, which is CI service-container flakiness, not a credential problem; the `backup` job itself succeeded on all of those). The timing (same day the exposure was escalated) is consistent with the production DB password having already been rotated without `PROD_DATABASE_URL` being updated to match. Until this is fixed, `db-backup.yml` cannot dump anything, encrypted or not, independent of the encryption work in commit `0aa1f71`. |
 | Secret rotation after the exposure | founder | 2026-08-30 | Stripe keys, all `app_config` integration secrets, village signing key, legacy-hash password resets. |
+| `VILLAGE_SECRETS_KEY` must reach `.env.example`, `docs/PROVISIONING.md` and `scripts/fork-init.mjs` | kit (owns all three) | 2026-08-30, filed by secrets lane | New required variable: 32 bytes as 64 hex (`openssl rand -hex 32`), SEPARATE from `MEMBER_SECRETS_KEY`. Without it Admin, Integrations refuses every save with "this deployment has no village-secrets key; ask your operator", so all 13 founder instances need it set before anyone types a Stripe key. Documented in full in `docs/FORK_RUNBOOK.md`, section "`VILLAGE_SECRETS_KEY`: your integration secrets at rest (2026-08-30, secrets lane)". A hosted village must not share one key value with another village. |
+| Admin, Integrations should render the two new status fields | tokens (owns `client/src/**`) | 2026-08-30, filed by secrets lane | `SecretStatus` now carries `atRest: "sealed" \| "plaintext" \| null` and `unreadable: boolean`. Both are additive and the panel renders correctly today without them, but `plaintext` is a finding a founder should see (that row is in every dump until the next boot with a key set) and `unreadable` is the only thing that distinguishes a rotated key from a lost credential. Server side is done and shipped; this is display only. |
+| The village's ed25519 SIGNING key is still plaintext in `app_config` | whoever takes `server/lib/villageExport.ts` | 2026-08-30, found by secrets lane | `ensureSigningKey` stores `privateKeyPem` in the clear under `config_key = 'village-signing-key'`, so it rides in the same dumps the integration secrets used to. Deliberately NOT fixed in the secrets lane: it is a different file, a different credential class (identity, not payment, so outside this lane's harm metric), and it has a real bootstrapping problem the integration store does not, since it is MINTED at first boot and fail-closed there would refuse to boot a fresh instance with no key set. Needs its own decision about what happens on a fresh install. |
 | A workflow_dispatch CI job to run `ops/roll.mjs apply` with the paging webhook and per-village deploy secrets in scope | safety (owns `ci.yml`) | 2026-08-30 | Not urgent: `ops/roll.mjs` runs fine by hand today and the release lane has not published an image yet (landing queue item 3), so there is nothing real to roll out to. File this when release lands so a human is not the only way to kick off a rollout. fleet lane does not touch `.github/workflows/**` itself. |
 | `data/uploads/` volume has no backup of any kind | ops (owns `server/index.ts`) | 2026-08-30 | backup lane cannot reach a Railway volume from a GitHub Action; `railway ssh` is interactive-only and this repo's own history shows it run by hand, never headless. Full spec for an authenticated `GET /api/admin/backup/uploads-archive` (route, `BACKUP_EXPORT_TOKEN` header auth, streamed tar, canary-file manifest) is written up in `docs/FORK_RUNBOOK.md`, "Backup encryption, the uploads volume gap..." section, 2026-08-30. Not half-built; needs the lane that owns `server/index.ts`. |
 | New repo secrets needed for backup encryption: `BACKUP_GPG_PUBLIC_KEY`, `BACKUP_DRILL_GPG_PUBLIC_KEY`, `BACKUP_DRILL_GPG_PRIVATE_KEY` | founder (GitHub secrets) | 2026-08-30 | `db-backup.yml` now fails closed (refuses to dump) until these exist. Generation commands and which secret holds which half are in `docs/FORK_RUNBOOK.md` same section. The drill keypair is CI-only test material and safe to generate and hand over; the production public key's private half must be generated and held by the founder offline, never in this repo or CI. |
@@ -662,6 +672,36 @@ class this whole lane exists to catch, caught in its own tooling).
 **CI steps requested, not applied** (this lane does not own `ci.yml`): filed in section 6, one
 row for the three guard regression tests.
 
+## 7h - Landings, second batch, and what the lanes corrected
+
+| Lane | SHA | Headline |
+|---|---|---|
+| ops | `e726e5a` | Boot alert reaches a real collector with no database involved; `/health` proven red four ways (cut, refused, blackholed, restored) and not latching; per-module quarantine; uploads gauge no longer walks the volume per request. |
+| kit | `3725007` | README, `.env.example` with 27 documented variables, `fork-init.mjs`, `PROVISIONING.md`, and the founder-facing Claude setup prompt. |
+| neutral | `452ab2b` | Neutral palette computed and contrast-checked, blank logo and favicon falling through to the platform mark, seed links stripped, 8 orphaned Amora images deleted, image budget ratcheted down 2216 to 2117 KB. |
+| gates | `7976b29` | The silent-skip trapdoor now FAILS under CI; brand baseline refuses to raise; vitest picks up `.test.tsx`. |
+| brochure | `fe3f3e1` | 22 jurisdiction-specific legal and tax claims out of compiled JSX into runtime content, with honest placeholders on a fresh instance. |
+
+### Corrections the lanes made to me, all of which I accepted
+
+- **gates:** my "about 44 database-backed suites" was wrong. There are **133** `describe.skipIf` call sites across 79 files. 44 is a real but different number (scratch-schema provisions per run). The thrown message now counts them live so it cannot go stale.
+- **gates, and this one may affect other lanes:** `grep -P` returned a FALSE CLEAN on this machine when scanning for em dashes, matching nothing while the true count was three. The authoritative check is `node scripts/check-hyphen-dash.mjs`, which is Node-based. A grep-based self-check is not a check here.
+- **brochure:** found a whole class I never briefed. **Twelve** occurrences of US 508(c)(1)(a) tax-deductibility claims, promising the reader a deduction on their own tax return, on the page collecting their money. False for any fork outside the US. Arguably a sharper harm than the Costa Rica land-law claims I did brief.
+- **brochure:** `Housing.tsx` does not render `WhyCostaRica` as my brief assumed, but carries its own independent tax-free claim, so the check was right by a different mechanism.
+- **neutral:** my brief named `content-seed.json`, which turns out to be DEAD DATA (the journey pages hold their own copy). The three seed files it did not name (`quests`, `roles`, `site-content`) are the live ones.
+- **neutral:** reported honestly that it did NOT fully meet its objective, leaving `project.name` and `memberName` as Amora with a reasoned argument, rather than rounding up. A follow-up identity lane was dispatched for that plus the `Amora Admin` over `game.amora.cr` header in the admin panel.
+
+## 9 - Post-deploy actions (queued, not yet done)
+
+1. **Apply `server/seeds/brochure-legal-seed.json` to Amora's live content document.** Amora already has a `content` row, so the boot-time seed-on-empty path will not touch it, and Amora's own legal wording would render as placeholders until this is applied. One authenticated admin PUT to `/api/admin/content/legal`. Coordinator to run after deploy.
+2. Verify the Railway deploy reaches SUCCESS and that `/health` reports the pushed SHA.
+3. Live QA across the deployed instance, then fix what it finds.
+
+### Needs a human decision (not a lane's call)
+
+- `InvestorJourney.tsx` carries an **accredited-investor self-certification gate**, a US securities-law concept that gates the investor-pack request form. It is a functional compliance control, not prose. The brochure lane deliberately did not touch it and escalated it. Real legal judgement required.
+- One background-check step claims the check itself is tax deductible, which looks like a copy-paste artifact. Preserved verbatim as data rather than silently corrected.
+
 ## 8 - Changelog
 
 - 2026-08-30. Ledger created. Nine worktrees cut off 052d042. Gate set enumerated from the
@@ -672,6 +712,23 @@ row for the three guard regression tests.
   live (both RED, exit 1); caught and fixed a real bug in its own pin-expiry check before commit.
   See 7d for full detail. Filed a non-urgent CI blocker for safety (workflow_dispatch wiring),
   section 6.
+- 2026-08-30. secrets lane landed on `wt/s2-secrets` (not yet merged), 3 commits `a911b42`,
+  `dac1449`, `a7c8673`. Village integration secrets are now AES-256-GCM at rest under a new
+  `VILLAGE_SECRETS_KEY`, reversing the 2026-07-27 plaintext decision whose own written revisit
+  condition (backups leaving the trust boundary) had fired. New `server/lib/sealedBox.ts` is
+  the platform's ONE cipher, extracted from `memberSecrets.ts` unchanged rather than copied,
+  so the member store and the village store cannot drift. Fail closed: a write with no key
+  throws, clearing still works without one. Dual read for one release behind
+  `ACCEPT_LEGACY_PLAINTEXT`, with both sides of the flip already under test. NO migration
+  number claimed and none needed (see section 3). Filed three blockers in section 6 (kit:
+  provisioning variable; tokens: two new status fields; unowned: the ed25519 signing key is
+  still plaintext in the same table). Gates at `a7c8673`: `pnpm check` 0, tests-tsconfig 0,
+  `pnpm build` 0, doc-links 0, hyphen-dash 0, check-voice 0, module-facts 0,
+  `validate-module --all --diff=origin/main` 0 (was 1 before per-line waivers). Targeted
+  suites: `secrets.test.ts` 9/9 passed 0 skipped, `memberSecrets` + `agentInbox` +
+  `externalCalendars` 30/30 passed 0 skipped, `loop.e2e` 70/70 passed 0 skipped (needed
+  `pnpm build` first, since the e2e suites spawn `dist/index.js`).
+
 - 2026-08-30. tokens lane landed on `wt/s2-tokens` (not yet merged): new ratchet gate
   `scripts/check-theme-literals.mjs` + `scripts/theme-literals-baseline.json` (162, refuses to
   raise, proven by hand). Retired the `#2D5A5A` regen-civics teal everywhere (331 occurrences,
@@ -681,3 +738,16 @@ row for the three guard regression tests.
   See 7e for full detail, including what the ratchet deliberately does not cover (Tailwind's own
   default palette classes, ~1,287 `text-gray-*` alone, flagged as a separate follow-up rather
   than folded into this number) and the CI step filed for safety in section 6.
+- 2026-08-30. gates lane landed on `wt/s2-gates` (not yet merged), three commits: CI now fails
+  (not just skips) when zero DB-backed suites provisioned a schema, closing the silent-skip
+  trapdoor in `server/db/provisioningReport.ts`; `vitest.config.ts` picks up `client/**/*.test.tsx`,
+  not only `.test.ts`; `check-brand-refs.mjs --update-baseline` refuses to raise a file's
+  count without `--force`. Reproduced the trapdoor against the real repo (not a fixture): local
+  135 passed / 68 skipped, exit 0 unchanged; `CI=true` with the same missing env now fails at
+  exit 1 naming a live count (133) of gated suites instead of passing silently. Corrected the
+  brief's "~44 suites" to 133 literal `describe.skipIf` call sites (both numbers are real; 44
+  counts scratch-schema provisions per run, a different thing already documented in the same
+  file). Three guard regression tests verified passing standing alone; none wired into any
+  workflow yet, filed as one CI blocker row in section 6 for safety. See 7g for full detail,
+  including the four red/green proofs and the false-clean `grep -P` this lane's own dash check
+  hit on this machine before switching to a Node Unicode scan.
