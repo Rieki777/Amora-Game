@@ -133,7 +133,29 @@ pnpm audit --prod --audit-level high
 `server/lib/secrets.ts`, `scripts/enable-all-modules.mjs`, or `docs/modules/**`.
 Any lane touching `server/lib/secrets.ts` inherits both.
 
-### Measured baseline (2026-08-30, at 052d042, this machine)
+### THE BASELINE (definitive, 2026-08-31, at 052d042, pristine control worktree)
+
+Completed run, dependencies installed, test env present, real local MySQL on 127.0.0.1:3307:
+
+    pnpm test  ->  exit 0
+    Test Files   203 passed (203)
+    Tests       3057 passed (3057)
+    Duration    2331.50s
+
+**ZERO skipped. ZERO failed.** This is the number every lane and every integration is judged
+against. The landing criterion is NO WORSE THAN THIS, not "green".
+
+The same tree WITHOUT the test env, measured on the same machine, exits 0 while reporting
+135 files passed / 68 skipped and 1979 tests passed / 1078 skipped. That gap of 1078 tests is
+the silent-skip trapdoor, and it is the DEFAULT state of any fresh clone of this repository,
+because `.env` is gitignored. The gates lane has since made that condition fail loudly under CI.
+
+Also measured on this baseline: `pnpm build` exits 0 in about 27s, and S15 in
+`server/loop.e2e.test.ts` PASSES, which settles the failure one lane saw under contention.
+
+### Earlier partial measurements (superseded, kept for the record)
+
+
 
 - `node_modules` in the MAIN checkout is EMPTY (0 packages). `pnpm check`, `pnpm build` and
   `pnpm test` therefore cannot run there. **Every lane runs `pnpm install --frozen-lockfile`
@@ -167,6 +189,7 @@ Order matters where noted; everything else lands when green.
 | `PROD_DATABASE_URL` secret is rejected by MySQL as of the 2026-08-30T14:26 UTC scheduled run | founder / whoever holds Railway access | 2026-08-30, found by backup lane | `mysqldump: Got error: 1045: Access denied for user 'root'@'100.64.0.17' (using password: YES)`, failing in 7s, a NEW failure mode distinct from the prior week's runs (2026-08-25 through 2026-08-29 all failed later, at `restore-drill`'s scratch-MySQL service with `ERROR 2013 Lost connection`, which is CI service-container flakiness, not a credential problem; the `backup` job itself succeeded on all of those). The timing (same day the exposure was escalated) is consistent with the production DB password having already been rotated without `PROD_DATABASE_URL` being updated to match. Until this is fixed, `db-backup.yml` cannot dump anything, encrypted or not, independent of the encryption work in commit `0aa1f71`. |
 | Secret rotation after the exposure | founder | 2026-08-30 | Stripe keys, all `app_config` integration secrets, village signing key, legacy-hash password resets. |
 | `VILLAGE_SECRETS_KEY` must reach `.env.example`, `docs/PROVISIONING.md` and `scripts/fork-init.mjs` | kit (owns all three) | 2026-08-30, filed by secrets lane | New required variable: 32 bytes as 64 hex (`openssl rand -hex 32`), SEPARATE from `MEMBER_SECRETS_KEY`. Without it Admin, Integrations refuses every save with "this deployment has no village-secrets key; ask your operator", so all 13 founder instances need it set before anyone types a Stripe key. Documented in full in `docs/FORK_RUNBOOK.md`, section "`VILLAGE_SECRETS_KEY`: your integration secrets at rest (2026-08-30, secrets lane)". A hosted village must not share one key value with another village. |
+| Two admin routes in `server/index.ts` need a 3-line pre-check before `putSecret` | ops (owns `server/index.ts`) | 2026-08-30, filed by secrets lane | `putSecret` now THROWS when `VILLAGE_SECRETS_KEY` is absent, which is the fail-closed behaviour and is correct. Under Express 4 an async throw from a route handler is an unhandled rejection, not a 500, so the request HANGS. Nothing is written either way, but the founder gets no answer. Fix, matching the member-key route already at `server/index.ts:6995`: `if (!villageSecretsConfigured()) return res.status(503).json({ error: NO_VILLAGE_SECRETS_KEY_SENTENCE });` before the `putSecret` calls near lines 19475 (email-config passthrough) and 19632 (`PUT /api/admin/integrations/:key`). Both names are exported from `server/lib/secrets.ts`. Also note the boot legacy-key move near line 1556 calls `putSecret` inside `initStores`, so on the one deployment class that still holds a legacy `resend_api_key`/`assistant_api_key` in the email-config document, a missing key refuses the BOOT rather than serving. Documented in FORK_RUNBOOK; ops may prefer to make that move tolerant. |
 | Admin, Integrations should render the two new status fields | tokens (owns `client/src/**`) | 2026-08-30, filed by secrets lane | `SecretStatus` now carries `atRest: "sealed" \| "plaintext" \| null` and `unreadable: boolean`. Both are additive and the panel renders correctly today without them, but `plaintext` is a finding a founder should see (that row is in every dump until the next boot with a key set) and `unreadable` is the only thing that distinguishes a rotated key from a lost credential. Server side is done and shipped; this is display only. |
 | The village's ed25519 SIGNING key is still plaintext in `app_config` | whoever takes `server/lib/villageExport.ts` | 2026-08-30, found by secrets lane | `ensureSigningKey` stores `privateKeyPem` in the clear under `config_key = 'village-signing-key'`, so it rides in the same dumps the integration secrets used to. Deliberately NOT fixed in the secrets lane: it is a different file, a different credential class (identity, not payment, so outside this lane's harm metric), and it has a real bootstrapping problem the integration store does not, since it is MINTED at first boot and fail-closed there would refuse to boot a fresh instance with no key set. Needs its own decision about what happens on a fresh install. |
 | A workflow_dispatch CI job to run `ops/roll.mjs apply` with the paging webhook and per-village deploy secrets in scope | safety (owns `ci.yml`) | 2026-08-30 | Not urgent: `ops/roll.mjs` runs fine by hand today and the release lane has not published an image yet (landing queue item 3), so there is nothing real to roll out to. File this when release lands so a human is not the only way to kick off a rollout. fleet lane does not touch `.github/workflows/**` itself. |
@@ -723,11 +746,14 @@ row for the three guard regression tests.
   number claimed and none needed (see section 3). Filed three blockers in section 6 (kit:
   provisioning variable; tokens: two new status fields; unowned: the ed25519 signing key is
   still plaintext in the same table). Gates at `a7c8673`: `pnpm check` 0, tests-tsconfig 0,
-  `pnpm build` 0, doc-links 0, hyphen-dash 0, check-voice 0, module-facts 0,
+  `pnpm build` 0, doc-links 0, hyphen-dash 0, check-voice 0, module-facts 0, every other
+  dependency-free guard in `ci.yml` 0, `pnpm audit --prod --audit-level high` 0,
   `validate-module --all --diff=origin/main` 0 (was 1 before per-line waivers). Targeted
   suites: `secrets.test.ts` 9/9 passed 0 skipped, `memberSecrets` + `agentInbox` +
   `externalCalendars` 30/30 passed 0 skipped, `loop.e2e` 70/70 passed 0 skipped (needed
-  `pnpm build` first, since the e2e suites spawn `dist/index.js`).
+  `pnpm build` first, since the e2e suites spawn `dist/index.js`). Final commit `a2a04e0` adds
+  a fourth: `addExternalCalendar` asks for the key rather than throwing, since a calendar
+  address is stored through the same store. Filed a fourth blocker for ops in section 6.
 
 - 2026-08-30. tokens lane landed on `wt/s2-tokens` (not yet merged): new ratchet gate
   `scripts/check-theme-literals.mjs` + `scripts/theme-literals-baseline.json` (162, refuses to
