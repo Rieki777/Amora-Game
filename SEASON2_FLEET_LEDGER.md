@@ -2239,3 +2239,71 @@ This also fixed a hazard the first draft introduced: `load()` used to CLEAR the 
 so any writer in flight across a reload would have got a `StaleSnapshotError`, which under
 Express 4 is a hung request. The history is now kept, because each entry says what `all()`
 handed out at a version and that stays true across a reload.
+
+## 21 - A finding 37 audit agents missed, because they all looked at the rendered page
+
+Found by the coordinator while settling an audit unknown, not by the audit.
+
+### The measurement
+
+`GET https://amora.regencivics.earth/assets/ProjectHistory-CZGHGdo2.js`, **no auth header, no
+cookie**, returns **HTTP 200 and 55,718 bytes**. That chunk contains, in plain text:
+
+    "Complete the investor memo for the landholder - terms, vision, and deal structure
+     written and ready to share"
+    "Establish the ministry - 508(c)(1)(a) structure formalised and membership framework
+     confirmed"
+
+Control: the same grep for a string that is not there returns 0, so the grep is not lying.
+
+Seventy hardcoded task items across six named weeks of March and April 2026, which is Amora's
+own internal sprint history, sitting in platform code.
+
+### Why every audit lane walked past it
+
+`/project-history` is an **ungated route with an in-page client-side gate**. A signed-out visitor
+gets exactly this and nothing else:
+
+    Command Centre
+    The Command Centre is for the founding team.
+    Sign in with an admin account
+
+So the blast-radius lane, which drove the live site as a visitor, correctly recorded a sign-in
+wall and moved on. The lane was not wrong. It was measuring the rendering, and the defect is in
+the delivery.
+
+### The generalisable rule, which is the actual finding
+
+**A client-side admin gate protects the rendering, never the data.** The page is lazy-loaded, so
+its content ships as a public static asset that the server hands to anyone who asks. `useAuth`
+runs after the bytes have already arrived in the browser.
+
+This one is contained rather than systemic, and that was measured rather than hoped: eight client
+pages gate on `isAdmin` or the founder role. Their built chunks were grepped for Amora-specific
+strings, with an ungated page as the control. `JourneyToLaunch`, `GameMechanics` and `Network`
+return **zero** hits. `ProjectHistory` is the only one that hardcodes village-specific content
+behind a gate of this kind, because every other admin surface renders data it fetches from an
+endpoint the server actually gates.
+
+### Severity, stated honestly
+
+This is not a credential leak and nothing here is a secret in the cryptographic sense. It is
+Amora's business intent, including a line about an investor memo's deal structure, readable by
+anyone who fetches one JavaScript file. Whether that matters is Rye's call and not mine.
+
+For the thirteen it is unambiguous: every village would ship Amora's March 2026 sprint plan
+inside its own bundle, and an admin in village seven opening their Command Centre would read
+Amora's roadmap as their project history.
+
+### The fix, which follows the ruling already made this session
+
+This content is a village's data, so it belongs in that village's database, exactly like the
+identity fields. It does not belong in platform code, for the same reason and with the same
+consequence if it stays. Queued rather than done, because the repair wave is mid-flight and
+`client/src/pages/ProjectHistory.tsx` is 1,991 lines and carries a line ratchet.
+
+Two things to get right when it is done:
+1. Moving it out lowers `ProjectHistory.tsx` well below the 1,000-line ratchet threshold, which
+   is a baseline write, not a raise. Say both numbers in the commit.
+2. Amora's real history must be written into Amora's record BEFORE the code copy is deleted. That
+   is the same sequencing constraint as R14 and section 17, and it has now bitten once already.
