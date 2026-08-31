@@ -384,12 +384,18 @@ planes.
    `stripe_secret_key`, `stripe_webhook_secret`, `resend_api_key`,
    `assistant_api_key`. The one rule: **a secret is write-only.** Reads
    return `{configured, last4, source, setBy, setAt}` and never the value;
-   the value leaves the module only toward the service it belongs to
-   (secrets.ts:65–73). Resolution is admin-typed first, env fallback second
-   (the env names `FORK_RUNBOOK.md` has always documented). Storage is
-   plaintext JSON in `app_config` — masked-read without encryption-at-rest
-   was an explicit decision (2026-07-27); revisit if backups leave the
-   trust boundary.
+   the value leaves the module only toward the service it belongs to.
+   Resolution is admin-typed first, env fallback second (the env names
+   `FORK_RUNBOOK.md` has always documented). Values are sealed at rest with
+   AES-256-GCM under `VILLAGE_SECRETS_KEY`, through `server/lib/sealedBox.ts`,
+   the same primitive `server/lib/memberSecrets.ts` uses. Masked-read without
+   encryption was an explicit decision on 2026-07-27 whose stated revisit
+   condition was backups leaving the trust boundary; `db-backup.yml` uploads a
+   full mysqldump as an artifact of a public repository, so it was revisited on
+   2026-08-30. With no key a write refuses rather than falling back to
+   plaintext, reads accept both shapes for one release, and the conversion runs
+   in `loadSecrets` at boot because the database cannot do AES and is never
+   handed the key.
 
 The store substrate under planes 2 and 5 is `server/repos/store-db.ts`:
 MySQL-authoritative, memory-cached, write-through; reads synchronous, writes

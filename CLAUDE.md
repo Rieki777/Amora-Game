@@ -182,7 +182,9 @@ time so `/health` cannot report a build that isn't running.
 3. Module lifecycle + per-module config JSON — `module_settings` table.
 4. `app_config` documents — keyed JSON (instance-identity, launch-state, email config…).
 5. Integration secrets — `server/lib/secrets.ts` (S63): **write-only**, reads masked to
-   last4, admin-typed value beats the env var.
+   last4, admin-typed value beats the env var. Sealed at rest (AES-256-GCM under
+   `VILLAGE_SECRETS_KEY`, via `server/lib/sealedBox.ts`) since 2026-08-30; with no key a
+   write refuses rather than storing plaintext.
 
 ## The spines
 

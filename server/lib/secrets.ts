@@ -255,7 +255,7 @@ export async function resealPlaintextSecrets(
       setAt: legacy.setAt,
     };
   }
-  await pool.query(DOC_UPSERT, [JSON.stringify(next)]);
+  await pool.query(DOC_UPSERT, [JSON.stringify(next)]); // module-review-ok: this store IS the repo for its one app_config row, as it has been since S63
   cache = next;
   console.log(`[secrets] sealed ${plaintext.length} plaintext integration secret(s) at rest`);
   return { sealed: plaintext.length, leftPlaintext: 0 };
@@ -435,7 +435,7 @@ export async function putSecret(
     // able to take an exposed plaintext value back out of the database.
     delete doc[key];
   }
-  await pool.query(DOC_UPSERT, [JSON.stringify(doc)]);
+  await pool.query(DOC_UPSERT, [JSON.stringify(doc)]); // module-review-ok: this store IS the repo for its one app_config row, as it has been since S63
   warnedUnreadable.delete(String(key));
   cache = doc;
 }

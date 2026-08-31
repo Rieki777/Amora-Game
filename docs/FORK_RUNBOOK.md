@@ -1074,3 +1074,102 @@ this migration is unreferenced by definition, because no `investor_docs` row
 could exist to name it. Compare the volume against `SELECT url FROM
 investor_docs` before deleting anything, since uploads from other doors share
 the directory. `/health` reports the volume totals.
+
+## `VILLAGE_SECRETS_KEY`: your integration secrets at rest (2026-08-30, secrets lane)
+
+**Set this before you set any key in Admin, Integrations.** Without it that
+screen refuses to save.
+
+```bash
+openssl rand -hex 32        # 32 bytes as 64 hex characters
+```
+
+### What it is
+
+The key that encrypts every credential a village types into Admin, Integrations:
+`stripe_secret_key`, `stripe_webhook_secret`, `resend_api_key`,
+`assistant_api_key`, `riverside_webhook_secret`, `governance_hub_secret`,
+`basescan_api_key`, every slot a Connected listing contributes, and every
+external calendar address. AES-256-GCM, in `server/lib/secrets.ts` on top of
+`server/lib/sealedBox.ts`, the same primitive `MEMBER_SECRETS_KEY` uses.
+
+It is a SEPARATE variable from `MEMBER_SECRETS_KEY` on purpose. That one holds
+a member's own LLM key and derives their agent-inbox signing secret; losing it
+costs a member a retyped key. This one holds the village's money. The two are
+rotated for different reasons and by different people, so they do not share a
+value. Setting both to the same string is not refused by anything, and it still
+should not be done.
+
+### Why this exists now
+
+Storage in this document used to be plaintext JSON, by a written decision on
+2026-07-27 that named its own revisit condition: revisit if backups start
+leaving the deployment's trust boundary. `.github/workflows/db-backup.yml`
+mysqldumps the whole database and uploads it as a GitHub Actions artifact kept
+for 30 days, and the repository is public, so the condition had already fired.
+A hosted fleet fires it a second time: once ReGen holds another village's
+Stripe key, "the operator can read the database anyway" stops being an answer,
+because the operator is no longer the credential's owner.
+
+### Who generates it
+
+Whoever provisions the deployment, once, before handover.
+
+- **A ReGen-hosted village.** ReGen generates it and sets it in the deployment's
+  environment. It never travels by email or chat, and it is not the same value
+  on two villages: one dump plus one leaked key must never open a second
+  village. Hand the village its own key at handover if it may ever self-host.
+- **A self-hosted village.** You generate it yourself with the command above and
+  set it wherever your host keeps environment variables. Write it down somewhere
+  that survives losing the server, because the database backup alone will not
+  restore your Stripe key without it.
+
+### What breaks if it is missing
+
+- The server still boots and still serves. Reads fall back to environment
+  variables exactly as they always have, so a village that configures Stripe
+  through `STRIPE_SECRET_KEY` rather than through Admin notices nothing.
+- **Every save in Admin, Integrations refuses** with "this deployment has no
+  village-secrets key; ask your operator". Nothing is written in the clear.
+- Clearing a key still works without it. Deleting an exposed value is never the
+  dangerous direction, and an operator who has lost the key must still be able
+  to take a credential out of the database.
+- A boot log line names every key still sitting in plaintext from before the
+  upgrade, by key name and never by value.
+- One narrow case refuses to boot rather than serve: a deployment still holding
+  a legacy `resend_api_key` or `assistant_api_key` inside the old email-config
+  document has a one-time move to make at startup, and that move is a write. Set
+  the key and restart. Any deployment that has booted since S63 has already done
+  that move and is unaffected.
+
+### What breaks if it is lost or rotated
+
+Every value stored through Admin becomes unreadable. It is not recoverable:
+that is what encryption at rest means.
+
+What actually happens is quieter than a crash, which is why the panel says so
+out loud. Each affected slot reports `unreadable: true` and falls back to its
+environment variable, so a village with `STRIPE_SECRET_KEY` set in its
+environment keeps taking payments and a village without it starts answering 503
+on checkout. The fix is to re-enter each key in Admin, Integrations, which
+re-seals it under the new value. A slot marked unreadable names itself, so you
+know which keys to go and fetch; the four characters of the lost value are not
+shown, because they describe a credential you can no longer use.
+
+Rotating it deliberately, after a suspected exposure, is therefore a two-step
+job: set the new value, restart, then re-enter every key the panel now marks
+unreadable. Rotate the credentials themselves at the same time, since the reason
+you are rotating this key is that somebody may hold the old one.
+
+### Upgrading a village that already has secrets
+
+Nothing to run by hand and no SQL migration. The database cannot do AES and is
+deliberately never handed the key, so the conversion happens in the server at
+boot: `loadSecrets` seals any plaintext entry in place and writes the document
+back once. A second boot finds nothing to convert and writes nothing.
+
+For one release the store reads both shapes, so a village that upgrades before
+setting the key keeps working on its existing plaintext values. The follow-up
+release stops accepting them, and any entry not converted by then reads as
+absent with the environment variable taking over. Set the key before that
+follow-up.

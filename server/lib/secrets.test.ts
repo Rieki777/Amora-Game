@@ -73,7 +73,7 @@ describe.skipIf(!configured)("the store against a real schema", () => {
 
   beforeAll(async () => {
     db = await provisionTestDb();
-    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 });
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: a scratch schema, and reading the raw row IS the evidence
   });
 
   afterAll(async () => {
@@ -83,7 +83,7 @@ describe.skipIf(!configured)("the store against a real schema", () => {
   });
 
   beforeEach(async () => {
-    await pool.query("DELETE FROM app_config WHERE config_key = 'integration-secrets'");
+    await pool.query("DELETE FROM app_config WHERE config_key = 'integration-secrets'"); // module-review-ok: scratch schema teardown
   });
 
   /** The row exactly as it sits in a mysqldump. */
@@ -98,7 +98,7 @@ describe.skipIf(!configured)("the store against a real schema", () => {
   /** Seed the pre-2026-08-30 shape, the way an upgrading village already has it. */
   async function seedPlaintext(key: string, value: string): Promise<void> {
     const doc = { [key]: { value, setBy: "founder", setAt: "2026-07-01T00:00:00.000Z" } };
-    await pool.query(
+    await pool.query( // module-review-ok: seeding the pre-2026-08-30 shape by hand is the only way to test reading it
       "INSERT INTO app_config (config_key, value) VALUES ('integration-secrets', ?) " +
         "ON DUPLICATE KEY UPDATE value = VALUES(value)",
       [JSON.stringify(doc)],

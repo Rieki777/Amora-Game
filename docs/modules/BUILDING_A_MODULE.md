@@ -43,7 +43,7 @@ Five configuration planes, and picking the wrong one is the most common mistake.
 | Brand overlay | Identity: names, images, personas. Never platform code |
 | `module_settings.config` | Structural config: category lists, link directories. Validated by your `validateConfig` |
 | `app_config` documents | Keyed JSON that is neither behaviour nor structure |
-| `server/lib/secrets.ts` | Integration credentials. Write-only, read back as source and last4 |
+| `server/lib/secrets.ts` | Integration credentials. Write-only, read back as source and last4, sealed at rest under `VILLAGE_SECRETS_KEY` (see `server/lib/sealedBox.ts`) |
 
 If your module has a knob, it is almost certainly a game variable. Module lifecycle is deliberately
 not one: it is deployment infrastructure and lives in `module_settings`.
