@@ -871,6 +871,50 @@ CONSEQUENCE FOR THE FLEET PLAN: the fleet roller cannot be exercised end to end 
 cut and the first image publishes. That is the next milestone after this push, and it should be
 done deliberately, watched, and on a scratch target before Amora.
 
+## 7m - DECISION: the release lane is HELD OUT of this push
+
+The release lane found a blocker I had reasoned past, and it is right.
+
+**Adding a root `Dockerfile` can silently change how Railway builds production.** Railway's own
+config-as-code reference says it will always build with a Dockerfile if it finds one, and
+`NIXPACKS` is no longer among the documented `builder` values (the documented ones are
+`RAILPACK` and `DOCKERFILE`), so `builder = "nixpacks"` in `railway.toml` may already be inert.
+I had told the founder that pushing main was safe BECAUSE it deploys through the unchanged
+nixpacks path and the image only builds on a tag. That reasoning is wrong if the mere PRESENCE
+of the file flips the builder. The release lane deliberately did not touch the builder line,
+would not change production's build path as a side effect of adding a file, and said it needs
+one deliberate deploy to settle.
+
+**DECISION: `wt/s2-release` is NOT merged into this push.** Verified: the integration branch
+contains no `Dockerfile` and `railway.toml` still reads `builder = "nixpacks"`. So this push
+deploys Amora through exactly the path it has always used. The container work lands as its own
+deliberate step afterwards, watched, with the builder question settled first.
+
+### Real defects the release lane found while building it
+
+1. **`dotenv` is a devDependency that the PRODUCTION bundle imports.** `server/index.ts:3` is
+   `import "dotenv/config"`, a side-effect import with no from clause, invisible to the obvious
+   grep. Verified by me: dotenv is in devDependencies, not dependencies. A `pnpm install --prod`
+   tree dies at boot with ERR_MODULE_NOT_FOUND before reaching any village code. Nixpacks does
+   not prune, which is why Railway has never hit it. Deferred WITH the release lane, because the
+   fix also regenerates the lockfile and CI runs `--frozen-lockfile`.
+2. **The server registers no SIGTERM handler** (`server/lib/errors.ts` wires only
+   `unhandledRejection` and `uncaughtException`). Railway's start command has no init, so
+   production waits out the full grace period and is SIGKILLed on EVERY deploy, dropping
+   in-flight requests rather than draining them. The image works around it with tini as PID 1;
+   production does not have that.
+3. **The GHCR package will be PRIVATE**, because the repository is now private. A self-hosting
+   founder cannot pull the image without a token. R2 says the self-host path ships at launch
+   quality; today it could not pull. Needs a decision: public package, or issued read tokens.
+4. **A 455 MB production install**, because client-only packages sit in `dependencies`: mermaid
+   63 MB, lucide-react 57 MB across two versions, date-fns 27 MB, typescript 21 MB, plus shiki,
+   cytoscape and katex. All are already compiled into `dist/public` and are dead weight.
+
+### Correction to my ledger, again
+
+`ci.yml` has **21 run-steps, 24 including the 3 `uses:` steps**, not the 20 I recorded. My list
+omitted "Bundle budget". Two lanes reached that count independently.
+
 ## 9 - Post-deploy actions (queued, not yet done)
 
 1. **Apply `server/seeds/brochure-legal-seed.json` to Amora's live content document.** Amora already has a `content` row, so the boot-time seed-on-empty path will not touch it, and Amora's own legal wording would render as placeholders until this is applied. One authenticated admin PUT to `/api/admin/content/legal`. Coordinator to run after deploy.
