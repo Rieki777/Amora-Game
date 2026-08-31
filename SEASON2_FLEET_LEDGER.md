@@ -723,6 +723,55 @@ row for the three guard regression tests.
 - **neutral:** my brief named `content-seed.json`, which turns out to be DEAD DATA (the journey pages hold their own copy). The three seed files it did not name (`quests`, `roles`, `site-content`) are the live ones.
 - **neutral:** reported honestly that it did NOT fully meet its objective, leaving `project.name` and `memberName` as Amora with a reasoned argument, rather than rounding up. A follow-up identity lane was dispatched for that plus the `Amora Admin` over `game.amora.cr` header in the admin panel.
 
+## 7j - The two constitutional exploits, reproduced then closed
+
+Both were REPRODUCED end to end over HTTP against the built `dist/index.js` at 052d042 before
+any fix, then refused afterwards with the exploit conditions unchanged. This is evidence, not
+an argument.
+
+**Exploit 1, a founder carrying the launch vote alone.** Founder set `weight_mode=custom`,
+allocated weight 1 to self and nothing to the other two members. `/api/admin/launch` reported
+`onTheRoll: 3, tooFew: null`. The ballot opened with `unity_pct=100, quorum_pct=100,
+electorate_count=3, total_weight=1`. The founder's single yes closed it as **outcome passed**,
+`app_config.game-start` was written, the frozen document told the village *"100% participation
+and 100% agreement"* and *"3 people hold a voice today"*, and a token mint then returned 200.
+AFTER: the launch route refuses in plain language, propose returns 409, ZERO rows land in
+`ballots`, and game-start stays null.
+
+**Exploit 2, the governance token bought with a card.** Created `assembly-voice` (kind voice,
+governance platform), listed it purchasable, priced it at 5.00, and stocked **100 voice minted
+out of `sys:mint` into the treasury**. A member's buy reached the LAST gate (card payments not
+configured), meaning kind, governance, one-seller, price, stock and stage had all passed. The
+founder then pointed `governance.weight_token` at it in token mode. AFTER: listing 409, stock
+409 with a measured `COUNT(*) = 0` in `token_ledger`, buy 404, and ordinary credits still work.
+
+**A second hole the coordinator never named:** `equity` was refused only via
+`governance === 'hypha'`, which held by ACCIDENT of the 0006 seed. A platform-governed equity
+token traded freely. The positive test (only credit-kind trades) closes it and fails closed for
+any kind a future migration invents.
+
+**Boot sweep proven with a false-positive control**, which is the part that makes it a check:
+a pre-existing bad row makes boot exit 1 naming the token; the same row with `weight_mode=equal`
+boots fine, because the dial is inert and refusing would brick a village for a reason that is
+not true.
+
+**Residual, disclosed and not fixed:** a launch can still carry on one yes and two abstentions.
+That is R74 plus the engine's documented abstain rule, it takes three people choosing to
+answer, and changing it means editing `governanceEngine.ts`. Recorded rather than silently left.
+
+## 7k - S15 is a real intermittent, and its likely cause is a known audit finding
+
+Two lanes independently saw `server/loop.e2e.test.ts` S15 fail (`PUT /api/admin/tools/:id`
+returning 500). The constitution lane did the right thing rather than assuming: it checked out
+052d042 in its own worktree, rebuilt, ran the control at **70/70 green**, then re-ran its own
+branch at **70/70 green**. So it is intermittent on this machine and belongs to nobody's change.
+
+The plausible cause is worth carrying into the improvements list: that route writes through the
+JSON-backed `toolsRepo`, and the original architecture audit flagged `dbCollection.replaceAll`
+as a DELETE-then-reinsert of a caller-held snapshot with no per-row upsert and no version guard,
+with the tools link-check job named as a live lost-update window. A file or row contention race
+under twelve concurrent lanes is exactly the shape that finding predicts.
+
 ## 9 - Post-deploy actions (queued, not yet done)
 
 1. **Apply `server/seeds/brochure-legal-seed.json` to Amora's live content document.** Amora already has a `content` row, so the boot-time seed-on-empty path will not touch it, and Amora's own legal wording would render as placeholders until this is applied. One authenticated admin PUT to `/api/admin/content/legal`. Coordinator to run after deploy.
