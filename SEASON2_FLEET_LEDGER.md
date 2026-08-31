@@ -169,6 +169,48 @@ that corrects the coordinator is the lane working), run each new gate once again
 deliberately broken input and prove it goes red, capture exit codes without piping, commit
 with `git add -p`, and do not push.
 
+## 7b - Wave 2 dispatch (2026-08-30, founder approved)
+
+Three lanes, all cut off the same base 052d042 while wave 1 runs. Overlap was MEASURED, not
+assumed, before dispatch.
+
+| Lane | Worktree | Branch | Owns (exclusive) | Effort |
+|---|---|---|---|---|
+| secrets | `../s2-secrets` | `wt/s2-secrets` | `server/lib/secrets.ts` | full |
+| constitution | `../s2-constitution` | `wt/s2-constitution` | `shared/ballotSubjects.ts`, `server/lib/exchange.ts`, `server/lib/governanceWeights.ts` | full |
+| brochure | `../s2-brochure` | `wt/s2-brochure` | the shopfront page and component files, plus its OWN new seed file | cheap |
+
+### server/index.ts is now split by HUNK, and ops has been told
+
+`server/index.ts` was assigned to ops alone in wave 1. It is now shared with constitution on
+VERIFIED disjoint hunks, measured 2026-08-30 at 052d042:
+
+- **ops keeps**: 4742 and 7483 and 20577 (submission email html), 5791 (module invariant
+  asserts), 7347 (the /health route), 32355 (the startServer catch), 1085 (DEFAULT training
+  copy).
+- **constitution takes**: 13495 and 15185 (the launch electorate floor), 18466 (the exchange
+  stock route), and the admin token-create route just below it near 18560.
+
+Closest approach between the two sets is about 2000 lines. Neither lane may edit outside its
+listed hunks in that file. This was relayed to the ops lane directly at dispatch time, not
+merely recorded here: a correction the corrected party has not been told is half a correction.
+
+### Other measured non-collisions (so they are not re-litigated)
+
+- The legal and brochure pages carry almost no colour literals (ResidentRights.tsx has 1,
+  WhyCostaRica.tsx and ProjectHistory.tsx have none), and the tokens lane is working in admin
+  panels and components, so brochure and tokens do not collide in practice. The single hex
+  literal in ResidentRights.tsx belongs to TOKENS, not brochure.
+- `server/lib/exchange.ts`, `shared/ballotSubjects.ts` and `server/lib/secrets.ts` are held by
+  no wave 1 lane.
+- `server/seeds/content-seed.json` belongs to NEUTRAL. brochure may not touch it and must
+  create its own new seed file instead.
+
+### Migration numbers
+
+Next free is still **0121**. brochure is the only wave 2 lane likely to need one. Claim it in
+section 3 of this ledger BEFORE creating the file. Gaps at 0111 and 0115-0119 stay burned.
+
 ## 8 - Changelog
 
 - 2026-08-30. Ledger created. Nine worktrees cut off 052d042. Gate set enumerated from the
