@@ -142,7 +142,46 @@ pnpm audit --prod --audit-level high
 `server/lib/secrets.ts`, `scripts/enable-all-modules.mjs`, or `docs/modules/**`.
 Any lane touching `server/lib/secrets.ts` inherits both.
 
-### THE BASELINE (definitive, 2026-08-31, at 052d042, pristine control worktree)
+### THE BASELINE IS A DISTRIBUTION, NOT A POINT. I GOT THIS WRONG ONCE ALREADY.
+
+TWO control reps, SAME ref 052d042, SAME bytes, pristine worktree, run back to back:
+
+    rep 1:  203 files / 3057 tests / 0 failed / 0 skipped   2331s
+    rep 2:  201 files / 3055 tests / 2 FAILED / 0 skipped   1512s
+
+Rep 2's two failures, both governance, both with NO lane changes present:
+
+    server/loop.e2e.test.ts               > G1: stage, support, open, vote, human close, THE ONE APPLY
+    server/governance.routes.e2e.test.ts  > ...and closing it changes NOTHING, which is the whole promise
+
+**COORDINATOR ERROR: I published rep 1 as "the definitive baseline" and told every lane to
+judge itself against 203/3057/0.** It was ONE SAMPLE of a distribution, and I labelled it
+definitive. The skill's own rule says compare failure SETS across n>=5 alternating reps, and
+that a sample lies in both directions; I took one sample and made it the standard.
+
+THE HONEST BASELINE, stated as what it is: at 052d042 this suite passes 3055 to 3057 of 3057
+tests, with an intermittent cluster in the governance and loop end-to-end paths. Across all
+observations tonight the flaky set is:
+
+    loop.e2e  S15 tools hub            (constitution lane, tokens lane)
+    loop.e2e  G1 the one apply         (control rep 2)
+    governance.routes.e2e  advisory notification   (kit lane)
+    governance.routes.e2e  closing changes nothing (control rep 2)
+
+**THE LANDING CRITERION IS THEREFORE A SET COMPARISON, NOT A COUNT.** An integration run that
+fails only tests already in that flaky set is NO WORSE THAN BASELINE. An integration run that
+fails anything outside it is a regression and blocks the push.
+
+Every rep tonight ran with other lanes competing for one MySQL, so I cannot separate "flaky
+under contention" from "flaky always" without a quiet rep. That distinction matters and is
+recorded as unresolved rather than guessed. What is NOT in doubt: this repository's own notes
+claim flakes were fixed at root cause and that nothing retries, and these four observations say
+that claim no longer holds for the governance end-to-end paths. That belongs on the
+improvements list.
+
+### Superseded: rep 1 alone (kept because lanes were briefed against it)
+
+
 
 Completed run, dependencies installed, test env present, real local MySQL on 127.0.0.1:3307:
 
