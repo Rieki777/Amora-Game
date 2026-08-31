@@ -38,6 +38,8 @@ node scripts/check-upload-strip.mjs    # nothing reaches the uploads volume with
 node scripts/check-doc-links.mjs       # every path the builder docs name resolves on disk
 node scripts/check-route-reachability.mjs  # two ways in to every route (--table prints the doors)
 node scripts/check-map-routes.mjs      # the living map's SITE_PAGES allowlist still matches the router
+node scripts/check-migration-numbers.mjs   # no two migrations share a number; 9000+ is the village band
+node scripts/check-migration-compat.mjs    # a migration leaves the PREVIOUS release able to run
 node scripts/check-artifact-budget.mjs # the living map's disk and wire size
 node scripts/check-image-budget.mjs    # shipped images: WebP, 400 KB each, falling total
 node scripts/check-dist-budget.mjs     # main JS and total dist/public, measured the way CI measures
@@ -199,6 +201,43 @@ time so `/health` cannot report a build that isn't running.
   feedback relay (`server/lib/feedback.ts` — captured locally always, relays content only,
   queue-and-forget; the hub is a listener, not a dependency).
 
+## Writing a migration
+
+Thirteen founder instances run one image and apply `drizzle/*.sql` **at boot, fail-loud**.
+There is no separate migrate step and no approval: the container starts, the schema changes,
+and the village is on the new schema whether or not the new code works. So a bad migration is
+not a failed deploy, it is a village that cannot start, and the only lever anybody has is to
+put the previous image back.
+
+**Expand, never contract.** A migration may ADD. It may not take away. Rolling one release
+back over an already-migrated database has to work, so the previous release must still be able
+to read and write whatever the migration produced.
+
+| Safe to land now | Never in the same release |
+|---|---|
+| a new nullable column | dropping a column or a table |
+| a new column, NOT NULL, with a DEFAULT | making an existing column NOT NULL |
+| a new table | narrowing a type, or removing an enum value |
+| a new non-unique index | a new UNIQUE index or FOREIGN KEY on an existing table |
+| a backfill with a WHERE | `TRUNCATE`, or `DELETE`/`UPDATE` with no `WHERE` |
+
+A rename is two releases. Release N adds the new column and writes to both; release N+1, once N
+has run on all thirteen, drops the old one. `node scripts/check-migration-compat.mjs` enforces
+this and its header states what it cannot see.
+
+Making an existing column NOT NULL is unsafe here **even with a DEFAULT**, which is unusual and
+worth knowing: `server/repos/store-db.ts` names every spec'd column on every INSERT, so the
+previous release writes an EXPLICIT NULL and the default never applies. Same root cause as the
+`dbCollection` trap below.
+
+**Numbering.** Claim the number in `SEASON2_FLEET_LEDGER.md` section 3 before creating the file,
+then `node scripts/check-migration-numbers.mjs --next` to confirm. Numbers only go forward: a
+gap is never filled, because some branch or some instance may still hold a file with that name.
+**9000 and above is reserved for migrations a village writes for its own instance**; upstream
+never takes a number in that band, and because the runner sorts by filename a village's own
+migration therefore always runs after every upstream one. A fork adding its own runs the number
+check with `--village`.
+
 ## House traps — each one cost a real session
 
 - **Migration SQL**: the runner splits statements on line-final `;`
@@ -207,7 +246,12 @@ time so `/health` cannot report a build that isn't running.
   comments on their own lines and never end one with `;`.
 - **A shipped migration file is never edited.** A part-applied file resumes at its
   recorded statement offset (`_migrations_partial`) instead of replaying DDL, so editing
-  one that has run anywhere resumes at the wrong place. Fix forward with a new file.
+  one that has run anywhere resumes at the wrong place. Worse, `_migrations_applied` keys on
+  FILENAME and stores no checksum: an instance that already ran the file has its name recorded
+  and will never run the new body, while a fresh instance gets it, and the two databases
+  diverge with no error anywhere. Fix forward with a new file.
+  `node scripts/check-migration-compat.mjs` now enforces this against the base ref; it was
+  convention alone until 2026-08-30.
 - **PowerShell**: `Set-Content -Encoding utf8` double-encodes non-ASCII. Write files with
   the Write/Edit tools, never shell redirection.
 - **MySQL UNIQUE indexes exempt NULLs** — a nullable column in a unique key admits infinite
