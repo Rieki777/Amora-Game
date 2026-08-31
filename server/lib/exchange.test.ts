@@ -92,7 +92,13 @@ const VOICE = { slug: VILLAGE_VOICE, name: "Village Voice", kind: "voice", decim
 /** A platform equity token. The 0006 seed's equity row is a hypha mirror, so
  *  the equity refusal used to ride on `governance` and never on the kind. */
 const SHARES = { slug: "village-shares", name: "Village Shares", kind: "equity" };
-const MIRROR = { slug: "amora", name: "Amora", kind: "equity", governance: "hypha" as const };
+/**
+ * A Hypha-governed equity mirror, named generically the way `spending.test.ts`
+ * names its own: the real deployment's equity slug is one village's brand, and
+ * the platform's tests are inside the brand ratchet. What is under test is the
+ * GOVERNANCE, which is what refuses.
+ */
+const MIRROR = { slug: "equity-mirror", name: "Equity Mirror", kind: "equity", governance: "hypha" as const };
 
 beforeEach(async () => {
   await loadRegistry([GRATITUDE, CREDITS, VOICE, SHARES, MIRROR]);
@@ -121,7 +127,7 @@ describe("only credits are bought and swapped", () => {
     // The old rule refused equity only through `governance === 'hypha'`, which
     // held for the seeded row by accident of the seed and for nothing else.
     expect(tradingProblem("village-shares")).toMatch(/Only credits are bought/);
-    expect(tradingProblem("amora")).toMatch(/Hypha/);
+    expect(tradingProblem("equity-mirror")).toMatch(/Hypha/);
   });
 
   it("keeps refusing recognition in its own words", () => {
@@ -177,7 +183,7 @@ describe("the token that weighs votes is not the token money buys", () => {
   });
 
   it("still refuses a hypha mirror for weight, in its own words", () => {
-    expect(weightTokenProblem("amora")).toMatch(/mirrored here/);
+    expect(weightTokenProblem("equity-mirror")).toMatch(/mirrored here/);
     expect(weightTokenProblem("no-such-token")).toMatch(/exists in this village's registry/);
   });
 });
