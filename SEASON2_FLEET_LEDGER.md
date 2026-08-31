@@ -35,6 +35,24 @@ Nobody forks. Self-host and ReGen-hosted are the same image with a different ope
   loses by leaving is the guarantee of tested, rolled-out, supported updates. It does NOT
   lose access to source, images, or security advisories, which stay public.
 
+- **R6** 2026-08-31. Coordinator ratification of the ops lane quarantine scope. The ops lane
+  asked whether quarantining the `library` module on an escrow reconciliation failure was too
+  permissive, since it is a value statement rather than a mechanical one. RULING: the lane is
+  right, keep it. Its reasoning holds - a dead process repairs no escrow and takes every other
+  module down with it, while switching the library off is the one act that actually stops
+  library credits moving. Village-wide ledger conservation and migrations stay fatal, which is
+  what the brief asked to protect. This is per-module quarantine working as intended.
+
+- **R7** 2026-08-31. Coordinator ratification of a lane REFUSING part of its brief, with
+  evidence. My brief told the ops lane to quarantine four per-module boot assertions. The lane
+  refused one: `assertCapabilityHoldingInvariants` has no module to quarantine, and
+  `villageHeldCapabilities` already filters every row through TRANSFERABLE before granting
+  anything, which the repo's own test at `server/lib/capabilityHolding.test.ts:119-121` proves
+  yields an empty list for a bad row. So a bad row grants nothing and locks nobody out, and
+  refusing an entire village over it is all cost and no protection. It now records loudly and
+  serves. RULING: accepted. The refusal measured something and found my premise wrong, which is
+  the behaviour every brief in this program asks for.
+
 ## 2 - Lane registry
 
 Every lane: base ref above, its own worktree, its own branch, commits with `git add -p`,
