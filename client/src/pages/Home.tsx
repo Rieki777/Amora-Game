@@ -140,25 +140,82 @@ export default function Home() {
   const brand = useBrandImages();
   return (
     <Layout>
-      {/* Hero Section */}
-      <section className="relative min-h-[90vh] flex items-center overflow-hidden">
-        {/* Background Image */}
+      {/* Hero Section.
+          The hero's own surface is the brand BAND, and everything else in this
+          section is drawn against it. shared/brandTokens.ts derives
+          --tone-brand-band together with --tone-sun-on-band, moves the two
+          toward each other until the pair clears 4.5:1, and refuses to ship a
+          village theme where it does not. That derivation is the only reason
+          any promise below holds for all thirteen deployments rather than for
+          the platform's own neutral palette alone. */}
+      <section className="relative min-h-[90vh] flex items-center overflow-hidden bg-teal-band">
+        {/* Background picture, when the village has one. */}
         <div className="absolute inset-0 z-0">
-          {/* priority: this is the Largest Contentful Paint element. Without
-              fetchPriority=high it queues behind every other image on the page. */}
-          <Image
-            src={brand.hero}
-            alt={altOr(brand.heroAlt, "The village and the land around it")}
-            priority
-            className="w-full h-full"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-transparent" />
+          {/* THE HERO RENDERS ONLY WHEN THERE IS ONE, the same rule the four
+              journey pages already follow (InvestorJourney, StewardJourney,
+              ResidentJourney, ProsperityJourney all guard their hero this
+              way). This page did not, so a village with no uploaded art got
+              Image's placeholder mark: a 32px picture frame in the middle of
+              a 1272px hero, which reads to a visitor as a broken photograph
+              rather than as a village that has not added one yet. All
+              thirteen deployments are in that state and the live one is too.
+
+              A hero that IS configured and then fails to load keeps the
+              placeholder, deliberately. Those are different facts: nothing
+              uploaded means nothing is missing, and a 404 on a file the
+              village did upload means something IS. Image draws the mark and
+              keeps the village's own alt text on it for the second case, so a
+              screen reader still hears what the picture was meant to be.
+
+              priority: when there IS a hero it is the Largest Contentful
+              Paint element, and without fetchPriority=high it queues behind
+              every other image on the page. */}
+          {brand.hero ? (
+            <>
+              <Image
+                src={brand.hero}
+                alt={altOr(brand.heroAlt, "The village and the land around it")}
+                priority
+                className="w-full h-full"
+              />
+              {/* The scrim belongs to the photograph and goes with it. It used
+                  to be drawn from literal black and painted whether or not
+                  there was anything to darken, so a village with no art got a
+                  wash fading to nothing on the right: a picture-shaped hole
+                  where a picture had never been. Nothing here now hints at a
+                  photograph that does not exist. */}
+              <div className="absolute inset-0 bg-gradient-to-r from-teal-band via-teal-band/85 to-teal-band/25" />
+            </>
+          ) : null}
         </div>
 
         {/* Content */}
         <div className="container relative z-10 py-10 md:py-20">
-          <div className="max-w-2xl">
+          <div className="relative max-w-2xl">
+            {/* THE COPY SITS ON AN OPAQUE BAND, AND THAT IS THE WHOLE FIX.
+
+                A translucent scrim cannot promise a contrast ratio, because
+                the ratio then depends on the photograph underneath, and a
+                photograph is whatever the village uploads. With no photograph
+                the scrim thinned toward the right until the accent word ran
+                at 1.65:1 on its left edge and 2.52:1 on its right, against a
+                3:1 floor for large text (measured at 1272x900, this branch,
+                before this change). Nudging the accent hex would not have
+                fixed it: --primary is derived to clear 4.5:1 on WHITE, so on
+                a dark scrim the arithmetic has no answer at either end.
+
+                This band is opaque, so the ratio is a property of two named
+                colours and holds whatever is behind it. It bleeds past the
+                copy on every side, and a village with no photograph never
+                sees it: the section behind it is the same band colour, so it
+                only becomes a visible panel at the moment there is a picture
+                for it to sit on, which is the moment it is needed. */}
+            <div
+              aria-hidden="true"
+              className="absolute -inset-x-5 -inset-y-6 sm:-inset-x-8 sm:-inset-y-10 rounded-3xl bg-teal-band"
+            />
             <motion.div
+              className="relative"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
@@ -172,17 +229,24 @@ export default function Home() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.1 }}
-              className="font-display text-5xl md:text-7xl font-bold text-white leading-tight mb-6"
+              className="relative font-display text-5xl md:text-7xl font-bold text-white leading-tight mb-6"
             >
               Co-Become the Most{" "}
-              <span className="text-primary">Beautiful</span> Village
+              {/* text-amber-on-band, not text-primary. --primary is the seed
+                  colour derived to clear 4.5:1 against WHITE, and this word has
+                  a dark band behind it, so it was measured at 1.65:1 and 2.52:1
+                  on the live palette. --tone-sun-on-band is the other half of
+                  the pair --tone-brand-band belongs to: shared/brandTokens.ts
+                  moves the two toward each other until they clear 4.5:1 and
+                  refuses to ship a village theme where they do not. */}
+              <span className="text-amber-on-band">Beautiful</span> Village
             </motion.h1>
 
             <motion.p
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.2 }}
-              className="text-xl text-white/80 leading-relaxed mb-8"
+              className="relative text-xl text-white/80 leading-relaxed mb-8"
             >
               A regenerative village{location ? ` in ${location}` : ""} where all beings{" "}
               <span className="font-semibold text-white">belong</span> and{" "}
@@ -193,18 +257,30 @@ export default function Home() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.3 }}
-              className="flex flex-wrap gap-4"
+              className="relative flex flex-wrap gap-4"
             >
+              {/* THE TWO CONTROLS ARE DRAWN AGAINST THE BAND, NOT AGAINST A
+                  SCRIM. WCAG 1.4.11 asks 3:1 for the boundary that tells a
+                  visitor a control is there, and bg-primary can never give
+                  that here: --tone-brand-band IS --tone-brand darkened, so the
+                  fill and the surface behind it are the same hue a few steps
+                  apart, for every village rather than only for the platform
+                  default. Measured on the band: 1.46:1 for the filled button
+                  and 1.92:1 for the outline one. White is the pairing this
+                  codebase already uses for a control on the band
+                  (Decisions.tsx), at 15.13:1, and the second control keeps its
+                  translucent fill with a border that clears 3:1 on its own.
+                  Measured after: 15.13:1 and 3.55:1. */}
               <a
                 href="#choose-path"
-                className="px-8 py-4 bg-primary text-primary-foreground rounded-lg font-semibold text-lg hover:opacity-90 transition-all duration-200 flex items-center gap-2"
+                className="px-8 py-4 bg-white text-teal-band rounded-lg font-semibold text-lg hover:bg-cream transition-all duration-200 flex items-center gap-2"
               >
                 Find Your Path
                 <ArrowRight className="w-5 h-5" />
               </a>
               <Link
                 href="/co-creators-guide"
-                className="px-8 py-4 bg-white/20 backdrop-blur-sm text-white rounded-lg font-semibold text-lg hover:bg-white/30 transition-all duration-200"
+                className="px-8 py-4 bg-white/20 backdrop-blur-sm border border-white/40 text-white rounded-lg font-semibold text-lg hover:bg-white/30 transition-all duration-200"
               >
                 Read the Co-Creators Guide
               </Link>

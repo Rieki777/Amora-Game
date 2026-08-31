@@ -111,10 +111,30 @@ export default function Layout({ children }: LayoutProps) {
           {/* One anchor, not two. wouter's Link renders the <a> itself, so a
               nested <a> is invalid markup: the browser closes the outer one
               early and leaves an EMPTY focusable link as the first stop in
-              the tab order on every page — a keyboard or screen-reader user
+              the tab order on every page, so a keyboard or screen-reader user
               meets an unnamed link before anything else on the site.
-              The logo itself comes from the brand config: the fixed 64px box
-              holds the space while it loads, so nothing shifts. */}
+
+              THE HOME LINK IS NEVER EMPTY, BECAUSE AN EMPTY ONE IS NOT A LINK.
+
+              A village with no uploaded logo used to get a bare 64px spacer
+              here. An empty flex child gives the anchor a width of ZERO:
+              measured 0px on the live deployment, with a click at the centre
+              of the header landing on the surrounding div and never on the
+              link. On a phone that left the entire header with no visible
+              character in it. Every one of the thirteen deployments starts
+              in that state and the one that is live is in it now.
+
+              So the name is the wordmark. It is set in the village's own
+              display face, so a village that has chosen a font gets its own
+              lettering, and it re-themes with the rest of the shell rather
+              than being a second thing to upload.
+
+              The third branch is the one a falsiness check cannot tell apart
+              from the second: config still in flight is not the same fact as
+              a village with no name. While cfg is null nothing is known yet,
+              so the box holds a width as well as its 64px height, and the
+              home link stays clickable THROUGH the load instead of only
+              after it. */}
           <Link
             href="/"
             aria-label={villageName ? `${villageName} home` : "Home"}
@@ -128,8 +148,19 @@ export default function Layout({ children }: LayoutProps) {
                 style={{ height: "64px", width: "auto" }}
                 draggable={false}
               />
+            ) : villageName ? (
+              /* A flex item of the link above, which is already `items-center`
+                 inside a 64px box, so the wordmark sits on the same baseline
+                 the logo would have. `truncate` caps a long name rather than
+                 letting it push the menu button off a narrow screen. */
+              <span className="font-display text-xl sm:text-2xl font-semibold tracking-wide text-white truncate max-w-[60vw] lg:max-w-[16rem]">
+                {villageName}
+              </span>
             ) : (
-              <span style={{ height: "64px", display: "inline-block" }} aria-hidden="true" />
+              <span
+                aria-hidden="true"
+                style={{ height: "64px", width: "7rem", display: "inline-block" }}
+              />
             )}
           </Link>
 
@@ -395,17 +426,26 @@ export default function Layout({ children }: LayoutProps) {
           <div className="grid md:grid-cols-5 gap-12 mb-12">
             {/* Brand */}
             <div className="md:col-span-1">
-              {/* 90px box reserved while config loads — same rule as the header. */}
-              <div className="flex items-center gap-2 mb-4" style={{ minHeight: "90px" }}>
-                {cfg?.images?.heartLogo && (
+              {/* The box is reserved WHILE THE CONFIG LOADS and only then, which
+                  is the same three-way distinction the header link makes above.
+                  It used to be unconditional, so a village that has uploaded no
+                  heart mark published a 154x90 hole in its own footer, above
+                  the blurb, forever. The header's defect was a link nobody
+                  could click; this one is only dead space, but it comes from
+                  the same place: `null` config and "no mark uploaded" are
+                  different facts and the box was treating them as one. */}
+              {cfg === null ? (
+                <div aria-hidden="true" style={{ height: "90px" }} className="mb-4" />
+              ) : cfg.images?.heartLogo ? (
+                <div className="flex items-center gap-2 mb-4">
                   <img
                     src={cfg.images.heartLogo}
                     alt={altOr(cfg.images.heartLogoAlt, villageName || "Village mark")}
                     style={{ height: "90px", width: "auto" }}
                     draggable={false}
                   />
-                )}
-              </div>
+                </div>
+              ) : null}
               {cfg?.project?.footerBlurb && (
                 <p className="text-white text-sm leading-relaxed">{cfg.project.footerBlurb}</p>
               )}
