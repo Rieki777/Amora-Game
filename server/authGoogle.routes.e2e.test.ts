@@ -142,6 +142,15 @@ beforeAll(async () => {
     AUTH_TOKEN_SECRET: "google-e2e-token-secret", // a throwaway signing key for a server this file starts and kills
     RESEND_API_KEY: "",
     ANTHROPIC_API_KEY: "",
+    // PINNED, because this suite spreads process.env and vitest loads .env into
+    // it. Every one of these changes what the assertions below mean, and a
+    // developer setting one for their own work would move this suite without
+    // touching it. GOOGLE_REDIRECT_URI would replace the address derived from
+    // FRONTEND_URL and break the redirect_uri assertion. FOUNDER_EMAILS would
+    // hand the founder role to the ordinary members these tests create, which
+    // would pass quietly until somebody read the role.
+    GOOGLE_REDIRECT_URI: "",
+    FOUNDER_EMAILS: "",
   };
 
   child = spawn(process.execPath, [DIST], {
