@@ -23,7 +23,19 @@
  * A genuine false positive gets an inline `brand-ok: <reason>` on the line;
  * waivers are counted and printed so they stay honest.
  *
- * Usage: node scripts/check-brand-refs.mjs [--update-baseline]
+ * --update-baseline is a RATCHET, the same discipline as
+ * `scripts/check-image-budget.mjs`: per file, the recorded count may only
+ * fall. Without that check, `--update-baseline` run after ADDING a brand
+ * reference would silently raise the allowance it exists to hold down, which
+ * is exactly the failure this guard is supposed to catch in everyone else's
+ * code. `--force` is the deliberate escape hatch (a file's ratchet zone
+ * genuinely grew) and it still prints every raise, so a forced raise is
+ * never quiet even when it is intentional.
+ *
+ * Usage:
+ *   node scripts/check-brand-refs.mjs                          # the gate
+ *   node scripts/check-brand-refs.mjs --update-baseline         # only ever downward, per file
+ *   node scripts/check-brand-refs.mjs --update-baseline --force # allow a deliberate raise
  */
 import fs from "fs";
 import path from "path";
@@ -166,8 +178,35 @@ for (const file of files) {
 
 if (process.argv.includes("--update-baseline")) {
   const ratchetOnly = Object.fromEntries(Object.entries(counts).filter(([f]) => isRatchet(f)));
+  const oldBaseline = fs.existsSync(BASELINE_PATH) ? JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8")) : {};
+  const force = process.argv.includes("--force");
+
+  // Per file, never the total: the gate above enforces `count > baseline[file]`
+  // one file at a time, so that is also the unit a raise has to be caught in.
+  // A total-only check would miss a file rising from 0 to 3 while another
+  // file elsewhere fell by 4: global total down, one file's ceiling raised.
+  const raised = Object.entries(ratchetOnly)
+    .map(([file, count]) => ({ file, from: oldBaseline[file] ?? 0, to: count }))
+    .filter((r) => r.to > r.from);
+
+  if (raised.length && !force) {
+    console.error(`\n::error::refusing to raise the brand-refs baseline for ${raised.length} file(s):\n`);
+    for (const r of raised) console.error(`  ${r.file}: ${r.from} -> ${r.to}`);
+    console.error(
+      `\nThis ratchet only turns down. If a hit is a genuine false positive, add ` +
+      `\`brand-ok: <reason>\` on that line instead of raising the baseline. If the raise is ` +
+      `genuinely deliberate, rerun with --force.\n`,
+    );
+    process.exit(1);
+  }
+
   fs.writeFileSync(BASELINE_PATH, JSON.stringify(ratchetOnly, null, 2) + "\n");
   const total = Object.values(ratchetOnly).reduce((n, v) => n + v, 0);
+  if (raised.length) {
+    console.log(`\n::warning::baseline RAISED for ${raised.length} file(s) via --force:`);
+    for (const r of raised) console.log(`  ${r.file}: ${r.from} -> ${r.to}`);
+    console.log("");
+  }
   console.log(`Baseline written: ${Object.keys(ratchetOnly).length} file(s), ${total} reference(s).`);
   const hardNow = Object.entries(counts).filter(([f]) => !isRatchet(f));
   if (hardNow.length) {

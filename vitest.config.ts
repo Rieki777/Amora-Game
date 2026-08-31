@@ -38,8 +38,16 @@ export default defineConfig({
     globalSetup: ["server/db/provisioningReport.ts"],
     // Client tests are pure-logic only (no jsdom, see above): helpers like
     // the nav's gesture thresholds, which are far easier to check against
-    // numbers than by waving a thumb at a phone.
-    include: ["server/**/*.test.ts", "shared/**/*.test.ts", "client/**/*.test.ts"],
+    // numbers than by waving a thumb at a phone. `.tsx` is included on
+    // purpose even though nothing here is a component test today: this
+    // config has no jsdom environment, so a `.tsx` file that imports React
+    // and expects a DOM would fail loudly the first time it ran, not
+    // disappear. Excluding `.tsx` used to mean the opposite of loud: a
+    // contributor could write `Foo.test.tsx`, watch it sit beside real
+    // tests, and never have it run at all, with `pnpm test` reporting green
+    // the whole time. A file that never runs must never be the quiet
+    // option.
+    include: ["server/**/*.test.ts", "shared/**/*.test.ts", "client/**/*.test.{ts,tsx}"],
     // The end-to-end loop test builds and boots the server, so it needs room.
     testTimeout: 120_000,
     /*
