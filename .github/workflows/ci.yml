@@ -170,6 +170,34 @@ jobs:
         # actual code, triggers, collation, and a village's own migrations.
         run: node scripts/check-migration-compat.mjs
 
+      - name: Guard regression test, brand refs
+        # THE GUARDS BELOW HAVE SELF-TESTS AND NOTHING HAS EVER RUN THEM.
+        #
+        # Filed by the gates lane and wired here because ci.yml has one owner.
+        # Verified independently before wiring: vitest.config.ts includes
+        # `server/**/*.test.ts`, `shared/**/*.test.ts` and `client/**/*.test.ts`
+        # and nothing under `scripts/`, and none of these files end in `.ts`
+        # anyway, so `pnpm test` cannot see them by two separate rules.
+        # module-intake.yml cannot carry them either: it is path-gated on
+        # shared/modules.ts and its friends, and none of those paths cover the
+        # classifier or the scanner themselves.
+        #
+        # So a guard could have been regressed into uselessness and its own test
+        # would have gone on passing in a file nobody executed. That is the
+        # vacuous-pass shape the rest of this workflow exists to refuse, sitting
+        # inside the guards' own test suite.
+        #
+        # Plain node, no database, sub-second each. All three measured green at
+        # 2524da7 before wiring, so this starts from a known state rather than
+        # from a hope.
+        run: node scripts/check-brand-refs.test.mjs
+
+      - name: Guard regression test, contribution scan
+        run: node scripts/contribution-scan.test.mjs
+
+      - name: Guard regression test, intake classifier
+        run: node scripts/intake-classify.test.mjs
+
       - name: Brand guard
         # S56: platform code carries no village's brand (invariant 2.1 #2).
         # Hard-clean zones must be spotless; ratchet zones may only burn down.

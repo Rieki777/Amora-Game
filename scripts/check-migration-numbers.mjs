@@ -175,18 +175,28 @@ function resolveBase() {
       : ["origin/main", "main"];
   const head = git(["rev-parse", "HEAD"]);
   if (!head.ok) return { error: "not a git checkout (git rev-parse HEAD failed)" };
+  const found = [];
   for (const ref of candidates) {
-    const seen = git(["rev-parse", "--verify", `${ref}^{commit}`]);
-    if (!seen.ok) continue;
+    if (!git(["rev-parse", "--verify", `${ref}^{commit}`]).ok) continue;
     const mb = git(["merge-base", "HEAD", ref]);
-    if (!mb.ok) continue;
-    if (mb.out !== head.out) return { ref, sha: mb.out };
-    // HEAD is the base. The previous release is the parent.
-    const parent = git(["rev-parse", "--verify", "HEAD^{commit}^"]);
-    if (!parent.ok) return { ref, sha: mb.out, note: "HEAD has no parent; nothing added" };
-    return { ref: `${ref} (HEAD^)`, sha: parent.out };
+    if (mb.ok) found.push({ ref, sha: mb.out });
   }
-  return { error: `could not resolve any of: ${candidates.join(", ")}` };
+  if (found.length === 0) return { error: `could not resolve any of: ${candidates.join(", ")}` };
+  // THE NEWEST MERGE BASE WINS, not the first candidate that resolves. On a CI
+  // runner only `origin/main` exists and the two are the same. On this machine,
+  // where a dozen worktrees share one object store and nothing is pushed, the
+  // local `main` runs AHEAD of `origin/main` (measured: 7 commits, 2026-08-30).
+  // Taking the first match would then measure against a release that is no
+  // longer the one a rollback lands on, and would do it silently.
+  let best = found[0];
+  for (const c of found.slice(1)) {
+    if (git(["merge-base", "--is-ancestor", best.sha, c.sha]).ok) best = c;
+  }
+  if (best.sha !== head.out) return best;
+  // HEAD is the base. The previous release is the parent.
+  const parent = git(["rev-parse", "--verify", "HEAD^{commit}^"]);
+  if (!parent.ok) return { ...best, note: "HEAD has no parent; nothing added" };
+  return { ref: `${best.ref} (HEAD^)`, sha: parent.out };
 }
 
 let history = { ran: false, reason: "", base: "", added: [], ceiling: -1, regressions: [] };
@@ -331,6 +341,7 @@ if (asJson) {
 }
 
 if (failed) process.exit(1);
+if (asJson) process.exit(0); // --json prints JSON and nothing else, so it can be piped
 
 const historyLine = historyOff
   ? "only-forward rule OFF by request"

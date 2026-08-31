@@ -144,6 +144,9 @@ const valueOf = (f) => {
 const asJson = has("--json");
 const keepSchema = has("--keep");
 
+/** Progress goes to stderr under --json, so stdout carries JSON and nothing else. */
+const say = (...a) => (asJson ? console.error : console.log)(...a);
+
 const report = {
   base: null,
   newMigrations: [],
@@ -173,7 +176,7 @@ function git(args, opts = {}) {
 function die(message, ...detail) {
   console.error(`::error::${message}`);
   for (const d of detail) console.error(`  ${d}`);
-  if (asJson) console.log(JSON.stringify({ ...report, ok: false, fatal: message }, null, 2));
+  if (asJson) process.stdout.write(JSON.stringify({ ...report, ok: false, fatal: message }, null, 2) + "\n");
   process.exit(1);
 }
 
@@ -248,17 +251,28 @@ function resolveBase() {
       : ["origin/main", "main"];
   const head = git(["rev-parse", "HEAD"]);
   if (!head.ok) return { error: "not a git checkout (git rev-parse HEAD failed)" };
+  const found = [];
   for (const ref of candidates) {
     if (!git(["rev-parse", "--verify", `${ref}^{commit}`]).ok) continue;
     const mb = git(["merge-base", "HEAD", ref]);
-    if (!mb.ok) continue;
-    if (mb.text !== head.text) return { ref, sha: mb.text };
-    const parent = git(["rev-parse", "--verify", "HEAD^{commit}^"]);
-    if (!parent.ok) return { ref: `${ref} (root commit)`, sha: mb.text };
-    // HEAD is the base branch, so the previous release is its first parent.
-    return { ref: `${ref} (HEAD^)`, sha: parent.text };
+    if (mb.ok) found.push({ ref, sha: mb.text });
   }
-  return { error: `could not resolve any of: ${candidates.join(", ")}` };
+  if (found.length === 0) return { error: `could not resolve any of: ${candidates.join(", ")}` };
+  // THE NEWEST MERGE BASE WINS, not the first candidate that resolves. On a CI
+  // runner only `origin/main` exists and the two are the same. On this machine,
+  // where a dozen worktrees share one object store and nothing is pushed, the
+  // local `main` runs AHEAD of `origin/main` (measured: 7 commits, 2026-08-30),
+  // so taking the first match would compare against a release that is no longer
+  // the one a rollback lands on, and would do it silently.
+  let best = found[0];
+  for (const c of found.slice(1)) {
+    if (git(["merge-base", "--is-ancestor", best.sha, c.sha]).ok) best = c;
+  }
+  if (best.sha !== head.text) return best;
+  const parent = git(["rev-parse", "--verify", "HEAD^{commit}^"]);
+  if (!parent.ok) return { ref: `${best.ref} (root commit)`, sha: best.sha };
+  // HEAD is the base branch, so the previous release is its first parent.
+  return { ref: `${best.ref} (HEAD^)`, sha: parent.text };
 }
 
 /* ==================================================================== *
@@ -654,7 +668,7 @@ if (base.error) {
   );
 }
 report.base = `${base.ref} @ ${base.sha.slice(0, 8)}`;
-console.log(`  previous release: ${report.base}`);
+say(`  previous release: ${report.base}`);
 
 const baseFiles = migrationsAt(base.sha);
 if (!baseFiles) die(`could not list drizzle/ at ${base.sha}`);
@@ -693,7 +707,7 @@ if (report.edited.length || report.deleted.length) {
   console.error(`  Fix forward: add a new numbered migration. node scripts/check-migration-numbers.mjs --next`);
 }
 
-console.log(
+say(
   `  ${report.newMigrations.length} new migration(s) since the previous release` +
     (report.newMigrations.length ? `: ${report.newMigrations.join(", ")}` : ""),
 );
@@ -724,12 +738,12 @@ if (report.destructive.length) {
   console.error(`  A genuine exception takes an inline "-- compat-ok: <reason>" comment in the migration file.`);
 }
 if (waivers.length) {
-  for (const w of waivers) console.log(`  waived by compat-ok: drizzle/${w.file} (${w.reason})`);
+  for (const w of waivers) say(`  waived by compat-ok: drizzle/${w.file} (${w.reason})`);
 }
 
 /* Phases 3 and 4. */
 if (report.newMigrations.length === 0) {
-  console.log(`  no new migrations, so there is nothing for the database phases to run`);
+  say(`  no new migrations, so there is nothing for the database phases to run`);
 } else {
   const url = testDatabaseUrl();
   if (!url) {
@@ -785,7 +799,7 @@ if (report.newMigrations.length === 0) {
         `drizzle/${basePass.failure.file} statement ${basePass.failure.statement} of ${basePass.failure.of}: ${basePass.failure.message}`,
       );
     }
-    console.log(
+    say(
       `  applied ${basePass.applied.length} migration(s) from the previous release in ${((Date.now() - t0) / 1000).toFixed(1)}s`,
     );
 
@@ -794,15 +808,15 @@ if (report.newMigrations.length === 0) {
     // Phase 3: put rows in the way.
     const touched = tablesTouched([...newSql.values()]);
     await conn.query("SET FOREIGN_KEY_CHECKS = 0");
-    report.seeded = await seedRows(conn, before, touched, (l) => console.log(l));
+    report.seeded = await seedRows(conn, before, touched, (l) => say(l));
     await conn.query("SET FOREIGN_KEY_CHECKS = 1");
     if (report.seeded.refused.length) {
       for (const r of report.seeded.refused) {
-        console.log(`    not seeded: ${r.table} (${r.reason})`);
+        say(`    not seeded: ${r.table} (${r.reason})`);
       }
     }
     if (touched.length > 0 && report.seeded.tables === 0) {
-      console.log(
+      say(
         `  ::warning::the new migrations name ${touched.length} table(s) and NONE of them could be seeded, ` +
           `so phase 3 proved nothing about behaviour on populated tables. Phase 4 still ran.`,
       );
@@ -842,7 +856,7 @@ if (report.newMigrations.length === 0) {
         );
         console.error(`  Every instance boots this file list on every start. A second run must do nothing at all.`);
       } else {
-        console.log(`  second run applied 0 migrations and changed no schema (the ledger holds)`);
+        say(`  second run applied 0 migrations and changed no schema (the ledger holds)`);
       }
 
       if (report.violations.length) {
@@ -890,15 +904,16 @@ if (report.newMigrations.length === 0) {
     } catch {
       /* same */
     }
-    if (keepSchema) console.log(`  --keep: left the scratch schema as ${schema}`);
+    if (keepSchema) say(`  --keep: left the scratch schema as ${schema}`);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
-if (asJson) console.log(JSON.stringify({ ...report, ok: !failed }, null, 2));
+if (asJson) process.stdout.write(JSON.stringify({ ...report, ok: !failed }, null, 2) + "\n");
 if (failed) process.exit(1);
+if (asJson) process.exit(0); // --json prints JSON and nothing else, so it can be piped
 
-console.log(
+say(
   report.newMigrations.length === 0
     ? `  no migration changed, and no shipped file was edited`
     : `  ${report.newMigrations.length} new migration(s) apply to a populated database and leave every table, ` +
