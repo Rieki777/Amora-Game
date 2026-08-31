@@ -180,10 +180,10 @@ function blankImageSlots() {
  * carry a `manifest.json` naming each one, which is where a dynamically
  * constructed path is supposed to be declared.
  *
- * THIS FILE IS EXCLUDED FROM ITS OWN HAYSTACK, and that is not tidiness. The
- * header above names the PNG from the incident, and while it did, replaying
- * the incident showed this gate reading its own comment and concluding the
- * file was still referenced. A guard is not evidence for itself.
+ * THIS FILE IS EXCLUDED FROM ITS OWN HAYSTACK. The header above names the PNG
+ * from the incident, and while it did, replaying the incident showed this gate
+ * reading its own comment and concluding the file was still referenced. A
+ * guard is not evidence for itself.
  *
  * A mention anywhere else does count, comments included, because telling code
  * from commentary is a separate hard problem (`scripts/brand-strip.mjs` exists
