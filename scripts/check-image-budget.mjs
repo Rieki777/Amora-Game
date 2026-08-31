@@ -108,7 +108,14 @@ function declaredImageRefs() {
   const refs = [];
   const add = (ref, why, source) => {
     const clean = String(ref || "").split(/[?#]/)[0].trim();
-    if (clean && !/^https?:/i.test(clean)) refs.push({ ref: clean, base: path.basename(clean), why, source });
+    // Anything carrying a scheme, and anything protocol-relative, names a file
+    // this repo does not hold. Wider than the `https?:` this used to test:
+    // a `data:` URI or a `//cdn.example/x.png` used to survive that test, land
+    // in the list, and then fail the new existence check for a file that was
+    // never supposed to be on disk.
+    if (clean && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(clean)) {
+      refs.push({ ref: clean, base: path.basename(clean), why, source });
+    }
   };
 
   const config = path.join(ROOT, "shared", "gameConfig.ts");
