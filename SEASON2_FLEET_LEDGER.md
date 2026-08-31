@@ -248,6 +248,23 @@ Order matters where noted; everything else lands when green.
 
 ## 7 - What I got wrong (coordinator errors, recorded at the same prominence as findings)
 
+- **2026-08-31. I relayed an unverified claim to the founder and it was wrong.** The secrets
+  lane reported that its `putSecret` throw would make a founder's Stripe-key save HANG under
+  Express 4, because an async throw is an unhandled rejection. I repeated that to the founder as
+  fact. The wiring lane MEASURED it: `server/index.ts:6717-6742` patches `app.get/post/put/delete`
+  so an async rejection is forwarded to `next()` and lands on the terminal error handler, so the
+  real symptom was an opaque `500 {"error":"Internal server error"}`, not a hang. Still a real
+  defect (a founder had no way to learn the fix is one environment variable), and now a 503
+  carrying the store's own sentence plus the recipe. But the skill's rule is explicit: verify a
+  claim BEFORE it shapes the human's decision, not after. I did not, and I should have.
+
+- **2026-08-31. My own S15 isolation check was invalid and I nearly acted on it.** I ran
+  `npx vitest run server/loop.e2e.test.ts -t "S15"` to test whether S15 passes uncontended. It
+  failed. But this repository's own notes BAN filtering that file, because it is order-dependent
+  by rule, and `-t` skipped the 69 tests that build S15's state. Running the whole file
+  unfiltered passes 70/70, twice. I caught it, but a coordinator who did not would have blocked
+  a good push on a self-inflicted red.
+
 - **2026-08-30. I dispatched twelve lanes at ONE MySQL and asked each to run a two-hundred-file
   suite against it.** My pristine control run measured 38 to 46 seconds PER FILE on
   database-backed suites under that load. Two costs: every lane full-suite run burns 20-plus
@@ -914,6 +931,26 @@ deliberate step afterwards, watched, with the builder question settled first.
 
 `ci.yml` has **21 run-steps, 24 including the 3 `uses:` steps**, not the 20 I recorded. My list
 omitted "Bundle budget". Two lanes reached that count independently.
+
+## 7n - Two guards cannot see what we assumed they see
+
+Both found by lanes probing rather than reading, and both matter for how much the ratchets are
+actually worth:
+
+1. **`check-brand-refs.mjs` could never have caught the `WorkWithUs.tsx` hardcoded village
+   name**, because that file is on the script's SHOPFRONT exempt list. The wiring lane PROVED it
+   rather than inferring: appending a literal `export const PROBE = "Amora"` to
+   `WorkWithUs.tsx` leaves the count at 47 and exits 0, while the identical probe in
+   `ProposeQuest.tsx` moves it 47 to 48. So of the two first-paint fixes, one burns a ratchet
+   entry and the other is invisible to the guard entirely.
+2. **`check-voice.mjs` does not scan `server/**/*.test.ts` string literals.**
+   `server/hygiene.routes.e2e.test.ts:27` and `server/adminReach.e2e.test.ts:45` both carry em
+   dashes today and the guard is green at this ref.
+
+Combined with the earlier finding that `check-hyphen-dash.mjs` walks only `client/src`, the
+honest position on the dash and brand rules is: they are enforced on the surfaces the guards
+walk, and the guards walk less than the rules claim. That is a improvements-list item, not a
+blocker, but nobody should cite these guards as repo-wide.
 
 ## 9 - Post-deploy actions (queued, not yet done)
 
