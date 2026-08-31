@@ -264,7 +264,9 @@ export default function MapSkinPanel({ password }: { password: string }) {
           </p>
         </div>
 
+        {/* theme-ok: neutral colour-input default, never rendered as chrome */}
         {colourRow("accent", "Accent", "#157f7d")}
+        {/* theme-ok: neutral colour-input default, never rendered as chrome */}
         {colourRow("parchment", "Parchment", "#f3e7cf")}
 
         {scaleRow("label_scale", "Label size", "How large place names are drawn.")}

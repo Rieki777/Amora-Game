@@ -138,7 +138,7 @@ const buyerPersonas = [
     title: "Digital Nomad Couple",
     subtitle: "Invest from anywhere, build your future haven",
     icon: MapPin,
-    color: "from-teal-deep to-[#1f7a78]"
+    color: "from-teal-deep to-teal-deep-dark"
   },
   {
     title: "Worldschooling Family",
@@ -150,7 +150,7 @@ const buyerPersonas = [
     title: "Retiree/Snowbird",
     subtitle: "Your Costa Rica sanctuary with community and returns",
     icon: Heart,
-    color: "from-[#3d6e4a] to-teal-deep"
+    color: "from-sage to-teal-deep"
   },
   {
     title: "Longevity Seeker",
@@ -162,7 +162,7 @@ const buyerPersonas = [
     title: "Remote Exec/Founder",
     subtitle: "Build wealth while building a better world",
     icon: TrendingUp,
-    color: "from-teal-deep to-[#3d6e4a]"
+    color: "from-teal-deep to-sage"
   },
   {
     title: "Costa Rican/LatAm Professional",

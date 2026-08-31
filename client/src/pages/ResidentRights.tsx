@@ -136,7 +136,7 @@ export default function ResidentRights() {
   return (
     <Layout>
       {/* Hero */}
-      <section className="relative py-20 overflow-hidden bg-gradient-to-br from-teal-deep to-[#2e5a58]">
+      <section className="relative py-20 overflow-hidden bg-gradient-to-br from-teal-deep to-teal-band">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-10 right-10 w-64 h-64 rounded-full bg-white blur-3xl" />
           <div className="absolute bottom-10 left-10 w-48 h-48 rounded-full bg-amber blur-3xl" />
