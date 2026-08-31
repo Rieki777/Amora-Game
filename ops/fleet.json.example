@@ -1,0 +1,121 @@
+{
+  "image": "ghcr.io/rieki777/village-os",
+  "maxPinDays": 30,
+  "paging": {
+    "webhookUrl": null
+  },
+  "rings": [
+    { "name": "staging", "order": 0, "description": "Not a real founder. Exists only to catch a broken image before any founder sees it." },
+    { "name": "canary", "order": 1, "description": "Two or three real founder instances whose stewards agreed to go first." },
+    { "name": "wave-1", "order": 2, "description": "First batch of the remaining regen-hosted founders." },
+    { "name": "wave-2", "order": 3, "description": "Second batch. Everyone left who is regen-hosted and unpinned." }
+  ],
+  "villages": [
+    {
+      "id": "staging",
+      "name": "Staging",
+      "hosting": "regen",
+      "ring": "staging",
+      "domain": "staging.village-os.example",
+      "healthUrl": "https://staging.village-os.example/health",
+      "steward": { "name": "Platform team", "contact": "platform@example.org" },
+      "deploy": {
+        "platform": "railway",
+        "stopCommand": "echo FILL_IN_stopCommand for staging on {{TAG}}",
+        "startCommand": "echo FILL_IN_startCommand for staging on {{TAG}}"
+      },
+      "pin": null
+    },
+    {
+      "id": "founder-canary-a",
+      "name": "Canary A",
+      "hosting": "regen",
+      "ring": "canary",
+      "domain": "canary-a.example.org",
+      "healthUrl": "https://canary-a.example.org/health",
+      "steward": { "name": "Founder, Canary A", "contact": "founder-a@example.org" },
+      "deploy": {
+        "platform": "railway",
+        "stopCommand": "echo FILL_IN_stopCommand for founder-canary-a on {{TAG}}",
+        "startCommand": "echo FILL_IN_startCommand for founder-canary-a on {{TAG}}"
+      },
+      "pin": null
+    },
+    {
+      "id": "founder-canary-b",
+      "name": "Canary B",
+      "hosting": "regen",
+      "ring": "canary",
+      "domain": "canary-b.example.org",
+      "healthUrl": "https://canary-b.example.org/health",
+      "steward": { "name": "Founder, Canary B", "contact": "founder-b@example.org" },
+      "deploy": {
+        "platform": "railway",
+        "stopCommand": "echo FILL_IN_stopCommand for founder-canary-b on {{TAG}}",
+        "startCommand": "echo FILL_IN_startCommand for founder-canary-b on {{TAG}}"
+      },
+      "pin": null
+    },
+    {
+      "id": "founder-wave1-a",
+      "name": "Wave 1, founder A",
+      "hosting": "regen",
+      "ring": "wave-1",
+      "domain": "wave1-a.example.org",
+      "healthUrl": "https://wave1-a.example.org/health",
+      "steward": { "name": "Founder, Wave 1 A", "contact": "founder-w1a@example.org" },
+      "deploy": {
+        "platform": "railway",
+        "stopCommand": "echo FILL_IN_stopCommand for founder-wave1-a on {{TAG}}",
+        "startCommand": "echo FILL_IN_startCommand for founder-wave1-a on {{TAG}}"
+      },
+      "pin": {
+        "version": "1.1.0",
+        "reason": "Founder is mid demo prep for a land partner meeting; asked to hold until the week after.",
+        "pinnedAt": "2026-08-20T00:00:00Z",
+        "expiresAt": "2026-09-10T00:00:00Z"
+      }
+    },
+    {
+      "id": "founder-wave1-b",
+      "name": "Wave 1, founder B",
+      "hosting": "regen",
+      "ring": "wave-1",
+      "domain": "wave1-b.example.org",
+      "healthUrl": "https://wave1-b.example.org/health",
+      "steward": { "name": "Founder, Wave 1 B", "contact": "founder-w1b@example.org" },
+      "deploy": {
+        "platform": "railway",
+        "stopCommand": "echo FILL_IN_stopCommand for founder-wave1-b on {{TAG}}",
+        "startCommand": "echo FILL_IN_startCommand for founder-wave1-b on {{TAG}}"
+      },
+      "pin": null
+    },
+    {
+      "id": "founder-wave2-a",
+      "name": "Wave 2, founder A",
+      "hosting": "regen",
+      "ring": "wave-2",
+      "domain": "wave2-a.example.org",
+      "healthUrl": "https://wave2-a.example.org/health",
+      "steward": { "name": "Founder, Wave 2 A", "contact": "founder-w2a@example.org" },
+      "deploy": {
+        "platform": "railway",
+        "stopCommand": "echo FILL_IN_stopCommand for founder-wave2-a on {{TAG}}",
+        "startCommand": "echo FILL_IN_startCommand for founder-wave2-a on {{TAG}}"
+      },
+      "pin": null
+    },
+    {
+      "id": "founder-selfhost-a",
+      "name": "Self-hosted founder A",
+      "hosting": "self",
+      "ring": null,
+      "domain": "selfhost-a.example.net",
+      "healthUrl": "https://selfhost-a.example.net/health",
+      "steward": { "name": "Founder, self-hosted A", "contact": "founder-sh-a@example.net" },
+      "notify": { "method": "email", "target": "founder-sh-a@example.net" },
+      "pin": null
+    }
+  ]
+}
