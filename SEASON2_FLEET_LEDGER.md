@@ -1638,6 +1638,81 @@ happen because the first tick runs a job that has never run. Its real subject is
 reads its switch when it RUNS rather than when it is registered. Whoever takes the stampede
 needs a new vehicle for that assertion first.
 
+### S15: THE PASS RATE MEASURES NOTHING ON A QUIET BOX, SO HERE IS A REAL MEASUREMENT INSTEAD
+
+Asked for, and run: `server/loop.e2e.test.ts` ten times before, ten times after.
+
+    BEFORE (base code, base scheduler, base test file)   10 of 10 passed, 70 tests each
+    AFTER  (this lane's two commits)                     10 of 10 passed, 70 tests each
+
+**THAT COMPARISON IS WORTH NOTHING AND SHOULD NOT BE QUOTED AS EVIDENCE**, and the reason is
+measurable: the whole file now runs in 18.5 SECONDS on a quiet machine, while the scheduler's
+first tick lands at 16.7 seconds after the child spawns (measured directly, see below). The
+collision window closes before the tick opens. Section 4 already says this suite only fails
+under contention; twenty green reps on an idle box is the same non-answer, run twenty times.
+
+**SO THE COLLISION WAS DRIVEN BY HAND INSTEAD, through real HTTP routes on the real built
+server.** `POST /api/admin/tools/check-links` is the same read-modify-write as the
+`tools-link-check` job, with the same awaits (read `all()`, dial every tool's URL, stamp
+`lastCheckedAt` in place, `replaceAll`), and unlike the job it is reachable. Boot the built
+server, enable tools, create three, fire check-links, and 150ms later fire the steward's
+`PUT /api/admin/tools/:id` rename. Same script, both builds:
+
+    BASE BUILD
+      check-links  -> HTTP 200
+      steward PUT  -> HTTP 200   name in the answer: "The Steward Renamed This"
+      read back through the API: name = "Village Site"
+      VERDICT: the steward's rename WAS ERASED, and both requests answered 200
+
+    FIXED BUILD (same script, unchanged)
+      check-links  -> HTTP 200
+      steward PUT  -> HTTP 200   name in the answer: "The Steward Renamed This"
+      read back through the API: name = "The Steward Renamed This"
+      VERDICT: the steward's rename SURVIVED, and both requests answered 200
+
+The API told the steward their rename had worked, echoed the new name back to them, and then
+served them the old one. That is the harm this lane existed to remove, and it is now removed at
+the route a person actually clicks.
+
+The fixed run's server log also caught the SECOND race happening on its own, unprompted:
+
+    [store] tools: reloaded and found 2 row(s) where the cache held 5. Something wrote this
+            table without going through the collection, so version is now 3 ...
+    [store] tools: merged a write read at version 4 into version 6, 3 row(s), no field was
+            changed by both
+
+The first line is `retireExamples` clearing the three example tools the moment the first real
+one was published, caught by the new `load()` bump. The second is the link check being rebased
+onto the steward's rename. Both mechanisms, firing in an ordinary run, saying what they did.
+
+### Gate set, run in this worktree, exit codes unpiped
+
+Workflows enumerated from `.github/workflows/` rather than from the brief: `ci.yml`,
+`codeql.yml`, `db-backup.yml`, `module-intake.yml`, `module-review-agent.yml`, `release.yml`.
+Six, not the four section 4 lists; `codeql.yml` and `release.yml` are new since that reading.
+
+    pnpm check (cold, tsbuildinfo deleted)   0
+    npx tsc -p tsconfig.tests.json --noEmit  0
+    pnpm build                               0
+    check-migration-numbers                  0   109 migrations, next free 0123
+    check-migration-compat                   0   and it says out loud that it seeded 0 rows
+    check-dist-budget                        0   main JS 502 of 700 KB, total 5660 of 6600 KB
+    pnpm audit --prod --audit-level high     0
+    18 guard scripts (brand, voice, dash, auth, admin-reach, save-honesty, repo-payloads,
+      mirror, upload-strip, artifact-budget, doc-links, route-reachability, map-routes,
+      image-budget, theme-literals, and the three guard self-tests)                       all 0
+
+    pnpm test    222 files, 3253 tests, 0 skipped, 0 FAILED, exit 0, 1143s
+
+The reference in the brief is 209 files / 3118 tests; the base ref this lane sits on is already
+past that, and this adds 2 files and 14 tests on top. **The brand guard caught a real mistake in
+this lane's own work**: the first draft named the snapshot symbol after the village, in platform
+code, in a hard-clean zone. Renamed to name the file instead.
+
+One earlier full run had `server/modulePool.e2e.test.ts` fail its `beforeAll`. It passed in
+isolation immediately after, and passed in the clean run above. Mechanism and fix filed in
+section 6: that file is the only one of 34 that binds a HARDCODED port.
+
 ### What this lane did NOT do
 
 - **No caller was migrated, because none could be.** All 34 `replaceAll` sites live in
