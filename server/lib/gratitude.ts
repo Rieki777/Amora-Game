@@ -10,14 +10,21 @@
  * the service must never need the whole server to exist before it can move
  * one token.
  */
-import type { Pool } from "mysql2/promise";
+import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { boolVar, numberVar } from "./variables";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { isExampleUser } from "./examples";
 import { issuanceRefusal } from "./gameStart";
 import { memberAccount, postTransfer, RECOGNITION_FAUCET } from "./ledger";
+import { writeGratitudeRow, shareCapFor } from "./economy";
 import type { GratitudeLogRepo, GratitudeEntry } from "../repos/gratitude";
 import type { UsersRepo } from "../repos/users";
+
+// Re-exported so nothing importing `shareCapFor` from this module (it used to
+// be DEFINED here) had to change when the concurrency fix below moved its
+// definition to server/lib/economy.ts, the module that now owns every
+// gratitude write's lock. server/lib/dryRun.ts is the other reader.
+export { shareCapFor };
 
 export interface GratitudeDeps {
   pool: Pool;
@@ -33,28 +40,6 @@ export interface GratitudeBudget {
   spent: number;
   remaining: number;
   cycleId: string;
-}
-
-/**
- * The most one member may put on ONE other member this cycle (R73).
- *
- * A share of the giver's own allowance, so it means the same thing at 100 and
- * at 500 and a village that doubles `gratitude.base_budget` does not silently
- * double how much of one person's standing can come from one relationship. A
- * cap of 1/N is the sentence "at least N people" written as one number.
- *
- * The floor of 1 is a bound, never a guess: 1% of an allowance of 50 rounds to
- * zero, and a zero here would refuse every send in the village while both
- * dials still read as sane numbers. It is stated on the dial itself.
- *
- * Exported because the economy engine's give path applies the identical rule
- * (server/lib/economy.ts, checkGive). Two channels, one ceiling, computed in
- * one place so they cannot drift apart the way the caps they replaced did.
- */
-export function shareCapFor(allowanceTotal: number): number {
-  if (allowanceTotal <= 0) return 0;
-  const share = numberVar("gratitude.max_share_per_recipient");
-  return Math.max(1, Math.floor((allowanceTotal * share) / 100));
 }
 
 /** Budget = base variable × stage multiplier, minus what this cycle already spent. */
@@ -123,93 +108,150 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     return { ok: false, status: 409, error: "That is a standing example, not a member. Appreciation flows to real people." };
   }
 
-  const budget = await budgetFor(deps, user);
-  if (budget.total <= 0) {
+  // `total` is a stage fact (base variable times the giver's stage
+  // multiplier): nothing but a stage change moves it, and nothing here races
+  // that, so it is safe to read before any lock. What it is NOT safe to read
+  // unlocked is REMAINING, because that depends on what this cycle has
+  // already spent, and that is exactly what concurrent sends race over. See
+  // `writeGratitudeRow` in server/lib/economy.ts for the rest of this story.
+  const multiplier = await deps.stageMultiplierFor(user);
+  const total = Math.round(numberVar("gratitude.base_budget") * multiplier);
+  if (total <= 0) {
     return { ok: false, status: 403, error: "Your sending budget unlocks as you progress on the path" };
-  }
-  if (amt > budget.remaining) {
-    return { ok: false, status: 400, error: `Only ${budget.remaining} left in your budget this cycle` };
-  }
-
-  // One count cap, then one share (R73). The refusal NAMES which one fired,
-  // because a silent 409 teaches nothing.
-  //
-  // The heart cap counts TAPS and is the last count cap in the village: a
-  // heart is a gesture whose size is already fixed by `feed.heart_amount`, so
-  // how many of them is the meaningful question. Indexed COUNT, kind-filtered
-  // on purpose (see the repo interface).
-  if (kind === "heart") {
-    const heartCap = numberVar("feed.max_hearts_per_recipient_per_cycle");
-    const taps = await deps.log.countPair(user.id, recipient.id, budget.cycleId, kind);
-    if (taps >= heartCap) {
-      return {
-        ok: false,
-        status: 409,
-        error: `Hearts to one person are capped at ${heartCap} per cycle (feed.max_hearts_per_recipient_per_cycle)`,
-      };
-    }
-  }
-
-  // The share, and it counts GRATITUDE across BOTH channels. The cap it
-  // replaced counted SENDS and defaulted to 1, which bounded how OFTEN one
-  // member could acknowledge another and never how MUCH: a member at the top
-  // of the ladder could hand one person 500 in a single send and break no
-  // rule. Gratitude is the voting-weight token by default, so that was a
-  // limit on concentrated voice that did not exist.
-  const cap = shareCapFor(budget.total);
-  const alreadyGiven = await deps.log.sumPair(user.id, recipient.id, budget.cycleId);
-  if (alreadyGiven + amt > cap) {
-    const left = Math.max(0, cap - alreadyGiven);
-    return {
-      ok: false,
-      status: 409,
-      error:
-        `${cap} is the most you can give one person this cycle, and you have given them ${alreadyGiven}. ` +
-        `That leaves ${left} for them (gratitude.max_share_per_recipient)`,
-    };
   }
 
   /*
-   * ── CAN THIS VILLAGE ISSUE AT ALL? ASKED BEFORE THE NOTE IS TAKEN (R67) ───
+   * THE LOCK. Everything that used to be three unlocked statements here (the
+   * remaining-budget read, the per-recipient running total, and the
+   * `gratitude_log` write) is now one call into the SAME SERIALIZABLE
+   * transaction, `FOR UPDATE` on the giver's row, that `server/lib/economy.ts`
+   * `give()` has always used. Before this, five acknowledgments (or five
+   * hearts, or five of each) arriving together could each read the same
+   * "nothing spent yet" snapshot from `budgetFor`/`sumPair`/`countPair` and
+   * each commit, moving more Gratitude than the cycle's allowance ever
+   * promised and letting one recipient take more than the concentration cap
+   * allows. The guard below runs INSIDE that lock, so what it reads cannot
+   * move between the read and the write that follows it.
    *
-   * The log row below IS the spend: `budgetFor` sums `gratitude_log` for the
-   * cycle, so writing it charges the allowance. The ledger post that follows
-   * is what puts anything in the recipient's hands, and `postTransfer`
-   * refuses every faucet posting until the village's launch vote carries.
-   *
-   * Asked in that order, the refusal arrived too late to matter. The note was
-   * committed, the allowance was spent, the route answered with the ledger's
-   * sentence, and the recipient received nothing. A retry does not heal it
-   * either: a retry runs this function again and mints a new entry id, so it
-   * is a new row and a second charge. For a village setting itself up, which
-   * under R67 is every village until its launch ballot carries, that fired on
-   * every heart and every acknowledgement anybody sent.
-   *
-   * So the question is asked first, and the whole act is refused with the
-   * gate's own sentence. Unwinding afterwards would be worse: a note is
-   * something a member wrote, and losing their words because an accounting
-   * system said no is its own kind of wrong. Found by Lane TESTRUN, fixed on
-   * the economy engine's `give` path by Lane RULES, and this is the same
-   * shape on the two gratitude doors.
-   *
-   * It sits here rather than at the top of the function so the documented
-   * order of refusals still holds: a member who forgot the recipient hears
-   * about the recipient. Nothing above this line writes anything.
-   *
-   * The answer only ever moves one way, from closed to open, so a village
-   * that launches between this line and the post below costs somebody one
-   * refused send and never a lost note.
-   *
-   * WHAT THIS DOES NOT CLOSE, said plainly: the window between the log row
-   * and the ledger post is still there, and so is any other reason the ledger
-   * might refuse. This closes the one refusal that is knowable in advance and
-   * was firing on every send in every un-launched village.
+   * The guard also reproduces the documented order of refusals exactly: over
+   * budget, then heart tap count (kind 'heart' only), then per-recipient
+   * share, then whether this village may issue at all (R67), LAST, so a
+   * member who is over budget or over the share hears about THAT and not the
+   * launch gate. `issuanceRefusal` now reads the SAME transaction connection
+   * rather than the bare pool, which costs nothing and cannot see a stale
+   * answer the write does not.
    */
-  const closed = await issuanceRefusal(deps.pool);
-  if (closed) return { ok: false, status: 409, error: closed };
+  const result = await writeGratitudeRow(
+    deps.pool,
+    {
+      fromUserId: user.id,
+      toUserId: recipient.id,
+      amount: amt,
+      kind,
+      message: String(input.message ?? "").trim(),
+      fromName: user.name ?? null,
+      toName: recipient.name ?? null,
+      contextType: input.contextType ?? null,
+      contextRef: input.contextRef ?? null,
+    },
+    multiplier,
+    async (conn, allowance, alreadyGiven) => {
+      if (amt > allowance.remaining) {
+        return { ok: false, error: `Only ${allowance.remaining} left in your budget this cycle`, status: 400 };
+      }
 
+      // One count cap, then one share (R73). The refusal NAMES which one
+      // fired, because a silent 409 teaches nothing.
+      //
+      // The heart cap counts TAPS and is the last count cap in the village: a
+      // heart is a gesture whose size is already fixed by `feed.heart_amount`,
+      // so how many of them is the meaningful question. Read under this same
+      // lock, on the same connection, so it cannot race the write below it
+      // any more than the allowance can.
+      if (kind === "heart") {
+        const heartCap = numberVar("feed.max_hearts_per_recipient_per_cycle");
+        const [rows] = await conn.query<RowDataPacket[]>(
+          "SELECT COUNT(*) AS n FROM `gratitude_log` WHERE `from_id` = ? AND `to_id` = ? AND `cycle_id` = ? AND `kind` = ?",
+          [user.id, recipient.id, allowance.cycleKey, kind],
+        );
+        const taps = Number(rows[0]?.n ?? 0);
+        if (taps >= heartCap) {
+          return {
+            ok: false,
+            status: 409,
+            error: `Hearts to one person are capped at ${heartCap} per cycle (feed.max_hearts_per_recipient_per_cycle)`,
+          };
+        }
+      }
+
+      // The share, and it counts GRATITUDE across BOTH channels. The cap it
+      // replaced counted SENDS and defaulted to 1, which bounded how OFTEN
+      // one member could acknowledge another and never how MUCH: a member at
+      // the top of the ladder could hand one person 500 in a single send and
+      // break no rule. Gratitude is the voting-weight token by default, so
+      // that was a limit on concentrated voice that did not exist.
+      const cap = shareCapFor(allowance.total);
+      if (alreadyGiven + amt > cap) {
+        const left = Math.max(0, cap - alreadyGiven);
+        return {
+          ok: false,
+          status: 409,
+          error:
+            `${cap} is the most you can give one person this cycle, and you have given them ${alreadyGiven}. ` +
+            `That leaves ${left} for them (gratitude.max_share_per_recipient)`,
+        };
+      }
+
+      /*
+       * ── CAN THIS VILLAGE ISSUE AT ALL? ASKED BEFORE THE NOTE IS TAKEN (R67) ─
+       *
+       * This row IS the spend: the allowance above is computed by summing
+       * `gratitude_log`, so writing it charges the cycle. The ledger post
+       * that follows (outside this lock, after commit) is what puts anything
+       * in the recipient's hands, and `postTransfer` refuses every faucet
+       * posting until the village's launch vote carries.
+       *
+       * Asked in that order, the refusal used to arrive too late to matter:
+       * the note committed, the allowance was spent, and the recipient
+       * received nothing. A retry does not heal it either, because a retry
+       * mints a new entry id and is a second charge. For a village setting
+       * itself up, which under R67 is every village until its launch ballot
+       * carries, that fired on every heart and every acknowledgement anybody
+       * sent. Found by Lane TESTRUN, fixed on the economy engine's `give`
+       * path by Lane RULES, and this is the same shape on both doors.
+       *
+       * It runs last so the documented order of refusals still holds: a
+       * member who is over budget or over the share hears about THAT.
+       * Nothing above this line writes anything, and the answer only ever
+       * moves one way, from closed to open, so a village that launches
+       * between this check and the write below costs somebody one refused
+       * send and never a lost note.
+       */
+      const closed = await issuanceRefusal(conn);
+      if (closed) return { ok: false, status: 409, error: closed };
+
+      return { ok: true };
+    },
+  );
+
+  if (!result.ok) {
+    if (result.duplicate) {
+      // The unique heart index spoke: this sender already acknowledged this
+      // content. One heart per person per thing is the rule, not an error
+      // state. (Plain 'gratitude' sends carry no client-side dedupe key and
+      // cannot land here; the nonce index that give()'s door uses is never
+      // written by this one.)
+      return { ok: false, status: 409, error: "You have already acknowledged this" };
+    }
+    if (result.error === "no such member") {
+      return { ok: false, status: 404, error: "No such member" };
+    }
+    return { ok: false, status: result.status ?? 400, error: result.error };
+  }
+
+  const cycleId = result.allowance.cycleKey;
   const entry: GratitudeEntry = {
-    id: `grat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: result.noteId,
     kind,
     fromId: user.id,
     fromName: user.name,
@@ -219,16 +261,10 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     message: String(input.message ?? "").trim(),
     contextType: input.contextType ?? null,
     contextRef: input.contextRef ?? null,
-    cycleId: budget.cycleId,
-    cycleNumber: parseCycleId(budget.cycleId),
+    cycleId,
+    cycleNumber: parseCycleId(cycleId),
     at: new Date().toISOString(),
   };
-  const wrote = await deps.log.add(entry);
-  if (wrote.duplicate) {
-    // The unique heart index spoke: this sender already acknowledged this
-    // content. One heart per person per thing is the rule, not an error state.
-    return { ok: false, status: 409, error: "You have already acknowledged this" };
-  }
 
   // Recognition ISSUES at send. Keyed on the acknowledgment id, so a retry
   // credits once; the balance column is a recomputed cache of the ledger.

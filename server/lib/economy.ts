@@ -55,7 +55,6 @@ import {
 } from "../../shared/mintRuleKeys";
 import { issuanceRefusal } from "./gameStart";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
-import { shareCapFor } from "./gratitude";
 import { numberVar } from "./variables";
 import {
   memberAccount,
@@ -594,6 +593,31 @@ export interface GiveInput {
 }
 
 /**
+ * The most one member may put on ONE other member this cycle (R73).
+ *
+ * A share of the giver's own allowance, so it means the same thing at 100 and
+ * at 500 and a village that doubles `gratitude.base_budget` does not silently
+ * double how much of one person's standing can come from one relationship. A
+ * cap of 1/N is the sentence "at least N people" written as one number.
+ *
+ * The floor of 1 is a bound, never a guess: 1% of an allowance of 50 rounds to
+ * zero, and a zero here would refuse every send in the village while both
+ * dials still read as sane numbers. It is stated on the dial itself.
+ *
+ * LIVES HERE, not in `server/lib/gratitude.ts`, as of the concurrency fix
+ * below: this file is the guarded engine both gratitude doors write through
+ * now, and `gratitude.ts` re-exports this symbol so nothing importing it from
+ * there (server/lib/dryRun.ts among them) had to change. Two channels, one
+ * ceiling, computed in one place so they cannot drift apart the way the caps
+ * they replaced did.
+ */
+export function shareCapFor(allowanceTotal: number): number {
+  if (allowanceTotal <= 0) return 0;
+  const share = numberVar("gratitude.max_share_per_recipient");
+  return Math.max(1, Math.floor((allowanceTotal * share) / 100));
+}
+
+/**
  * The refusals a gift can meet, in the order they are checked.
  *
  * Order is part of the contract: the most specific and most private reason
@@ -635,6 +659,158 @@ export function checkGive(
   return { ok: true };
 }
 
+// ── The one lock every gratitude write holds ────────────────────────────────
+
+export interface GratitudeRowInput {
+  fromUserId: string;
+  toUserId: string;
+  amount: number;
+  /** 'gratitude' (default: a budgeted acknowledgment) or 'heart' (D5: a tap
+   *  on content). Anything else is carried as given; only these two are read
+   *  anywhere else in the build today. */
+  kind?: string;
+  message?: string;
+  fromName?: string | null;
+  toName?: string | null;
+  contextType?: string | null;
+  contextRef?: string | null;
+  tag?: string | null;
+  structureKey?: string | null;
+  quiet?: boolean;
+  clientNonce?: string | null;
+}
+
+/**
+ * Runs INSIDE the lock, after the allowance and the running per-recipient
+ * total are read and before anything is written, so a caller's OWN rules
+ * (a value cap, a per-kind tap count, whatever it needs) ride the same
+ * transaction the write does. Receives the open connection so it may run
+ * further reads of its own without leaving the lock to do it.
+ */
+export type GratitudeRowGuard = (
+  conn: PoolConnection,
+  allowance: Allowance,
+  alreadyToThisPerson: number,
+) => Promise<{ ok: true } | { ok: false; error: string; status?: number }>;
+
+export type GratitudeRowResult =
+  | { ok: true; noteId: string; allowance: Allowance }
+  | { ok: false; error: string; duplicate?: boolean; allowance?: Allowance; status?: number };
+
+/**
+ * THE ONE LOCK. Both gratitude doors write through here now: `give()` below
+ * (the Hearts economy, `/api/gratitude`), and `sendGratitude()`
+ * (server/lib/gratitude.ts: the acknowledgment flow at
+ * `/api/game/gratitude/send`, and D5's forum hearts).
+ *
+ * Before this, the two doors ran the identical SHAPE of check (read the
+ * allowance, read the per-recipient total, write the row) as three separate
+ * statements each, in two files that had to be kept in step by hand. This
+ * door's own `FOR UPDATE` already made IT safe; the other door had nothing
+ * holding the giver's row between its reads and its write, so five
+ * acknowledgments arriving together could each read the same "nothing spent
+ * yet" snapshot and each commit, moving more value than the cycle's allowance
+ * ever promised, and doing the identical thing to the per-recipient
+ * concentration cap. Teaching the second door to grow its own lock would have
+ * been a second implementation to keep in step, forever, which is exactly the
+ * shape of bug R73 already spent a round closing for the LIMITS these two
+ * doors apply. So there is one lock, imported, not one lock, copied.
+ *
+ * A row that does not exist cannot be locked, and `FOR UPDATE` over an empty
+ * result takes nothing while looking exactly like success. That would make
+ * every guard advisory for an unknown giver, so the absence is a refusal
+ * rather than a quiet pass.
+ */
+export async function writeGratitudeRow(
+  pool: Pool,
+  input: GratitudeRowInput,
+  stageMultiplier: number,
+  guard: GratitudeRowGuard,
+): Promise<GratitudeRowResult> {
+  const conn = await pool.getConnection();
+  try {
+    await conn.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+    await conn.beginTransaction();
+
+    // The lock. Everything after this reads a world nobody else can move.
+    const [giver] = await conn.query<RowDataPacket[]>(
+      "SELECT `id` FROM `users` WHERE `id` = ? FOR UPDATE",
+      [input.fromUserId],
+    );
+    if (!giver.length) {
+      await conn.rollback();
+      return { ok: false, error: "no such member" };
+    }
+
+    const allowance = await allowanceFor(conn, input.fromUserId, stageMultiplier);
+    const { startsAt, endsAt, key } = cycleWindow();
+    const [pair] = await conn.query<RowDataPacket[]>(
+      "SELECT COALESCE(SUM(`amount`), 0) AS n FROM `gratitude_log` " +
+        "WHERE `village_id` = ? AND `from_id` = ? AND `to_id` = ? AND `at` >= ? AND `at` < ?",
+      [villageId(), input.fromUserId, input.toUserId, startsAt, endsAt],
+    );
+    const alreadyToThisPerson = Number(pair[0]?.n ?? 0);
+
+    const verdict = await guard(conn, allowance, alreadyToThisPerson);
+    if (!verdict.ok) {
+      await conn.rollback();
+      return { ok: false, error: verdict.error, allowance, status: verdict.status };
+    }
+
+    const noteId = `grat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      await conn.query(
+        "INSERT INTO `gratitude_log` " +
+          "(`id`, `village_id`, `kind`, `from_id`, `from_name`, `to_id`, `to_name`, `amount`, `message`, " +
+          " `context_type`, `context_ref`, `cycle_id`, `cycle_number`, `tag`, `structure_key`, `quiet`, `client_nonce`) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [
+          noteId,
+          villageId(),
+          input.kind ?? "gratitude",
+          input.fromUserId,
+          input.fromName ?? null,
+          input.toUserId,
+          input.toName ?? null,
+          input.amount,
+          input.message ?? "",
+          input.contextType ?? null,
+          input.contextRef ?? null,
+          key,
+          parseCycleId(key),
+          input.tag ?? null,
+          input.structureKey ?? null,
+          input.quiet ? 1 : 0,
+          input.clientNonce ?? null,
+        ],
+      );
+    } catch (err: any) {
+      await conn.rollback();
+      // Either unique index can speak here: the client-nonce dedupe (give's
+      // door) or the one-heart-per-sender-per-content index (D5's tap). Which
+      // one fired is unambiguous per caller: each caller writes into exactly
+      // one of the two column pairs the two indexes key on, never both, so
+      // the caller already knows which message belongs to its own duplicate.
+      if (String(err?.code) === "ER_DUP_ENTRY") {
+        return { ok: false, error: "duplicate", duplicate: true, allowance };
+      }
+      throw err;
+    }
+
+    await conn.commit();
+    return { ok: true, noteId, allowance };
+  } catch (err: any) {
+    try {
+      await conn.rollback();
+    } catch {
+      /* the transaction is already gone */
+    }
+    return { ok: false, error: String(err?.message ?? err) };
+  } finally {
+    conn.release();
+  }
+}
+
 /**
  * Give, with the allowance read AND the note written under one lock.
  *
@@ -645,6 +821,12 @@ export function checkGive(
  * rather than by luck. Reading the allowance and writing the note in separate
  * transactions would let all five read the same remaining balance and all five
  * commit, which is the bug this shape exists to make impossible.
+ *
+ * Since the concurrency fix above, the lock itself lives in
+ * `writeGratitudeRow` and this function is the Hearts economy's caller of it:
+ * `checkGive` supplies the guard, `kind` is always `'gratitude'`, and no
+ * context is ever carried. `sendGratitude` (server/lib/gratitude.ts) is the
+ * other caller.
  *
  * The ledger post happens AFTER the commit, on purpose, and the order is the
  * conservative one. The note row consumes the allowance, so a crash between
@@ -699,89 +881,33 @@ export async function give(
   // inside a SERIALIZABLE transaction would take a second pooled connection
   // while holding a lock on the first.
   const multiplier = await stageMultiplier(input.fromUserId);
-  const conn = await pool.getConnection();
-  let noteId = "";
-  try {
-    await conn.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
-    await conn.beginTransaction();
 
-    // The lock. Everything after this reads a world nobody else can move.
-    //
-    // A row that does not exist cannot be locked, and `FOR UPDATE` over an
-    // empty result takes nothing while looking exactly like success. That
-    // would make every guard below advisory for an unknown giver, so the
-    // absence is a refusal rather than a quiet pass.
-    const [giver] = await conn.query<RowDataPacket[]>(
-      "SELECT `id` FROM `users` WHERE `id` = ? FOR UPDATE",
-      [input.fromUserId],
-    );
-    if (!giver.length) {
-      await conn.rollback();
-      return { ok: false, error: "no such member" };
-    }
+  const result = await writeGratitudeRow(
+    pool,
+    {
+      fromUserId: input.fromUserId,
+      toUserId: input.toUserId,
+      amount,
+      kind: "gratitude",
+      message: input.note ?? "",
+      tag: input.tag ?? null,
+      structureKey: input.structureKey ?? null,
+      quiet: input.quiet,
+      clientNonce: input.clientNonce ?? null,
+    },
+    multiplier,
+    // checkGive IS the guard, unchanged: same messages, same order, same
+    // amount/self-gratitude/allowance/share checks it has always run, just
+    // run under the shared lock instead of this function's own copy of it.
+    async (_conn, allowance, alreadyToThisPerson) => checkGive(input, allowance, alreadyToThisPerson),
+  );
 
-    const allowance = await allowanceFor(conn, input.fromUserId, multiplier);
-    const { startsAt, endsAt, key } = cycleWindow();
-    const [pair] = await conn.query<RowDataPacket[]>(
-      "SELECT COALESCE(SUM(`amount`), 0) AS n FROM `gratitude_log` " +
-        "WHERE `village_id` = ? AND `from_id` = ? AND `to_id` = ? AND `at` >= ? AND `at` < ?",
-      [villageId(), input.fromUserId, input.toUserId, startsAt, endsAt],
-    );
-
-    const verdict = checkGive(input, allowance, Number(pair[0]?.n ?? 0));
-    if (!verdict.ok) {
-      await conn.rollback();
-      return { ok: false, error: verdict.error };
-    }
-
-    noteId = `grat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    try {
-      await conn.query(
-        "INSERT INTO `gratitude_log` " +
-          "(`id`, `village_id`, `from_id`, `to_id`, `amount`, `message`, `cycle_id`, " +
-          " `cycle_number`, `tag`, `structure_key`, `quiet`, `client_nonce`) " +
-          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        [
-          noteId,
-          villageId(),
-          input.fromUserId,
-          input.toUserId,
-          amount,
-          input.note ?? "",
-          key,
-          // The integer twin 0010 added, and this write never filled it: every
-          // row this route has ever written carries cycle_number NULL. 0010's
-          // own header says the number exists because "settlement math wants a
-          // number, and parsing 'lunar-000328' in every query is how
-          // off-by-one formatting bugs become settlement bugs", which is
-          // exactly the class of bug that then happened here.
-          parseCycleId(key),
-          input.tag ?? null,
-          input.structureKey ?? null,
-          input.quiet ? 1 : 0,
-          input.clientNonce ?? null,
-        ],
-      );
-    } catch (err: any) {
-      await conn.rollback();
-      // The nonce index spoke: this is the same tap arriving twice.
-      if (String(err?.code) === "ER_DUP_ENTRY") {
-        return { ok: false, error: "That thanks is already sent" };
-      }
-      throw err;
-    }
-
-    await conn.commit();
-  } catch (err: any) {
-    try {
-      await conn.rollback();
-    } catch {
-      /* the transaction is already gone */
-    }
-    return { ok: false, error: String(err?.message ?? err) };
-  } finally {
-    conn.release();
+  if (!result.ok) {
+    // The nonce index spoke: this is the same tap arriving twice.
+    if (result.duplicate) return { ok: false, error: "That thanks is already sent" };
+    return { ok: false, error: result.error };
   }
+  const noteId = result.noteId;
 
   // Outside the lock: keyed on the note, so a retry credits once.
   const res = await postTransfer(pool, {
