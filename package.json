@@ -65,7 +65,7 @@
     "d3-interpolate": "3.0.1",
     "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",
-    "express": "^4.21.2",
+    "express": "^4.22.2",
     "framer-motion": "^12.23.22",
     "ical.js": "2.2.1",
     "input-otp": "^1.4.2",
@@ -130,10 +130,7 @@
       "sharp"
     ],
     "auditConfig": {
-      "ignoreGhsas": [
-        "GHSA-37ch-88jc-xwx2",
-        "GHSA-r5fr-rjxr-66jc"
-      ]
+      "ignoreGhsas": []
     }
   }
 }
