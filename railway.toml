@@ -1,3 +1,18 @@
+# WARNING, read before merging this branch to main.
+#
+# A `Dockerfile` now exists at the repo root. Railway's own config-as-code
+# reference says "Railway will always build with a Dockerfile if it finds one",
+# and `NIXPACKS` is no longer a documented value for `builder` (the documented
+# ones are RAILPACK and DOCKERFILE). So the line below may no longer be doing
+# what it says, and the first deploy after this lands could build from the
+# Dockerfile instead of from nixpacks.
+#
+# That is where this repo is going on purpose, one image for ReGen-hosted and
+# self-hosted alike. It is not something to arrive at by accident on a Tuesday.
+# The builder line is therefore left exactly as it was: this lane is not
+# changing production's build path as a side effect of adding a Dockerfile.
+# Settle it with one deliberate deploy, then set `builder` to the value that
+# deploy proved, and delete this comment.
 [build]
 builder = "nixpacks"
 buildCommand = "pnpm run build"
@@ -6,3 +21,43 @@ buildCommand = "pnpm run build"
 startCommand = "NODE_ENV=production node dist/index.js"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+
+# The probe. server/index.ts serves /health, and it answers with the build
+# marker, so a green health check also says which commit is live.
+#
+# As of the ops lane's change this is a REAL probe, not a liveness ping: it
+# runs SELECT 1 through the live pool and answers 503 with status "degraded"
+# when the database is unreachable. So a deploy against a broken database now
+# fails instead of going live and serving 500s behind a green light. That is
+# the point of pairing it with a timeout that a slow boot can survive.
+healthcheckPath = "/health"
+
+# Seconds, and the number comes from two measurements that disagree by 6x.
+#
+# The server calls listen() LAST. Before it does, boot applies every pending
+# migration, loads the token registry, seeds the economy, and walks the ledger
+# invariants. MEASURED 2026-08-30, booting the exact production file set
+# against a COMPLETELY EMPTY MySQL schema, twice, doing provably identical
+# work both times (107 migrations, 7 seed operations, verified by comparing
+# the two boot logs):
+#
+#   228.5 s  against a cold database server
+#    37.5 s  against the same server minutes later, caches warm
+#
+# Both numbers are honest and the spread is the finding. The work does not
+# vary; how warm the database is varies, by a factor of six. The number to
+# size a timeout against is therefore the cold one, because a container coming
+# up on a freshly provisioned instance is exactly the cold case.
+#
+# 228 seconds already spends three quarters of Railway's 300 second default,
+# so the default is not merely tight: it is within about seventy seconds of
+# failing the FIRST deploy of every new village, and it would fail outright on
+# a slower disk or a database one network hop away. A later deploy applies
+# fewer migrations but walks a bigger ledger.
+#
+# 900 gives roughly four times the cold measurement. It is a ceiling and not a
+# wait: a fast boot passes on the first probe. If a deploy ever fails this
+# check while the container log still shows migrations running, RAISE THIS
+# NUMBER. Do not remove the probe: a village serving 500s behind a green light
+# is the failure this pairing exists to prevent.
+healthcheckTimeout = 900
