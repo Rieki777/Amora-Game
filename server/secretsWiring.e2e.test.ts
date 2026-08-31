@@ -38,7 +38,7 @@ import { NO_VILLAGE_SECRETS_KEY_SENTENCE, VILLAGE_SECRETS_ENV } from "./lib/secr
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
-  console.warn("[secretsWiring] TEST_DATABASE_URL not set — DB-backed tests SKIPPED.");
+  console.warn("[secretsWiring] TEST_DATABASE_URL not set, so DB-backed tests are SKIPPED.");
 }
 
 const DIST = path.resolve(process.cwd(), "dist/index.js");

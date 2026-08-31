@@ -100,6 +100,31 @@ in by hand once you do. This writes a local `.env` file and prints:
 it printed into Railway, your app service, the Variables tab, by hand or
 through the Railway CLI. Production reads variables from Railway directly.
 
+### The one generated value that decides whether Admin can hold your keys
+
+Two of the generated values are sealing keys, and neither can be recovered
+once anything has been stored under it: `MEMBER_SECRETS_KEY` and
+`VILLAGE_SECRETS_KEY`. Set each once here and leave it alone.
+
+`VILLAGE_SECRETS_KEY` is the one to check before you reach step 4 or step 8.
+It encrypts your own third-party keys where this platform stores them: your
+Stripe secret key, your Stripe and Riverside webhook secrets, your Resend
+key, your Anthropic key. Every later step that says "or from Admin,
+Integrations" depends on it. With it unset, that panel refuses every save
+with "this deployment has no village-secrets key", and each of those keys has
+to be set in Railway instead. Clearing a key from the panel keeps working
+either way, so a value you need to remove is never stuck.
+
+**Self-host:** you generate it in this step and you hold it. A copy of your
+database carries none of your integration keys in a usable form.
+
+**ReGen-hosted:** ReGen Civics sets it in the Railway project they hold. Ask
+them to confirm it is set before you try to save a key from the panel.
+Whoever holds the Railway project holds this key, so on this path ReGen can
+read the keys you store through it. What it buys you is that a database
+backup on its own carries nothing usable. Self-host if your village needs to
+hold the key itself.
+
 ## 4. Set up email
 
 Create a Resend account (or use your existing one), then verify your sending
@@ -113,9 +138,11 @@ warning anywhere in this platform. Verify the domain before you trust that
 any email, including your own founder claim link in the next step, is
 actually being delivered.
 
-Once verified, set `RESEND_API_KEY` and `EMAIL_FROM` in Railway (or from
-Admin, Integrations, after you have logged in, which is equivalent and does
-not need Railway access).
+Once verified, set `RESEND_API_KEY` and `EMAIL_FROM` in Railway.
+`RESEND_API_KEY` can also be set from Admin, Integrations, after you have
+logged in, which needs no Railway access; that route needs
+`VILLAGE_SECRETS_KEY` from step 3 and refuses the save without it.
+`EMAIL_FROM` is a Railway variable only.
 
 ## 5. Deploy and run migrations
 
@@ -175,8 +202,9 @@ village's name or look.
 
 Skip this section entirely if this village will not take card payments yet.
 
-Create your own Stripe account (human-only, see above), then in Railway or
-from Admin, Integrations, set `STRIPE_SECRET_KEY`. In your Stripe dashboard,
+Create your own Stripe account (human-only, see above), then set
+`STRIPE_SECRET_KEY` in Railway, or from Admin, Integrations if
+`VILLAGE_SECRETS_KEY` is set (step 3). In your Stripe dashboard,
 under Developers, Webhooks, create an endpoint at
 `https://<your-domain>/api/webhooks/stripe` subscribed to
 `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
