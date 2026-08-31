@@ -150,6 +150,17 @@ beforeAll(async () => {
       AUTH_TOKEN_SECRET: "places-token-secret", // module-review-ok: a fixture signing secret for a throwaway server on a scratch schema, same as every e2e suite
       RESEND_API_KEY: "",
       ANTHROPIC_API_KEY: "",
+      // The uploads volume gauge (server/index.ts, owned by the SRVHARD
+      // lane) caches its answer behind a ONE SECOND floor with no test-visible
+      // bypass: a request landing under 1s after the previous cache fill gets
+      // served the stale value even when the directory's mtime moved, which
+      // is a live flake risk for "reports what the photographs are using on
+      // the volume" below. This env var is a NO-OP today; it takes effect
+      // once server/index.ts reads UPLOADS_GAUGE_MIN_INTERVAL_MS from the
+      // environment (SEASON2_FLEET_LEDGER.md 8a's follow-up, filed for
+      // SRVHARD). Setting it to 0 here means the floor can never fire for
+      // this suite once that lands, with no change needed on this side again.
+      UPLOADS_GAUGE_MIN_INTERVAL_MS: "0",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
