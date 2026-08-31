@@ -39,7 +39,9 @@
  */
 import type express from "express";
 import type { Pool } from "mysql2/promise";
-import type { Capability } from "../../shared/capabilities";
+import type { Capability, CapabilityCtx } from "../../shared/capabilities";
+import type { NotifyInput, NotifyResult } from "./notify";
+import type { LapseContext } from "./orgChart";
 import type { ClaimsRepo } from "../repos/quests";
 import type { DbCollection, DbDocument, Row } from "../repos/store-db";
 import type { MemberRecord, UsersRepo } from "../repos/users";
@@ -107,6 +109,18 @@ export interface AppDeps {
   /** The admin account a passing gate attached, for audit attribution. */
   adminActor(req: express.Request): { id: string; name?: string } | null;
 
+  /**
+   * Build the capability context for a member, for the rare route that asks
+   * `hasCapability(cap, ctx)` about somebody rather than about the request.
+   *
+   * PREFER THE GATES ABOVE. This one never sees the request, so it cannot
+   * carry a break-glass and cannot write the record that makes a
+   * village-held power real. docs/ARCHITECTURE.md spells out which of the two
+   * a route wants. Following this line for a route that REFUSES is what once
+   * left seven powers unable to leave the admin panel.
+   */
+  capabilityCtx(user: any): Promise<CapabilityCtx>;
+
   // REPOSITORIES
   // One entry per document or collection an extracted route module reads.
 
@@ -172,4 +186,27 @@ export interface AppDeps {
    * so a caller may hand it any before/after pair without checking first.
    */
   recordStageEvent(user: MemberRecord, from: string, to: string, reason: string): Promise<void>;
+
+  // THE VILLAGE'S CLOCK AND ITS VOICE
+  // Small readers that every domain ends up wanting, and the one producer for
+  // telling a member something happened.
+
+  /** A person's first name, or "Someone". The one place that decides that. */
+  firstName(name: string): string;
+
+  /** The season banner payload. Extracted routes read `current` from it. */
+  seasonState(): { current: any };
+
+  /** The pattern the running season names, or null. Most villages: null. */
+  currentPatternId(): string | null;
+
+  /** What every read uses to decide whether a seating's mandate has run out. */
+  lapseContext(): LapseContext;
+
+  /**
+   * Tell one member one thing. Fire and forget by contract: the sender never
+   * throws, so a caller may `void` it without swallowing a failure it could
+   * have handled.
+   */
+  notify(input: NotifyInput): Promise<NotifyResult>;
 }
