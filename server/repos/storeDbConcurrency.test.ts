@@ -198,6 +198,30 @@ describe.skipIf(!configured)("replaceAll under two concurrent writers", () => {
     expect(Number(rows[0].last_check_status), "and the other writer's field is kept").toBe(404);
   });
 
+  it("does not resurrect rows a raw DELETE removed, once the cache has been reloaded", async () => {
+    // This is `retireExamples` (server/lib/examples.ts): raw SQL removes the
+    // example rows, then `wireExampleCaches` calls load() because the cache
+    // would otherwise keep serving rows the database no longer has. It fires
+    // from `onRealItemPublished`, which POST /api/admin/circles calls WITHOUT
+    // awaiting, so a steward can be retiring examples at the same moment
+    // another writer is holding a snapshot that still lists them.
+    const repo = await freshRepo();
+    const inFlight = repo.all() as any[]; // holds t1, t2, t3
+
+    await pool.query("DELETE FROM tools WHERE id IN ('t2','t3')");
+    await repo.load(); // the reload the raw deleter is required to do
+
+    // The stale writer edits the row it still legitimately holds and writes back.
+    inFlight[inFlight.findIndex((t) => t.id === "t1")].purpose = "edited while examples retired";
+    await repo.replaceAll(inFlight);
+
+    const [rows] = await pool.query<any[]>("SELECT id, purpose FROM tools ORDER BY id");
+    expect(rows.map((r) => r.id), "the retired rows must stay retired").toEqual(["t1"]);
+    expect(rows[0].purpose, "and the stale writer's own edit still lands").toBe(
+      "edited while examples retired",
+    );
+  });
+
   it("names the fields two writers both changed instead of losing them quietly", async () => {
     const repo = await freshRepo();
     const warnings: string[] = [];

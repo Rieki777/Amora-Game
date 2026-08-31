@@ -79,6 +79,18 @@
  * The one case that still throws is a snapshot older than `HISTORY_DEPTH`
  * writes, where there is no baseline to rebase against and any guess would be
  * a guess about somebody's data. That is loud on purpose.
+ *
+ * RAW SQL WRITERS, which the counter cannot see on its own. Three files write
+ * these tables directly rather than through a collection. The house rule for
+ * doing that is already written down in server/lib/examples.ts: delete the
+ * rows, then reload the cache, or the cache keeps serving what the database no
+ * longer has. `load()` now makes that reload mean something to WRITERS too: a
+ * reload that finds different rows than the cache held bumps the counter, so
+ * every snapshot taken before the raw write is rebased rather than trusted.
+ * Without it, a steward retiring the standing examples while somebody else
+ * held a snapshot would have every example row put straight back.
+ * `server/lib/orgChart.ts` and `server/lib/seasonPatterns.ts` write `circles`
+ * raw and do NOT reload, so they are outside this and always were.
  */
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 
@@ -267,6 +279,18 @@ export function dbCollection<T extends Row = Row>(pool: Pool, spec: CollectionSp
   const sameField = (a: any, b: any) => canon(a) === canon(b);
   const sameRow = (a: Row, b: Row) => spec.columns.every((c) => sameField(a[c.js], b[c.js]));
 
+  /** Same rows, by id and by every spec'd field. Order is not part of it. */
+  function sameRowSet(a: T[], b: T[]): boolean {
+    if (a.length !== b.length) return false;
+    const byId = new Map<string, T>();
+    for (const r of a) byId.set(idOf(r), r);
+    for (const r of b) {
+      const match = byId.get(idOf(r));
+      if (!match || !sameRow(match, r)) return false;
+    }
+    return true;
+  }
+
   /** A stamped copy, so the caller can mutate without reaching the cache. */
   function stamped(row: T, v: number): T {
     const copy: any = { ...row };
@@ -389,17 +413,57 @@ export function dbCollection<T extends Row = Row>(pool: Pool, spec: CollectionSp
         // read apart, a write landing between them would leave the cache
         // claiming a version it does not hold.
         await conn.beginTransaction();
-        const [vrows] = await conn.query<RowDataPacket[]>(
-          "SELECT version FROM collection_versions WHERE collection = ?",
-          [spec.table],
-        );
+        const dbVersion = await readVersionForUpdate(conn);
         const rows = await readRows(conn);
+        /*
+         * A RELOAD THAT FINDS DIFFERENT ROWS MEANS SOMEBODY WROTE THIS TABLE
+         * WITHOUT GOING THROUGH THIS COLLECTION, and the counter did not move
+         * because raw SQL does not know about it.
+         *
+         * That is not hypothetical. `retireExamples` in server/lib/examples.ts
+         * DELETEs example rows with raw SQL and then calls load() through
+         * `wireExampleCaches` precisely because the cache would otherwise keep
+         * serving rows the database no longer has. It fires from
+         * `onRealItemPublished`, which POST /api/admin/circles calls without
+         * awaiting it. So a steward creating a circle can be retiring the
+         * example circles at the same moment another writer is holding a
+         * snapshot that still contains them, and that writer's replaceAll
+         * would put every one of them back.
+         *
+         * Bumping here is what makes the reload mean something to writers as
+         * well as to readers: every outstanding snapshot goes stale, gets
+         * rebased against the rows that actually exist now, and the delete
+         * holds. A first load has an empty cache and nothing to compare, so
+         * boot never bumps.
+         *
+         * WHAT THIS DOES NOT COVER, said plainly: a raw writer that does NOT
+         * reload. `server/lib/orgChart.ts` and `server/lib/seasonPatterns.ts`
+         * both write `circles` directly and neither calls load(), so their
+         * writes are invisible to the cache AND to the counter. That is
+         * pre-existing and unchanged here; it is filed in the ledger.
+         */
+        const heldBefore = cache.length;
+        const behindOurBack = heldBefore > 0 && !sameRowSet(cache, rows);
+        if (behindOurBack) {
+          await conn.query("UPDATE collection_versions SET version = version + 1 WHERE collection = ?", [
+            spec.table,
+          ]);
+        }
         await conn.commit();
-        version = Number(vrows[0]?.version ?? 0);
+        version = behindOurBack ? dbVersion + 1 : dbVersion;
         cache = rows;
-        history.clear();
-        historyOrder.length = 0;
+        // The history is NOT cleared. Each entry says what `all()` handed out
+        // at that version, which stays true across a reload, and clearing it
+        // would turn every in-flight writer's next replaceAll into a
+        // StaleSnapshotError, which under Express 4 is a hung request.
         remember(version, cache);
+        if (behindOurBack) {
+          console.warn(
+            `[store] ${spec.table}: reloaded and found ${rows.length} row(s) where the cache held ` +
+              `${heldBefore}. Something wrote this table without going through the collection, so ` +
+              `version is now ${version} and every snapshot older than that will be rebased.`,
+          );
+        }
       } catch (e) {
         await conn.rollback();
         throw e;
