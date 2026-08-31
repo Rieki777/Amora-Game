@@ -25,6 +25,12 @@
 #
 # Either way the suite that decides is the one in .github/workflows/ci.yml,
 # which the safety lane owns. This file only reads its verdict.
+#
+# NOTHING IS PUSHED UNTIL IT HAS BOOTED. The image is built into the runner's
+# own docker daemon, started against an empty MySQL, and asked what commit it
+# is and whether it can serve three pages. Only then does it reach the
+# registry. Publishing first and smoking afterwards would mean :stable already
+# points at the broken image by the time anyone finds out.
 
 name: release
 
@@ -106,14 +112,17 @@ jobs:
             # ci finished. Publish :edge only for a green PUSH to main. A
             # pull_request run of ci reports the branch it came from and a
             # tree that does not exist on main, so it is not edge.
-            if [ "$RUN_CONCLUSION" = "success" ] \
-               && [ "$RUN_EVENT" = "push" ] \
-               && [ "$RUN_BRANCH" = "main" ]; then
-              sha="$RUN_SHA"
+            # The :- defaults are for `set -u`: on the tag path these four are
+            # empty, and an empty expression is not guaranteed to reach the
+            # shell as a defined variable.
+            if [ "${RUN_CONCLUSION:-}" = "success" ] \
+               && [ "${RUN_EVENT:-}" = "push" ] \
+               && [ "${RUN_BRANCH:-}" = "main" ]; then
+              sha="${RUN_SHA:-}"
               tags="${IMAGE}:edge"
               publish=true
             else
-              echo "Not an edge build: ci concluded '${RUN_CONCLUSION}' on ${RUN_EVENT}/${RUN_BRANCH}."
+              echo "Not an edge build: ci concluded '${RUN_CONCLUSION:-none}' on ${RUN_EVENT:-none}/${RUN_BRANCH:-none}."
             fi
           fi
 
@@ -152,7 +161,15 @@ jobs:
           fi
 
   # -------------------------------------------------------------------------
-  # Build and push.
+  # Build, prove it boots, and only then push.
+  #
+  # One job on purpose. The obvious shape is build-and-push, then smoke the
+  # published image, and it is wrong: by the time the smoke test says the image
+  # cannot boot, :stable has already moved to it and thirteen villages are one
+  # `docker pull` away from a broken instance. So the build loads into the
+  # runner's own docker daemon, the smoke test boots THAT, and the push only
+  # happens after. The push re-runs buildx against a fully warm cache, so it
+  # uploads rather than rebuilds.
   # -------------------------------------------------------------------------
   image:
     needs: plan
@@ -161,17 +178,131 @@ jobs:
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest: ${{ steps.push.outputs.digest }}
+    services:
+      # An empty database, for the smoke test. Same tmpfs trick ci.yml uses:
+      # boot is almost all DDL and a smoke database has nothing to survive a
+      # crash for.
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: ci-smoke
+          MYSQL_DATABASE: village
+        ports:
+          - 3306:3306
+        options: >-
+          --tmpfs /var/lib/mysql:rw,size=4g
+          --health-cmd "mysqladmin ping -h localhost -pci-smoke"
+          --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@v4
         with:
-          # workflow_run runs against the default branch by default, so the
+          # workflow_run checks out the default branch by default, so the
           # commit has to be named explicitly or edge would build main's tip
           # rather than the commit ci actually passed.
           ref: ${{ needs.plan.outputs.sha }}
 
       - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          # Into the runner's docker daemon, so the next step can run it.
+          load: true
+          tags: village-os:candidate
+          # The build has no .git (see .dockerignore), so this argument is the
+          # only thing that lets /health say which commit is serving.
+          build-args: |
+            GIT_SHA=${{ needs.plan.outputs.sha }}
+          # linux/amd64 only, deliberately. arm64 would have to cross-build
+          # bcrypt and sharp under emulation, which is slow and is exactly the
+          # kind of thing that half-works. Add it when a village needs it, and
+          # smoke-test it on real arm64 hardware when you do. `load` cannot
+          # take a multi-platform result either, so adding arm64 means
+          # rethinking this job rather than extending this line.
+          platforms: linux/amd64
+          # Scoped, because this shares the repo's 10 GB Actions cache with
+          # ci's pnpm cache and eviction is repo-wide LRU. mode=max keeps the
+          # dependency-install layers, which are the expensive ones and only
+          # change when the lockfile does.
+          cache-from: type=gha,scope=release
+          cache-to: type=gha,mode=max,scope=release
+
+      - name: It boots, against an empty database
+        # --network host because the MySQL service is published on the
+        # runner's own 127.0.0.1, which a bridged container cannot reach.
+        #
+        # AUTH_TOKEN_SECRET is throwaway and is meant to be: it exists so the
+        # smoke run takes the same path a real deployment takes rather than
+        # the random-per-process fallback.
+        run: |
+          set -euo pipefail
+          docker run -d --name village --network host \
+            -e DATABASE_URL='mysql://root:ci-smoke@127.0.0.1:3306/village' \
+            -e AUTH_TOKEN_SECRET='ci-smoke-not-a-secret' \
+            -e PORT=3000 \
+            village-os:candidate
+          echo "waiting for /health (boot applies every migration before it listens)"
+          for _ in $(seq 1 120); do
+            if body=$(curl -fsS http://127.0.0.1:3000/health 2>/dev/null); then
+              echo "$body"
+              printf '%s' "$body" > health.json
+              break
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' village 2>/dev/null)" != "true" ]; then
+              echo "::error::the container exited before it served /health"
+              docker logs village || true
+              exit 1
+            fi
+            sleep 5
+          done
+          if [ ! -s health.json ]; then
+            echo "::error::/health never answered inside ten minutes"
+            docker logs village || true
+            exit 1
+          fi
+
+      - name: It knows which commit it is
+        # The whole point of the build marker. If this reads "dev", the GIT_SHA
+        # build argument did not reach scripts/build-server.mjs and every
+        # deployment of this image would be anonymous.
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          build=$(jq -r .build health.json)
+          short=$(printf '%s' "$SHA" | cut -c1-7)
+          echo "marker: ${build}    expected to end in: ${short}"
+          case "$build" in
+            *"$short") echo ok ;;
+            *)
+              echo "::error::/health reports build '${build}', which does not carry ${short}. The image cannot say which commit it is."
+              exit 1
+              ;;
+          esac
+
+      - name: It serves the village, not just the probe
+        # One page from each of the file sets the runtime stage copies by hand,
+        # because a missing one of those is a silent degradation rather than a
+        # crash and /health would still say ok.
+        #   /                           dist/public, the SPA shell
+        #   /grounds/manifest.json      docs/prototypes/grounds-v0.html
+        #   /api/agent/v1/openapi.json  docs/skills/references
+        run: |
+          set -euo pipefail
+          for path in / /grounds/manifest.json /api/agent/v1/openapi.json; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3000${path}")
+            echo "${code}  ${path}"
+            if [ "$code" != "200" ]; then
+              echo "::error::${path} answered ${code}. Something the Dockerfile copies by hand is missing from the image."
+              exit 1
+            fi
+          done
+
+      - name: Container logs
+        if: always()
+        run: docker logs village || true
 
       - uses: docker/login-action@v3
         with:
@@ -179,14 +310,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: push
+      - name: Push
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ${{ needs.plan.outputs.tags }}
-          # The build has no .git (see .dockerignore), so this argument is the
-          # only thing that lets /health say which commit is serving.
           build-args: |
             GIT_SHA=${{ needs.plan.outputs.sha }}
           labels: |
@@ -195,104 +325,24 @@ jobs:
             org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}
             org.opencontainers.image.version=${{ needs.plan.outputs.version }}
             org.opencontainers.image.licenses=MIT
-          # linux/amd64 only, deliberately. arm64 would have to cross-build
-          # bcrypt and sharp under emulation, which is slow and is exactly the
-          # kind of thing that half-works. Add it when a village needs it, and
-          # smoke-test it on real arm64 hardware when you do.
           platforms: linux/amd64
           # Attestations turn the image into a multi-platform index carrying an
           # unknown/unknown entry. GHCR is fine with it; older self-hosted
           # docker and some mirrors are not, and this image is meant to be
           # pullable by thirteen operators we do not control.
           provenance: false
-          # Scoped, because this shares the repo's 10 GB Actions cache with
-          # ci's pnpm cache and eviction is repo-wide LRU. mode=max keeps the
-          # dependency-install layers, which are the expensive ones and only
-          # change when the lockfile does.
+          # Every layer is already in this scope from the Build step above, so
+          # this is an upload and not a second build.
           cache-from: type=gha,scope=release
-          cache-to: type=gha,mode=max,scope=release
 
-  # -------------------------------------------------------------------------
-  # Prove the thing we just published actually boots and knows what it is.
-  # -------------------------------------------------------------------------
-  smoke:
-    needs: [plan, image]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    services:
-      mysql:
-        image: mysql:8
-        env:
-          MYSQL_ROOT_PASSWORD: smoke
-          MYSQL_DATABASE: village
-        ports:
-          - 3306:3306
-        options: >-
-          --tmpfs /var/lib/mysql:rw,size=4g
-          --health-cmd "mysqladmin ping -h localhost -psmoke"
-          --health-interval 5s --health-timeout 3s --health-retries 20
-    steps:
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Boot the published image against an empty database
-        # By digest, not by tag: this must smoke the exact bytes that were
-        # pushed, not whatever the tag points at by the time this job starts.
-        #
-        # --network host because the MySQL service is published on the
-        # runner's 127.0.0.1, which a bridged container cannot reach.
-        env:
-          REF: ghcr.io/rieki777/village-os@${{ needs.image.outputs.digest }}
+      - name: Say what shipped
         run: |
-          set -euo pipefail
-          docker run -d --name village --network host \
-            -e DATABASE_URL='mysql://root:smoke@127.0.0.1:3306/village' \
-            -e PORT=3000 \
-            "$REF"
-          echo "waiting for /health"
-          for i in $(seq 1 120); do
-            if body=$(curl -fsS http://127.0.0.1:3000/health 2>/dev/null); then
-              echo "$body"
-              echo "$body" > health.json
-              break
-            fi
-            if [ "$(docker inspect -f '{{.State.Running}}' village)" != "true" ]; then
-              echo "::error::the container exited before it served /health"
-              docker logs village
-              exit 1
-            fi
-            sleep 5
-          done
-          if [ ! -s health.json ]; then
-            echo "::error::/health never answered within 10 minutes"
-            docker logs village
-            exit 1
-          fi
-
-      - name: The container knows which commit it is
-        # The whole point of the build marker. If this is "dev", the GIT_SHA
-        # build argument did not reach scripts/build-server.mjs and every
-        # deployment of this image is anonymous.
-        env:
-          SHA: ${{ needs.plan.outputs.sha }}
-        run: |
-          set -euo pipefail
-          build=$(jq -r .build health.json)
-          short="${SHA:0:7}"
-          echo "marker: ${build}   expected to end in: ${short}"
-          case "$build" in
-            *"$short") echo "ok" ;;
-            *)
-              echo "::error::/health reports build '${build}', which does not carry ${short}. The image cannot say which commit it is."
-              exit 1
-              ;;
-          esac
-
-      - name: Container logs
-        if: always()
-        run: docker logs village || true
+          {
+            echo "### Published"
+            echo
+            echo '```'
+            printf '%s\n' "${{ needs.plan.outputs.tags }}"
+            echo "digest: ${{ steps.push.outputs.digest }}"
+            echo "commit: ${{ needs.plan.outputs.sha }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
