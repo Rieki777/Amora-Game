@@ -40,7 +40,9 @@
 import type express from "express";
 import type { Pool } from "mysql2/promise";
 import type { Capability } from "../../shared/capabilities";
+import type { ClaimsRepo } from "../repos/quests";
 import type { DbCollection, DbDocument, Row } from "../repos/store-db";
+import type { MemberRecord, UsersRepo } from "../repos/users";
 
 /**
  * The answer from the capability gate. Mirrors the interface in
@@ -107,6 +109,18 @@ export interface AppDeps {
   /** Roadmap milestones, ordered by their `order` field at read time. */
   milestonesRepo: DbCollection<Row>;
 
+  /**
+   * The people. MySQL-authoritative, `all()` answers in join order.
+   *
+   * A wide entry, so it earns a second look in review the way `getPool` does:
+   * a module holding this can read every member record in the village and
+   * write any of them. Take it only for a domain whose subject IS the roster.
+   */
+  members: UsersRepo;
+
+  /** Quest claims. `consentedCounts()` is one grouped read for a whole list. */
+  claimsRepo: ClaimsRepo;
+
   // RAW DATABASE AND VOLUME ACCESS
   // Wider than a repository, so an entry here is a bigger claim than a repo
   // entry and is worth a second look in review. A domain whose table is read
@@ -123,4 +137,29 @@ export interface AppDeps {
    * through server/lib/uploads.ts; this names WHERE, never HOW.
    */
   uploadsDir: string;
+
+  // DERIVED MEMBER STATE
+  // Where a person stands in the game. Each of these is declared at module
+  // scope in server/index.ts and reads across game variables, quest claims and
+  // the capability registry to answer. They are passed for the same reason the
+  // gates are: importing them would mean exporting them from the file this
+  // work exists to shrink, and would leave server/index.ts and the route
+  // module importing each other. Passing keeps the arrow pointing one way.
+
+  /** The stage a member has actually reached, given their consented quests. */
+  computeStage(user: MemberRecord, consentedQuests: number): string;
+
+  /** `computeStage` with the quest count looked up for you. One read. */
+  stageOf(user: MemberRecord): Promise<string>;
+
+  /** Whether this member holds village membership. */
+  hasMembership(user: MemberRecord): boolean;
+
+  /**
+   * Record a stage change, and tell the member what it opened.
+   *
+   * A write, not a read. It is a no-op when the move is sideways or backwards,
+   * so a caller may hand it any before/after pair without checking first.
+   */
+  recordStageEvent(user: MemberRecord, from: string, to: string, reason: string): Promise<void>;
 }

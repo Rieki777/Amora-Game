@@ -41,7 +41,7 @@ authority; the `data/` volume holds only uploads and archived JSON
 
 | Path | What lives there |
 |---|---|
-| `server/index.ts` | The one Express server: auth, boot, and the routes not yet extracted. **32,977 lines, 545 route registrations**, measured 2026-08-31 by `scripts/check-server-index-size.mjs`, which ratchets both numbers downward. This row said "~8,400 lines" from some earlier era until that guard existed; do not hand-edit these figures, run the script. |
+| `server/index.ts` | The one Express server: auth, boot, and the routes not yet extracted. **32,926 lines, 541 route registrations**, measured 2026-08-31 by `scripts/check-server-index-size.mjs`, which ratchets both numbers downward. This row said "~8,400 lines" from some earlier era until that guard existed, and then said 545 routes when the script said 544; do not hand-edit these figures, run the script and copy `scripts/server-index-size-baseline.json`. |
 | `server/routes/*` | Route modules, one per domain, each exporting `register(app, deps)`. Where new routes go. |
 | `server/lib/*` | Domain libraries: ledger, modules, payments, exchange, notify, scheduler, events, secrets, identity, launch, feedback, exit, health, member tokens, the admin-gate marker, `appDeps` … |
 | `server/db/` | `migrate.ts` (the engine), `testDb.ts` (S5 harness), `schema.ts` |
@@ -106,11 +106,11 @@ pipeline by a one-time patch of the four registration verbs
     settle/reversal with the trio.
 11. **Seeds** (2111). Quest library seeds only into an *empty* table.
 12. **Routes serve** (2130 onward). Express app, webhook seam, middleware,
-    545 route registrations in `server/index.ts` plus the `register(app,
+    541 route registrations in `server/index.ts` plus the `register(app,
     deps)` calls for each `server/routes/*` module, static SPA fallback,
     `server.listen` on `PORT || 3000`. (This said "~200 routes" until the
-    count was measured; `scripts/check-server-index-size.mjs` owns the
-    number now.)
+    count was measured, and then 545 when the script said 544;
+    `scripts/server-index-size-baseline.json` owns the number now.)
 
 ---
 
@@ -1277,8 +1277,8 @@ submission aged out.
    `server/routes/faqs.ts`, `training.ts` and `milestones.ts` are the
    worked examples, in ascending order of how much they need.
 
-   **Why not `server/index.ts` any more.** That file is 33,000 lines with
-   560 route registrations in one `startServer` closure, and this recipe
+   **Why not `server/index.ts` any more.** That file is 32,926 lines with
+   541 route registrations in one `startServer` closure, and this recipe
    telling every contributor to add to it is a large part of why. It is
    now ratcheted by `scripts/check-server-index-size.mjs`: its line count
    and its route count may only ever fall, `--update-baseline` refuses to

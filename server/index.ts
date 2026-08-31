@@ -46,6 +46,8 @@ import { register as registerMilestonesRoutes } from "./routes/milestones";
 import { register as registerTrainingRoutes } from "./routes/training";
 import { register as registerGoogleAuthRoutes } from "./routes/authGoogle";
 import { register as registerRecoveryRoutes } from "./routes/authRecovery";
+import { register as registerPulseRoutes } from "./routes/pulse";
+import { register as registerPlayersRoutes } from "./routes/players";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -32268,64 +32270,11 @@ ${inner}
     res.json({ roleId: role.id, userId, action, holders: finalHolders.filter((h) => h.roleId === role.id).length });
   });
 
-  // Village pulse: public activity feed (S11: reads the event spine; the
-  // legacy {id, type, text, at} shape is preserved for the client).
-  app.get("/api/game/pulse", async (_req, res) => {
-    // village.pulse_max_entries was an admin knob nothing read — the 30 here
-    // was hard-coded, so the setting did exactly nothing however it was set.
-    const events = await recentEvents(getPool(), "public", Math.max(10, numberVar("village.pulse_max_entries")));
-    res.json(events.map((e) => ({ id: e.id, type: e.kind, text: e.text, at: e.at })));
-  });
-
-  // Players admin: list + stage grants
-  app.get("/api/admin/players", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    // Standing-example identities author example threads; they are content,
-    // not people, and have no password_hash. They do not belong on the roster.
-    // SORTED BY NAME, and this is the one place that decides it for nine
-    // client surfaces. `members.all()` answers in join order, which is total
-    // and never moves under a write, so nothing here is chasing stability.
-    // Join order is simply unsearchable: this payload feeds the roster, the
-    // seat picker on /admin org chart, and six member dropdowns, and every one
-    // of them listed people in registration sequence. Sorting at the route
-    // rather than in each caller keeps admin to ONE order.
-    const allMembers = sortMembersByName((await members.all()).filter((u: any) => !u.isExample));
-    // One grouped COUNT for the whole roster, not one query per member.
-    const consented = await claimsRepo.consentedCounts();
-    res.json(
-      allMembers.map((u: any) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        handle: u.handle ?? null,
-        role: u.role ?? "member",
-        paths: u.paths ?? [],
-        joinedAt: u.joinedAt,
-        balance: u.recognitionBalance ?? 0,
-        stageGranted: u.stageGranted ?? null,
-        stageComputed: computeStage(u, consented.get(u.id) ?? 0),
-        membership: hasMembership(u),
-      }))
-    );
-  });
-
-  app.put("/api/admin/players/:id/stage", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const { stageId } = req.body ?? {};
-    if (stageId && !GAME_CONFIG.stages.some((s) => s.id === stageId)) {
-      return res.status(400).json({ error: "Unknown stage" });
-    }
-    const target = await members.byId(req.params.id);
-    if (!target) return res.status(404).json({ error: "Not found" });
-    // The seed sets each identity's stage so its example content renders at
-    // the right level; moving one is editing example content.
-    if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
-    const before = await stageOf(target);
-    const updated = await members.update(target.id, (u: any) => { u.stageGranted = stageId ?? null; });
-    if (!updated) return res.status(404).json({ error: "Not found" });
-    const after = await stageOf(updated);
-    await recordStageEvent(updated, before, after, stageId ? "granted by an admin" : "grant removed");
-    res.json({ success: true, stageComputed: after });
+  // The village pulse and the admin roster, each registered at exactly the
+  // point its own routes used to sit. Express matches in registration order.
+  registerPulseRoutes(app, { getPool });
+  registerPlayersRoutes(app, {
+    isAdmin, members, claimsRepo, computeStage, hasMembership, stageOf, recordStageEvent,
   });
 
   // S18: "delete" a member = anonymize them. Value rows persist (the ledger
