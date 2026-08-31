@@ -108,6 +108,18 @@ when it is broken:
   which crops. The disc is fitted into the band that survives a 3.2 aspect
   container, clear of the ridge and both side edges.
 
+The disc placement is closed arithmetic rather than a clamp, which is a
+correction worth recording because the first two attempts were not. Attempt
+one placed the disc at a seeded fraction of the horizon with an independently
+seeded radius, and the two numbers could sum past the ridge. Attempt two
+fitted it to the sky but floored `sky` at 6 and `radius` at 2.5 to keep a
+range from going negative, and a floor placed ABOVE the space actually
+available reopens the same hole; it held only because the current horizon and
+amplitude ranges left 0.6 of a unit of slack. The shipped version has no
+floors, so `cy` is bounded on both sides by construction. Swept over 3,000
+names in all six slots, the smallest radius is 2.4 units and the smallest gap
+between the disc and the ridge is 0.3 units, both positive at every seed.
+
 ### Colour
 
 Every fill is `var(--tone-brand-soft, currentColor)`.

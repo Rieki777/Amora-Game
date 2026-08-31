@@ -84,8 +84,12 @@ export function VillageArt({ slot, villageName, className }: VillageArtProps) {
     <svg
       aria-hidden="true"
       viewBox={`0 0 ${art.width} ${art.height}`}
-      /* `slice` is the SVG spelling of object-fit: cover. The artwork has no
-         detail near its edges, so cropping it to any hero shape is safe. */
+      /* `slice` is the SVG spelling of object-fit: cover, so a hero wider or
+         narrower than 16:9 loses part of the drawing. The bands run the full
+         width and continue past the bottom edge, so they crop to anything.
+         The disc is the one element a crop can spoil, and shared/villageArt.ts
+         fits it into the band that survives a 3.2 aspect container rather
+         than trusting this comment. */
       preserveAspectRatio="xMidYMid slice"
       className={cn("absolute inset-0 h-full w-full text-muted-foreground", className)}
     >

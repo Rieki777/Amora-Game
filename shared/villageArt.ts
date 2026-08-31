@@ -307,8 +307,26 @@ export function buildVillageArt(villageName: string, slot: string): VillageArtSp
   // decides whether the assertion passes. A margin makes the property true
   // by a visible amount instead of by a floating point hair.
   const clearance = 1;
-  const sky = Math.max(skyFloor - safeTop - 2 * clearance, 6);
-  const radius = Math.max(2.5, Math.min(4.5 + rand() * 7, sky * 0.42));
+  /*
+   * No floor under either of these, on purpose. An earlier version clamped
+   * `sky` up to 6 and `radius` up to 2.5 so a degenerate case could not
+   * produce a negative range. Both clamps quietly broke the algebra they sat
+   * inside: with `sky` clamped ABOVE the space actually available, the line
+   * below can place the disc past the ridge again, and the property this
+   * whole block exists to guarantee would have gone back to being a
+   * coincidence of the current horizon and amplitude ranges rather than a
+   * fact. It happened to hold with 0.6 of a unit to spare, which is the kind
+   * of margin that disappears the first time somebody widens a range.
+   *
+   * Without them the arithmetic is closed: `cy` is at least
+   * `safeTop + clearance + radius` and at most `safeTop + clearance + sky -
+   * radius`, so the disc clears the crop line above and the ridge below for
+   * every seed, at any horizon range anyone picks later. That the radius
+   * stays big enough to see is a separate claim, and villageArt.test.ts
+   * measures it across 300 names in all six slots rather than assuming it.
+   */
+  const sky = Math.max(skyFloor - safeTop - 2 * clearance, 0);
+  const radius = Math.min(4.5 + rand() * 7, sky * 0.42);
   const disc = {
     // Its own radius clear of both side edges, so it never reads as a shape
     // the frame sliced at full width.
