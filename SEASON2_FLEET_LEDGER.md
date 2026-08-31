@@ -108,6 +108,43 @@ Nobody forks. Self-host and ReGen-hosted are the same image with a different ope
   that losing the private half makes every future backup unreadable. Until that exists, the
   thirteen villages have encrypted backups only if somebody does this by hand for each of them.
 
+### R14 - A move is not a raise: extraction lanes MAY lower a per-file gray baseline
+
+RAISED BY: the arch-admin lane, as a DECISION NEEDED rather than an assumption. Correct call.
+
+THE BLOCKER, as the lane measured it: `scripts/tailwind-gray-baseline.json` is per file, and a
+new file starts at zero. Moving a `text-gray-*` class out of `Admin.tsx` into a new component
+therefore fails the gate even though the repo-wide total is unchanged. Proven with a throwaway
+probe file carrying one `text-gray-500`: exit 1, "baseline allows 0".
+
+WHY IT CAPS THE LANE HARD: of the 42 tab components in `Admin.tsx`, exactly ONE carries no gray
+class, and that is the one already extracted. The other 41 carry 4 to 39 each and hold 9,414 of
+the remaining 11,029 lines. That is 85% of the file locked behind this.
+
+RULING: an extraction that leaves the repo-wide total unchanged MAY run
+`node scripts/check-tailwind-gray.mjs --update-baseline` as part of the same commit. This is not
+a widening of the ratchet. The guard's own refusal is `if (total > baselineTotal)` (line 196), so
+a total-neutral move is already permitted by the code; the per-file numbers are bookkeeping about
+where the debt sits, and moving debt is not taking on debt.
+
+CONDITIONS, all three, and a lane that cannot meet them stops instead:
+  1. The baseline diff must be conservative in both directions: the source file's count falls by
+     exactly what the new file's count rises by, and the total is byte-identical. Any other shape
+     means something was ADDED during the move and the extraction is no longer a move.
+  2. The commit says so in its message, with both numbers.
+  3. No gray class is introduced, converted, or "tidied" in the same commit. Convert to tokens in
+     a SEPARATE commit, which lowers the total and is what the ratchet is for.
+
+MEASUREMENT STATUS, stated plainly: the lane marked its reading of line 196 as read-from-source,
+not measured, because measuring it would have written to the file it was told not to touch. That
+was right. I am not measuring it now either, because there is no real move to measure and
+simulating one would mean making an invasive edit for the sake of a probe. The next extraction
+lane measures it as its FIRST act, before doing any extraction work. The cost of my being wrong
+is zero: the guard refuses, the lane stops, nothing is damaged.
+
+CONSEQUENCE IF THE READING IS WRONG: the fallback is to make the ratchet total-only for files
+under `client/src/components/admin/`, which is a real widening and needs its own ruling.
+
 ## 2 - Lane registry
 
 Every lane: base ref above, its own worktree, its own branch, commits with `git add -p`,
@@ -1774,3 +1811,97 @@ Sequencing suggestion: resolve the gray blocker, extract the remaining 40 tabs b
 file-lines ratchet (which makes each one permanent), and only then introduce the manifest, at
 which point it is a mechanical rewrite of three lists into one and every tab already has a file
 to point at.
+
+## 16 - The builder question, answered by deploying, and the regression it hid
+
+The release lane refused to guess whether a root `Dockerfile` overrides `builder = "nixpacks"`
+in `railway.toml`, and recorded the question instead. The answer is now measured, twice, from
+two independent sources.
+
+**THE DOCKERFILE WINS.** Railway ignored `builder = "nixpacks"` and built the image.
+
+HOW IT SURFACED: the first Docker deploy failed at `Deploy > Create container` with
+``The executable `node_env=production` could not be found``. Build succeeded in 58 seconds; the
+failure was one step later. Cause: `startCommand = "NODE_ENV=production node dist/index.js"` ran
+through a shell under nixpacks, which parsed the env prefix. Docker runs the start command in
+**exec form with no shell**, so it went looking for a binary with that literal name.
+
+FIX (`010b2dc`): `startCommand` REMOVED, not corrected. The image already sets `NODE_ENV` and
+`PORT` and runs `ENTRYPOINT ["/usr/bin/tini", "--"]` with `CMD ["node", "dist/index.js"]`. Any
+`startCommand` would have **bypassed tini as PID 1**, silently undoing the same morning's
+graceful-shutdown work, which depends on node actually receiving SIGTERM so it can drain
+in-flight requests. `builder` now reads `DOCKERFILE`, stating what is true rather than what was
+hoped.
+
+PRODUCTION NEVER WENT DOWN. Railway kept the previous deployment serving because the new one
+never passed its healthcheck, exactly as the release lane's reading of Railway's docs predicted
+when it argued that finding out by deploying was the safe way to answer this.
+
+### What the release lane got wrong, and it is a narrow miss worth naming
+
+It reported verifying that `startCommand` "works under either builder". It checked the **path**
+(`/app/dist/index.js` resolves identically either way). It did not check the **shell-versus-exec
+form**, which is the axis that actually broke. A reasonable check that measured the wrong
+property. Same lesson as everything else this round: it read the command and did not run it.
+
+### The regression the fix uncovered, which is the more expensive half
+
+The deploy came up healthy and reported `"build":"2026-07-28-wave1-dev"`.
+
+That is the marker's honest fallback for a build with no git context, and it is CORRECT
+behaviour: `.dockerignore` excludes `.git` on purpose, and nothing was passing `GIT_SHA`. But it
+means the builder switch quietly defeated `9fc92c6`, the commit whose entire point was that the
+marker **can never lie about which code is running**. Six commits had once shipped under a stale
+hand-edited marker; that is why the stamping exists.
+
+Scope, checked rather than assumed:
+- `.github/workflows/release.yml` was already fine. It passes `GIT_SHA` as a build-arg at both
+  build sites (lines 225 and 335) and **asserts the result is not "dev"** (line 281). The image
+  the thirteen villages pull always knows what it is.
+- Only **Railway's own build** was blind, because Railway builds this Dockerfile itself and
+  nothing set `GIT_SHA` there.
+
+FIX (`da858f9`): the Dockerfile declares `ARG RAILWAY_GIT_COMMIT_SHA=""`. A variable only reaches
+a Dockerfile build if the ARG is declared; without the declaration the value is dropped silently.
+`scripts/build-server.mjs` already prefers that name over `GITHUB_SHA` and treats empty as
+absent, so if Railway turns out not to pass it, the marker goes on reading an honest "dev"
+instead of guessing.
+
+STATED PLAINLY: this is verified as correct Dockerfile mechanics, NOT yet verified as something
+Railway does. The next deploy is the measurement. If it still reads "dev", the fallback needs no
+code: set a Railway service variable `GIT_SHA=${{RAILWAY_GIT_COMMIT_SHA}}`, which needs founder
+auth (`railway login`) and nothing else.
+
+WHY IT MATTERS BEYOND TIDINESS: `FORK_RUNBOOK` tells a village to confirm its deploy by reading
+this marker, and the feedback relay sends it upstream as the identity of the deployment a bug
+came from. Thirteen of those are coming, and a marker that reads "dev" everywhere makes both
+useless.
+
+### A coordinator error in the same episode: I polled for a value that could never appear
+
+I started a background task watching `/health` for the marker to become `010b2dc`, and let it run
+for the better part of an hour. Under the Docker builder that string is unreachable by
+construction. The poll would have reported "not deployed yet" forever, for a deploy that had in
+fact succeeded within minutes.
+
+This is the **silent-zero class** I have been hunting all round, authored by me, in my own
+instrumentation: a check whose failing output is identical to its waiting output. The founder
+resolved it from a phone screenshot showing ACTIVE and "Deployment successful" while my
+supposedly-authoritative probe was still counting.
+
+RULE, added to the gate set's header: **a deploy probe must key on something the deploy provably
+changes.** If the identity marker is the thing under repair, it is not available as the probe.
+
+### Backups: green, and the older red explained
+
+`db-backup.yml` scheduled run 33417668093 completed **success** in 7m59s (2026-08-31 17:05Z).
+The two failures before the 14:39 dispatch were `mysqldump: Got error: 1045: Access denied for
+user 'root'` against `sakura.proxy.rlwy.net:50483` - the wrong credential, since corrected in the
+`PROD_DATABASE_URL` secret. The proxy host was right the whole time, which is consistent with
+correction 10a and not with the original section 10 diagnosis.
+
+SEPARATE, and a landmine for the villages rather than for us: the repo-local `.demo-db-url`
+(dated 2026-08-01) still carries the OLD credential, so `node scripts/check-examples.mjs` fails
+locally with the same 1045. It is not a CI gate, so nothing caught it. Anyone running the seed
+gate on a fresh clone gets an opaque access-denied and no hint that the file is stale. Work item:
+either refresh it, delete it, or make the script say which source it took the URL from.
