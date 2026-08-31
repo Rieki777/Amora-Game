@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { KeyRound, CheckCircle2 } from "lucide-react";
+import { TOKEN_KEY } from "@/lib/gameApi";
 
 /**
  * Claim an account by setting its password (S1). Reached from the founder
@@ -30,7 +31,14 @@ export default function SetPassword() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? data.error ?? "Could not set the password");
-      localStorage.setItem("amora-auth-token", data.token);
+      // The key comes from the module that owns it (client/src/lib/gameApi.ts),
+      // which asks in its own comment that nothing re-type the literal. This
+      // page was the one place that did, and it agreed with the constant only
+      // by coincidence. The key carries a village name inside platform code, so
+      // a fork's rename will reach it; the moment it does, a hand-typed copy
+      // writes a key nothing reads and the member is signed out holding a
+      // password that was set correctly.
+      localStorage.setItem(TOKEN_KEY, data.token);
       setDone(true);
       // Admins land on the admin panel; everyone else on their profile. This
       // route is a member-reachable password reset now, and sending an
