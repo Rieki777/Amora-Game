@@ -175,9 +175,17 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
 ## 3 - Resource registry
 
 - **Migration numbers.** Highest taken across all local refs, remote refs and 140+ worktrees:
-  **0120**. Next free: **0121**. Gaps at 0111 and 0115-0119 are BURNED, never reuse them
+  **0122**. Next free: **0123**. Gaps at 0111 and 0115-0119 are BURNED, never reuse them
   (the applied-ledger keys on filename and would replay).
 - **Claim a number here before creating the file.**
+- **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
+  new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
+  makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the
+  lock the original architecture audit said the read-modify-write cycle did not have. Verified
+  before claiming: 0121 IS taken (`drizzle/0121_migration_checksums.sql`, commit d97f100, the
+  data lane), and 0121 is the highest number in any local ref, so section 3's own "next free:
+  0121" line was stale and is corrected above. CREATE TABLE IF NOT EXISTS only, so it adds and
+  takes nothing away; run twice against seeded rows, second run a no-op.
 - **data lane, 2026-08-31: claims 0121 for `drizzle/0121_migration_checksums.sql`.** Adds a
   nullable `checksum` column to `_migrations_applied` (item 1 of this lane's brief: a sha256 of
   each shipped file's bytes, recorded on apply, backfilled for pre-0121 rows, checked at boot so
@@ -345,6 +353,10 @@ Order matters where noted; everything else lands when green.
 | Two more CI steps for the two migration guards' own regression tests | safety (owns `ci.yml`) | 2026-08-31, data lane | `scripts/check-migration-numbers.test.mjs` (21 assertions) and `scripts/check-migration-compat.test.mjs` (24 assertions, 0 skipped with a database present) exist now, same shape as the three above, and nothing runs them today either. Both build a real throwaway git repository per case and run the REAL guard script copied into it (each guard computes its own ROOT from its own file location, not `process.cwd()`, so a fixture has to contain the script, not just point at one), asserting real exit codes and real JSON output. The compat test also copies `server/db/migrate.ts` into the fixture, since the guard reads it back to verify its own statement-splitter copy has not drifted, and reproduces the historical LPAD-collapse bug from scratch as one of its cases (`Duplicate entry 'compat-probe-t-id-' for key 'PRIMARY'`, the same failure shape recorded in section 7i). Recommend placing each directly after the guard it tests, before the "Guard regression test, brand refs" steps already there: `- name: Guard regression test, migration numbers` / `run: node scripts/check-migration-numbers.test.mjs` right after the "Migration numbers" step, and `- name: Guard regression test, migration compatibility` / `run: node scripts/check-migration-compat.test.mjs` right after "Migration compatibility". The compat test needs `TEST_DATABASE_URL`, already set at job level for the whole `verify` job, so no new env or secret. Both verified standing alone at the data lane's own commit (see section 8), run twice each for determinism, zero leftover temp directories or scratch schemas afterward. |
 | The maintenance-mode page (item 3, data lane) is built but not wired in | whoever takes `server/index.ts` (ops/srvhard lane; data lane does not own this file) | 2026-08-31, data lane | Today a failed boot migration throws before `startServer` binds a port (`server/index.ts` around line 5409-5420), so Railway's three retries all fail the same way and members see a bare 502 with nothing behind it. `server/db/maintenanceMode.ts` (new, self-contained, imports nothing from `server/index.ts`) exports `startMaintenanceServer({ detail, port, host?, instanceLabel? })`, which binds the SAME port the real app would and answers every request with one plain-language page: what failed, in which file and at which step, that no data was lost (migrations stop at the first failed statement by design), and the exact technical detail to hand to whoever operates the deployment. `/health` and `/api/platform/info` answer JSON (`{status:"maintenance",...}`) instead of HTML, so a Railway health check or the fleet roller's prober sees a clear non-ok status rather than a 404. `server/db/migrate.ts`'s `ApplyResult` now carries an optional `failedDetail` (kind `migration-failed` \| `tamper-detected` \| `lock-timeout`, with the file/step/message already structured) alongside the existing `failed: string \| null` every current caller already checks, so nothing that reads `result.failed` needs to change. The wiring itself is small: in the migration block already at line ~5409-5420, when `result.failed` is set, call `startMaintenanceServer({ detail: result.failedDetail!, port: <the same PORT startServer would bind> })` and return/exit the boot sequence there instead of throwing past it. Proved end to end, not just reviewed: `server/db/maintenanceMode.test.ts` breaks a real two-file migration set against the real local MySQL (a valid `CREATE TABLE` followed by literally invalid SQL), takes the real `ApplyResult.failedDetail` `applyPending` produces, starts a real HTTP server with it, and asserts a real `fetch()` gets a 503 page naming the right file and step ("0002_broken.sql", "step 2 of 2") plus the "your data is safe" reassurance, and that `/health` reports `status:"maintenance"`. 5/5 tests pass, including that end-to-end one. |
 | A CI step for `scripts/check-tailwind-gray.mjs` | safety (owns `ci.yml`) | 2026-08-31, UI lane (wt/s3-ui) | New ratchet, same shape and same refuse-to-raise discipline as `check-theme-literals.mjs`, gating Tailwind's default `text-gray-*` palette (a different bypass than a colour literal: no hex, so `check-theme-literals.mjs` correctly does not and should not catch it). Exact step to add, right beside the existing `Theme literals` step (both dependency-free, no-DB, colour-token gates): `- name: Tailwind gray` then `run: node scripts/check-tailwind-gray.mjs`. No env, no extra permissions, no new secret. Committed baseline (`scripts/tailwind-gray-baseline.json`) is at 1262 as of commit `2438205` on `wt/s3-ui`, down from a verified 1287 (matching the brief's cited figure exactly) after three universal shell surfaces were routed to `text-foreground`/`text-muted-foreground`. `--update-baseline` refuses to write a total above the one already committed: verified by hand, a staged real-code regression (not inside a comment) fails the gate at exit 1, and `--update-baseline` against that same regression also exits 1 and leaves the baseline file on disk byte-identical. Two real bugs in the guard's own block-comment detection were caught and fixed while building it, both against this tree, not hypothetically: (1) a same-line `/\/\*/ ` test cannot tell a real comment opener from an ordinary `accept="image/*"` file-input attribute, which silently blacked out real code below it (`IdentityPackPanel.tsx` lost 2 real hits to this); (2) the first fix, tracking string state naively, broke worse on this codebase's prose-heavy comments: an ordinary apostrophe ("the API's users") was read as opening a string, swallowing a real same-line closer and undercounting the whole tree by dozens (`EventsAdminPanel.tsx` alone lost 28). The final version's total was cross-checked file-by-file against a plain `grep -oE` count of the whole tree and matches exactly, zero discrepancy. `check-theme-literals.mjs`'s own opener/closer regexes have the identical shape and carry the same risk; flagged in `check-tailwind-gray.mjs`'s own header comment, not fixed there since that file belongs to a different lane. |
+| `server/modulePool.e2e.test.ts` binds a HARDCODED port, the sixth flake's exact shape | whoever takes e2e test hygiene (arch-store did not touch it: not this lane's file) | 2026-08-31, filed by arch-store lane | `server/modulePool.e2e.test.ts:36` is `const PORT = 8127;`. Every one of the other 33 port expressions in `server/*.test.ts` derives from `process.pid`, which is what the FLAKES lane fixed in `loop.e2e`'s stub ports for exactly this reason. Two suites' ranges CONTAIN 8127 and can therefore take it first: `crowdpool.routes.e2e` (`7800 + pid % 1200`) and `mapPromise.routes.e2e` (`7900 + pid % 900`). When that happens the child server cannot bind, the health poll answers from the OTHER suite's already-bootstrapped server, and `POST /api/admin/bootstrap` returns 403 "Already bootstrapped", which surfaces as `founder must hold a session: expected '' to be truthy` at line 127. This lane saw that failure once in a 222-file run and never in isolation; the mechanism is stated rather than proven, because the assertion prints neither the status nor the body. FIX, two lines: derive the port like its siblings, and print `setPw.status` and `setPw.text` in that assertion so the next occurrence names itself. |
+| `server/lib/orgChart.ts` and `server/lib/seasonPatterns.ts` write `circles` with raw SQL and never reload the cache | whoever takes those two files | 2026-08-31, filed by arch-store lane | Pre-existing, NOT introduced by 0122, and not fixable from `server/repos/store-db.ts`. `orgChart.ts:982` INSERTs and `:1000` UPDATEs `circles`; `seasonPatterns.ts:346` UPDATEs `circles.status`. Neither calls `circlesRepo.load()`, so after either runs the in-memory circles cache is wrong until the next reboot, and the 0122 counter is wrong too, so a snapshot taken before the raw write still reads as current and its `replaceAll` will overwrite the raw write. `server/lib/examples.ts` already has the house pattern for this and follows it (raw DELETE, then reload through `wireExampleCaches`), and 0122's `load()` now bumps the counter when a reload finds different rows, so anything following that pattern is covered. These two do not follow it. FIX: reload the circles cache after both writes, the same way the example retirement does. |
+| Express 4 async route handlers still HANG on a throw, and now one more thing can throw | arch-server (owns `server/index.ts`) | 2026-08-31, filed by arch-store lane | Pre-existing and already filed once, against `putSecret`. Restating it because 0122 adds a second thrower: `dbCollection.replaceAll` now raises `StaleSnapshotError` when a snapshot is older than the 8 versions the store retains, which is rare by construction and is the ONLY case it refuses rather than rebases. Under Express 4 a rejected handler promise is an unhandled rejection, not a 500: `installCrashHandlers` (`server/lib/errors.ts:186`) reports it to admins and the process survives, and the steward's request gets no answer at all. THE GENERAL FIX, which retires both this and the `putSecret` item: wrap every async handler so its rejection reaches the error middleware already sitting at `server/index.ts:33130`, either with a two-line `const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next)` applied at the ~34 admin write routes that call `replaceAll`, or by upgrading to Express 5, which forwards rejections itself. Until then a `StaleSnapshotError` is a hung admin request rather than a 409, which is why the store rebases instead of refusing wherever rebasing is honest. |
+| `SCHEDULER_ENABLED` must reach `.env.example`, `docs/PROVISIONING.md` and `scripts/fork-init.mjs` | whoever owns those three (kit lane owned them in wave 2) | 2026-08-31, filed by arch-store lane | New OPTIONAL variable, default ON, so nothing breaks if it never lands. It exists because the e2e suites spawn the real built server with `NODE_ENV=production` and the scheduler arms in them too: measured on a real boot, 28 jobs run 16.7s in. `SCHEDULER_ENABLED=0` (also `off`, `false`, `no`) stops all background work in that process and says so on every boot; anything else, including unset and empty, means ON. Document it as a TEST AND MAINTENANCE switch, never as a tuning knob: a founder instance with it set loses every loan settlement, every sweep and every relay, silently apart from the boot line. `server/lib/scheduler.test.ts` holds the reading rules. |
 | A CI step for the client component test harness (`npx vitest run "client/**/*.test.{ts,tsx}"` or folded into the existing `pnpm test`) | safety (owns `ci.yml`) | 2026-08-31, UI lane (wt/s3-ui) | `pnpm test` already runs every file `vitest.config.ts`'s `include` matches, `client/**/*.test.{ts,tsx}` included, so the 16 new component tests (`ModuleGate.test.tsx`, `Login.test.tsx`, `Register.test.tsx`) run under the EXISTING `pnpm test` step with no new CI step needed - filed here only so the fact is recorded, not because a gap exists. What DOES need a human decision: `tsconfig.tests.json`'s own header says its `Typecheck tests` CI step must be run COLD (`incremental` caching can hide a real error), and this lane's `.tsx` test files are typechecked by BOTH `pnpm check` (main `tsconfig.json` only excludes `**/*.test.ts`, not `.tsx`) and `tsconfig.tests.json`'s dedicated step - both verified green at `2438205`, `tsconfig.tests.json`'s run cold (deleted `node_modules/typescript/tsbuildinfo` first, per its own instruction). Also new: `@vitejs/plugin-react` was added to `vitest.config.ts`'s `plugins` (JSX needs the automatic runtime to render in a test; this codebase has no bare `React` import anywhere, so classic-mode JSX transform throws "React is not defined" the moment any component test renders anything). Verified this does not affect server tests: `shared/brandTokens.test.ts` and `client/src/components/modules/gateCopy.test.ts` (pre-existing, no jsdom) both still pass unchanged. |
 | Two CI steps for `scripts/check-file-lines.mjs` and its own regression test | safety (owns `ci.yml`) | 2026-08-31, arch-admin lane (wt/s4-arch-admin) | New ratchet, same refuse-to-raise discipline as `check-theme-literals.mjs` and `check-tailwind-gray.mjs`, gating the LINE COUNT of every `client/src` file at or over 1000 lines so a client monolith can only ever shrink. Exact steps to add, beside the other two ratchets and before the Build step: `- name: Guard regression test, file lines` / `run: node scripts/check-file-lines.test.mjs`, then `- name: Monolith ratchet` / `run: node scripts/check-file-lines.mjs`. Test first, so a broken guard fails before the guard it is testing is trusted. No env, no DB, no new secret, sub-second each. Committed baseline (`scripts/file-lines-baseline.json`) tracks four files and is at 15730 lines as of this lane's third commit, down from 16120 at the base ref. Unlike the other two ratchets the PER-FILE refusal is the load-bearing one, not the total, because lines do not migrate between files the way a colour class does. Refusal verified twice: `scripts/check-file-lines.test.mjs` covers both refusal paths against scratch fixture trees (13 checks, exit 0), and by hand against the real tree, where appending one line to `Admin.tsx` takes the gate to exit 1 and `--update-baseline` to exit 1 with the baseline file left byte-identical on disk. Scope is narrow on purpose and argued in the script header: `client/src` only (`server/**` has the same disease and belongs to the lanes editing it), vendored `components/ui/**` exempt, test files exempt. |
 | DECISION NEEDED: the per-file shape of `scripts/tailwind-gray-baseline.json` makes admin extraction structurally impossible, and it left exactly one of the 42 admin tabs legally extractable | coordinator, then whoever owns `scripts/check-tailwind-gray.mjs` (UI lane, wt/s3-ui) | 2026-08-31, arch-admin lane | The gray ratchet keeps a PER-FILE count and a brand-new file starts at zero, so MOVING a `text-gray-*` class from `Admin.tsx` into `client/src/components/admin/<Tab>.tsx` fails the gate even though the repo-wide total is unchanged. Measured: `Admin.tsx` holds 817 of the 1262 total (64.7 percent) and the baseline has exactly zero headroom. Measured again, per tab: of the 42 tab components in that file exactly ONE (`HandoverTab`, now extracted) carried no `text-gray-*` class at all. The other 41 carry between 4 and 39 each, median 15, and account for 9,414 of the file's remaining 11,029 lines. So the gray ratchet, as currently shaped, blocks the extraction of 85 percent of this file by line count. So the ONLY extractions available without a baseline edit are the ones this lane made. PROVEN, not argued: a throwaway `client/src/components/admin/__GrayProbe.tsx` carrying ONE `text-gray-500` fails `node scripts/check-tailwind-gray.mjs` at exit 1 with `baseline allows 0`, and the guard goes back to exit 0 the moment the file is deleted. One class is enough. Extracting a tab with 27 of them is not new debt, it is the same debt in a smaller file, and the guard cannot currently tell those apart. Note also that recommendation (1) below is read from the guard's source rather than measured: its refusal is `if (total > baselineTotal)`, and a move leaves the total unchanged, so `--update-baseline` would accept the redistribution. This lane did not run it to confirm, because that would have written to a baseline outside its boundary. Three ways out, in preference order: (1) authorise a single `node scripts/check-tailwind-gray.mjs --update-baseline` run per extraction, which the guard's own refusal logic already permits because a move does not raise the TOTAL, and which this lane did not run because the brief put that baseline out of its boundary; (2) teach the guard to accept a redistribution that leaves the total unchanged, which is a real feature and not a weakening; (3) convert each tab's grays to semantic tokens in a separate commit before extracting it, which is correct but is a different lane's harm metric and roughly 800 class changes. Nothing here is a criticism of the guard, which is doing exactly what it was asked; it is that two correct ratchets can point in opposite directions, and a human should choose which one yields. |
@@ -392,6 +404,33 @@ Order matters where noted; everything else lands when green.
   while my log said the check exited 0. This is the silent-zero class the skill names,
   committed by the coordinator in the very act of measuring the baseline. Fixed by capturing
   exit codes with no pipe. Every lane: do not pipe a gate into anything before reading status.
+
+### Error 12 - the wave-4 briefs carried wrong numbers too, and every lane that checked found one
+
+The pattern from wave 3 repeated exactly. Recorded here rather than only inside each lane's own
+section, because the whole point of this list is that it stays readable as a pattern.
+
+- arch-admin: I wrote `Admin.tsx` at **11,418** lines. It is **11,419**. That file ends in a bare
+  `}` with no trailing newline, so `wc -l` undercounts by one. The lane's new guard counts what an
+  editor shows, since its error message asks a human to make a file shorter, and it has a test
+  named for that case.
+- arch-admin: I wrote **63%**; the measured figure is **64.7%** (817 of 1262).
+- arch-admin: I briefed React.lazy per spec section 3.19. The spec does document it, but the
+  conclusion does not transfer: `/admin` is ALREADY a lazy route, so splitting a tab out cannot
+  lower the gated main-JS number, and a lazy tab would mint a chunk and burn a 4096-byte block for
+  nothing. The lane used static imports and reported both numbers.
+- arch-admin: my staged plan assumed tab-by-tab extraction was available. It is not, for 41 of 42
+  tabs, and not for the reason I warned about. See R14.
+- arch-store: I wrote **seven** tables using `dbCollection`. It is **nine**; `roles` and
+  `role_holders` are missing from my brief AND from ledger section 13.
+- arch-store: I wrote **~20** `replaceAll` call sites. It is **34**, plus 95 `all()` reads.
+- arch-store: I endorsed REFUSING a stale write. Wrong, for a mechanical reason the lane measured
+  and I had not: these are Express 4 async handlers with no wrapper, so a throw is an unhandled
+  rejection and the steward's request HANGS instead of returning 500. It rebases instead.
+- arch-store: a stale "next free 0121" in section 3. 0121 was taken.
+
+Nothing in this list was caught by me. All of it was caught by lanes told, in their briefs, that
+the numbers were measurements with a timestamp and that correcting me was the job.
 
 ## 7a - Wave 1 dispatch (2026-08-30)
 
@@ -1993,3 +2032,208 @@ the process running as `USER node`. If it cannot, that is a blocker for all thir
 Audit dispatched as workflow `village-identity-recovery`: five read-only lanes, every blocker and
 high finding independently refuted before it reaches the founder. The two live architecture lanes
 own `server/**`, so every lane in it is report-only and the coordinator sequences the writes.
+## 18 - arch-store lane landed (2026-08-31, on `wt/s4-arch-store`, commit `d76a64e`)
+
+### REPRODUCED FIRST, on the code as it stood, against the real local MySQL
+
+Two writers, the exact shapes the flake hunt named, both answering without error:
+
+    RACE 1  the tools-link-check job holds a snapshot, a steward renames a tool
+            mid-flight and commits first, the job writes its snapshot back
+            AFTER  t1: { name: 'Village Site', last_checked_at: <set> }
+            VERDICT steward's rename ERASED; errors reported: A=no B=no
+
+    RACE 2  the same job holds a snapshot, a steward CREATES a tool mid-flight
+            VERDICT the new tool ERASED by the job's DELETE-all; A=no D=no
+
+### Three counts in the brief were wrong, measured from the tree
+
+- **NINE tables use `dbCollection`, not seven.** The brief and section 13 both list seven and
+  omit `roles` and `role_holders`. Full list: `submissions`, `milestones`, `training_modules`,
+  `investor_docs`, `stage_events`, `roles`, `role_holders`, `circles`, `tools`.
+- **34 `replaceAll` call sites, not "roughly 20"**, all of them in `server/index.ts`, plus 95
+  `all()` reads.
+- **The 15-second first tick is real and measured at 16.7s wall on a real boot**, and it runs
+  **28 jobs**, not just the ones anybody had in mind.
+
+### THIS BUG WAS ALREADY KNOWN ON ONE TABLE, AND PAPERED OVER THERE
+
+`server/index.ts:2986` carries `withRoleHolderLock`, whose own comment describes this defect
+exactly: "two overlapping writers would both snapshot the pre-write array and the later
+replaceAll would erase the earlier write from both DB and cache". Somebody found it on
+`role_holders`, wrote a process-local promise chain to serialise that ONE table, and wrote
+underneath it "this process is the only writer (the S12 single-writer assumption)". The other
+eight tables never got the lock, and the assumption is false for the few seconds a Railway
+deploy runs two containers. 0122 generalises the fix and moves it to where the data is.
+
+### The fix: a version per collection, stamped on the rows, checked under a row lock
+
+Migration **0122** adds `collection_versions`, one counter per collection. `all()` returns row
+COPIES stamped with the version they were read at, under a SYMBOL key. The symbol is the whole
+reason no caller had to change: it survives `{ ...row, ...req.body }` and `{ ...row, order }`,
+which is how every one of the 34 sites builds its payload, and it is invisible to
+`JSON.stringify`, `Object.keys` and the column list, so it reaches no API response and no
+INSERT. `replaceAll` reads the counter under `SELECT ... FOR UPDATE`, which is also the lock
+the read-modify-write cycle never had, and takes one of three paths:
+
+    stamp === counter     the same DELETE plus re-INSERT as before, byte for byte
+    no stamp anywhere     payload built from scratch: boot seeding, unguarded as before
+    stamp < counter       REBASE onto the current rows
+
+Every existing test takes the first or second path, which is why 0122 is a safe change to a
+file 34 routes depend on.
+
+**REBASE RATHER THAN REFUSE, and the reason is mechanical, not aesthetic.** Refusing was the
+first design and the brief's own suggestion. These callers are Express 4 async handlers with no
+wrapper, so a throw is an unhandled rejection, not a 500, and the steward's request HANGS. That
+is the same trap already in section 6 against `putSecret`, now filed as its general fix.
+Refusing would also cost the link-check job a full day, because the scheduler stamps
+`last_run_at` when it CLAIMS a job, not when the job succeeds. The one case that still throws is
+a snapshot older than the 8 retained versions, where there is no baseline and any answer would
+be a guess.
+
+### VERIFIED AFTER, same attack, unchanged
+
+    RACE 1  steward's rename SURVIVED; job's lastCheckedAt SURVIVED; A=no B=no
+    RACE 2  the new tool SURVIVED; C=no D=no
+
+Both writers land. Both are now permanent tests in `server/repos/storeDbConcurrency.test.ts`.
+**POSITIVE CONTROL:** disarming the stamp (one line, `all()` stops stamping) fails 6 of the 9
+with the ORIGINAL symptoms, `expected 'Village Site' to be 'The Steward Renamed This'` and
+`expected [t1,t2,t3] to deeply equal [t1,t2,t3,t4]`. The 3 that still pass are the ones that do
+not depend on the stamp, which is what they should do.
+
+### The migration was RUN, not reviewed
+
+Run 1 through the real boot migration runner (recorded in `_migrations_applied`). Then three
+counters seeded at 41, 7 and 1903 plus a real `tools` row, and the file re-executed twice by
+hand: schema, columns and rows byte-identical both times, counters intact, tools row count
+unchanged. `check-migration-compat.mjs` passes and prints its own honest limit: it seeded 0 rows
+because the only table 0122 names does not exist in the previous release, so phase 3 proved
+nothing there. That is exactly why the by-hand run above exists.
+
+### The scheduler: a switch, and one change deliberately NOT made
+
+`SCHEDULER_ENABLED=0` stops background work in a process, defaults ON, and says so loudly on
+every boot. `server/loop.e2e.test.ts` sets it. Measured against a real boot: default runs 28
+jobs 16.7s in, with the switch off it runs 0.
+
+**NOT CHANGED, on purpose: stamping a never-run job as "just ran" when its row is created.**
+That would stop a first boot firing everything at once, which is a real improvement for 13
+instances pulling one image, and it is not this lane's to make, because
+`server/synthesisBatch.routes.e2e.test.ts:243` proves the current behaviour is intended: it
+waits up to 120s for `synthesis-batch-poll` (a 5-minute job) to report a result, which can only
+happen because the first tick runs a job that has never run. Its real subject is that the job
+reads its switch when it RUNS rather than when it is registered. Whoever takes the stampede
+needs a new vehicle for that assertion first.
+
+### S15: THE PASS RATE MEASURES NOTHING ON A QUIET BOX, SO HERE IS A REAL MEASUREMENT INSTEAD
+
+Asked for, and run: `server/loop.e2e.test.ts` ten times before, ten times after.
+
+    BEFORE (base code, base scheduler, base test file)   10 of 10 passed, 70 tests each
+    AFTER  (this lane's two commits)                     10 of 10 passed, 70 tests each
+
+**THAT COMPARISON IS WORTH NOTHING AND SHOULD NOT BE QUOTED AS EVIDENCE**, and the reason is
+measurable: the whole file now runs in 18.5 SECONDS on a quiet machine, while the scheduler's
+first tick lands at 16.7 seconds after the child spawns (measured directly, see below). The
+collision window closes before the tick opens. Section 4 already says this suite only fails
+under contention; twenty green reps on an idle box is the same non-answer, run twenty times.
+
+**SO THE COLLISION WAS DRIVEN BY HAND INSTEAD, through real HTTP routes on the real built
+server.** `POST /api/admin/tools/check-links` is the same read-modify-write as the
+`tools-link-check` job, with the same awaits (read `all()`, dial every tool's URL, stamp
+`lastCheckedAt` in place, `replaceAll`), and unlike the job it is reachable. Boot the built
+server, enable tools, create three, fire check-links, and 150ms later fire the steward's
+`PUT /api/admin/tools/:id` rename. Same script, both builds:
+
+    BASE BUILD
+      check-links  -> HTTP 200
+      steward PUT  -> HTTP 200   name in the answer: "The Steward Renamed This"
+      read back through the API: name = "Village Site"
+      VERDICT: the steward's rename WAS ERASED, and both requests answered 200
+
+    FIXED BUILD (same script, unchanged)
+      check-links  -> HTTP 200
+      steward PUT  -> HTTP 200   name in the answer: "The Steward Renamed This"
+      read back through the API: name = "The Steward Renamed This"
+      VERDICT: the steward's rename SURVIVED, and both requests answered 200
+
+The API told the steward their rename had worked, echoed the new name back to them, and then
+served them the old one. That is the harm this lane existed to remove, and it is now removed at
+the route a person actually clicks.
+
+The fixed run's server log also caught the SECOND race happening on its own, unprompted:
+
+    [store] tools: reloaded and found 2 row(s) where the cache held 5. Something wrote this
+            table without going through the collection, so version is now 3 ...
+    [store] tools: merged a write read at version 4 into version 6, 3 row(s), no field was
+            changed by both
+
+The first line is `retireExamples` clearing the three example tools the moment the first real
+one was published, caught by the new `load()` bump. The second is the link check being rebased
+onto the steward's rename. Both mechanisms, firing in an ordinary run, saying what they did.
+
+### Gate set, run in this worktree, exit codes unpiped
+
+Workflows enumerated from `.github/workflows/` rather than from the brief: `ci.yml`,
+`codeql.yml`, `db-backup.yml`, `module-intake.yml`, `module-review-agent.yml`, `release.yml`.
+Six, not the four section 4 lists; `codeql.yml` and `release.yml` are new since that reading.
+
+    pnpm check (cold, tsbuildinfo deleted)   0
+    npx tsc -p tsconfig.tests.json --noEmit  0
+    pnpm build                               0
+    check-migration-numbers                  0   109 migrations, next free 0123
+    check-migration-compat                   0   and it says out loud that it seeded 0 rows
+    check-dist-budget                        0   main JS 502 of 700 KB, total 5660 of 6600 KB
+    pnpm audit --prod --audit-level high     0
+    18 guard scripts (brand, voice, dash, auth, admin-reach, save-honesty, repo-payloads,
+      mirror, upload-strip, artifact-budget, doc-links, route-reachability, map-routes,
+      image-budget, theme-literals, and the three guard self-tests)                       all 0
+
+    pnpm test    222 files, 3253 tests, 0 skipped, 0 FAILED, exit 0, 1143s
+
+The reference in the brief is 209 files / 3118 tests; the base ref this lane sits on is already
+past that, and this adds 2 files and 14 tests on top. **The brand guard caught a real mistake in
+this lane's own work**: the first draft named the snapshot symbol after the village, in platform
+code, in a hard-clean zone. Renamed to name the file instead.
+
+One earlier full run had `server/modulePool.e2e.test.ts` fail its `beforeAll`. It passed in
+isolation immediately after, and passed in the clean run above. Mechanism and fix filed in
+section 6: that file is the only one of 34 that binds a HARDCODED port.
+
+### What this lane did NOT do
+
+- **No caller was migrated, because none could be.** All 34 `replaceAll` sites live in
+  `server/index.ts`, which arch-server owns exclusively this wave. The fix was designed to need
+  zero caller changes for that reason, and it does. Per-row `upsert`/`deleteById` is the better
+  long-term shape and was deliberately NOT added: with every caller out of reach it would have
+  been dead API surface.
+- **`withRoleHolderLock` was left in place.** It is now belt-and-braces over a real database
+  lock rather than the only guard. Harmless, and removing it is a `server/index.ts` change.
+- **The known hole, stated:** a payload with NO stamp is still an unguarded whole-table
+  overwrite. That is the boot seeding path (`server/index.ts:1973`, `1985`, `1997`, `2001`),
+  which runs when the table is empty and nothing else is writing. Making it fail closed would
+  mean changing those four callers.
+
+### A SECOND RACE, found while writing the first fix, and closed in the same file
+
+A counter that only moves when `replaceAll` moves it is blind to raw SQL, and three files write
+these tables directly. The one that matters is `retireExamples` in `server/lib/examples.ts`: it
+DELETEs the example rows with raw SQL and then reloads the cache through `wireExampleCaches`,
+because otherwise the cache keeps serving rows the database no longer has. It fires from
+`onRealItemPublished`, which `POST /api/admin/circles` (`server/index.ts:11167`) calls WITHOUT
+awaiting. So a steward creating their first real circle retires the example circles while
+another writer may be holding a snapshot that still lists them, and that writer's `replaceAll`
+would put every example row straight back.
+
+`load()` now bumps the counter when a reload finds different rows than the cache held, which
+turns the reload the raw deleter was already required to do into an invalidation for writers as
+well as readers. A first load has an empty cache and nothing to compare, so boot never bumps.
+Reproduced and closed as a test; disarming the bump fails it with `expected [t1,t2,t3] to deeply
+equal [t1]`, the example rows back from the dead.
+
+This also fixed a hazard the first draft introduced: `load()` used to CLEAR the rebase history,
+so any writer in flight across a reload would have got a `StaleSnapshotError`, which under
+Express 4 is a hung request. The history is now kept, because each entry says what `all()`
+handed out at a version and that stays true across a reload.

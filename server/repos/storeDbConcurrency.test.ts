@@ -1,0 +1,351 @@
+/**
+ * The lost update `replaceAll` used to have, reproduced against a real MySQL
+ * and then held closed.
+ *
+ * WHAT THIS IS ABOUT. `dbCollection.replaceAll` is a DELETE of the whole table
+ * plus a re-INSERT of a snapshot the caller took with `all()`. Every caller in
+ * server/index.ts is a read-modify-write with `await` points in the gap, and
+ * before 0122 nothing checked whether the snapshot was still current, so the
+ * second writer to commit erased everything the first one did and both
+ * requests answered 200.
+ *
+ * The two cases below are the ones that were REPRODUCED before anything was
+ * changed, on the code as it stood, with this exact timing:
+ *
+ *   RACE 1  steward's rename ERASED, job's lastCheckedAt survived, no error
+ *   RACE 2  steward's newly created tool ERASED outright, no error
+ *
+ * They are written against the real `tools` table and the real tools spec
+ * because `tools` is where it was caught: `tools-link-check` runs on the
+ * scheduler and `PUT /api/admin/tools/:id` runs on a steward's click, and they
+ * write the same rows.
+ *
+ * The timings are deliberate rather than incidental. Writer A reads first and
+ * commits last, which is the shape of a background job that reads, spends time
+ * on HTTP round trips, and only then writes back. Shortening either sleep
+ * narrows the window; it does not change what is being asserted.
+ */
+import mysql from "mysql2/promise";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
+import { dbCollection, snapshotVersionOf, StaleSnapshotError, type CollectionSpec } from "./store-db";
+
+const configured = testDbConfigured();
+if (!configured) {
+  // eslint-disable-next-line no-console
+  console.warn("[storeDbConcurrency.test] TEST_DATABASE_URL not set, so DB-backed tests are SKIPPED.");
+}
+
+/** The tools spec from server/index.ts, copied so a change there fails here loudly. */
+const TOOLS_SPEC: CollectionSpec = {
+  table: "tools",
+  orderBy: "`sort_order`, `name`",
+  columns: [
+    { js: "id", db: "id" },
+    { js: "name", db: "name" },
+    { js: "purpose", db: "purpose" },
+    { js: "description", db: "description" },
+    { js: "url", db: "url" },
+    { js: "ctaLabel", db: "cta_label" },
+    { js: "category", db: "category" },
+    { js: "iconKind", db: "icon_kind" },
+    { js: "icon", db: "icon" },
+    { js: "visibility", db: "visibility" },
+    { js: "roleIds", db: "role_ids", kind: "json" },
+    { js: "gettingStarted", db: "getting_started" },
+    { js: "order", db: "sort_order", kind: "int" },
+    { js: "enabled", db: "enabled", kind: "bool" },
+    { js: "lastCheckedAt", db: "last_checked_at", kind: "time" },
+    { js: "lastCheckStatus", db: "last_check_status", kind: "int" },
+    { js: "createdAt", db: "created_at", kind: "time", defaultNow: true },
+    { js: "isExample", db: "is_example", kind: "bool" },
+  ],
+};
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+describe.skipIf(!configured)("replaceAll under two concurrent writers", () => {
+  let db: TestDb;
+  let pool: mysql.Pool;
+
+  beforeAll(async () => {
+    db = await provisionTestDb();
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 8 });
+    await pool.query("SET time_zone = '+00:00'");
+  }, 300_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    await db?.drop();
+  });
+
+  beforeEach(async () => {
+    await pool.query("DELETE FROM tools");
+    await pool.query("DELETE FROM collection_versions WHERE collection = 'tools'");
+    for (const [id, name] of [["t1", "Village Site"], ["t2", "Member Chat"], ["t3", "Founders Vault"]]) {
+      await pool.query(
+        "INSERT INTO tools (id, name, purpose, url, cta_label, category, icon_kind, visibility, sort_order, enabled) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,1)",
+        [id, name, "seeded", "https://example.org", "Open", "communication", "slug", "members", 1],
+      );
+    }
+  });
+
+  const freshRepo = async () => {
+    const repo = dbCollection(pool, TOOLS_SPEC);
+    await repo.load();
+    return repo;
+  };
+
+  const toolRow = async (id: string) => {
+    const [rows] = await pool.query<any[]>(
+      "SELECT name, url, last_checked_at, last_check_status FROM tools WHERE id = ?",
+      [id],
+    );
+    return rows[0] ?? null;
+  };
+
+  it("keeps a steward's rename that a background job's stale snapshot used to erase", async () => {
+    const repo = await freshRepo();
+
+    // WRITER A: the tools-link-check job (server/index.ts). Reads everything,
+    // spends time on the link fetches, stamps its results, writes back.
+    const job = (async () => {
+      const all = repo.all() as any[];
+      const due = all.filter((t) => !t.isExample && t.enabled !== false && !t.lastCheckedAt);
+      await sleep(400);
+      for (const t of due) {
+        t.lastCheckedAt = new Date().toISOString();
+        t.lastCheckStatus = 200;
+      }
+      await repo.replaceAll(all);
+    })();
+
+    // WRITER B: PUT /api/admin/tools/:id. A steward renames one tool while the
+    // job is mid-flight, and their write commits FIRST.
+    const steward = (async () => {
+      const all = repo.all() as any[];
+      await sleep(100);
+      const idx = all.findIndex((t) => t.id === "t1");
+      all[idx] = { ...all[idx], name: "The Steward Renamed This" };
+      await repo.replaceAll(all);
+    })();
+
+    // Neither writer is refused. Both answers are true.
+    await expect(Promise.all([job, steward])).resolves.toBeDefined();
+
+    const t1 = await toolRow("t1");
+    expect(t1.name, "the steward's rename must survive the job's stale snapshot").toBe(
+      "The Steward Renamed This",
+    );
+    expect(t1.last_checked_at, "and the job's own field must land too").toBeTruthy();
+    expect(Number(t1.last_check_status)).toBe(200);
+    // The rows the job checked and nobody renamed are stamped as well.
+    expect((await toolRow("t2")).last_checked_at).toBeTruthy();
+  });
+
+  it("keeps a tool created mid-flight that a stale whole-table write used to delete", async () => {
+    const repo = await freshRepo();
+
+    const job = (async () => {
+      const all = repo.all() as any[];
+      await sleep(400);
+      await repo.replaceAll(all);
+    })();
+
+    const steward = (async () => {
+      await sleep(100);
+      await repo.insert({
+        id: "t4",
+        name: "Added Mid-Flight",
+        purpose: "created while the job held a snapshot that predates it",
+        url: "https://example.org/new",
+        ctaLabel: "Open",
+        category: "communication",
+        iconKind: "slug",
+        visibility: "members",
+        order: 4,
+        enabled: true,
+      } as any);
+    })();
+
+    await Promise.all([job, steward]);
+
+    const [rows] = await pool.query<any[]>("SELECT id FROM tools ORDER BY id");
+    expect(rows.map((r) => r.id), "the DELETE-all must not take a row it never saw").toEqual([
+      "t1",
+      "t2",
+      "t3",
+      "t4",
+    ]);
+    expect(repo.all().map((r: any) => r.id).sort()).toEqual(["t1", "t2", "t3", "t4"]);
+  });
+
+  it("still deletes what a writer meant to delete, even when somebody else wrote first", async () => {
+    const repo = await freshRepo();
+
+    // The steward deletes t2 from a snapshot taken before the job's write.
+    const stale = repo.all().filter((t: any) => t.id !== "t2");
+    // Meanwhile the job stamps every row and commits.
+    const jobRows = repo.all() as any[];
+    for (const t of jobRows) t.lastCheckStatus = 404;
+    await repo.replaceAll(jobRows);
+
+    await repo.replaceAll(stale);
+
+    const [rows] = await pool.query<any[]>("SELECT id, last_check_status FROM tools ORDER BY id");
+    expect(rows.map((r) => r.id), "the delete still happens").toEqual(["t1", "t3"]);
+    expect(Number(rows[0].last_check_status), "and the other writer's field is kept").toBe(404);
+  });
+
+  it("does not resurrect rows a raw DELETE removed, once the cache has been reloaded", async () => {
+    // This is `retireExamples` (server/lib/examples.ts): raw SQL removes the
+    // example rows, then `wireExampleCaches` calls load() because the cache
+    // would otherwise keep serving rows the database no longer has. It fires
+    // from `onRealItemPublished`, which POST /api/admin/circles calls WITHOUT
+    // awaiting, so a steward can be retiring examples at the same moment
+    // another writer is holding a snapshot that still lists them.
+    const repo = await freshRepo();
+    const inFlight = repo.all() as any[]; // holds t1, t2, t3
+
+    await pool.query("DELETE FROM tools WHERE id IN ('t2','t3')");
+    await repo.load(); // the reload the raw deleter is required to do
+
+    // The stale writer edits the row it still legitimately holds and writes back.
+    inFlight[inFlight.findIndex((t) => t.id === "t1")].purpose = "edited while examples retired";
+    await repo.replaceAll(inFlight);
+
+    const [rows] = await pool.query<any[]>("SELECT id, purpose FROM tools ORDER BY id");
+    expect(rows.map((r) => r.id), "the retired rows must stay retired").toEqual(["t1"]);
+    expect(rows[0].purpose, "and the stale writer's own edit still lands").toBe(
+      "edited while examples retired",
+    );
+  });
+
+  it("names the fields two writers both changed instead of losing them quietly", async () => {
+    const repo = await freshRepo();
+    const warnings: string[] = [];
+    const realWarn = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(" "));
+    try {
+      const mine = repo.all() as any[];
+      const theirs = repo.all() as any[];
+      theirs[theirs.findIndex((t) => t.id === "t1")].url = "https://example.org/theirs";
+      await repo.replaceAll(theirs);
+
+      mine[mine.findIndex((t) => t.id === "t1")].url = "https://example.org/mine";
+      await repo.replaceAll(mine);
+    } finally {
+      console.warn = realWarn;
+    }
+
+    expect((await toolRow("t1")).url, "the later writer wins the field").toBe("https://example.org/mine");
+    expect(warnings.join("\n")).toContain("t1.url");
+    expect(warnings.join("\n")).toContain("merged a write read at version");
+  });
+
+  it("refuses, rather than guessing, when the snapshot is older than the retained history", async () => {
+    const repo = await freshRepo();
+    const ancient = repo.all();
+    // Nine writes, one more than HISTORY_DEPTH, so the baseline for `ancient`
+    // is gone and there is nothing honest to rebase onto.
+    for (let i = 0; i < 9; i++) {
+      const rows = repo.all() as any[];
+      rows[0].purpose = `pass ${i}`;
+      await repo.replaceAll(rows);
+    }
+    await expect(repo.replaceAll(ancient)).rejects.toBeInstanceOf(StaleSnapshotError);
+    // Nothing was written: the ninth pass is still what the table says.
+    expect((await toolRow("t1")).name).toBe("Village Site");
+    const [rows] = await pool.query<any[]>("SELECT purpose FROM tools ORDER BY sort_order, name");
+    expect(rows.some((r) => r.purpose === "pass 8")).toBe(true);
+  });
+});
+
+describe.skipIf(!configured)("the snapshot stamp itself", () => {
+  let db: TestDb;
+  let pool: mysql.Pool;
+
+  beforeAll(async () => {
+    db = await provisionTestDb();
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 });
+    await pool.query("SET time_zone = '+00:00'");
+    await pool.query(
+      "INSERT INTO tools (id, name, purpose, url, cta_label, category, icon_kind, visibility, sort_order, enabled) " +
+        "VALUES ('s1','Stamped','seeded','https://example.org','Open','communication','slug','members',1,1)",
+    );
+  }, 300_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    await db?.drop();
+  });
+
+  it("rides through the spreads every caller builds its payload with", async () => {
+    const repo = dbCollection(pool, TOOLS_SPEC);
+    await repo.load();
+    const row = repo.all()[0];
+    const v = snapshotVersionOf(row);
+    expect(typeof v).toBe("number");
+
+    // PUT /api/admin/tools/:id builds `{ ...all[idx], ...req.body, id, isExample }`,
+    // and PUT /api/admin/tools/order builds `{ ...t, order }`. A plain field
+    // would survive these too; the point is that a SYMBOL does, which is what
+    // lets the stamp stay out of everything below.
+    expect(snapshotVersionOf({ ...row, ...JSON.parse('{"name":"Renamed"}') })).toBe(v);
+    expect(snapshotVersionOf({ ...row, order: 3 })).toBe(v);
+    expect(snapshotVersionOf(Object.assign({}, row))).toBe(v);
+  });
+
+  it("is invisible to JSON, to Object.keys, and to the database", async () => {
+    const repo = dbCollection(pool, TOOLS_SPEC);
+    await repo.load();
+    const row = repo.all()[0];
+
+    // An API response is JSON.stringify of exactly these objects.
+    expect(JSON.parse(JSON.stringify(row))).not.toHaveProperty("snapshotVersion");
+    expect(JSON.stringify(row)).not.toContain("snapshot");
+    expect(Object.keys(row).some((k) => k.toLowerCase().includes("version"))).toBe(false);
+    // A round trip through the writer must not invent a column either.
+    await repo.replaceAll(repo.all());
+    const [cols] = await pool.query<any[]>(
+      "SELECT COLUMN_NAME c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tools'",
+    );
+    expect(cols.map((r: any) => String(r.c)).some((c: string) => c.includes("snapshot"))).toBe(false);
+  });
+
+  it("hands out copies, so one caller's edits cannot reach the cache or another caller", async () => {
+    const repo = dbCollection(pool, TOOLS_SPEC);
+    await repo.load();
+    const mine = repo.all()[0] as any;
+    const yours = repo.all()[0] as any;
+    mine.name = "Only Mine";
+    expect(yours.name).toBe("Stamped");
+    expect((repo.all()[0] as any).name).toBe("Stamped");
+  });
+
+  it("leaves a payload built from scratch unguarded, which is how boot seeding works", async () => {
+    const repo = dbCollection(pool, TOOLS_SPEC);
+    await repo.load();
+    // Bump the version so a guarded write with the old stamp would rebase.
+    await repo.replaceAll(repo.all());
+    const seed = [
+      {
+        id: "seeded-only",
+        name: "Seeded",
+        purpose: "written by a boot seeder, never read first",
+        url: "https://example.org/seed",
+        ctaLabel: "Open",
+        category: "communication",
+        iconKind: "slug",
+        visibility: "members",
+        order: 1,
+        enabled: true,
+      },
+    ];
+    expect(snapshotVersionOf(seed[0])).toBeUndefined();
+    await repo.replaceAll(seed as any);
+    const [rows] = await pool.query<any[]>("SELECT id FROM tools");
+    expect(rows.map((r) => r.id)).toEqual(["seeded-only"]);
+  });
+});

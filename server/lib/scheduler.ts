@@ -70,9 +70,60 @@ async function tick(pool: Pool) {
   }
 }
 
+/**
+ * Whether this process should run background work at all. ON unless the
+ * environment says otherwise, so production, staging and a founder's own
+ * instance are unchanged by this existing.
+ *
+ * WHY THERE IS A SWITCH AT ALL, and why it is not a test-mode gate. The e2e
+ * suites spawn the REAL built server, with NODE_ENV=production, because that
+ * is the only honest way to test a boot path. So the scheduler arms in them
+ * too, and fifteen seconds later every job with no `scheduled_jobs` row runs
+ * against the same scratch database the suite is asserting on. That is how the
+ * S15 tools flake happened: `tools-link-check` and `PUT /api/admin/tools/:id`
+ * are both read-modify-write cycles over the same table, and before 0122 the
+ * later one erased the earlier one silently (see server/repos/store-db.ts).
+ *
+ * The lost update is fixed where it lived, in the store. This switch is the
+ * separate problem: a suite of sequential HTTP assertions has no way to
+ * observe or order background work, so any job firing mid-suite is a variable
+ * nobody controls. `server/loop.e2e.test.ts` sets SCHEDULER_ENABLED=0 for that
+ * reason and drives every sweep it cares about through its admin route
+ * instead, which is what it already did.
+ *
+ * WHAT WAS CONSIDERED AND REJECTED: stamping a never-run job as "just ran"
+ * when its row is created, so a first boot does not fire every job at once.
+ * That is a real improvement for thirteen founder instances booting one image,
+ * and it is not this lane's to make, because a test already proves the current
+ * behaviour is intended: `server/synthesisBatch.routes.e2e.test.ts` waits for
+ * `synthesis-batch-poll` to report a result within 120s, which only happens
+ * because the first tick runs a job that has never run. Its real subject is
+ * that the job reads its switch when it RUNS rather than when it is
+ * registered, and the first tick is how it gets an answer inside a test. That
+ * change needs its own lane, its own reasoning about first boot, and a new
+ * vehicle for that assertion.
+ */
+function schedulerEnabled(): boolean {
+  const raw = process.env.SCHEDULER_ENABLED;
+  if (raw === undefined || raw === "") return true;
+  const v = raw.trim().toLowerCase();
+  return !(v === "0" || v === "off" || v === "false" || v === "no");
+}
+
 /** Start ticking. First tick runs shortly after boot so due jobs never wait 5 minutes. */
 export function startScheduler(pool: Pool) {
   if (timer) return;
+  if (!schedulerEnabled()) {
+    // Loud, every boot. A village that has this set by accident is a village
+    // whose loans never settle and whose feedback never leaves, and the only
+    // way anybody finds out is if the process says so out loud.
+    console.log(
+      `[scheduler] NOT STARTED: SCHEDULER_ENABLED=${process.env.SCHEDULER_ENABLED}. ` +
+        `No background job will run in this process. ` +
+        `${jobs.length} job(s) are registered and idle: ${jobs.map((j) => j.name).join(", ") || "(none)"}`,
+    );
+    return;
+  }
   setTimeout(() => void tick(pool), 15 * 1000);
   timer = setInterval(() => void tick(pool), TICK_MS);
   // Never hold the process open just to tick.
