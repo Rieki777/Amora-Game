@@ -39,6 +39,14 @@ import {
   type PowerHolder,
 } from "./lib/capabilityRegistry";
 import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
+import { adminGateWasConsulted, markAdminGate } from "./lib/adminGate";
+import {
+  decodeToken,
+  encodeToken,
+  makeSetPasswordToken,
+  passwordFingerprint,
+  readSetPasswordToken,
+} from "./lib/memberTokens";
 import { buildThemeCss, sanitizeFontName } from "./lib/themeCss";
 import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
 import { CONSTITUTION } from "../shared/constitution";
@@ -975,11 +983,6 @@ if (!process.env.AUTH_TOKEN_SECRET) {
       "logins will not survive a restart, and auth will break if this service runs more than one replica.",
   );
 }
-// Fallback only: the live value is the auth.session_days game variable,
-// read at validation time so an admin change takes effect without a deploy
-// (for tokens minted after it — the mint stamp is what is compared).
-const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-
 const DEFAULT_EMAIL_CONFIG = {
   investor: "",
   steward: "",
@@ -1731,40 +1734,13 @@ function authPassword(req: express.Request): string | undefined {
   return undefined;
 }
 
-/**
- * DEFAULT-DENY UNDER /api/admin: the half that records that a gate ran.
- *
- * There are 241 `/api/admin` route registrations and every one of them calls a
- * gate inside its own handler. That is 241 correct decisions and zero
- * enforcement: nothing in the framework requires the 242nd to make it. The
- * failure is not hypothetical bookkeeping either, because the guard that was
- * supposed to catch it cannot. `scripts/check-auth-fetch.mjs` derives the set
- * of routes it checks FROM THE PRESENCE of a gate call in the handler
- * (`/\b(authedUser|isAdmin|mayManage\w*)\b/` over the route body), so a route
- * with no gate is not a route that fails the guard, it is a route the guard
- * has never heard of. Forgetting the gate deletes you from the checked set.
- *
- * So the gate helpers now say out loud that they ran, and one middleware
- * refuses to let an admin response SUCCEED unless one of them did. The flag
- * means "a gate was consulted", never "a gate said yes": the helpers keep
- * owning the answer, and this only owns the question having been asked.
- *
- * Deliberately request-scoped and set by the helpers themselves rather than
- * inferred by a middleware from a route table. A route table has to be kept in
- * step with the routes; a helper that marks on entry cannot drift from the
- * thing it is describing, because it IS the thing.
+/*
+ * DEFAULT-DENY UNDER /api/admin: the half that records that a gate ran now
+ * lives in server/lib/adminGate.ts, so a handler in a server/routes/<domain>.ts
+ * module can say it consulted a gate and the middleware below can still hear
+ * it. Read that file's header for why the flag exists and what it does not
+ * mean. The middleware itself, the half that refuses, is still here.
  */
-const ADMIN_GATE_CONSULTED = Symbol.for("amora.adminGateConsulted");
-
-/** Called by every gate helper on entry. Idempotent, and never a decision. */
-function markAdminGate(req: express.Request): void {
-  (req as any)[ADMIN_GATE_CONSULTED] = true;
-}
-
-/** True when some gate helper ran for this request. Never a grant on its own. */
-function adminGateWasConsulted(req: express.Request): boolean {
-  return (req as any)[ADMIN_GATE_CONSULTED] === true;
-}
 
 /** Constant-time compare, so a shared secret cannot be probed a byte at a time. */
 function secretEquals(provided: string | undefined, expected: string): boolean {
@@ -1847,96 +1823,14 @@ async function uniqueHandle(base: string, ownId?: string): Promise<string> {
 }
 const HANDLE_RE = /^[a-z0-9][a-z0-9-_]{2,29}$/;
 
-function signTokenPayload(payload: string): string {
-  return crypto.createHmac("sha256", AUTH_TOKEN_SECRET).update(payload).digest("base64url");
-}
-
-/**
- * `<base64url payload>.<HMAC-SHA256 signature>`.
- *
- * The payload is still readable, it carries nothing secret, but it can no longer
- * be edited: changing the user id invalidates the signature. The previous format
- * was bare base64 JSON with no signature at all, so any caller could impersonate
- * any account. Old unsigned tokens are rejected by decodeToken, which logs
- * everyone out once. That is intended.
+/*
+ * Member session tokens and set-password claim tokens moved to
+ * server/lib/memberTokens.ts, where they can be tested. They had no tests at
+ * all while they lived here: the file boots a pool and an HTTP server on
+ * import, so there was no unit to reach them through. The signing secret is
+ * now passed in rather than closed over, matching server/lib/agentTokens.ts,
+ * the twin that already had a forgery test.
  */
-function encodeToken(userId: string, email: string, tokenVersion = 0): string {
-  // `v` is the session-revocation lever (S1): bumping user.tokenVersion
-  // invalidates every token minted before the bump, for one member only.
-  const payload = Buffer.from(
-    JSON.stringify({ userId, email, timestamp: Date.now(), v: tokenVersion }),
-  ).toString("base64url");
-  return `${payload}.${signTokenPayload(payload)}`;
-}
-
-function decodeToken(token: string): { userId: string; email: string; timestamp: number; v?: number } | null {
-  try {
-    const dot = token.lastIndexOf(".");
-    if (dot < 1 || dot === token.length - 1) return null; // unsigned or malformed
-    const payload = token.slice(0, dot);
-    const provided = Buffer.from(token.slice(dot + 1));
-    const expected = Buffer.from(signTokenPayload(payload));
-    if (provided.length !== expected.length) return null;
-    if (!crypto.timingSafeEqual(provided, expected)) return null;
-
-    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
-    if (!decoded.userId || !decoded.email || typeof decoded.timestamp !== "number") return null;
-    // Session length is a village choice (auth.session_days), applied at
-    // validation: shortening it retires old sessions early, lengthening it
-    // extends them. Guarded so a broken read never yields an immortal token.
-    const ttlMs = Math.max(1, Math.min(365, numberVar("auth.session_days") || 30)) * 24 * 60 * 60 * 1000;
-    if (Date.now() - decoded.timestamp > (ttlMs || TOKEN_TTL_MS)) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Set-password claim tokens (S1): the founder-bootstrap invite, and later the
- * platform's password-reset primitive. Same HMAC as session tokens, different
- * purpose field so one can never be replayed as the other, and a hard expiry.
- */
-const SET_PASSWORD_TTL_MS = 60 * 60 * 1000;
-
-/**
- * A fingerprint of the account's password state at mint time. Including it
- * makes the token SINGLE-USE without a nonce table: setting a password
- * changes the hash, so the fingerprint no longer matches and a replayed link
- * is refused. Stateless, which is how this route is written; an empty hash
- * (a claim-pending account) fingerprints just as well as a real one.
- */
-function passwordFingerprint(passwordHash: string | null | undefined): string {
-  return crypto.createHash("sha256").update(String(passwordHash ?? "")).digest("hex").slice(0, 16);
-}
-function makeSetPasswordToken(userId: string, currentPasswordHash: string | null | undefined): string {
-  const payload = Buffer.from(
-    JSON.stringify({
-      userId,
-      purpose: "set-password",
-      pw: passwordFingerprint(currentPasswordHash),
-      exp: Date.now() + SET_PASSWORD_TTL_MS,
-    }),
-  ).toString("base64url");
-  return `${payload}.${signTokenPayload(payload)}`;
-}
-function readSetPasswordToken(token: string): { userId: string; pw: string | null } | null {
-  try {
-    const dot = token.lastIndexOf(".");
-    if (dot < 1 || dot === token.length - 1) return null;
-    const payload = token.slice(0, dot);
-    const provided = Buffer.from(token.slice(dot + 1));
-    const expected = Buffer.from(signTokenPayload(payload));
-    if (provided.length !== expected.length) return null;
-    if (!crypto.timingSafeEqual(provided, expected)) return null;
-    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
-    if (decoded.purpose !== "set-password" || !decoded.userId) return null;
-    if (typeof decoded.exp !== "number" || Date.now() > decoded.exp) return null;
-    return { userId: decoded.userId, pw: typeof decoded.pw === "string" ? decoded.pw : null };
-  } catch {
-    return null;
-  }
-}
 
 // seedIfMissingOrEmpty retired in S12: seeds land in MySQL on empty deployments.
 
@@ -2774,7 +2668,7 @@ async function authedUser(req: express.Request): Promise<any | null> {
   markAdminGate(req);
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer ")) return null;
-  const decoded = decodeToken(header.slice(7));
+  const decoded = decodeToken(AUTH_TOKEN_SECRET, header.slice(7));
   if (!decoded) return null;
   const user = await members.byId(decoded.userId);
   if (!user) return null;
@@ -6205,7 +6099,7 @@ async function startServer() {
     meterUserId: (req) => {
       const header = (req as any).headers?.authorization;
       if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
-      return decodeToken(header.slice(7))?.userId ?? null;
+      return decodeToken(AUTH_TOKEN_SECRET, header.slice(7))?.userId ?? null;
     },
   });
   initModuleUsage(getPool());
@@ -7237,7 +7131,7 @@ async function startServer() {
         return null;
       }
       // The in-process session. Minted, used for this request, never sent back.
-      req.headers.authorization = `Bearer ${encodeToken(user.id, user.email, user.tokenVersion ?? 0)}`;
+      req.headers.authorization = `Bearer ${encodeToken(AUTH_TOKEN_SECRET, user.id, user.email, user.tokenVersion ?? 0)}`;
       (req as any).agentToken = { id: row.id, prefix: row.prefix };
       return { row, user };
     };
@@ -8490,7 +8384,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     };
     await members.add(user);
     await addActivity("join", `${firstName(name)} stepped into the village as a Guest`, { actorUserId: userId, entityType: "user", entityRef: userId });
-    const token = encodeToken(userId, email);
+    const token = encodeToken(AUTH_TOKEN_SECRET, userId, email);
     res.json({ success: true, token, user: publicUser(user) });
   });
 
@@ -8531,7 +8425,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       await members.update(user.id, (u: any) => { u.passwordHash = newHash; });
       user.passwordHash = newHash;
     }
-    const token = encodeToken(user.id, email, user.tokenVersion ?? 0);
+    const token = encodeToken(AUTH_TOKEN_SECRET, user.id, email, user.tokenVersion ?? 0);
     res.json({ success: true, token, user: publicUser(user) });
   });
 
@@ -8623,7 +8517,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       // password cannot log in and cannot ask for a reset. Re-running bootstrap
       // (break-glass path) re-sends a fresh claim link for exactly that case.
       if (!user.passwordHash) {
-        const claim = makeSetPasswordToken(user.id, user.passwordHash);
+        const claim = makeSetPasswordToken(AUTH_TOKEN_SECRET, user.id, user.passwordHash);
         claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
         try {
           const mail = await sendResendEmail({
@@ -8656,7 +8550,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         joinedAt: new Date().toISOString(),
       };
       await members.add(user);
-      const claim = makeSetPasswordToken(userId, "");
+      const claim = makeSetPasswordToken(AUTH_TOKEN_SECRET, userId, "");
       claimUrl = `${(process.env.FRONTEND_URL || "").replace(/\/$/, "")}/set-password?token=${encodeURIComponent(claim)}`;
       try {
         const mail = await sendResendEmail({
@@ -8732,7 +8626,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // password either. Neither should receive a reset — bootstrap covers the
     // second and the first is gone on purpose.
     if (user?.passwordHash) {
-      const claim = makeSetPasswordToken(user.id, user.passwordHash);
+      const claim = makeSetPasswordToken(AUTH_TOKEN_SECRET, user.id, user.passwordHash);
       const claimUrl = `${notifyDeps.origin()}/set-password?token=${encodeURIComponent(claim)}`;
       try {
         await sendResendEmail({
@@ -8777,7 +8671,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!token || !password || String(password).length < 8) {
       return res.status(400).json({ error: "A token and a password of at least 8 characters are required" });
     }
-    const claim = readSetPasswordToken(String(token));
+    const claim = readSetPasswordToken(AUTH_TOKEN_SECRET, String(token));
     if (!claim) return res.status(401).json({ error: "This link is invalid or has expired" });
     const user = await members.byId(claim.userId);
     if (!user) return res.status(404).json({ error: "Account not found" });
@@ -8797,7 +8691,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       u.tokenVersion = (u.tokenVersion ?? 0) + 1;
     });
     if (!fresh) return res.status(404).json({ error: "Account not found" });
-    const authTokenStr = encodeToken(fresh.id, fresh.email, fresh.tokenVersion ?? 0);
+    const authTokenStr = encodeToken(AUTH_TOKEN_SECRET, fresh.id, fresh.email, fresh.tokenVersion ?? 0);
     res.json({ success: true, token: authTokenStr, user: publicUser(fresh) });
   });
 
@@ -8828,7 +8722,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       return res.status(403).json({ error: "Only a founder can send a founder a password link" });
     }
     if (!target.email) return res.status(409).json({ error: "That account has no address to send to" });
-    const claim = makeSetPasswordToken(target.id, target.passwordHash);
+    const claim = makeSetPasswordToken(AUTH_TOKEN_SECRET, target.id, target.passwordHash);
     const claimUrl = `${notifyDeps.origin()}/set-password?token=${encodeURIComponent(claim)}`;
     let emailed = true;
     try {
