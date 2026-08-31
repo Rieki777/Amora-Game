@@ -46,12 +46,12 @@
  *                    password.
  *   --out            optional. Where to write. Defaults to `.env`.
  *   --example        optional. Template to read. Defaults to `.env.example`.
- *   --force           overwrite an existing --out file. Without it, an
+ *   --force          overwrite an existing --out file. Without it, an
  *                    existing file is left untouched and the script refuses,
  *                    because overwriting a live deployment's secrets logs
  *                    out every member and re-locks anything MEMBER_SECRETS_KEY
  *                    encrypted.
- *   --dry             report what WOULD be written; write nothing.
+ *   --dry            report what WOULD be written; write nothing.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -171,8 +171,9 @@ const memberSecretsKey = genHex32();
  * has it (usually blank) and reported as needing a human step.
  *
  * `secret: true` means the VALUE is never printed back in the report, only
- * the fact that it was generated. The exception is ADMIN_PASSWORD, which the founder
- * needs once to complete the bootstrap call, so it is shown deliberately.
+ * the fact that it was generated. The exception is ADMIN_PASSWORD: the
+ * founder needs it once to complete the bootstrap call, so it is shown
+ * deliberately.
  */
 const RESOLVED = {
   AUTH_TOKEN_SECRET: { value: authTokenSecret, secret: true, note: "generated" },
