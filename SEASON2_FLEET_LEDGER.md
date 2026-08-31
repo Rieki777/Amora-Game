@@ -140,6 +140,8 @@ Order matters where noted; everything else lands when green.
 |---|---|---|---|
 | Repo is PUBLIC with unencrypted DB dumps as downloadable artifacts | founder (GitHub admin) | 2026-08-30 | Verified live: `visibility: PUBLIC`, unexpired `db-backup-*` artifacts. Code-side hardening proceeds in the backup lane; visibility change and secret rotation are human-only. |
 | Secret rotation after the exposure | founder | 2026-08-30 | Stripe keys, all `app_config` integration secrets, village signing key, legacy-hash password resets. |
+| `data/uploads/` volume has no backup of any kind | ops (owns `server/index.ts`) | 2026-08-30 | backup lane cannot reach a Railway volume from a GitHub Action; `railway ssh` is interactive-only and this repo's own history shows it run by hand, never headless. Full spec for an authenticated `GET /api/admin/backup/uploads-archive` (route, `BACKUP_EXPORT_TOKEN` header auth, streamed tar, canary-file manifest) is written up in `docs/FORK_RUNBOOK.md`, "Backup encryption, the uploads volume gap..." section, 2026-08-30. Not half-built; needs the lane that owns `server/index.ts`. |
+| New repo secrets needed for backup encryption: `BACKUP_GPG_PUBLIC_KEY`, `BACKUP_DRILL_GPG_PUBLIC_KEY`, `BACKUP_DRILL_GPG_PRIVATE_KEY` | founder (GitHub secrets) | 2026-08-30 | `db-backup.yml` now fails closed (refuses to dump) until these exist. Generation commands and which secret holds which half are in `docs/FORK_RUNBOOK.md` same section. The drill keypair is CI-only test material and safe to generate and hand over; the production public key's private half must be generated and held by the founder offline, never in this repo or CI. |
 
 ## 7 - What I got wrong (coordinator errors, recorded at the same prominence as findings)
 
@@ -154,6 +156,22 @@ Order matters where noted; everything else lands when green.
 All nine lanes dispatched concurrently off 052d042, disjoint file zones per the registry above.
 Full effort on the three that judge (release, safety, ops); cheap models on the six mechanical
 lanes (backup, neutral, kit, fleet, tokens, gates).
+
+## 7b - backup lane landed (2026-08-30, on `wt/s2-backup`, not yet merged to main)
+
+`db-backup.yml` now bundles dump.sql.gz + manifest.txt and GPG-encrypts to two recipients
+before upload (production key, private half never in CI; a separate CI-only drill key that
+lets `restore-drill` prove decrypt+restore on every run without ever holding the real key).
+Both the backup job and both drill jobs fail closed if their required secret is unset, rather
+than silently skipping. Added `restore-drill-negative-control`: corrupts a copy of the real
+ciphertext and asserts GPG's own integrity check refuses it, so a green `restore-drill` means
+something. Mechanism verified locally with a throwaway keypair before landing (see commit):
+correct bundle decrypts with the drill key alone, a 32-byte-corrupted copy is refused with
+`gpg: WARNING: encrypted message has been manipulated!`, exit 2. Uploads volume: NOT covered,
+spec for the real fix (an authenticated export endpoint) written up precisely rather than
+half-built; see blocker list above and `docs/FORK_RUNBOOK.md`. Three new secrets needed before
+this runs green for real: see blocker list. Gate results at the landing commit are in that
+commit's own message.
 
 Cross-lane contracts fixed at dispatch, so two lanes cannot invent different names:
 
@@ -210,6 +228,19 @@ merely recorded here: a correction the corrected party has not been told is half
 
 Next free is still **0121**. brochure is the only wave 2 lane likely to need one. Claim it in
 section 3 of this ledger BEFORE creating the file. Gaps at 0111 and 0115-0119 stay burned.
+
+## 7c - The control worktree (lanes: this exists, do not build your own)
+
+`C:/Users/taren/Desktop/Amora/s2-control` is a PRISTINE detached worktree at 052d042 with
+dependencies installed. It exists so the coordinator can measure a real baseline for build and
+test, because the landing criterion is NO WORSE THAN BASELINE rather than "green", and a
+remembered green is a sample and not a proof.
+
+It is announced here on purpose. A previous program cut a pristine baseline worktree, never
+told the lanes, and one lane built its own and broke its dependencies doing it.
+
+Rules for it: read from it freely, never write to it, never commit in it. If you need a clean
+comparison run, use it rather than resetting your own tree.
 
 ## 8 - Changelog
 
