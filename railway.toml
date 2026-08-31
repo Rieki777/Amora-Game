@@ -56,11 +56,26 @@
 # states what actually happens, and delete this comment. If they still say
 # nixpacks, the line below won: leave it, and delete this comment too.
 [build]
-builder = "nixpacks"
+# ANSWERED 2026-08-31, by deploying: THE DOCKERFILE WINS. Adding the file
+# switched the builder even with `builder = "nixpacks"` set, exactly as
+# Railway's reference says and as this file warned. Build succeeded in 58s;
+# the deploy then failed on `Deploy > Create container` with "The executable
+# `node_env=production` could not be found". Nixpacks ran startCommand
+# through a shell, so the NODE_ENV prefix was an env assignment. Docker runs
+# it in exec form with no shell, so it looked for a binary of that name.
+# Production never went down: Railway kept the previous deployment serving
+# because the new one never passed its healthcheck.
+builder = "DOCKERFILE"
 buildCommand = "pnpm run build"
 
 [deploy]
-startCommand = "NODE_ENV=production node dist/index.js"
+# startCommand is DELIBERATELY ABSENT. The image is self-contained: it sets
+# ENV NODE_ENV=production and ENV PORT=3000, runs ENTRYPOINT ["/usr/bin/tini",
+# "--"] and CMD ["node", "dist/index.js"]. Overriding the start command here
+# would not only reintroduce the shell-versus-exec bug above, it would BYPASS
+# TINI AS PID 1, and the graceful-shutdown work added on 2026-08-31 depends on
+# this process receiving SIGTERM to drain in-flight requests instead of being
+# killed with them still open. The image knows how to start itself. Let it.
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 
