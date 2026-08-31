@@ -1,17 +1,27 @@
 # The feedback hub contract (S66)
 
 Every fork ships a feedback relay: bugs and ideas submitted at `/feedback`
-land in the village's own admin queue ALWAYS, and — while
-`platform.feedback_relay` is on (the default) — a copy flows to one central
-endpoint the platform team reads. This file is the contract for whoever
-stands that endpoint up. The fork side is already live and fails soft: an
-absent or broken hub costs a log line and a retry, never a village error.
+land in the village's own admin queue ALWAYS. A copy ALSO flows to one
+central endpoint the platform team reads, but only when BOTH
+`platform.feedback_relay` is on (the default) AND the deployment's own
+environment sets `FEEDBACK_HUB_URL` explicitly - there is no built-in
+address. **A fresh clone of this platform, or any fork, sends nothing:**
+`FEEDBACK_HUB_URL` used to fall back to one specific organisation's ingest
+endpoint, which meant a village that configured nothing was quietly sharing
+members' bug reports and ideas with a third party it had never heard of.
+The code was changed on purpose to remove that default - see
+`server/index.ts`'s `feedback-relay` job, comment "NO HUB CONFIGURED MEANS
+NO RELAY" - and this file describes that corrected behavior. This file is
+the contract for whoever stands the hub endpoint up. The fork side is
+already live and fails soft: an absent or broken hub costs a log line and a
+retry, never a village error.
 
 ## What the fork sends
 
-`POST {FEEDBACK_HUB_URL}` (default `https://hub.regencivics.earth/api/feedback/ingest`),
-every 15 minutes when there is anything unrelayed, up to 50 items per batch,
-oldest first:
+`POST {FEEDBACK_HUB_URL}` - an environment variable an operator sets
+explicitly, with NO platform default - every 15 minutes when there is
+anything unrelayed, up to 50 items per batch, oldest first. Set it to your
+own hub's ingest address, e.g. `https://hub.example.org/api/feedback/ingest`:
 
 ```json
 {
@@ -68,3 +78,7 @@ supports it.
   and cap item sizes (title 200, detail 8000 — enforced fork-side, verify
   hub-side anyway).
 - A fork that turns the relay off simply stops POSTing; nothing to clean up.
+- A fork that never sets `FEEDBACK_HUB_URL` is in the SAME state, permanently
+  and by default: nothing has ever been sent, not even once. Standing up
+  your own hub and pointing a deployment at it is an explicit, per-instance
+  opt-in, never something a village discovers it was already doing.

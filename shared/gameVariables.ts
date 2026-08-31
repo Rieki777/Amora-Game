@@ -1846,6 +1846,18 @@ export function validateVariable(def: VariableDef, raw: string): string | null {
     if (def.key.endsWith("_address") && raw !== "" && !/^0x[a-fA-F0-9]{40}$/.test(raw)) {
       return "Must be a valid contract address (0x followed by 40 hex characters), or blank.";
     }
+    // governance.hub_url carries the shared governance secret on every
+    // request that uses it (server/index.ts's link-hypha route sets the
+    // header `x-governance-hub-secret` to `secretValue("governance_hub_secret")`
+    // on every POST to this URL). The generic `_url` loopback exemption two
+    // lines below exists for a local RPC node (anvil, hardhat), which is
+    // http by nature and never carries a credential - that reasoning does
+    // not hold here, and letting it apply here would let a founder-ring
+    // value point a real secret at 127.0.0.1/localhost in the clear. This
+    // key gets NO loopback exemption: https, unconditionally, or blank.
+    if (def.key === "governance.hub_url" && raw !== "" && !/^https:\/\/\S+$/.test(raw)) {
+      return "Must be an https URL, or blank. This value is sent alongside the shared governance secret on every request, so plain http (including a loopback address) is never allowed here.";
+    }
     if (def.key.endsWith("_url") && raw !== "" && !/^https:\/\/\S+$/.test(raw)) {
       // Loopback is exempt: a local RPC node (anvil, hardhat, a test stub)
       // is http by nature and never crosses a network boundary.

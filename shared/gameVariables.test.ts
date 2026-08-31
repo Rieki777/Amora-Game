@@ -195,3 +195,52 @@ describe("a dial states its effect, and never its number", () => {
     expect(bounded).toEqual([]);
   });
 });
+
+describe("governance.hub_url: https-only, no loopback exemption (bridges lane)", () => {
+  const def = VARIABLES_BY_KEY["governance.hub_url"];
+
+  it("exists, defaults to the platform hub, and is founder-held", () => {
+    expect(def).toBeTruthy();
+    expect(def.default).toBe("https://regencivics.earth"); // brand-ok: platform service, not a village's name
+    expect(ringOf(def)).toBe("founder");
+  });
+
+  it("accepts a real https URL", () => {
+    expect(validateVariable(def, "https://hub.example.org")).toBeNull();
+  });
+
+  it("accepts blank (unconfigured)", () => {
+    expect(validateVariable(def, "")).toBeNull();
+  });
+
+  it("refuses plain http, unlike the generic _url rule this key would otherwise inherit", () => {
+    expect(validateVariable(def, "http://hub.example.org")).toMatch(/https URL/);
+  });
+
+  it("refuses a loopback http address - the ONE thing that makes this key's rule stricter than the generic _url rule", () => {
+    // The generic rule (proven true for another founder-held *_url variable
+    // below) exempts 127.0.0.1/localhost for local RPC nodes. That exemption
+    // must NOT reach this key: this URL carries the shared governance secret
+    // as a header on every request that uses it (server/index.ts's
+    // link-hypha route), and a loopback exemption on a secret-bearing URL is
+    // exactly the internal-address SSRF surface this platform's own guarded
+    // dialer (toolcheck.ts) exists to close everywhere else.
+    expect(validateVariable(def, "http://127.0.0.1:8080")).toMatch(/https URL/);
+    expect(validateVariable(def, "http://localhost:8080")).toMatch(/https URL/);
+  });
+
+  it("refuses a non-http(s) scheme", () => {
+    expect(validateVariable(def, "javascript:alert(1)")).toMatch(/https URL/);
+    expect(validateVariable(def, "ftp://hub.example.org")).toMatch(/https URL/);
+  });
+
+  it("the generic _url rule DOES exempt loopback for an ordinary infrastructure URL (control case)", () => {
+    // Proves the two rules are genuinely different, not that the test
+    // regex is loose: this is the same assertion shape as the refusal
+    // above, run against a key the stricter branch does not touch.
+    const rpcDef = VARIABLES_BY_KEY["tokens.base_rpc_url"];
+    expect(rpcDef).toBeTruthy();
+    expect(validateVariable(rpcDef, "http://127.0.0.1:8545")).toBeNull();
+    expect(validateVariable(rpcDef, "http://some-other-host:8545")).toMatch(/https URL/);
+  });
+});

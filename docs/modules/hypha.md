@@ -72,13 +72,38 @@ village that is not hosted does not hold one, and a fork cannot grant itself the
 editing a field in a repository it owns. This is the same plane the module library already uses to
 make a tier mechanical instead of decorative.
 
-Standing up a self-hosted listener process is the village's own operational work. This module
-reports the posture and says what it costs; it does not start a listener.
-
 **Why the posture is worth naming at all.** The bridge header records that the hub runs one
 Alchemy listener on Base for every fork. That single listener is a single point of failure for
 every fork's governance outcomes, and until this module a fork had no way to know it was leaning
 on it.
+
+### A reference self-hosted listener ships now (bridges lane, 2026-08-31)
+
+Standing up a self-hosted listener process used to be entirely the village's own operational
+work, and that was honest about what this module reads and reports but left a real gap: writing
+a Base log listener from scratch is a development project, not something a non-technical steward
+can do. `server/lib/hypha/selfHostedListener.ts` is that infrastructure, built once: a dedicated
+RPC poller with a confirmation-depth reorg guard, idempotent delivery keyed on
+`${txHash}:${logIndex}`, retry with a bounded dead-letter path, and delivery through
+`guardedFetchJson` - the same pinned, SSRF-guarded dialer every other admin-typed outbound call
+in this codebase uses. Run it with `npx tsx server/lib/hypha/selfHostedListener.ts` as its own
+long-running process; configuration is environment variables only (see the file's own header for
+the full list and where each value comes from).
+
+**What it deliberately does not do:** decide which on-chain event means "passed" for a given
+Hypha space. That mapping (`HYPHA_LISTENER_PASSED_TOPIC0` / `_FAILED_TOPIC0` /
+`_AGREEMENT_ID_TOPIC_INDEX`) is operator-supplied, not hardcoded, because there is no
+trustworthy ABI to hardcode against - checked before writing it: `hypha-dao/ethereum-contracts`,
+the org's own public EVM contract repo, ships exactly one governance contract and that contract's
+own header calls it "just stubs for the real methods, not real implementations of a DAO." A
+steward who can read their own DHO's contract on Basescan (open an already-executed proposal's
+transaction, read its Logs tab) fills in three config values; this file removes the part that
+was actually a development project - the dialer, the checkpointing, and the retry logic.
+
+It is a poller, not a websocket subscription; it holds no wallet key and sends no transaction,
+only reads logs and calls this village's own webhook; and its reorg handling is "wait N
+confirmations," not a rollback. Full scope, including what it does not handle, is in the file's
+own header comment.
 
 ## Discovery proposes, the founder confirms
 
