@@ -105,7 +105,25 @@ describe("an unconfigured village registers the routes and refuses them", () => 
 
     let methods: any;
     await routes.get("GET /api/auth/methods")({} as any, { json: (b: any) => (methods = b) } as any);
-    expect(methods).toEqual({ password: true, google: false });
+    // `missing` names the variables this village has not set. It exists
+    // because `google: false` alone read the same whether one variable was
+    // absent or three, and that cost a founder two round trips on 2026-08-31
+    // when the only place naming the gap was a boot log inside a hosting
+    // dashboard.
+    //
+    // Pinned exactly rather than loosely: a response that grew a field nobody
+    // meant to publish is the other half of this endpoint's contract, and
+    // these are variable NAMES, never values.
+    // One entry, not two, and that is this fixture speaking rather than a
+    // rounding of the contract: it supplies a secret and no client id, so the
+    // list correctly names the one thing absent. Asserted as measured, because
+    // a guess at what a list "should" say is how the field would end up
+    // pinned to a value nothing produces.
+    expect(methods).toEqual({
+      password: true,
+      google: false,
+      missing: ["GOOGLE_CLIENT_ID"],
+    });
 
     let status = 0;
     const res: any = { status: (s: number) => ((status = s), res), json: () => res, redirect: () => res };
