@@ -176,6 +176,24 @@ for (const file of files) {
   if (hits.length) { counts[r] = hits.length; details[r] = hits; }
 }
 
+/**
+ * SHOPFRONT is exempt, not zero. Every OTHER exempt/ratchet number this
+ * script prints (ratchetTotal, baselineTotal, waivers, provenanceTotal) is
+ * visible somewhere in its own output; the SHOPFRONT count was not, so a
+ * green "hard-clean zones are clean" line could read as "no village name
+ * anywhere" when 165 lived, unmeasured, in 19 files by design. Counted the
+ * same way as everything else (one hit per matching line) so it is
+ * comparable, never folded into `failures` because these files are correctly
+ * never a gate: R1 (fleet program) makes THIS number the thing to watch, since
+ * every founder instance inherits these 19 pages until a fork rewrites them.
+ */
+let shopfrontTotal = 0;
+for (const relPath of SHOPFRONT) {
+  const abs = path.join(ROOT, relPath);
+  if (!fs.existsSync(abs)) continue;
+  shopfrontTotal += scanFile(abs).hits.length;
+}
+
 if (process.argv.includes("--update-baseline")) {
   const ratchetOnly = Object.fromEntries(Object.entries(counts).filter(([f]) => isRatchet(f)));
   const oldBaseline = fs.existsSync(BASELINE_PATH) ? JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8")) : {};
@@ -250,11 +268,13 @@ if (failures.length) {
   }
   console.error(`\nIf a hit is a genuine false positive, add \`brand-ok: <reason>\` on that line.`);
   console.error(`If you REMOVED references, refresh the baseline: node scripts/check-brand-refs.mjs --update-baseline\n`);
+  console.error(`(SHOPFRONT stays exempt regardless: ${shopfrontTotal} reference(s) in ${SHOPFRONT.length} brochure page(s), by design, see EXEMPT/SHOPFRONT above.)\n`);
   process.exit(1);
 }
 
 console.log(
   `Brand guard passed. Ratchet zones hold ${ratchetTotal} legacy reference(s) in code ` +
   `(baseline ${baselineTotal}); hard-clean zones are clean; ` +
-  `${provenanceTotal} provenance mention(s) in comments; ${waivers} waiver(s) in force.`,
+  `${provenanceTotal} provenance mention(s) in comments; ${waivers} waiver(s) in force. ` +
+  `SHOPFRONT (${SHOPFRONT.length} brochure page(s), never gated by design: a fork replaces them, it does not white-label them) carries ${shopfrontTotal} reference(s).`,
 );

@@ -43,6 +43,23 @@ const PORT = 3781 + (process.pid % 2000);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "loop-test-admin";
 
+/**
+ * The in-process RPC and LLM stub servers this file binds and closes,
+ * serially, from several `it()` blocks (S47, S54, S77, S78, LANE Q). Derived
+ * from PORT for the exact reason PORT itself is: "a shared fixed port is a
+ * shared mutable global with extra steps", two lines up. They used to be the
+ * literals 3782 and 3783, so any two loop.e2e.test.ts processes running on
+ * the same machine at the same time (two coordinator lanes, or a manual
+ * repro) collided on `listen EADDRINUSE` regardless of PID, exactly the class
+ * of bug PORT's own derivation exists to prevent. Reproduced directly:
+ * running this file concurrently in two processes hit EADDRINUSE on both
+ * 3782 and 3783 every time, taking down whichever `it()` block happened to
+ * be mid-bind (S47, S53-S55, or LANE Q, depending on timing), never the
+ * SAME test twice. PID-deriving them the same way PORT is closes it.
+ */
+const RPC_STUB_PORT = PORT + 1;
+const LLM_STUB_PORT = PORT + 2;
+
 // S6: the users domain lives in MySQL, so the loop needs the S5 harness — a
 // scratch schema the child server auto-migrates and uses. Without a database
 // the loop cannot run at all; it skips loudly rather than passing hollowly.
@@ -144,7 +161,7 @@ beforeAll(async () => {
       // boot (the pipeline must refuse honestly without one) — the test
       // sets the key through the admin surface when it wants a call.
       ANTHROPIC_API_KEY: "",
-      ANTHROPIC_BASE_URL: "http://127.0.0.1:3783",
+      ANTHROPIC_BASE_URL: `http://127.0.0.1:${LLM_STUB_PORT}`,
       // The Riverside webhook fails closed without a secret; the loop sends
       // the matching header and proves both the accept and the discard path.
       RIVERSIDE_WEBHOOK_SECRET: "loop-test-riverside",
@@ -2828,11 +2845,11 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
         } catch { res.writeHead(400); res.end(); }
       });
     });
-    await new Promise<void>((r) => rpc.listen(3782, "127.0.0.1", r));
+    await new Promise<void>((r) => rpc.listen(RPC_STUB_PORT, "127.0.0.1", r));
 
     try {
       // Point the platform at the stub and open the section.
-      await api("PUT", "/api/admin/variables/tokens.base_rpc_url", { value: "http://127.0.0.1:3782" }, founderToken);
+      await api("PUT", "/api/admin/variables/tokens.base_rpc_url", { value: `http://127.0.0.1:${RPC_STUB_PORT}` }, founderToken);
       await api("PUT", "/api/admin/variables/tokens.equity_address", { value: "0x1111111111111111111111111111111111111111" }, founderToken);
       await api("PUT", "/api/admin/variables/tokens.show_economics_section", { value: "true" }, founderToken);
 
@@ -3245,7 +3262,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
         res.end(JSON.stringify(payload));
       });
     });
-    await new Promise<void>((r) => llm.listen(3783, "127.0.0.1", r));
+    await new Promise<void>((r) => llm.listen(LLM_STUB_PORT, "127.0.0.1", r));
 
     try {
       // The child server reads ANTHROPIC_BASE_URL at call time; point the
@@ -3415,7 +3432,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
         res.end(JSON.stringify(payload));
       });
     });
-    await new Promise<void>((r) => llm.listen(3783, "127.0.0.1", r));
+    await new Promise<void>((r) => llm.listen(LLM_STUB_PORT, "127.0.0.1", r));
 
     const today = new Date().toISOString().slice(0, 10);
     const bucket = `assistant-day:organize:${today}`;
@@ -5089,7 +5106,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
         }));
       });
     });
-    await new Promise<void>((r) => llm.listen(3783, "127.0.0.1", r));
+    await new Promise<void>((r) => llm.listen(LLM_STUB_PORT, "127.0.0.1", r));
 
     // The sentence a member could write anywhere, and the one thing that must
     // never read as an instruction to the model.

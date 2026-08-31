@@ -35,18 +35,35 @@
 import fs from "fs";
 import path from "path";
 import ts from "typescript";
+import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(
   path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1"),
   "..",
 );
 
+/**
+ * True only when this file is the entry point (`node check-voice.mjs`), not
+ * when it is imported for its rule-matcher and scope constants (the
+ * self-test, `check-voice.test.mjs`). Without this guard, importing the
+ * module for `checkSpan`/`isTest`/`SCAN_ROOTS` would also run the full CLI:
+ * walk the real repo and call `process.exit()`, before the importer's own
+ * code ever ran.
+ */
+const isMain = (() => {
+  try {
+    return path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1] ?? "");
+  } catch {
+    return false;
+  }
+})();
+
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "build", "coverage", ".vite",
   "attached_assets", "data", "drizzle", "patches",
 ]);
 
-const SCAN_ROOTS = ["client/src", "server", "shared", "docs/knowledge"];
+export const SCAN_ROOTS = ["client/src", "server", "shared", "docs/knowledge"];
 
 /**
  * JSON string values that are machinery, never prose: ids, routes, icon names,
@@ -59,7 +76,7 @@ const NON_COPY_JSON_KEYS = new Set([
 ]);
 
 /** Tests describe behaviour to developers; they are not shipped language. */
-const isTest = (rel) => /\.(test|spec)\.tsx?$/.test(rel) || rel.includes("__tests__");
+export const isTest = (rel) => /\.(test|spec)\.tsx?$/.test(rel) || rel.includes("__tests__");
 
 /**
  * Attributes and properties whose string values are machinery, never prose:
@@ -73,14 +90,14 @@ const NON_COPY_KEYS = new Set([
   "pattern", "font", "fontFamily", "tag", "code", "event", "action",
 ]);
 
-const AI_WORDS = [
+export const AI_WORDS = [
   "delve", "tapestry", "foster", "leverage", "vibrant", "crucial",
   "groundbreaking", "transformative", "testament to", "beacon", "unleash",
   "seamless", "robust", "comprehensive", "cutting-edge", "empower",
   "utilize", "in conclusion", "it's worth noting", "embark on", "delves",
 ];
 
-const CONTRAST = [
+export const CONTRAST = [
   /\bnot just .{1,60}? but\b/i,
   /\bnot only .{1,60}? but\b/i,
   /\bisn'?t about .{1,60}?,? it'?s\b/i,
@@ -90,12 +107,12 @@ const CONTRAST = [
   /\bnot .{1,40}?, but\b/i,
 ];
 
-const PASSIVE = [
+export const PASSIVE = [
   /\bjoin us on\b/i, /\bbe part of something\b/i, /\bjourney together\b/i,
   /\bcome along on\b/i, /\bpart of the journey\b/i, /\btogether we can\b/i,
 ];
 
-const RHETORICAL = /^\s*(what if we could|have you ever|imagine if|ever wondered)/i;
+export const RHETORICAL = /^\s*(what if we could|have you ever|imagine if|ever wondered)/i;
 
 function walkFiles(dir, out) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -152,7 +169,7 @@ function copySpans(sourceFile) {
   return spans;
 }
 
-function checkSpan(text) {
+export function checkSpan(text) {
   const hits = [];
   for (const m of text.matchAll(/[—–]/g)) hits.push(["em-dash", m[0], m.index]);
   const low = text.toLowerCase();
@@ -172,117 +189,135 @@ function checkSpan(text) {
   return hits;
 }
 
-const args = process.argv.slice(2);
-const asJson = args.includes("--json");
-const roots = args.filter((a) => !a.startsWith("--"));
-
-const files = [];
-for (const r of (roots.length ? roots : SCAN_ROOTS)) {
-  const abs = path.join(ROOT, r);
-  if (!fs.existsSync(abs)) continue;
-  if (fs.statSync(abs).isDirectory()) walkFiles(abs, files);
-  else files.push(abs);
-}
-
-const findings = [];
-let waived = 0;
-
-/** Walk parsed JSON, checking every prose string value under a copy key. */
-function checkJson(value, key, rel, lines, out) {
-  if (typeof value === "string") {
-    if (key !== null && NON_COPY_JSON_KEYS.has(key)) return;
-    for (const [kind, hit] of checkSpan(value)) {
-      const idx = lines.findIndex((l) => l.includes(value.slice(0, 60)));
-      out.push({
-        file: rel, line: idx >= 0 ? idx + 1 : 1, kind, hit,
-        text: value.trim().slice(0, 160),
-      });
-    }
-  } else if (Array.isArray(value)) {
-    for (const v of value) checkJson(v, key, rel, lines, out);
-  } else if (value && typeof value === "object") {
-    for (const [k, v] of Object.entries(value)) checkJson(v, k, rel, lines, out);
+if (isMain) {
+  const args = process.argv.slice(2);
+  const asJson = args.includes("--json");
+  const roots = args.filter((a) => !a.startsWith("--"));
+  
+  const activeRoots = roots.length ? roots : SCAN_ROOTS;
+  const files = [];
+  for (const r of activeRoots) {
+    const abs = path.join(ROOT, r);
+    if (!fs.existsSync(abs)) continue;
+    if (fs.statSync(abs).isDirectory()) walkFiles(abs, files);
+    else files.push(abs);
   }
-}
 
-for (const file of files) {
-  const rel = path.relative(ROOT, file).replace(/\\/g, "/");
-  if (isTest(rel)) continue;
-  const text = fs.readFileSync(file, "utf8");
+  // "0 violations" and "the walk found nothing to check" must never print the
+  // same line: a moved or deleted scan root would otherwise report a clean
+  // pass forever. This is the ONE thing that stays a hard failure regardless
+  // of --json, because a caller parsing JSON output deserves the same
+  // distinction a human reading the console gets.
+  if (!files.length) {
+    console.error(
+      `Voice guard: found ZERO files under ${activeRoots.join(", ")} (resolved from ${ROOT}). ` +
+      `That means the walk did not run, not that the repo is clean. Refusing to report a pass.`,
+    );
+    process.exit(1);
+  }
 
-  if (file.endsWith(".md")) {
-    // Markdown is prose end to end, so the whole file is the span. Fenced code
-    // blocks are machinery and are cut out first.
-    const prose = text.replace(/```[\s\S]*?```/g, "");
-    prose.split("\n").forEach((lineText, i) => {
-      if (/voice-ok:/.test(lineText)) return;
-      for (const [kind, hit] of checkSpan(lineText)) {
-        findings.push({
-          file: rel, line: i + 1, kind, hit, text: lineText.trim().slice(0, 160),
+  const findings = [];
+  let waived = 0;
+  
+  /** Walk parsed JSON, checking every prose string value under a copy key. */
+  function checkJson(value, key, rel, lines, out) {
+    if (typeof value === "string") {
+      if (key !== null && NON_COPY_JSON_KEYS.has(key)) return;
+      for (const [kind, hit] of checkSpan(value)) {
+        const idx = lines.findIndex((l) => l.includes(value.slice(0, 60)));
+        out.push({
+          file: rel, line: idx >= 0 ? idx + 1 : 1, kind, hit,
+          text: value.trim().slice(0, 160),
         });
       }
-    });
-    continue;
-  }
-
-  if (file.endsWith(".json")) {
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      continue; // Not our gate to enforce; the boot seeder fails loud on bad JSON.
+    } else if (Array.isArray(value)) {
+      for (const v of value) checkJson(v, key, rel, lines, out);
+    } else if (value && typeof value === "object") {
+      for (const [k, v] of Object.entries(value)) checkJson(v, k, rel, lines, out);
     }
-    checkJson(parsed, null, rel, text.split("\n"), findings);
-    continue;
   }
-  const sf = ts.createSourceFile(
-    file, text, ts.ScriptTarget.Latest, true,
-    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-  );
-  const lines = text.split("\n");
-  for (const span of copySpans(sf)) {
-    const hits = checkSpan(span.text);
-    if (!hits.length) continue;
-    for (const [kind, hit, offset] of hits) {
-      const { line } = sf.getLineAndCharacterOfPosition(span.pos + (offset || 0));
-      const lineText = lines[line] ?? "";
-      if (/voice-ok:/.test(lineText)) { waived++; continue; }
-      findings.push({
-        file: rel, line: line + 1, kind, hit,
-        text: lineText.trim().slice(0, 160),
+  
+  for (const file of files) {
+    const rel = path.relative(ROOT, file).replace(/\\/g, "/");
+    if (isTest(rel)) continue;
+    const text = fs.readFileSync(file, "utf8");
+  
+    if (file.endsWith(".md")) {
+      // Markdown is prose end to end, so the whole file is the span. Fenced code
+      // blocks are machinery and are cut out first.
+      const prose = text.replace(/```[\s\S]*?```/g, "");
+      prose.split("\n").forEach((lineText, i) => {
+        if (/voice-ok:/.test(lineText)) return;
+        for (const [kind, hit] of checkSpan(lineText)) {
+          findings.push({
+            file: rel, line: i + 1, kind, hit, text: lineText.trim().slice(0, 160),
+          });
+        }
       });
+      continue;
+    }
+  
+    if (file.endsWith(".json")) {
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        continue; // Not our gate to enforce; the boot seeder fails loud on bad JSON.
+      }
+      checkJson(parsed, null, rel, text.split("\n"), findings);
+      continue;
+    }
+    const sf = ts.createSourceFile(
+      file, text, ts.ScriptTarget.Latest, true,
+      file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const lines = text.split("\n");
+    for (const span of copySpans(sf)) {
+      const hits = checkSpan(span.text);
+      if (!hits.length) continue;
+      for (const [kind, hit, offset] of hits) {
+        const { line } = sf.getLineAndCharacterOfPosition(span.pos + (offset || 0));
+        const lineText = lines[line] ?? "";
+        if (/voice-ok:/.test(lineText)) { waived++; continue; }
+        findings.push({
+          file: rel, line: line + 1, kind, hit,
+          text: lineText.trim().slice(0, 160),
+        });
+      }
     }
   }
-}
-
-if (asJson) {
-  console.log(JSON.stringify(findings, null, 0));
-  process.exit(0);
-}
-
-if (!findings.length) {
-  console.log(`Voice guard: clean across ${files.length} file(s).` +
-    (waived ? ` ${waived} waiver(s).` : ""));
-  process.exit(0);
-}
-
-const byKind = {};
-for (const f of findings) byKind[f.kind] = (byKind[f.kind] || 0) + 1;
-const byFile = {};
-for (const f of findings) (byFile[f.file] ||= []).push(f);
-
-console.log(`Voice guard: ${findings.length} violation(s) in ${Object.keys(byFile).length} file(s).\n`);
-for (const [k, n] of Object.entries(byKind).sort((a, b) => b[1] - a[1])) {
-  console.log(`  ${String(n).padStart(4)}  ${k}`);
-}
-console.log("");
-for (const [file, rows] of Object.entries(byFile).sort((a, b) => b[1].length - a[1].length)) {
-  console.log(`${file}  (${rows.length})`);
-  for (const r of rows.slice(0, 12)) {
-    console.log(`  L${String(r.line).padEnd(6)}[${r.kind}] ${r.text.slice(0, 110)}`);
+  
+  if (asJson) {
+    console.log(JSON.stringify(findings, null, 0));
+    process.exit(0);
   }
-  if (rows.length > 12) console.log(`  ... ${rows.length - 12} more`);
+  
+  if (!findings.length) {
+    console.log(`Voice guard: clean across ${files.length} file(s) in ${activeRoots.join(", ")}.` +
+      ` Excludes *.test.ts/*.spec.ts/__tests__ (developer language) and docs/ outside docs/knowledge.` +
+      (waived ? ` ${waived} waiver(s).` : ""));
+    process.exit(0);
+  }
+  
+  const byKind = {};
+  for (const f of findings) byKind[f.kind] = (byKind[f.kind] || 0) + 1;
+  const byFile = {};
+  for (const f of findings) (byFile[f.file] ||= []).push(f);
+  
+  console.log(`Voice guard: ${findings.length} violation(s) in ${Object.keys(byFile).length} file(s)` +
+    ` (scanned ${activeRoots.join(", ")}; excludes tests and docs/ outside docs/knowledge).\n`);
+  for (const [k, n] of Object.entries(byKind).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(n).padStart(4)}  ${k}`);
+  }
+  console.log("");
+  for (const [file, rows] of Object.entries(byFile).sort((a, b) => b[1].length - a[1].length)) {
+    console.log(`${file}  (${rows.length})`);
+    for (const r of rows.slice(0, 12)) {
+      console.log(`  L${String(r.line).padEnd(6)}[${r.kind}] ${r.text.slice(0, 110)}`);
+    }
+    if (rows.length > 12) console.log(`  ... ${rows.length - 12} more`);
+  }
+  if (waived) console.log(`\n${waived} waiver(s) via voice-ok.`);
+  console.log("\nFix em-dashes first, then contrast-frames, then AI words.");
+  process.exit(1);
 }
-if (waived) console.log(`\n${waived} waiver(s) via voice-ok.`);
-console.log("\nFix em-dashes first, then contrast-frames, then AI words.");
-process.exit(1);
