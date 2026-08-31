@@ -1,3 +1,18 @@
+# WARNING, read before merging this branch to main.
+#
+# A `Dockerfile` now exists at the repo root. Railway's own config-as-code
+# reference says "Railway will always build with a Dockerfile if it finds one",
+# and `NIXPACKS` is no longer a documented value for `builder` (the documented
+# ones are RAILPACK and DOCKERFILE). So the line below may no longer be doing
+# what it says, and the first deploy after this lands could build from the
+# Dockerfile instead of from nixpacks.
+#
+# That is where this repo is going on purpose, one image for ReGen-hosted and
+# self-hosted alike. It is not something to arrive at by accident on a Tuesday.
+# The builder line is therefore left exactly as it was: this lane is not
+# changing production's build path as a side effect of adding a Dockerfile.
+# Settle it with one deliberate deploy, then set `builder` to the value that
+# deploy proved, and delete this comment.
 [build]
 builder = "nixpacks"
 buildCommand = "pnpm run build"
@@ -6,3 +21,20 @@ buildCommand = "pnpm run build"
 startCommand = "NODE_ENV=production node dist/index.js"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+
+# The probe. server/index.ts serves /health, and it answers with the build
+# marker, so a green health check also says which commit is live.
+healthcheckPath = "/health"
+
+# Seconds, and deliberately generous.
+#
+# The server calls listen() LAST. Before it does, boot applies every pending
+# migration, loads the token registry, seeds the economy, and walks the ledger
+# invariants across the whole ledger. On an empty instance that is seconds. On
+# a village with real history, or on a deploy that carries a migration
+# rewriting a large table, it is minutes. Railway's default is 300s, and a
+# health check that gives up before a legitimate boot finishes does not report
+# a slow start, it reports a failed deploy and rolls back a good release.
+#
+# 900 is a ceiling, not a wait: a fast boot passes at the first probe.
+healthcheckTimeout = 900

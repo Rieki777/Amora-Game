@@ -1,0 +1,59 @@
+# What never reaches the Docker build context.
+#
+# Two jobs. The first is keeping secrets out of an image that gets published
+# to a public registry and pulled by thirteen villages: .env is the one that
+# matters, and it is listed with the same glob .gitignore uses rather than a
+# handful of named files, for the same reason .gitignore gives.
+#
+# The second is weight. Every byte here is uploaded to the builder before the
+# first instruction runs.
+
+# Secrets. Never in the context, never in a layer.
+.env
+.env.*
+!.env.example
+
+# Rebuilt inside the image, and a stale local copy would only confuse.
+node_modules
+**/node_modules
+dist
+build
+
+# Git history. Not needed: the commit reaches the build as the GIT_SHA build
+# argument (see Dockerfile), which is also the only way it works on a builder
+# that was handed a tarball.
+.git
+.gitignore
+.gitattributes
+
+# CI and editor furniture.
+.github
+.claude
+.vscode
+.idea
+.prettierrc
+.prettierignore
+
+# Runtime state. In production this path is a mounted volume; a local copy
+# would be somebody else's village data.
+data
+
+# Test-only artifacts named in .gitignore, listed again because an untracked
+# local one would still be uploaded.
+docs/prototypes/.qa-out
+docs/prototypes/.qa-ctrl
+coverage
+*.log
+*.tsbuildinfo
+
+# Dev-only weight inside docs/. docs/prototypes/grounds-v0.html IS needed (the
+# server serves it), so this excludes its neighbours by name rather than
+# excluding the directory: 12 MB of QA screenshots and 1.6 MB of one-shot
+# patch scripts that nothing at build or run time opens.
+docs/prototypes/qa
+docs/prototypes/qa-evidence
+docs/prototypes/*.py
+
+# Scratch that lanes leave behind.
+tmp
+temp

@@ -1,0 +1,294 @@
+# Publish the village image.
+#
+# The contract other lanes code against, and it does not change without a note
+# in SEASON2_FLEET_LEDGER.md:
+#
+#   image   ghcr.io/rieki777/village-os
+#   :<semver>   one immutable tag per release, e.g. :1.4.0. Cut by pushing an
+#               annotated git tag v1.4.0.
+#   :stable     moves to the newest non-prerelease semver. What a village
+#               that has not opted into anything else should pull.
+#   :edge       moves to the newest commit on main that ci passed. For us,
+#               not for villages.
+#
+# THE GATE IS ci.yml, AND THIS FILE DOES NOT CARRY A COPY OF IT.
+#
+# A copied gate is a gate that drifts: the copy goes green on a suite that has
+# quietly lost a step, and nobody finds out until the thing that step guarded
+# ships to thirteen instances. So instead:
+#
+#   - on a main push, this workflow is TRIGGERED BY ci finishing, and runs
+#     only when ci concluded success. There is no second opinion to disagree.
+#   - on a tag, ci does not run at all (it is filtered to branches), so the
+#     first job asks the API whether ci already passed on that exact commit
+#     and refuses to publish if it did not.
+#
+# Either way the suite that decides is the one in .github/workflows/ci.yml,
+# which the safety lane owns. This file only reads its verdict.
+
+name: release
+
+on:
+  push:
+    tags:
+      # Semver, with or without a prerelease suffix. A prerelease publishes
+      # its own tag but does NOT move :stable.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: write
+
+# Never cancel a publish in flight. A half-pushed manifest is worse than a
+# redundant one, and these runs are rare.
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # -------------------------------------------------------------------------
+  # What are we building, what do we call it, and is it allowed out.
+  # -------------------------------------------------------------------------
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # For reading ci's verdict on a tagged commit.
+      actions: read
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+      sha: ${{ steps.decide.outputs.sha }}
+      version: ${{ steps.decide.outputs.version }}
+      tags: ${{ steps.decide.outputs.tags }}
+    steps:
+      - id: decide
+        name: Decide the tags
+        env:
+          IMAGE: ghcr.io/rieki777/village-os
+          EVENT: ${{ github.event_name }}
+          GIT_TAG: ${{ github.ref_name }}
+          TAG_SHA: ${{ github.sha }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          publish=false
+          sha=""
+          version=""
+          tags=""
+
+          if [ "$EVENT" = "push" ]; then
+            # A tag push. The ref name is v1.4.0; the image tag is 1.4.0,
+            # because the contract says :<semver> and semver has no v.
+            version="${GIT_TAG#v}"
+            sha="$TAG_SHA"
+            tags="${IMAGE}:${version}"
+            case "$version" in
+              *-*)
+                echo "::notice::${version} is a prerelease, so :stable is not moved."
+                ;;
+              *)
+                # Newline separated: that is the list format build-push-action
+                # reads. $'\n' rather than a literal line break so the value
+                # does not depend on how YAML indents this block.
+                tags="${tags}"$'\n'"${IMAGE}:stable"
+                ;;
+            esac
+            publish=true
+
+          elif [ "$EVENT" = "workflow_run" ]; then
+            # ci finished. Publish :edge only for a green PUSH to main. A
+            # pull_request run of ci reports the branch it came from and a
+            # tree that does not exist on main, so it is not edge.
+            if [ "$RUN_CONCLUSION" = "success" ] \
+               && [ "$RUN_EVENT" = "push" ] \
+               && [ "$RUN_BRANCH" = "main" ]; then
+              sha="$RUN_SHA"
+              tags="${IMAGE}:edge"
+              publish=true
+            else
+              echo "Not an edge build: ci concluded '${RUN_CONCLUSION}' on ${RUN_EVENT}/${RUN_BRANCH}."
+            fi
+          fi
+
+          {
+            echo "publish=${publish}"
+            echo "sha=${sha}"
+            echo "version=${version}"
+            echo "tags<<EOF"
+            echo "${tags}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "publish=${publish} sha=${sha}"
+          echo "${tags}"
+
+      - name: Require a green ci run on this commit
+        # Tags only. The workflow_run path was already triggered BY a green
+        # ci, so asking again would be asking the same question twice.
+        #
+        # Fails closed. If ci has never run on this commit there is nothing to
+        # reuse, and publishing anyway would mean an image whose only claim to
+        # being tested is that somebody typed `git tag`.
+        if: github.event_name == 'push' && steps.decide.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.decide.outputs.sha }}
+        run: |
+          set -euo pipefail
+          green=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&status=completed&per_page=100" \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')
+          echo "ci runs concluded success on ${SHA}: ${green}"
+          if [ "${green:-0}" -lt 1 ]; then
+            echo "::error::No successful ci run on ${SHA}. Tag a commit that has already gone green on main, or push the commit to a branch and let ci run before tagging it."
+            exit 1
+          fi
+
+  # -------------------------------------------------------------------------
+  # Build and push.
+  # -------------------------------------------------------------------------
+  image:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # workflow_run runs against the default branch by default, so the
+          # commit has to be named explicitly or edge would build main's tip
+          # rather than the commit ci actually passed.
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ needs.plan.outputs.tags }}
+          # The build has no .git (see .dockerignore), so this argument is the
+          # only thing that lets /health say which commit is serving.
+          build-args: |
+            GIT_SHA=${{ needs.plan.outputs.sha }}
+          labels: |
+            org.opencontainers.image.title=village-os
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.plan.outputs.version }}
+            org.opencontainers.image.licenses=MIT
+          # linux/amd64 only, deliberately. arm64 would have to cross-build
+          # bcrypt and sharp under emulation, which is slow and is exactly the
+          # kind of thing that half-works. Add it when a village needs it, and
+          # smoke-test it on real arm64 hardware when you do.
+          platforms: linux/amd64
+          # Attestations turn the image into a multi-platform index carrying an
+          # unknown/unknown entry. GHCR is fine with it; older self-hosted
+          # docker and some mirrors are not, and this image is meant to be
+          # pullable by thirteen operators we do not control.
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------------------------
+  # Prove the thing we just published actually boots and knows what it is.
+  # -------------------------------------------------------------------------
+  smoke:
+    needs: [plan, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: smoke
+          MYSQL_DATABASE: village
+        ports:
+          - 3306:3306
+        options: >-
+          --tmpfs /var/lib/mysql:rw,size=4g
+          --health-cmd "mysqladmin ping -h localhost -psmoke"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Boot the published image against an empty database
+        # By digest, not by tag: this must smoke the exact bytes that were
+        # pushed, not whatever the tag points at by the time this job starts.
+        #
+        # --network host because the MySQL service is published on the
+        # runner's 127.0.0.1, which a bridged container cannot reach.
+        env:
+          REF: ghcr.io/rieki777/village-os@${{ needs.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker run -d --name village --network host \
+            -e DATABASE_URL='mysql://root:smoke@127.0.0.1:3306/village' \
+            -e PORT=3000 \
+            "$REF"
+          echo "waiting for /health"
+          for i in $(seq 1 120); do
+            if body=$(curl -fsS http://127.0.0.1:3000/health 2>/dev/null); then
+              echo "$body"
+              echo "$body" > health.json
+              break
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' village)" != "true" ]; then
+              echo "::error::the container exited before it served /health"
+              docker logs village
+              exit 1
+            fi
+            sleep 5
+          done
+          if [ ! -s health.json ]; then
+            echo "::error::/health never answered within 10 minutes"
+            docker logs village
+            exit 1
+          fi
+
+      - name: The container knows which commit it is
+        # The whole point of the build marker. If this is "dev", the GIT_SHA
+        # build argument did not reach scripts/build-server.mjs and every
+        # deployment of this image is anonymous.
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          build=$(jq -r .build health.json)
+          short="${SHA:0:7}"
+          echo "marker: ${build}   expected to end in: ${short}"
+          case "$build" in
+            *"$short") echo "ok" ;;
+            *)
+              echo "::error::/health reports build '${build}', which does not carry ${short}. The image cannot say which commit it is."
+              exit 1
+              ;;
+          esac
+
+      - name: Container logs
+        if: always()
+        run: docker logs village || true
