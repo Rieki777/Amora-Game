@@ -111,10 +111,30 @@ export default function Layout({ children }: LayoutProps) {
           {/* One anchor, not two. wouter's Link renders the <a> itself, so a
               nested <a> is invalid markup: the browser closes the outer one
               early and leaves an EMPTY focusable link as the first stop in
-              the tab order on every page — a keyboard or screen-reader user
+              the tab order on every page, so a keyboard or screen-reader user
               meets an unnamed link before anything else on the site.
-              The logo itself comes from the brand config: the fixed 64px box
-              holds the space while it loads, so nothing shifts. */}
+
+              THE HOME LINK IS NEVER EMPTY, BECAUSE AN EMPTY ONE IS NOT A LINK.
+
+              A village with no uploaded logo used to get a bare 64px spacer
+              here. An empty flex child gives the anchor a width of ZERO:
+              measured 0px on the live deployment, with a click at the centre
+              of the header landing on the surrounding div and never on the
+              link. On a phone that left the entire header with no visible
+              character in it. Every one of the thirteen deployments starts
+              in that state and the one that is live is in it now.
+
+              So the name is the wordmark. It is set in the village's own
+              display face, so a village that has chosen a font gets its own
+              lettering, and it re-themes with the rest of the shell rather
+              than being a second thing to upload.
+
+              The third branch is the one a falsiness check cannot tell apart
+              from the second: config still in flight is not the same fact as
+              a village with no name. While cfg is null nothing is known yet,
+              so the box holds a width as well as its 64px height, and the
+              home link stays clickable THROUGH the load instead of only
+              after it. */}
           <Link
             href="/"
             aria-label={villageName ? `${villageName} home` : "Home"}
@@ -128,8 +148,19 @@ export default function Layout({ children }: LayoutProps) {
                 style={{ height: "64px", width: "auto" }}
                 draggable={false}
               />
+            ) : villageName ? (
+              /* A flex item of the link above, which is already `items-center`
+                 inside a 64px box, so the wordmark sits on the same baseline
+                 the logo would have. `truncate` caps a long name rather than
+                 letting it push the menu button off a narrow screen. */
+              <span className="font-display text-xl sm:text-2xl font-semibold tracking-wide text-white truncate max-w-[60vw] lg:max-w-[16rem]">
+                {villageName}
+              </span>
             ) : (
-              <span style={{ height: "64px", display: "inline-block" }} aria-hidden="true" />
+              <span
+                aria-hidden="true"
+                style={{ height: "64px", width: "7rem", display: "inline-block" }}
+              />
             )}
           </Link>
 

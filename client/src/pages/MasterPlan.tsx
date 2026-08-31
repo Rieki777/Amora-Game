@@ -87,21 +87,55 @@ export default function MasterPlan() {
   const appraisal = stats.find((s) => s.key === "appraisal");
   return (
     <Layout>
-      {/* Hero */}
-      <section className="relative py-24 overflow-hidden">
+      {/* Hero.
+          The section's own surface is the brand BAND, so the copy has a known
+          colour behind it before anything else is drawn. shared/brandTokens.ts
+          derives --tone-brand-band and measures white on it at 4.5:1 or better
+          for every seed, which is what makes that a promise rather than a
+          guess about the platform's own neutral palette. */}
+      <section className="relative py-24 overflow-hidden bg-teal-band">
         <div className="absolute inset-0 z-0">
-          <Image
-            src={brand.masterPlanHero}
-            alt={altOr(brand.masterPlanHeroAlt, "The master plan for the village")}
-            priority
-            className="w-full h-full"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-black/40" />
+          {/* THE HERO RENDERS ONLY WHEN THERE IS ONE, matching the four
+              journey pages (InvestorJourney, StewardJourney, ResidentJourney,
+              ProsperityJourney). Without this guard a village that has
+              uploaded no master plan art got Image's placeholder: a 32px
+              picture frame centred in a 1264x489 hero, which landed inside the
+              headline's own box, in the leading between its two lines. It
+              paints BEHIND the headline (the h1 wins the hit test at that
+              point), so it was never a stacking bug: it was a 32px mark
+              centred in a full-bleed box that happens to be the same box the
+              title sits in. Drawing nothing removes it at the source, and the
+              scrim goes with the picture it exists to darken.
+
+              A configured hero that then 404s still shows the mark, with the
+              village's own alt text on it. That case is genuinely broken and
+              should look it. */}
+          {brand.masterPlanHero ? (
+            <>
+              <Image
+                src={brand.masterPlanHero}
+                alt={altOr(brand.masterPlanHeroAlt, "The master plan for the village")}
+                priority
+                className="w-full h-full"
+              />
+              <div className="absolute inset-0 bg-gradient-to-r from-teal-band via-teal-band/90 to-teal-band/60" />
+            </>
+          ) : null}
         </div>
 
         <div className="container relative z-10">
-          <div className="max-w-3xl">
+          <div className="relative max-w-3xl">
+            {/* The copy's own opaque band. A scrim at 60% cannot promise a
+                ratio, because what shows through it is whatever photograph the
+                village uploaded. This is opaque, so the ratio is a property of
+                two named colours. It is invisible until there IS a picture,
+                because the section behind it is the same band colour. */}
+            <div
+              aria-hidden="true"
+              className="absolute -inset-x-5 -inset-y-6 sm:-inset-x-8 sm:-inset-y-10 rounded-3xl bg-teal-band"
+            />
             <motion.div
+              className="relative"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
             >
