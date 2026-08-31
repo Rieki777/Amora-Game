@@ -228,7 +228,7 @@ export default function SwapCard({ pairs, onDone }: { pairs: SwapPair[]; onDone:
           <button
             onClick={getQuote}
             disabled={busy || !payToken || !receiveToken}
-            className="w-full inline-flex items-center justify-center gap-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-3 font-medium disabled:opacity-50"
+            className="w-full inline-flex items-center justify-center gap-2 text-sm bg-teal-deep text-white rounded-lg px-4 py-3 font-medium disabled:opacity-50"
           >
             {busy && <Loader2 className="w-4 h-4 animate-spin" />} See the trade
           </button>
@@ -287,7 +287,7 @@ export default function SwapCard({ pairs, onDone }: { pairs: SwapPair[]; onDone:
               <button
                 onClick={confirm}
                 disabled={busy}
-                className="flex-1 inline-flex items-center justify-center gap-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-3 font-medium disabled:opacity-50"
+                className="flex-1 inline-flex items-center justify-center gap-2 text-sm bg-teal-deep text-white rounded-lg px-4 py-3 font-medium disabled:opacity-50"
               >
                 {busy && <Loader2 className="w-4 h-4 animate-spin" />} Confirm swap
               </button>

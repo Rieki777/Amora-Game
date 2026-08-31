@@ -181,7 +181,7 @@ export default function Badges() {
                   className="flex-1 text-sm border border-border rounded-lg px-3 py-2" />
                 <button
                   onClick={() => { if (skill.trim()) { call("/api/badges/skills", "POST", { tag: skill }); setSkill(""); } }}
-                  className="inline-flex items-center gap-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-2 font-medium">
+                  className="inline-flex items-center gap-1.5 text-sm bg-teal-deep text-white rounded-lg px-3 py-2 font-medium">
                   <Plus className="w-3.5 h-3.5" /> Add
                 </button>
               </div>
@@ -275,7 +275,7 @@ export default function Badges() {
                             className="text-xs text-muted-foreground hover:text-red-600">Remove</button>
                         ) : (
                           <button onClick={() => call(`/api/badges/${b.id}/claim`, "POST")}
-                            className="text-xs text-[#2D5A5A] font-medium hover:underline">That's me</button>
+                            className="text-xs text-teal-deep font-medium hover:underline">That's me</button>
                         )
                       )}
                       {/* B10: pin up to badges.max_featured to your byline.

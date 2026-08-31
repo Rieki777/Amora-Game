@@ -161,7 +161,7 @@ export default function Library() {
                         onClick={() => call(`/api/library/items/${i.id}/reserve`, undefined, i.id)}
                         disabled={!eligible}
                         title={eligible ? `Sets aside ${i.escrow} credit(s) while you borrow` : "Not open to you yet"}
-                        className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                        className="text-sm bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
                       >
                         Borrow
                       </button>

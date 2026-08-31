@@ -515,7 +515,7 @@ export default function EventsAdminPanel({ password }: { password: string }) {
         </div>
         <div className="flex items-center gap-2 mt-4">
           <button onClick={save} disabled={saving}
-            className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+            className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
             {saving ? "Saving..." : editing ? "Save changes" : "Add gathering"}
           </button>
           {editing && (
@@ -546,7 +546,7 @@ export default function EventsAdminPanel({ password }: { password: string }) {
                 </span>
                 <span className="flex items-center gap-1.5 shrink-0">
                   <button onClick={() => setStatus(g, "scheduled")}
-                    className="px-2.5 py-1 text-xs bg-[#2D5A5A] text-white rounded-lg">Approve</button>
+                    className="px-2.5 py-1 text-xs bg-teal-deep text-white rounded-lg">Approve</button>
                   <button onClick={() => remove(g)}
                     className="px-2.5 py-1 text-xs border border-red-200 text-red-700 rounded-lg">Delete</button>
                 </span>
@@ -601,7 +601,7 @@ export default function EventsAdminPanel({ password }: { password: string }) {
                   className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50">Edit</button>
                 {g.status === "draft" && (
                   <button onClick={() => setStatus(g, "scheduled")}
-                    className="px-2.5 py-1 text-xs bg-[#2D5A5A] text-white rounded-lg">Publish</button>
+                    className="px-2.5 py-1 text-xs bg-teal-deep text-white rounded-lg">Publish</button>
                 )}
                 {g.status === "scheduled" && (
                   <button onClick={() => setStatus(g, "cancelled")}
@@ -677,7 +677,7 @@ export default function EventsAdminPanel({ password }: { password: string }) {
                       className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5" />
                   </div>
                   <button onClick={() => addSlot(g.id)} disabled={!slotForm.label.trim()}
-                    className="px-3 py-1.5 text-xs bg-[#2D5A5A] text-white rounded-lg disabled:opacity-50">Add slot</button>
+                    className="px-3 py-1.5 text-xs bg-teal-deep text-white rounded-lg disabled:opacity-50">Add slot</button>
                 </div>
               </div>
             )}
@@ -756,7 +756,7 @@ export default function EventsAdminPanel({ password }: { password: string }) {
                 )}
                 {nameDrafts[m.index] !== undefined && (
                   <button onClick={() => saveName(m.index)}
-                    className="px-2.5 py-1 text-xs bg-[#2D5A5A] text-white rounded-lg shrink-0">Save</button>
+                    className="px-2.5 py-1 text-xs bg-teal-deep text-white rounded-lg shrink-0">Save</button>
                 )}
               </li>
             ))}
@@ -790,11 +790,11 @@ export default function EventsAdminPanel({ password }: { password: string }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1" htmlFor="xc-colour">Colour (optional)</label>
-              <input id="xc-colour" value={calForm.colour} onChange={(e) => setCalForm({ ...calForm, colour: e.target.value })} className={input} placeholder="#0369a1" />
+              <input id="xc-colour" value={calForm.colour} onChange={(e) => setCalForm({ ...calForm, colour: e.target.value })} className={input} placeholder="#0369a1" /* theme-ok: format hint text in an empty field, never applied as a rendered colour */ />
             </div>
           </div>
           <button onClick={addCalendar} disabled={calBusy === "add" || !calForm.name.trim() || !calForm.url.trim()}
-            className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+            className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
             {calBusy === "add" ? "Attaching..." : "Attach calendar"}
           </button>
 

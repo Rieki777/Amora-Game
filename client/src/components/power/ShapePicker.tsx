@@ -104,7 +104,7 @@ export default function ShapePicker({
             type="button"
             onClick={save}
             disabled={busy}
-            className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+            className="text-xs bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
           >
             {busy ? "…" : "Declare this shape"}
           </button>

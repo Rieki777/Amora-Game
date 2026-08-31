@@ -112,7 +112,7 @@ export default function Contribute() {
                   href={manual.url}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="inline-flex items-center gap-1.5 mt-3 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+                  className="inline-flex items-center gap-1.5 mt-3 text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium"
                 >
                   <ExternalLink className="w-3.5 h-3.5" /> Continue to Zeffy
                 </a>
@@ -183,7 +183,7 @@ export default function Contribute() {
                 <button
                   onClick={() => checkout(p)}
                   disabled={busy === p.id || (p.provider === "stripe" && !data?.stripeConfigured)}
-                  className="inline-flex items-center gap-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
                 >
                   {busy === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
                     p.provider === "zeffy" ? <ExternalLink className="w-3.5 h-3.5" /> :

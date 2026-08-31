@@ -185,7 +185,7 @@ function AdminPanel({ id }: { id: string }) {
                 type="checkbox"
                 checked={withExamples}
                 onChange={(e) => setWithExamples(e.target.checked)}
-                className="w-4 h-4 accent-[#2D5A5A]"
+                className="w-4 h-4 accent-teal-deep"
               />
               Start with example content
             </label>
@@ -193,7 +193,7 @@ function AdminPanel({ id }: { id: string }) {
           <button
             disabled={busy}
             onClick={turnOn}
-            className="mt-3 min-h-[44px] px-5 rounded-lg bg-[#2D5A5A] text-white font-semibold text-sm disabled:opacity-40"
+            className="mt-3 min-h-[44px] px-5 rounded-lg bg-teal-deep text-white font-semibold text-sm disabled:opacity-40"
           >
             Turn on
           </button>

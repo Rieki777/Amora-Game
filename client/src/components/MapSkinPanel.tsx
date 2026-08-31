@@ -106,7 +106,7 @@ export default function MapSkinPanel({ password }: { password: string }) {
           max={Math.round(b.max * 100)}
           value={pct}
           onChange={(e) => set({ [key]: Number(e.target.value) / 100 } as Partial<MapSkin>)}
-          className="w-full accent-[#2D5A5A]"
+          className="w-full accent-teal-deep"
         />
         <p className="text-[11px] text-gray-400">{hint}</p>
       </div>
@@ -148,7 +148,7 @@ export default function MapSkinPanel({ password }: { password: string }) {
             max={Math.round(SKIN_BOUNDS.painterly.max * 100)}
             value={Math.round(shown * 100)}
             onChange={(e) => setDial(Number(e.target.value) / 100)}
-            className="flex-1 accent-[#2D5A5A]"
+            className="flex-1 accent-teal-deep"
           />
           {value !== null && (
             <button type="button" onClick={() => setDial(null)}
@@ -225,7 +225,7 @@ export default function MapSkinPanel({ password }: { password: string }) {
         onChange={(e) => set({ [key]: e.target.checked } as Partial<MapSkin>)}
         aria-label={label}
         aria-describedby={`map-skin-${key}-hint`}
-        className="h-4 w-4 mt-0.5 accent-[#2D5A5A]"
+        className="h-4 w-4 mt-0.5 accent-teal-deep"
       />
       <span>
         <span className="block text-sm font-medium text-gray-900">{label}</span>
@@ -295,7 +295,7 @@ export default function MapSkinPanel({ password }: { password: string }) {
       </p>
 
       <button onClick={save} disabled={saving}
-        className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+        className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
         {saving ? "Saving..." : "Save map style"}
       </button>
     </div>

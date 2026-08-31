@@ -90,7 +90,7 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
   const linkify = (text: string) =>
     text.split(/(\/(?:admin\?tab=[a-z-]+|[a-z-]+(?:\/[a-z-]+)*))(?=[\s.,)]|$)/g).map((part, i) =>
       part.startsWith("/") ? (
-        <Link key={i} href={part} className="text-[#2D5A5A] font-medium underline">{part}</Link>
+        <Link key={i} href={part} className="text-teal-deep font-medium underline">{part}</Link>
       ) : (
         <span key={i}>{part}</span>
       ),
@@ -102,11 +102,11 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
       <header className="px-4 py-3 border-b border-stone-100 flex items-center justify-between gap-2">
         <div className="flex gap-1">
           <button onClick={() => setMode("launch")}
-            className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 ${mode === "launch" ? "bg-[#2D5A5A] text-white" : "text-stone-500 hover:bg-stone-100"}`}>
+            className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 ${mode === "launch" ? "bg-teal-deep text-white" : "text-stone-500 hover:bg-stone-100"}`}>
             Launch
           </button>
           <button onClick={() => setMode("organize")}
-            className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 ${mode === "organize" ? "bg-[#2D5A5A] text-white" : "text-stone-500 hover:bg-stone-100"}`}>
+            className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 ${mode === "organize" ? "bg-teal-deep text-white" : "text-stone-500 hover:bg-stone-100"}`}>
             Organizing
           </button>
         </div>
@@ -116,13 +116,13 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
         {gone ? (
           <p className="text-xs text-stone-500">
             The guide needs an Anthropic key. Set one in{" "}
-            <Link href="/admin?tab=integrations" className="text-[#2D5A5A] underline">Integrations</Link>.
+            <Link href="/admin?tab=integrations" className="text-teal-deep underline">Integrations</Link>.
             The checklist above works fine without her.
           </p>
         ) : (
           msgs.map((m, i) => (
             <div key={i} className={`text-sm rounded-xl px-3 py-2 max-w-[85%] ${
-              m.role === "user" ? "ml-auto bg-[#2D5A5A] text-white" : "bg-stone-100 text-stone-800"
+              m.role === "user" ? "ml-auto bg-teal-deep text-white" : "bg-stone-100 text-stone-800"
             }`}>
               {m.role === "assistant" ? linkify(m.content) : m.content}
               {m.consulted
@@ -153,7 +153,7 @@ function LaunchGuide({ open, onClose }: { open: boolean; onClose: () => void }) 
             className="flex-1 text-sm border border-stone-200 rounded-lg px-3 py-2"
           />
           <button onClick={send} disabled={busy || !draft.trim()}
-            className="bg-[#2D5A5A] text-white rounded-lg px-3 py-2 disabled:opacity-40">
+            className="bg-teal-deep text-white rounded-lg px-3 py-2 disabled:opacity-40">
             <Send className="w-4 h-4" />
           </button>
         </div>
@@ -291,13 +291,13 @@ function StartTheGame({
   return (
     <section
       className={`rounded-xl border p-5 ${
-        status.readyToLaunch && !shortOfPeople ? "bg-[#2D5A5A]/5 border-[#2D5A5A]/30" : "bg-white border-stone-200"
+        status.readyToLaunch && !shortOfPeople ? "bg-teal-deep/5 border-teal-deep/30" : "bg-white border-stone-200"
       }`}
     >
       <div className="flex items-center gap-3 flex-wrap justify-between">
         <div>
           <p className="font-semibold text-stone-900 flex items-center gap-2">
-            <Rocket className="w-4 h-4 text-[#2D5A5A]" /> Start the Game
+            <Rocket className="w-4 h-4 text-teal-deep" /> Start the Game
           </p>
           <p className="text-xs text-stone-500 mt-1 max-w-md">
             {running
@@ -318,7 +318,7 @@ function StartTheGame({
         {running ? (
           <Link
             href={`/decisions/${running.id}`}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-5 py-2.5 font-semibold"
+            className="text-sm bg-teal-deep text-white rounded-lg px-5 py-2.5 font-semibold"
           >
             Open the vote
           </Link>
@@ -327,7 +327,7 @@ function StartTheGame({
             onClick={onAsk}
             disabled={!canAsk || busy}
             title={isFounder ? undefined : "Opening this vote is a founder's act"}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-5 py-2.5 font-semibold disabled:opacity-40"
+            className="text-sm bg-teal-deep text-white rounded-lg px-5 py-2.5 font-semibold disabled:opacity-40"
           >
             Ask the village
           </button>
@@ -343,7 +343,7 @@ function StartTheGame({
         <ul className="mt-4 border-t border-stone-900/10 pt-3 space-y-1.5">
           {vote.past.map((p) => (
             <li key={p.id} className="text-xs text-stone-600">
-              <Link href={`/decisions/${p.id}`} className="font-medium text-[#2D5A5A] hover:underline">
+              <Link href={`/decisions/${p.id}`} className="font-medium text-teal-deep hover:underline">
                 {p.closedAt ? new Date(p.closedAt).toLocaleDateString() : "Closed"}
               </Link>
               {": "}
@@ -431,7 +431,7 @@ function TestRun() {
       <div className="flex items-start gap-3 flex-wrap justify-between">
         <div className="max-w-md">
           <p className="font-semibold text-stone-900 flex items-center gap-2">
-            <FlaskConical className="w-4 h-4 text-[#2D5A5A]" /> Test run
+            <FlaskConical className="w-4 h-4 text-teal-deep" /> Test run
           </p>
           <p className="text-xs text-stone-500 mt-1">
             Turn your village's moons over quickly and read what your settings would do: who the
@@ -456,7 +456,7 @@ function TestRun() {
           <button
             onClick={run}
             disabled={running}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-5 py-2.5 font-semibold disabled:opacity-40"
+            className="text-sm bg-teal-deep text-white rounded-lg px-5 py-2.5 font-semibold disabled:opacity-40"
           >
             {running ? "Running" : "Run the test"}
           </button>
@@ -661,7 +661,7 @@ export default function JourneyToLaunch() {
             <p className="text-sm text-muted-foreground mb-5">
               {user ? `Signed in as ${user.name}, but this area is for the team running the village.` : "This area is for the team running the village."}
             </p>
-            <a href="/admin" className="block w-full bg-[#2D5A5A] text-white py-3 rounded-xl font-semibold text-sm">
+            <a href="/admin" className="block w-full bg-teal-deep text-white py-3 rounded-xl font-semibold text-sm">
               Sign in with an admin account
             </a>
           </div>
@@ -783,12 +783,12 @@ export default function JourneyToLaunch() {
                             <div className="flex items-center gap-3 mt-2">
                               {i.fixAt.startsWith("http") ? (
                                 <a href={i.fixAt} target="_blank" rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-[#2D5A5A] hover:underline">
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-teal-deep hover:underline">
                                   {i.fixLabel} <ExternalLink className="w-3 h-3" />
                                 </a>
                               ) : (
                                 <Link href={i.fixAt}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-[#2D5A5A] hover:underline">
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-teal-deep hover:underline">
                                   {i.fixLabel} <ChevronRight className="w-3 h-3" />
                                 </Link>
                               )}
@@ -799,7 +799,7 @@ export default function JourneyToLaunch() {
                                   className={`text-xs font-medium rounded-lg px-2.5 py-1 border ${
                                     i.state === "ok"
                                       ? "text-stone-500 border-stone-200 hover:bg-stone-50"
-                                      : "text-white bg-[#2D5A5A] border-[#2D5A5A]"
+                                      : "text-white bg-teal-deep border-teal-deep"
                                   }`}
                                 >
                                   {i.state === "ok" ? "Un-confirm" : "Mark done"}

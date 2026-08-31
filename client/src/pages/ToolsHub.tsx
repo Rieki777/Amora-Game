@@ -89,9 +89,9 @@ export default function ToolsHub() {
       <section className="py-10 bg-background">
         <div className="container max-w-5xl space-y-10">
           {data?.hyphaCard && (
-            <div className="rounded-2xl border-2 border-[#2D5A5A]/30 bg-[#2D5A5A]/5 p-6">
+            <div className="rounded-2xl border-2 border-teal-deep/30 bg-teal-deep/5 p-6">
               <div className="flex items-start gap-4 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-[#2D5A5A]/10 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-teal-deep/10 flex items-center justify-center">
                   <Landmark className="w-5 h-5 text-teal-deep" />
                 </div>
                 <div>

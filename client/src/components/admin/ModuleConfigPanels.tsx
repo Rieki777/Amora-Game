@@ -42,11 +42,11 @@ function refusalText(d: any, fallback: string): string {
 }
 
 const inputCls =
-  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]";
+  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-teal-deep";
 const btnCls =
-  "min-h-[44px] px-3 text-sm rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A] disabled:opacity-40";
+  "min-h-[44px] px-3 text-sm rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-deep disabled:opacity-40";
 const saveCls =
-  "min-h-[44px] px-4 text-sm rounded-lg bg-[#2D5A5A] text-white font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#2D5A5A] disabled:opacity-40";
+  "min-h-[44px] px-4 text-sm rounded-lg bg-teal-deep text-white font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-teal-deep disabled:opacity-40";
 
 /**
  * Read the live config for one module, hand it to a caller, and write back the
@@ -166,7 +166,7 @@ export function CrowdpoolAdminTab({ password }: { password: string }) {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-          <Coins className="w-5 h-5 text-[#2D5A5A]" /> Crowdpool
+          <Coins className="w-5 h-5 text-teal-deep" /> Crowdpool
         </h2>
         <p className="text-sm text-gray-500 mt-1 max-w-2xl">
           Which raisings on the hub belong to this village. Each one linked here
@@ -448,7 +448,7 @@ export function ResourcesRoutingEditor({ password }: { password: string }) {
             {[["members", "Everyone signed in"], ["admins", "Admins only"]].map(([value, label]) => (
               <label key={value} className="flex items-center gap-2 min-h-[44px] text-sm text-gray-700">
                 <input type="radio" name="measuredVisibleTo" value={value} checked={visibleTo === value}
-                  onChange={() => setVisibleTo(value)} className="w-5 h-5 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]" />
+                  onChange={() => setVisibleTo(value)} className="w-5 h-5 focus:outline-none focus:ring-2 focus:ring-teal-deep" />
                 {label}
               </label>
             ))}
@@ -475,7 +475,7 @@ export function ForumCategoriesEditor({ password }: { password: string }) {
       password={password}
       title="Forum categories"
       blurb="The shelves every thread is filed under. Read on every request, shown on /forum, and offered when somebody starts a thread."
-      icon={<MessageSquare className="w-4 h-4 text-[#2D5A5A]" />}
+      icon={<MessageSquare className="w-4 h-4 text-teal-deep" />}
     />
   );
 }
@@ -488,7 +488,7 @@ export function ToolsCategoriesEditor({ password }: { password: string }) {
       password={password}
       title="Tool categories"
       blurb="How the tools hub groups what the village uses. A tool can only be filed under a category listed here."
-      icon={<Wrench className="w-4 h-4 text-[#2D5A5A]" />}
+      icon={<Wrench className="w-4 h-4 text-teal-deep" />}
     />
   );
 }

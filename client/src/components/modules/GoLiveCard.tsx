@@ -105,12 +105,12 @@ export function GoLiveCard({
   };
 
   const primary =
-    "min-h-[44px] px-4 rounded-lg bg-[#2D5A5A] text-white text-sm font-semibold disabled:opacity-40";
+    "min-h-[44px] px-4 rounded-lg bg-teal-deep text-white text-sm font-semibold disabled:opacity-40";
   const secondary =
-    "min-h-[44px] px-4 rounded-lg border border-[#2D5A5A]/40 text-[#2D5A5A] text-sm font-semibold bg-white disabled:opacity-40";
+    "min-h-[44px] px-4 rounded-lg border border-teal-deep/40 text-teal-deep text-sm font-semibold bg-white disabled:opacity-40";
 
   return (
-    <div className="mb-5 rounded-xl border border-[#2D5A5A]/30 bg-[#2D5A5A]/5 p-4 sm:p-5">
+    <div className="mb-5 rounded-xl border border-teal-deep/30 bg-teal-deep/5 p-4 sm:p-5">
       <p className="font-semibold text-gray-900">{m.name} is set up. Go live?</p>
       <p className="text-sm text-gray-600 mt-1">
         Right now only admins can see it. Choose who it opens to.

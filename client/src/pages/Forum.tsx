@@ -121,7 +121,7 @@ function ThreadList() {
             ))}
             {user && (
               <button onClick={() => setComposing(!composing)}
-                className="ml-auto inline-flex items-center gap-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium">
+                className="ml-auto inline-flex items-center gap-1.5 text-sm bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium">
                 <Plus className="w-4 h-4" /> New thread
               </button>
             )}
@@ -150,7 +150,7 @@ function ThreadList() {
                 className="w-full text-sm border border-border rounded-lg px-3 py-2" />
               {error && <p className="text-xs text-red-600">{error}</p>}
               <button onClick={post} disabled={busy || !draft.body.trim() || !draft.category}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                 {busy ? "Posting…" : "Post"}
               </button>
             </div>
@@ -446,7 +446,7 @@ function ThreadView({ id }: { id: string }) {
                   <button
                     onClick={() => saveEdit("threads", thread.id)}
                     disabled={!draft.trim()}
-                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+                    className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
                   >
                     Save edit
                   </button>
@@ -499,7 +499,7 @@ function ThreadView({ id }: { id: string }) {
                     href={eventMeta.ctaUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 mt-1 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium hover:opacity-90"
+                    className="inline-flex items-center gap-1.5 mt-1 text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium hover:opacity-90"
                   >
                     {eventMeta.ctaLabel || "Respond"}
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -547,7 +547,7 @@ function ThreadView({ id }: { id: string }) {
                       <button
                         onClick={() => saveEdit("replies", r.id)}
                         disabled={!draft.trim()}
-                        className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                        className="text-sm bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
                       >
                         Save edit
                       </button>
@@ -588,7 +588,7 @@ function ThreadView({ id }: { id: string }) {
                     <button
                       onClick={() => act(`/api/forum/threads/${id}/replies`, { body: reply, parentReplyId: r.id }, "reply")}
                       disabled={busy || !reply.trim()}
-                      className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                      className="text-sm bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
                     >
                       Reply
                     </button>
@@ -607,7 +607,7 @@ function ThreadView({ id }: { id: string }) {
                 placeholder="Reply… mention people with @handle."
                 className="w-full text-sm border border-border rounded-lg px-3 py-2" />
               <button onClick={() => act(`/api/forum/threads/${id}/replies`, { body: reply }, "reply")} disabled={busy || !reply.trim()}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                 Reply
               </button>
               {refusal?.where === "reply" && <ExampleRefusal message={refusal.message} />}

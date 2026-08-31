@@ -173,7 +173,7 @@ export default function SearchBar({
             type="button"
             onClick={ask}
             disabled={busy || query.trim().length < 3}
-            className="text-sm bg-[#2D5A5A] text-white rounded-xl px-4 font-medium disabled:opacity-40"
+            className="text-sm bg-teal-deep text-white rounded-xl px-4 font-medium disabled:opacity-40"
           >
             {busy ? "…" : "Ask"}
           </button>
