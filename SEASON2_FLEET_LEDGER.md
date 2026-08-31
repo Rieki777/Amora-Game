@@ -992,7 +992,46 @@ The full flaky set is now FIVE:
     governance.routes.e2e closing changes nothing
     placePhotos.routes.e2e volume gauge   (new, cache-induced, ours)
 
-## 10 - BACKUPS ARE STILL BROKEN, and the reason is worse than a stale password
+## 10a - CORRECTION: my section 10 diagnosis was WRONG
+
+Section 10 below states that the public TCP proxy on the Amora Game MySQL service reaches a
+different database than the app. **That is false and I am retracting it.** The correction is
+recorded above the original rather than replacing it, because a coordinator who quietly edits a
+wrong claim out of the record teaches nobody anything.
+
+PROVEN, by cross-check against the live application rather than by any variable name:
+
+    sakura.proxy.rlwy.net:50483/railway   150 tables, quests=14, users=5
+    quests present, circles present, ballots present, gratitude_log present, token_ledger present
+    user_token_ledger ABSENT, player_profiles ABSENT   (so NOT regen-civics)
+
+    live https://amora.regencivics.earth/api/quests   -> 14 items
+
+Fourteen and fourteen. That endpoint IS game-amora's production database, and always was.
+
+**WHAT ACTUALLY WENT WRONG.** The first time I ran `railway variables --service MySQL`, the CLI
+handed me a URL to a DIFFERENT server (262 tables, 89 users, carrying `user_token_ledger` and
+`player_profiles`, which are regen-civics tables). The second run of the SAME COMMAND TEXT,
+after re-linking the project, returned the correct one. I never re-verified the first URL's
+contents against the live app before acting on it. So the fault was mine, not Railway's.
+
+This is the repo's own recorded hazard arriving a third time in one programme: **prove which
+database you are reaching by its CONTENTS, every single time, never by the variable name, the
+service name, or the CLI's own claim about what it is linked to.** A memory note in this account
+already says the Railway CLI in a neighbouring repo pointed at the wrong service and answered
+confidently about it. I read that note, briefed lanes about it, and then did it anyway.
+
+**WHAT THE REMEDIATION GOT RIGHT ANYWAY.** Deleting the secret and the artifact was correct: I
+HAD set a wrong URL, and the run HAD produced an encrypted dump of the wrong database. The
+restore drill caught it, which is the fail-closed design working. The conclusion I drew from
+that catch was wrong; the action it prompted was right.
+
+**WHAT IS NO LONGER TRUE:** the claim that the 28 older artifacts might be regen-civics dumps.
+They were produced by this workflow against `PROD_DATABASE_URL`, and there is no evidence that
+was ever anything but the correct database. They still need deleting because they are unexpired
+and unencrypted, but this is not a cross-project leak.
+
+## 10 - SUPERSEDED BY 10a: original (wrong) diagnosis, kept for the record
 
 Attempted 2026-08-31 on the founder's instruction to get backups working. NOT ACHIEVED, and the
 reason is an infrastructure misconfiguration that needs the Railway console.
