@@ -12,7 +12,7 @@ Estimated sessions: 2
 
 ## Design decisions, and why
 
-- Slide 30 was a static hardcoded grid; this is an admin-managed registry so any village edits its toolbox without a developer or deploy — the white-label mandate applied to the cheapest possible surface.
+- The original concept was a static hardcoded grid; this is an admin-managed registry so any village edits its toolbox without a developer or deploy — the white-label mandate applied to the cheapest possible surface.
 - Per-audience visibility (public / members / role-gated) — the slide showed Gitlab and Hubspot to everyone; here guests never see core-team internals, and 'core team' is deliberately NOT a new enum: it is a seeded role, reusing roles-as-data instead of inventing a parallel permission concept.
 - The Hypha card is auto-generated from one new global game variable (governance.hypha_org_url) and carries the four governance deep links already drafted in CoCreatorsGuide.tsx (Create Agreement, Contribution Claim, Pay Expenses, Members). This makes the Tools Hub the canonical 'all governance and pay happens on Hypha' surface AND kills the live [YOUR-DHO-SLUG] placeholder bug at CoCreatorsGuide.tsx:54 by refactoring that page to read the same variable.
 - Per-tool 'getting started' note. The purpose of a tools page is that a core team knows every tool it needs to get things done, and a collapsible onboarding note per card serves that where a bare JOIN button does not.

@@ -135,7 +135,7 @@ Estimated sessions: 10
 ## Surfaces
 
 **Pages (routes + nav contributed ONLY when the module is enabled, via the config-driven module registry):**
-- `client/src/pages/Library.tsx` — the slide-33 screen: search bar, category chips, item cards (photo, HealthBar, credit requirement, custodian avatar, Reserve/Join-queue). Right rail 'Your Library Details': **Total vs Available credits with the escrowed difference itemized per loan** (the slide's 18,000/12,000 made mechanical), Currently Borrowing list with health bars, due dates, Return buttons.
+- `client/src/pages/Library.tsx` — the library screen: search bar, category chips, item cards (photo, HealthBar, credit requirement, custodian avatar, Reserve/Join-queue). Right rail 'Your Library Details': **Total vs Available credits with the escrowed difference itemized per loan** (the slide's 18,000/12,000 made mechanical), Currently Borrowing list with health bars, due dates, Return buttons.
 - `client/src/pages/LibraryItem.tsx` — photo gallery, health history sparkline, **provenance timeline (the internal NFT made visible: every custody hop, appraisal, repair)**, reservation queue, and the WearQuote calculator ('borrow 10 days ≈ 1.4% ≈ 84 credits') with duration + wear-class inputs.
 - `client/src/pages/LibraryHandoff.tsx` (route /library/loans/:id) — the dual-sign screen: two signature slots showing who has/hasn't confirmed, condition-ack health display, wear-class selector at pickup, damage note + photo attach at return, dispute button.
 - Components: `LibraryHealthBar.tsx` (color-graded, from the slide), `CreditBalanceCard.tsx`, `WearQuote.tsx`, `ItemProvenanceTimeline.tsx`, `HandoffSignPanel.tsx`, `StewardQueuePanel.tsx`.
