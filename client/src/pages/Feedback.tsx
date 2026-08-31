@@ -169,7 +169,7 @@ export default function Feedback() {
                 onClick={submit}
                 aria-disabled={busy || title.trim().length < 4 || detail.trim().length < 10}
                 disabled={busy || title.trim().length < 4 || detail.trim().length < 10}
-                className="w-full inline-flex items-center justify-center gap-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-3 font-medium disabled:opacity-50"
+                className="w-full inline-flex items-center justify-center gap-2 text-sm bg-teal-deep text-white rounded-lg px-4 py-3 font-medium disabled:opacity-50"
               >
                 {busy && <Loader2 className="w-4 h-4 animate-spin" />} Send it
               </button>

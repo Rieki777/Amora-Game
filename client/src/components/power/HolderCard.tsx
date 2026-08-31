@@ -206,7 +206,7 @@ export default function HolderCard({
               className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background"
             />
             <div className="flex gap-2">
-              <button type="button" onClick={raiseHand} className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">
+              <button type="button" onClick={raiseHand} className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium">
                 Raise my hand
               </button>
               <button type="button" onClick={() => setRaising(false)} className="text-sm text-muted-foreground">
@@ -241,7 +241,7 @@ export default function HolderCard({
                 type="button"
                 onClick={() => contactable.userId && contact(contactable.userId)}
                 disabled={!message.trim()}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+                className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
               >
                 Send
               </button>
@@ -254,7 +254,7 @@ export default function HolderCard({
           <button
             type="button"
             onClick={() => setComposing(true)}
-            className="inline-flex items-center gap-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+            className="inline-flex items-center gap-2 text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium"
           >
             <Mail className="w-4 h-4" aria-hidden="true" /> Contact {contactable.name}
           </button>

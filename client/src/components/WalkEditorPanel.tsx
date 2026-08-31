@@ -176,7 +176,7 @@ export default function WalkEditorPanel({ password }: { password: string }) {
                 <span className="w-40 truncate text-gray-700">{s.step}</span>
                 {/* A bar per step, widest where the most people arrived. */}
                 <span className="flex-1 h-2 bg-gray-200 rounded overflow-hidden">
-                  <span className="block h-2 bg-[#2D5A5A]"
+                  <span className="block h-2 bg-teal-deep"
                     style={{ width: `${funnel.runs ? (s.reached / funnel.runs) * 100 : 0}%` }} />
                 </span>
                 <span className="w-28 text-right text-gray-500">
@@ -279,7 +279,7 @@ export default function WalkEditorPanel({ password }: { password: string }) {
           </button>
         )}
         <button onClick={save} disabled={saving}
-          className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+          className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
           {saving ? "Saving..." : "Save walk"}
         </button>
       </div>

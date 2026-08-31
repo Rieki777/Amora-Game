@@ -62,7 +62,7 @@ interface NodeOption {
 }
 
 const inputCls =
-  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]";
+  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-deep";
 
 /**
  * What the map does with this type, as its own sentence. It follows a full
@@ -238,7 +238,7 @@ export default function RelationsEditor({
                     disabled={busy}
                     aria-label={`Remove the link from ${nodeName(r.fromKind, r.fromId)} to ${nodeName(r.toKind, r.toId)}`}
                     onClick={() => void remove(r)}
-                    className="inline-flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] text-gray-700 disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+                    className="inline-flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] text-gray-700 disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-teal-deep"
                   >
                     <Trash2 className="w-4 h-4" aria-hidden="true" />
                     Remove
@@ -326,7 +326,7 @@ export default function RelationsEditor({
               type="button"
               disabled={!ready}
               onClick={() => void create()}
-              className="mt-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 min-h-[44px] font-medium disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+              className="mt-2 text-sm bg-teal-deep text-white rounded-lg px-4 py-2 min-h-[44px] font-medium disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-teal-deep"
             >
               {busy ? "Saving..." : "Draw the link"}
             </button>

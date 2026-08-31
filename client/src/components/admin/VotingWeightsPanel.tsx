@@ -88,9 +88,9 @@ function modeLine(mode: WeightMode, token: string | null): string {
 }
 
 const inputCls =
-  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]";
+  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-deep";
 const buttonCls =
-  "text-sm rounded-lg px-3 py-2 min-h-[44px] font-medium disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]";
+  "text-sm rounded-lg px-3 py-2 min-h-[44px] font-medium disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-teal-deep";
 
 export default function VotingWeightsPanel({
   password,
@@ -281,7 +281,7 @@ export default function VotingWeightsPanel({
           instead of offering a second place to set it. */}
       <div className="bg-white border border-gray-100 rounded-xl p-5 mb-4">
         <h3 className="flex items-center gap-2 font-semibold text-gray-900">
-          <Scale className="w-4 h-4 text-[#2D5A5A]" aria-hidden="true" />
+          <Scale className="w-4 h-4 text-teal-deep" aria-hidden="true" />
           {MODE_LABEL[data.mode]}
           <InfoTip
             tip="How voting weight is assigned is one setting for the whole village. Equal gives everyone the same vote, token reads a balance, custom uses the table below."
@@ -293,7 +293,7 @@ export default function VotingWeightsPanel({
           <button
             type="button"
             onClick={() => onOpenTab("variables")}
-            className="mt-2 inline-flex items-center min-h-[44px] text-sm font-semibold text-[#2D5A5A] hover:underline focus:outline-none focus:ring-2 focus:ring-[#2D5A5A] rounded-lg"
+            className="mt-2 inline-flex items-center min-h-[44px] text-sm font-semibold text-teal-deep hover:underline focus:outline-none focus:ring-2 focus:ring-teal-deep rounded-lg"
           >
             Change how weight is assigned
           </button>
@@ -365,7 +365,7 @@ export default function VotingWeightsPanel({
             type="button"
             disabled={!bulkReady}
             onClick={() => void saveBulk()}
-            className={`${buttonCls} bg-[#2D5A5A] text-white`}
+            className={`${buttonCls} bg-teal-deep text-white`}
           >
             {bulkSaving ? "Saving..." : `Set ${picked.size} member(s)`}
           </button>
@@ -387,7 +387,7 @@ export default function VotingWeightsPanel({
           <button
             type="button"
             onClick={() => setPicked(allPicked ? new Set() : new Set(members.map((m) => m.id)))}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-teal-deep"
           >
             {allPicked ? "Clear the ticks" : "Tick everyone"}
           </button>
@@ -430,7 +430,7 @@ export default function VotingWeightsPanel({
                           return next;
                         })
                       }
-                      className="w-5 h-5 accent-[#2D5A5A] focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+                      className="w-5 h-5 accent-teal-deep focus:outline-none focus:ring-2 focus:ring-teal-deep"
                     />
                     <span className="font-medium text-gray-900">{m.name}</span>
                   </label>

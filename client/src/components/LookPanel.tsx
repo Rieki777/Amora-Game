@@ -62,7 +62,7 @@ export default function LookPanel({ password }: { password: string }) {
           <div className="flex items-center gap-2">
             <input
               type="color"
-              value={/^#[0-9a-f]{6}$/i.test(theme.seed ?? "") ? theme.seed : "#6e7376"}
+              value={/^#[0-9a-f]{6}$/i.test(theme.seed ?? "") ? theme.seed : "#6e7376" /* theme-ok: neutral colour-input default before a founder has picked a seed, never rendered as chrome */}
               onChange={(e) => setTheme({ ...theme, seed: e.target.value })}
               aria-label="Seed colour"
               className="h-9 w-12 rounded border border-gray-200 cursor-pointer"
@@ -70,7 +70,7 @@ export default function LookPanel({ password }: { password: string }) {
             <input
               value={theme.seed ?? ""}
               onChange={(e) => setTheme({ ...theme, seed: e.target.value })}
-              placeholder="#157f7d"
+              placeholder="#157f7d" // theme-ok: format hint text in an empty field, never applied as a rendered colour
               className="text-sm border border-gray-200 rounded-lg px-2.5 py-2 w-28 font-mono"
             />
             {theme.seed && (
@@ -99,7 +99,7 @@ export default function LookPanel({ password }: { password: string }) {
           const active = theme.character === c.id;
           // Each card previews ITSELF: its radius, its palette applied to the
           // current seed, its display face. Deciding blind is the failure mode.
-          const p = deriveTheme(theme.seed || "#6e7376", c.id);
+          const p = deriveTheme(theme.seed || "#6e7376" /* theme-ok: same neutral default as the colour input above, feeds derivation rather than bypassing it */, c.id);
           return (
             <button
               key={c.id}
@@ -107,7 +107,7 @@ export default function LookPanel({ password }: { password: string }) {
               role="radio"
               aria-checked={active}
               onClick={() => setTheme({ ...theme, character: active ? "" : c.id })}
-              className={`text-left border px-3 py-2.5 transition-colors ${active ? "border-[#2D5A5A] ring-1 ring-[#2D5A5A]" : "border-gray-200 hover:border-gray-300"}`}
+              className={`text-left border px-3 py-2.5 transition-colors ${active ? "border-teal-deep ring-1 ring-teal-deep" : "border-gray-200 hover:border-gray-300"}`}
               style={{ borderRadius: `${c.radiusRem}rem`, background: p?.vars["--tone-cream"] }}
             >
               <span className="flex items-center gap-2">
@@ -139,7 +139,7 @@ export default function LookPanel({ password }: { password: string }) {
       )}
 
       <button onClick={save} disabled={saving}
-        className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+        className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
         {saving ? "Saving..." : "Save look"}
       </button>
     </div>

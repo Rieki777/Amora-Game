@@ -167,7 +167,7 @@ export default function TypographyPanel({ password }: { password: string }) {
       <button
         onClick={() => save(theme)}
         disabled={saving}
-        className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50"
+        className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50"
       >
         {saving ? "Saving..." : "Save typography"}
       </button>
@@ -197,7 +197,7 @@ export default function TypographyPanel({ password }: { password: string }) {
           <button
             onClick={upload}
             disabled={uploading}
-            className="px-3 py-2 bg-white border border-gray-200 text-[#2D5A5A] rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            className="px-3 py-2 bg-white border border-gray-200 text-teal-deep rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
           >
             {uploading ? "Uploading..." : "Upload & activate"}
           </button>

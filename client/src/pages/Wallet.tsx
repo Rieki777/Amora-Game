@@ -211,7 +211,7 @@ export default function Wallet() {
                         className="w-16 text-sm border border-border rounded-lg px-2 py-1.5"
                       />
                       <button onClick={() => buy(l.slug)}
-                        className="inline-flex items-center gap-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-2 font-medium">
+                        className="inline-flex items-center gap-1.5 text-sm bg-teal-deep text-white rounded-lg px-3 py-2 font-medium">
                         <CreditCard className="w-3.5 h-3.5" /> Buy
                       </button>
                     </div>

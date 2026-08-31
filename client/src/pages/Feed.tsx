@@ -146,7 +146,7 @@ export default function Feed() {
               <div className="flex items-center justify-between">
                 {error ? <p className="text-xs text-red-600">{error}</p> : <span />}
                 <button onClick={post} disabled={!draft.trim()}
-                  className="inline-flex items-center gap-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                  className="inline-flex items-center gap-1.5 text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                   <Send className="w-3.5 h-3.5" /> Post
                 </button>
               </div>
@@ -167,8 +167,8 @@ export default function Feed() {
                   aria-pressed={kind === f.v}
                   className={`text-xs rounded-full px-3 py-1.5 border transition-colors ${
                     kind === f.v
-                      ? "bg-[#2D5A5A] text-white border-[#2D5A5A]"
-                      : "bg-white text-muted-foreground border-border hover:border-[#2D5A5A]/40"
+                      ? "bg-teal-deep text-white border-teal-deep"
+                      : "bg-white text-muted-foreground border-border hover:border-teal-deep/40"
                   }`}
                 >
                   {f.label}
@@ -298,7 +298,7 @@ export default function Feed() {
               <button
                 onClick={loadMore}
                 disabled={loadingMore}
-                className="text-sm text-[#2D5A5A] border border-border rounded-lg px-4 py-2 hover:bg-[#2D5A5A]/5 disabled:opacity-40"
+                className="text-sm text-teal-deep border border-border rounded-lg px-4 py-2 hover:bg-teal-deep/5 disabled:opacity-40"
               >
                 {loadingMore ? "Looking further back…" : "Show older"}
               </button>

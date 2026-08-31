@@ -41,11 +41,11 @@ function refusalText(d: any, fallback: string): string {
 
 const card = "border border-gray-200 rounded-xl px-4 py-4 bg-white";
 const btn =
-  "min-h-[44px] px-3 text-sm rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A] disabled:opacity-40";
+  "min-h-[44px] px-3 text-sm rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-deep disabled:opacity-40";
 const primary =
-  "min-h-[44px] px-4 text-sm rounded-lg bg-[#2D5A5A] text-white font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#2D5A5A] disabled:opacity-40";
+  "min-h-[44px] px-4 text-sm rounded-lg bg-teal-deep text-white font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-teal-deep disabled:opacity-40";
 const input =
-  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]";
+  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-teal-deep";
 
 const LISTENER_TONE: Record<string, string> = {
   hub: "bg-emerald-50 border-emerald-200 text-emerald-900",

@@ -147,7 +147,7 @@ export default function ExitPolicy() {
                   placeholder="What happened, in your own words…"
                   className="w-full text-sm border border-border rounded-lg px-3 py-2" />
                 <button onClick={sendIntake} disabled={!intake.trim()}
-                  className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                  className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                   Send privately
                 </button>
               </div>

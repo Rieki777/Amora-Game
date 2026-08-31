@@ -53,6 +53,10 @@ function ChartContainer({
         data-slot="chart"
         data-chart={chartId}
         className={cn(
+          // theme-ok: the #ccc/#fff inside [stroke='...'] are attribute SELECTORS
+          // matching recharts' own hardcoded default SVG strokes, so this rule can
+          // override them with the token classes after the colon — no colour here
+          // is applied by us, and nothing renders these hex values.
           "[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border flex aspect-video justify-center text-xs [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
           className
         )}

@@ -203,8 +203,8 @@ function ForumModerationTab({ password }: { password: string }) {
             aria-pressed={status === s}
             className={`text-sm rounded-lg px-3 py-1.5 border capitalize transition-colors ${
               status === s
-                ? "bg-[#2D5A5A] text-white border-[#2D5A5A]"
-                : "bg-white text-gray-600 border-gray-200 hover:border-[#2D5A5A]/40"
+                ? "bg-teal-deep text-white border-teal-deep"
+                : "bg-white text-gray-600 border-gray-200 hover:border-teal-deep/40"
             }`}
           >
             {s}
@@ -246,7 +246,7 @@ function ForumModerationTab({ password }: { password: string }) {
                 href={`/forum/${r.threadId}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-xs text-[#2D5A5A] border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50"
+                className="text-xs text-teal-deep border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50"
               >
                 Read it
               </a>
@@ -283,7 +283,7 @@ function ForumModerationTab({ password }: { password: string }) {
                   <button
                     disabled={busy === r.id}
                     onClick={() => act(`${API_BASE}/admin/forum/reports/${r.id}`, { status: "resolved" }, "Marked handled", r.id)}
-                    className="text-xs text-[#2D5A5A] border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-40"
+                    className="text-xs text-teal-deep border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-40"
                   >
                     Handled
                   </button>
@@ -373,8 +373,8 @@ function MessageReportsTab({ password }: { password: string }) {
             aria-pressed={status === s}
             className={`text-sm rounded-lg px-3 py-1.5 border capitalize transition-colors ${
               status === s
-                ? "bg-[#2D5A5A] text-white border-[#2D5A5A]"
-                : "bg-white text-gray-600 border-gray-200 hover:border-[#2D5A5A]/40"
+                ? "bg-teal-deep text-white border-teal-deep"
+                : "bg-white text-gray-600 border-gray-200 hover:border-teal-deep/40"
             }`}
           >
             {s}
@@ -429,7 +429,7 @@ function MessageReportsTab({ password }: { password: string }) {
                   <button
                     disabled={busy === r.id}
                     onClick={() => void resolve(r.id, "resolved", "Marked handled")}
-                    className="text-xs text-[#2D5A5A] border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-40"
+                    className="text-xs text-teal-deep border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-40"
                   >
                     Handled
                   </button>
@@ -767,7 +767,7 @@ function AdminNav({
           aria-expanded={open}
           aria-label={open ? "Collapse menu" : "Expand menu"}
           title={open ? "Collapse menu" : "Expand menu"}
-          className={`flex items-center gap-2 mb-2 py-2.5 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-[#2D5A5A] transition-colors ${
+          className={`flex items-center gap-2 mb-2 py-2.5 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-teal-deep transition-colors ${
             open ? "w-full px-4" : "w-full justify-center px-0"
           }`}
         >
@@ -810,7 +810,7 @@ function AdminNav({
                     open ? "gap-3 px-4 py-2.5" : "justify-center px-0 py-3"
                   } ${
                     active
-                      ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-r-2 border-[#2D5A5A]"
+                      ? "bg-teal-deep/10 text-teal-deep border-r-2 border-teal-deep"
                       : "text-gray-600 hover:bg-gray-50"
                   }`}
                 >
@@ -902,7 +902,7 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
 
   if (loading || isAdmin) {
     return (
-      <div className="min-h-screen bg-[#2D5A5A] flex items-center justify-center">
+      <div className="min-h-screen bg-teal-deep flex items-center justify-center">
         <BreathingLoader label="Opening the admin" size={56} />
       </div>
     );
@@ -910,7 +910,7 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
 
   if (user && !isAdmin) {
     return (
-      <div className="min-h-screen bg-[#2D5A5A] flex items-center justify-center px-4">
+      <div className="min-h-screen bg-teal-deep flex items-center justify-center px-4">
         <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-sm text-center">
           <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-6">
             <Lock className="w-7 h-7 text-red-500" />
@@ -923,7 +923,7 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
           </p>
           <button
             onClick={() => logout()}
-            className="w-full py-3 bg-[#2D5A5A] text-white rounded-lg font-medium hover:bg-[#2D5A5A]/90 transition-colors"
+            className="w-full py-3 bg-teal-deep text-white rounded-lg font-medium hover:bg-teal-deep/90 transition-colors"
           >
             Sign out and switch accounts
           </button>
@@ -933,10 +933,10 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#2D5A5A] flex items-center justify-center px-4">
+    <div className="min-h-screen bg-teal-deep flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-sm">
-        <div className="w-14 h-14 rounded-full bg-[#2D5A5A]/10 flex items-center justify-center mx-auto mb-6">
-          <Lock className="w-7 h-7 text-[#2D5A5A]" />
+        <div className="w-14 h-14 rounded-full bg-teal-deep/10 flex items-center justify-center mx-auto mb-6">
+          <Lock className="w-7 h-7 text-teal-deep" />
         </div>
         <h1 className="font-display text-2xl font-bold text-center text-gray-900 mb-2">
           Amora Admin
@@ -960,7 +960,7 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
             aria-label="Email"
             autoComplete="username"
             autoFocus
-            className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+            className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
           />
           <div className="relative">
             <input
@@ -970,7 +970,7 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
               placeholder="Password"
               aria-label="Password"
               autoComplete="current-password"
-              className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+              className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
             />
             {/*
               * The eye stays a 16px icon and the thing a thumb hits becomes
@@ -991,7 +991,7 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
           <button
             type="submit"
             disabled={checking}
-            className="w-full py-3 bg-[#2D5A5A] text-white rounded-lg font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-60 transition-colors"
+            className="w-full py-3 bg-teal-deep text-white rounded-lg font-medium hover:bg-teal-deep/90 disabled:opacity-60 transition-colors"
           >
             {checking ? "Signing in..." : "Sign in"}
           </button>
@@ -1075,7 +1075,7 @@ function SubmissionsTab({ password }: { password: string }) {
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
           >
             <option value="all">All types</option>
             {FORM_TYPES.map((t) => (
@@ -1104,7 +1104,7 @@ function SubmissionsTab({ password }: { password: string }) {
                 className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
               >
                 <div className="flex items-center gap-3 flex-wrap">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#2D5A5A]/10 text-[#2D5A5A]">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-deep/10 text-teal-deep">
                     {prettyType(s.type)}
                   </span>
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[s.status ?? "new"] ?? STATUS_STYLE.new}`}>
@@ -1161,7 +1161,7 @@ function SubmissionsTab({ password }: { password: string }) {
                           </td>
                           <td className="py-1.5 text-gray-800 whitespace-pre-wrap">
                             {k === "attachment" && v ? (
-                              <a href={`${API_BASE}/uploads/${v}`} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] underline">
+                              <a href={`${API_BASE}/uploads/${v}`} target="_blank" rel="noopener noreferrer" className="text-teal-deep underline">
                                 {s.data.attachmentName || String(v)}
                               </a>
                             ) : Array.isArray(v) ? (
@@ -1316,7 +1316,7 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
           <button
             onClick={save}
             disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 disabled:opacity-50 transition-colors"
           >
             <Save className="w-4 h-4" />
             {saving ? "Saving..." : saved ? "Saved!" : "Save Changes"}
@@ -1381,13 +1381,13 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
                             // to the end — you can never actually add a line.
                             // Blanks are trimmed once, on save, not on keypress.
                             onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value.split("\n"); })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none"
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 resize-none"
                           />
                         ) : kind === "select" ? (
                           <select
                             value={String(card[key] ?? (options?.[0] ?? ""))}
                             onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value; })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 bg-white"
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 bg-white"
                           >
                             {(options ?? []).map((o) => (
                               <option key={o} value={o}>
@@ -1400,14 +1400,14 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
                             rows={2}
                             value={String(card[key] ?? "")}
                             onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value; })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none"
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 resize-none"
                           />
                         ) : (
                           <input
                             type="text"
                             value={String(card[key] ?? "")}
                             onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value; })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
                           />
                         )}
                       </div>
@@ -1419,7 +1419,7 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
                 onClick={() => mutateCards((a) => a.push(
                   { name: "New team member", role: "", circle: "", photo: "", bio: "" },
                 ))}
-                className="text-sm text-[#2D5A5A] font-medium hover:underline"
+                className="text-sm text-teal-deep font-medium hover:underline"
               >
                 + Add a team member
               </button>
@@ -1444,7 +1444,7 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
               onChange={(e) => { setRaw(e.target.value); setParseError(""); }}
               rows={isCards ? 12 : 28}
               spellCheck={false}
-              className="w-full px-4 py-3 text-xs font-mono border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 bg-gray-900 text-green-300 resize-none"
+              className="w-full px-4 py-3 text-xs font-mono border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-deep/40 bg-gray-900 text-green-300 resize-none"
             />
           </div>
         </>
@@ -1483,7 +1483,7 @@ function EmailField({ label, value, onChange, hint }: {
         inputMode="email"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
         placeholder="one@example.org, two@example.org"
       />
       <p className="text-xs text-gray-400 mt-1">{hint} Several people? Separate addresses with commas.</p>
@@ -1545,7 +1545,7 @@ function EmailSettingsTab({ password, openIntegrations }: { password: string; op
         <button
           onClick={save}
           disabled={saving || loading}
-          className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 disabled:opacity-50 transition-colors"
         >
           <Save className="w-4 h-4" /> {saving ? "Saving..." : "Save"}
         </button>
@@ -1583,7 +1583,7 @@ function EmailSettingsTab({ password, openIntegrations }: { password: string; op
           <div className="border-t border-gray-100 pt-5">
             <p className="text-sm text-gray-600">
               API keys (Resend, Anthropic, Stripe) moved to{" "}
-              <button onClick={openIntegrations} className="text-[#2D5A5A] font-medium hover:underline">
+              <button onClick={openIntegrations} className="text-teal-deep font-medium hover:underline">
                 Integrations
               </button>,{" "}
               one place for every third-party connection, and keys never travel
@@ -1665,7 +1665,7 @@ function IntegrationsTab({ password }: { password: string }) {
       {loading && !data ? <div className="text-center py-12 text-gray-400">Loading…</div> : (
         <div className="space-y-5 max-w-2xl">
           {/* The one value that flows the OTHER way: what to paste into Stripe. */}
-          <div className="bg-[#2D5A5A]/5 border border-[#2D5A5A]/20 rounded-xl p-4">
+          <div className="bg-teal-deep/5 border border-teal-deep/20 rounded-xl p-4">
             <p className="text-sm font-medium text-gray-900 mb-1">Your Stripe webhook URL</p>
             <code className="text-xs bg-white border border-gray-200 rounded px-2 py-1 block overflow-x-auto">
               {data?.stripeWebhookUrl}
@@ -1740,12 +1740,12 @@ function IntegrationsTab({ password }: { password: string }) {
                       value={drafts[c.key] ?? ""}
                       onChange={(e) => setDrafts((p) => ({ ...p, [c.key]: e.target.value }))}
                       placeholder={s?.configured ? `Replace key (${c.placeholder})` : c.placeholder}
-                      className="flex-1 min-w-[220px] px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+                      className="flex-1 min-w-[220px] px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
                     />
                     <button
                       onClick={() => put(c.key, drafts[c.key] ?? "")}
                       disabled={busy === c.key || !(drafts[c.key] ?? "").trim()}
-                      className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+                      className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
                     >
                       Save
                     </button>
@@ -1771,7 +1771,7 @@ function IntegrationsTab({ password }: { password: string }) {
                 {c.support?.party === "vendor" && (
                   <p className="text-xs text-gray-400 mt-2">
                     Supported by {c.support.vendorName}:{" "}
-                    <a href={c.support.supportUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">{c.support.supportUrl}</a>
+                    <a href={c.support.supportUrl} target="_blank" rel="noopener noreferrer" className="text-teal-deep hover:underline">{c.support.supportUrl}</a>
                     {c.support.supportEmail ? ` · ${c.support.supportEmail}` : ""}
                   </p>
                 )}
@@ -1783,7 +1783,7 @@ function IntegrationsTab({ password }: { password: string }) {
                     {c.billingUrl && (
                       <>
                         {" · "}
-                        <a href={c.billingUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Pricing ↗</a>
+                        <a href={c.billingUrl} target="_blank" rel="noopener noreferrer" className="text-teal-deep hover:underline">Pricing ↗</a>
                       </>
                     )}
                   </p>
@@ -1969,7 +1969,7 @@ function InvestorVaultTab({ password }: { password: string }) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Investor Memo"
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
             />
           </div>
         </div>
@@ -1980,13 +1980,13 @@ function InvestorVaultTab({ password }: { password: string }) {
             value={pageLink}
             onChange={(e) => setPageLink(e.target.value)}
             placeholder="/master-plan"
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
           />
         </div>
         <button
           type="submit"
           disabled={uploading || !file}
-          className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 disabled:opacity-50 transition-colors"
         >
           <Upload className="w-4 h-4" /> {uploading ? "Uploading..." : "Upload"}
         </button>
@@ -2009,7 +2009,7 @@ function InvestorVaultTab({ password }: { password: string }) {
                     href={d.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-medium text-gray-900 hover:text-[#2D5A5A]"
+                    className="font-medium text-gray-900 hover:text-teal-deep"
                   >
                     {d.title}
                   </a>
@@ -2018,7 +2018,7 @@ function InvestorVaultTab({ password }: { password: string }) {
                       href={d.pageLink}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs bg-[#2D5A5A]/10 text-[#2D5A5A] px-2 py-0.5 rounded-full"
+                      className="inline-flex items-center gap-1 text-xs bg-teal-deep/10 text-teal-deep px-2 py-0.5 rounded-full"
                     >
                       {d.pageLink} <ExternalLink className="w-3 h-3" />
                     </a>
@@ -2034,9 +2034,9 @@ function InvestorVaultTab({ password }: { password: string }) {
                   type="checkbox"
                   checked={d.inPacket}
                   onChange={(e) => setInPacket(d.id, e.target.checked)}
-                  className="w-4 h-4 accent-[#2D5A5A] cursor-pointer"
+                  className="w-4 h-4 accent-teal-deep cursor-pointer"
                 />
-                <span className={`text-xs font-medium ${d.inPacket ? "text-[#2D5A5A]" : "text-gray-400"}`}>
+                <span className={`text-xs font-medium ${d.inPacket ? "text-teal-deep" : "text-gray-400"}`}>
                   {d.inPacket ? "In the packet" : "Private"}
                 </span>
               </label>
@@ -2255,7 +2255,7 @@ function UploadedFilesTab({ password }: { password: string }) {
                   <button
                     onClick={() => setArmed(true)}
                     disabled={busy || !report.complete}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 disabled:opacity-50 transition-colors"
                   >
                     <Trash2 className="w-4 h-4" /> Remove these {orphans.length} file(s)
                   </button>
@@ -2391,7 +2391,7 @@ function TrainingModulesTab({ password }: { password: string }) {
             type="text"
             value={draft.title ?? ""}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
           />
         </div>
         <div>
@@ -2399,7 +2399,7 @@ function TrainingModulesTab({ password }: { password: string }) {
           <select
             value={draft.type ?? "Video"}
             onChange={(e) => setDraft({ ...draft, type: e.target.value })}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
           >
             {TRAINING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
@@ -2411,7 +2411,7 @@ function TrainingModulesTab({ password }: { password: string }) {
           value={draft.description ?? ""}
           rows={2}
           onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-none"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 resize-none"
         />
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -2422,7 +2422,7 @@ function TrainingModulesTab({ password }: { password: string }) {
             value={draft.url ?? ""}
             onChange={(e) => setDraft({ ...draft, url: e.target.value })}
             placeholder="https://..."
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
           />
         </div>
         <div>
@@ -2431,14 +2431,14 @@ function TrainingModulesTab({ password }: { password: string }) {
             type="number"
             value={draft.order ?? 0}
             onChange={(e) => setDraft({ ...draft, order: parseInt(e.target.value) || 0 })}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
           />
         </div>
       </div>
       <div className="flex gap-2">
         <button
           onClick={save}
-          className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 transition-colors"
         >
           <Save className="w-4 h-4" /> Save
         </button>
@@ -2464,7 +2464,7 @@ function TrainingModulesTab({ password }: { password: string }) {
         {editingId === null && (
           <button
             onClick={startNew}
-            className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 transition-colors"
+            className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 transition-colors"
           >
             Add Module
           </button>
@@ -2485,7 +2485,7 @@ function TrainingModulesTab({ password }: { password: string }) {
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-bold text-gray-400 w-6">#{m.order}</span>
                   <span className="font-medium text-gray-900 truncate">{m.title}</span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[#2D5A5A]/10 text-[#2D5A5A]">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-teal-deep/10 text-teal-deep">
                     {m.type}
                   </span>
                 </div>
@@ -2628,7 +2628,7 @@ function FaqAdminTab({ password }: { password: string }) {
             onClick={() => setPathway(p.id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
               pathway === p.id
-                ? "border-[#2D5A5A] text-[#2D5A5A]"
+                ? "border-teal-deep text-teal-deep"
                 : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
           >
@@ -2643,18 +2643,18 @@ function FaqAdminTab({ password }: { password: string }) {
           value={newQ}
           onChange={(e) => setNewQ(e.target.value)}
           placeholder="Question"
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
         />
         <textarea
           value={newA}
           onChange={(e) => setNewA(e.target.value)}
           placeholder="Answer"
           rows={3}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-y"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 resize-y"
         />
         <button
           onClick={add}
-          className="flex items-center gap-2 px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 transition-colors"
         >
           <Plus className="w-4 h-4" /> Add Question
         </button>
@@ -2674,16 +2674,16 @@ function FaqAdminTab({ password }: { password: string }) {
                     type="text"
                     value={editDraft.question}
                     onChange={(e) => setEditDraft({ ...editDraft, question: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
                   />
                   <textarea
                     value={editDraft.answer}
                     onChange={(e) => setEditDraft({ ...editDraft, answer: e.target.value })}
                     rows={3}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40 resize-y"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 resize-y"
                   />
                   <div className="flex gap-2">
-                    <button onClick={saveEdit} className="px-3 py-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg">Save</button>
+                    <button onClick={saveEdit} className="px-3 py-1.5 text-sm bg-teal-deep text-white rounded-lg">Save</button>
                     <button onClick={() => setEditingId(null)} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
                   </div>
                 </div>
@@ -2834,7 +2834,7 @@ function MilestonesAdminTab({ password }: { password: string }) {
           <p className="text-sm text-gray-500 mt-1">Edit the Build Progress tracker shown on the homepage.</p>
         </div>
         {!adding && (
-          <button onClick={() => setAdding(true)} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90">
+          <button onClick={() => setAdding(true)} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90">
             Add Milestone
           </button>
         )}
@@ -2883,7 +2883,7 @@ function MilestonesAdminTab({ password }: { password: string }) {
             <option value="future">Future</option>
           </select>
           <div className="flex gap-2">
-            <button onClick={add} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm">Add</button>
+            <button onClick={add} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm">Add</button>
             <button onClick={() => setAdding(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
           </div>
         </div>
@@ -2906,14 +2906,14 @@ function MilestonesAdminTab({ password }: { password: string }) {
                           value={m.title}
                           onChange={(e) => setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, title: e.target.value } : x))}
                           onBlur={(e) => update(m.id, { title: e.target.value })}
-                          className="w-full font-semibold text-gray-900 px-2 py-1 border border-transparent hover:border-gray-200 rounded focus:border-[#2D5A5A]/40 focus:outline-none"
+                          className="w-full font-semibold text-gray-900 px-2 py-1 border border-transparent hover:border-gray-200 rounded focus:border-teal-deep/40 focus:outline-none"
                         />
                         <textarea
                           value={m.description}
                           onChange={(e) => setItems((prev) => prev.map((x) => x.id === m.id ? { ...x, description: e.target.value } : x))}
                           onBlur={(e) => update(m.id, { description: e.target.value })}
                           rows={2}
-                          className="w-full text-sm text-gray-600 px-2 py-1 border border-transparent hover:border-gray-200 rounded focus:border-[#2D5A5A]/40 focus:outline-none resize-y mt-1"
+                          className="w-full text-sm text-gray-600 px-2 py-1 border border-transparent hover:border-gray-200 rounded focus:border-teal-deep/40 focus:outline-none resize-y mt-1"
                         />
                       </div>
                       <button onClick={() => remove(m.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg shrink-0">
@@ -3046,7 +3046,7 @@ function VisitAdminTab({ password }: { password: string }) {
           <h2 className="text-xl font-bold text-gray-900">Visit Program</h2>
           <p className="text-sm text-gray-500 mt-1">Controls the /visit page.</p>
         </div>
-        <button onClick={save} disabled={saving || loading} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50">
+        <button onClick={save} disabled={saving || loading} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 disabled:opacity-50">
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
@@ -3165,7 +3165,7 @@ function InvestorSummaryAdminTab({ password }: { password: string }) {
           <h2 className="text-xl font-bold text-gray-900">Investor Financial Summary</h2>
           <p className="text-sm text-gray-500 mt-1">Plain-language summary shown on /investor.</p>
         </div>
-        <button onClick={save} disabled={saving || loading} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium hover:bg-[#2D5A5A]/90 disabled:opacity-50">
+        <button onClick={save} disabled={saving || loading} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 disabled:opacity-50">
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
@@ -3280,7 +3280,7 @@ function QuestClaimsTab({ password }: { password: string }) {
                   <p className="text-sm text-gray-600 mb-1">{c.questTitle}</p>
                   {c.note && <p className="text-sm text-gray-500 italic mb-1">"{c.note}"</p>}
                   {c.artifactUrl && (
-                    <a href={c.artifactUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-[#2D5A5A] underline break-all">
+                    <a href={c.artifactUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-teal-deep underline break-all">
                       {c.artifactUrl}
                     </a>
                   )}
@@ -3292,7 +3292,7 @@ function QuestClaimsTab({ password }: { password: string }) {
                       onChange={(e) => setAmounts({ ...amounts, [c.id]: parseInt(e.target.value) || 0 })}
                       className="w-24 px-2 py-1.5 text-sm border border-gray-200 rounded-lg"
                     />
-                    <button onClick={() => consent(c.id, true)} className="px-3 py-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg">
+                    <button onClick={() => consent(c.id, true)} className="px-3 py-1.5 text-sm bg-teal-deep text-white rounded-lg">
                       Consent + credit
                     </button>
                     <button onClick={() => consent(c.id, false)} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
@@ -3420,7 +3420,7 @@ function QuestsTab({ password }: { password: string }) {
                 load();
               }
             }}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+            className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium"
           >
             Post quest
           </button>
@@ -3574,7 +3574,7 @@ function QuestsTab({ password }: { password: string }) {
                       }, "PUT");
                       if (r) { toast.success("Saved"); setDraft({ ...draft, [q.id]: undefined }); load(); }
                     }}
-                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+                    className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
                   >
                     Save
                   </button>
@@ -3722,7 +3722,7 @@ function PlayersTab({ password }: { password: string }) {
               <span className={`text-xs px-2 py-1 rounded-full font-medium border ${ROLE_STYLE[p.role] ?? ROLE_STYLE.member}`}>
                 {p.role}
               </span>
-              <span className="text-xs bg-[#2D5A5A]/10 text-[#2D5A5A] px-2 py-1 rounded-full font-medium">
+              <span className="text-xs bg-teal-deep/10 text-teal-deep px-2 py-1 rounded-full font-medium">
                 {stages.find((s) => s.id === p.stageComputed)?.name ?? p.stageComputed}
               </span>
               <span className="text-xs text-gray-500">{p.balance} earned</span>
@@ -4043,7 +4043,7 @@ function GameRolesTab({ password }: { password: string }) {
                     </span>
                   )}
                   {(r.capabilities ?? []).map((c: string) => (
-                    <span key={c} className="text-xs bg-[#2D5A5A]/10 text-[#2D5A5A] px-2 py-0.5 rounded-full font-mono">
+                    <span key={c} className="text-xs bg-teal-deep/10 text-teal-deep px-2 py-0.5 rounded-full font-mono">
                       {c}
                     </span>
                   ))}
@@ -4081,7 +4081,7 @@ function GameRolesTab({ password }: { password: string }) {
                 <button
                   onClick={() => picking[r.id] && change(r.id, picking[r.id], "add")}
                   disabled={!picking[r.id]}
-                  className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                  className="text-xs bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
                 >
                   Appoint
                 </button>
@@ -4303,7 +4303,7 @@ function ModulesTab({ password }: { password: string }) {
    */
   const SELECT =
     "text-base min-h-[44px] flex-1 min-w-[45%] sm:text-xs sm:min-h-0 sm:flex-none sm:min-w-0 " +
-    "border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40";
+    "border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-deep/40";
   const PILL = "ml-2 text-[10px] px-1.5 py-0.5 rounded-full";
 
   return (
@@ -4379,7 +4379,7 @@ function ModulesTab({ password }: { password: string }) {
             </div>
           )}
 
-          <div className="border border-[#2D5A5A]/30 bg-[#2D5A5A]/5 rounded-xl p-5">
+          <div className="border border-teal-deep/30 bg-teal-deep/5 rounded-xl p-5">
             <h3 className="font-semibold text-gray-900 mb-1">Hypha integration</h3>
             <p className="text-xs text-gray-600 mb-3">
               All governance, voting, and equity live on your Hypha DHO; modules link
@@ -4390,7 +4390,7 @@ function ModulesTab({ password }: { password: string }) {
               <div className="flex flex-wrap gap-2">
                 {Object.entries(data.hypha.links).map(([name, url]) => (
                   <a key={name} href={String(url)} target="_blank" rel="noopener noreferrer"
-                    className="text-xs bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-[#2D5A5A] font-medium hover:bg-gray-50">
+                    className="text-xs bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-teal-deep font-medium hover:bg-gray-50">
                     {name} ↗
                   </a>
                 ))}
@@ -4408,7 +4408,7 @@ function ModulesTab({ password }: { password: string }) {
               controls below: 16px text and a 44px target on a phone, dropping
               to the compact sizes on a pointer device, and the link is
               underlined at rest because a phone has no hover. */}
-          <div className="border border-[#2D5A5A]/30 bg-white rounded-xl p-5">
+          <div className="border border-teal-deep/30 bg-white rounded-xl p-5">
             <h3 className="font-semibold text-gray-900 mb-1">Start building modules. Start here.</h3>
             <p className="text-sm sm:text-xs text-gray-600 leading-relaxed">
               Anyone can build a module for this platform. One guide covers all of it: what to read,
@@ -4430,7 +4430,7 @@ function ModulesTab({ password }: { password: string }) {
               href={BUILDER_GUIDE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center mt-3 text-base sm:text-xs font-medium text-[#2D5A5A] underline min-h-[44px] sm:min-h-0 pr-3"
+              className="inline-flex items-center mt-3 text-base sm:text-xs font-medium text-teal-deep underline min-h-[44px] sm:min-h-0 pr-3"
             >
               Open the builder guide ↗
             </a>
@@ -4449,7 +4449,7 @@ function ModulesTab({ password }: { password: string }) {
                  four labelled selects leaves the one control that does the most
                  work unnamed. */
               aria-label="Search the catalog"
-              className="w-full sm:flex-1 sm:w-auto sm:min-w-[200px] px-3 py-2 text-base min-h-[44px] sm:text-sm sm:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/40"
+              className="w-full sm:flex-1 sm:w-auto sm:min-w-[200px] px-3 py-2 text-base min-h-[44px] sm:text-sm sm:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
             />
             {tiers.length > 1 && (
               <select value={tierFilter} onChange={(e) => setTierFilter(e.target.value)} className={SELECT} aria-label="Filter by tier">
@@ -4483,7 +4483,7 @@ function ModulesTab({ password }: { password: string }) {
               {visible.length} of {all.length}
             </span>
             {filtered && (
-              <button onClick={clearFilters} className="text-sm sm:text-xs font-medium text-[#2D5A5A] underline min-h-[44px] sm:min-h-0 px-2">
+              <button onClick={clearFilters} className="text-sm sm:text-xs font-medium text-teal-deep underline min-h-[44px] sm:min-h-0 px-2">
                 Clear
               </button>
             )}
@@ -4559,7 +4559,7 @@ function ModulesTab({ password }: { password: string }) {
                     {m.support?.party === "vendor" && (
                       <p className="text-xs text-gray-600 mt-1.5">
                         built and supported by {m.support.vendorName}, and you hold the account.{" "}
-                        <a href={m.support.supportUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Support</a>
+                        <a href={m.support.supportUrl} target="_blank" rel="noopener noreferrer" className="text-teal-deep hover:underline">Support</a>
                       </p>
                     )}
                     {m.tier === "managed" && (
@@ -4601,7 +4601,7 @@ function ModulesTab({ password }: { password: string }) {
                     <button
                       onClick={() => setOpenId(openId === m.id ? null : m.id)}
                       aria-expanded={openId === m.id}
-                      className="text-sm sm:text-xs font-medium text-[#2D5A5A] underline mt-2 min-h-[44px] sm:min-h-0 pr-3"
+                      className="text-sm sm:text-xs font-medium text-teal-deep underline mt-2 min-h-[44px] sm:min-h-0 pr-3"
                     >
                       {openId === m.id ? "Hide details" : "Details"}
                     </button>
@@ -4609,7 +4609,7 @@ function ModulesTab({ password }: { password: string }) {
                         whole pitch. Same page members browse (L1). */}
                     <Link
                       href={`/modules/${m.id}`}
-                      className="text-sm sm:text-xs font-medium text-[#2D5A5A] underline mt-2 min-h-[44px] sm:min-h-0 pr-3 inline-flex items-center"
+                      className="text-sm sm:text-xs font-medium text-teal-deep underline mt-2 min-h-[44px] sm:min-h-0 pr-3 inline-flex items-center"
                     >
                       Library page
                     </Link>
@@ -4651,7 +4651,7 @@ function ModulesTab({ password }: { password: string }) {
                             title={barred ? `Withdrawn on ${m.withdrawn.since}. It cannot be turned on.` : LIFECYCLE_HINT[lc]}
                             className={`px-3 py-1.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 text-xs font-medium transition-colors ${
                               m.lifecycle === lc
-                                ? "bg-[#2D5A5A] text-white"
+                                ? "bg-teal-deep text-white"
                                 : "bg-white text-gray-600 hover:bg-gray-50"
                             } ${barred ? "opacity-40 cursor-not-allowed" : ""} ${lc !== "off" ? "sm:border-l sm:border-gray-200" : ""}`}
                           >
@@ -4711,7 +4711,7 @@ function ModulesTab({ password }: { password: string }) {
                             : "This listing adds no charge of its own."}
                         </p>
                         {m.pricing.billingUrl && (
-                          <a href={m.pricing.billingUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">
+                          <a href={m.pricing.billingUrl} target="_blank" rel="noopener noreferrer" className="text-teal-deep hover:underline">
                             Pricing and billing ↗
                           </a>
                         )}
@@ -4729,10 +4729,10 @@ function ModulesTab({ password }: { password: string }) {
                       <div className="grid gap-1">
                         <p className="font-medium text-gray-700">{m.vendor.legalName}</p>
                         <div className="flex flex-wrap gap-x-4 gap-y-1">
-                          <a href={m.vendor.url} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Product ↗</a>
-                          <a href={m.vendor.termsUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Terms ↗</a>
-                          <a href={m.vendor.statusUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Status ↗</a>
-                          <a href={m.vendor.supportUrl} target="_blank" rel="noopener noreferrer" className="text-[#2D5A5A] hover:underline">Support ↗</a>
+                          <a href={m.vendor.url} target="_blank" rel="noopener noreferrer" className="text-teal-deep hover:underline">Product ↗</a>
+                          <a href={m.vendor.termsUrl} target="_blank" rel="noopener noreferrer" className="text-teal-deep hover:underline">Terms ↗</a>
+                          <a href={m.vendor.statusUrl} target="_blank" rel="noopener noreferrer" className="text-teal-deep hover:underline">Status ↗</a>
+                          <a href={m.vendor.supportUrl} target="_blank" rel="noopener noreferrer" className="text-teal-deep hover:underline">Support ↗</a>
                           <span className="text-gray-500">{m.vendor.supportEmail}</span>
                         </div>
                         <p className="text-gray-500">
@@ -4972,7 +4972,7 @@ function VillageBrainTab({ password }: { password: string }) {
                 // button is live, promises an action, and posts a confirm
                 // against a row that does not exist yet.
                 disabled={busy === s.id || !body.trim() || (!dirty && s.status === "confirmed")}
-                className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                className="text-xs bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
               >
                 {busy === s.id ? "Saving" : s.status === "confirmed" ? "Save" : "Save and confirm"}
               </button>
@@ -5143,7 +5143,7 @@ function DraftQueueTab({ password }: { password: string }) {
               <button
                 onClick={() => decide(d.id, true)}
                 disabled={busy === d.id}
-                className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                className="text-xs bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
               >
                 {esc.length && ticked.length < esc.length ? "Accept without the unticked" : "Accept"}
               </button>
@@ -5347,7 +5347,7 @@ function OrgChartTab({ password }: { password: string }) {
                     </label>
                     <button
                       disabled={!cDirty || !!c.isExample}
-                      className="mt-2 text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+                      className="mt-2 text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-teal-deep"
                       onClick={async () => {
                         const ok = await call(`/admin/circles/${c.id}`, { name: cd.name, purpose: cd.purpose, status: cd.status }, "PUT");
                         if (ok) { toast.success("Circle saved"); setCircleDraft({ ...circleDraft, [c.id]: undefined }); void load(); }
@@ -5473,7 +5473,7 @@ function OrgChartTab({ password }: { password: string }) {
                               <button
                                 type="button"
                                 aria-label={`End ${h.name}'s holding of ${r.name}`}
-                                className="ml-1 min-h-[44px] min-w-[44px] px-2 rounded-full text-gray-600 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+                                className="ml-1 min-h-[44px] min-w-[44px] px-2 rounded-full text-gray-600 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-teal-deep"
                                 onClick={async () => {
                                   const reason = window.prompt(`End ${h.name}'s holding of "${r.name}"? They stay in the record and can be seated again. Reason for the journal (optional):`);
                                   if (reason === null) return;
@@ -5512,7 +5512,7 @@ function OrgChartTab({ password }: { password: string }) {
                           </select>
                         </label>
                         <button
-                          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-2 font-medium disabled:opacity-40"
+                          className="text-sm bg-teal-deep text-white rounded-lg px-3 py-2 font-medium disabled:opacity-40"
                           disabled={!adding[r.id]}
                           onClick={async () => {
                             const ok = await call(`/admin/org/roles/${r.id}/holders`, { userId: adding[r.id] });
@@ -5572,7 +5572,7 @@ function OrgChartTab({ password }: { password: string }) {
                       onChange={(e) => setNewSeat({ ...newSeat, [c.id]: e.target.value })} />
                   </label>
                   <button
-                    className="text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+                    className="text-sm border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-teal-deep"
                     disabled={!String(newSeat[c.id] ?? "").trim()}
                     onClick={async () => {
                       const ok = await call("/admin/org/roles", { name: String(newSeat[c.id]).trim(), circleId: c.id, seats: 1 });
@@ -5705,7 +5705,7 @@ function SeasonPatternsTab({ password }: { password: string }) {
         <div className="flex flex-wrap gap-2 mb-3">
           {(data.patterns ?? []).map((p: any) => (
             <span key={p.id} className={`text-sm rounded-full px-3 py-1 border ${
-              p.id === data.currentPatternId ? "bg-[#2D5A5A] text-white border-transparent" : "border-gray-200 text-gray-600"}`}>
+              p.id === data.currentPatternId ? "bg-teal-deep text-white border-transparent" : "border-gray-200 text-gray-600"}`}>
               {p.name}{p.id === data.currentPatternId && " · running now"}
             </span>
           ))}
@@ -5718,7 +5718,7 @@ function SeasonPatternsTab({ password }: { password: string }) {
           </label>
           <button disabled={!newName.trim() || busy}
             onClick={async () => { const made = await call("/admin/seasons/patterns", { name: newName }); if (made) setNewName(""); void load(); }}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Create</button>
+            className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Create</button>
         </div>
         <p className="text-xs text-gray-400 mt-2">
           A shape becomes a season's by setting its id on the season itself, in Admin, Season.
@@ -5761,7 +5761,7 @@ function SeasonPatternsTab({ password }: { password: string }) {
           {plan && plan.changes?.length > 0 && plan.blocked?.length === 0 && (
             <button disabled={busy}
               onClick={async () => { const r = await call("/admin/seasons/roll", { apply: true }); if (r?.applied !== undefined) { toast.success(`${r.applied} change(s) applied`); setPlan(null); void load(); } }}
-              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Apply</button>
+              className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium">Apply</button>
           )}
         </div>
         {plan && (
@@ -5813,7 +5813,7 @@ function SeasonPatternsTab({ password }: { password: string }) {
                 <p className="text-sm font-medium text-gray-900">{o.name}</p>
                 <p className="text-xs text-gray-600">{o.reading}</p>
                 <p className="text-xs text-gray-400 mt-0.5">{o.meaning}</p>
-                <p className="text-[11px] text-[#2D5A5A] mt-1">{String(o.action).replace(/_/g, " ")}</p>
+                <p className="text-[11px] text-teal-deep mt-1">{String(o.action).replace(/_/g, " ")}</p>
               </div>
             ))}
             {retro.proposed?.drop?.length > 0 && (
@@ -5950,7 +5950,7 @@ function CirclesMapTab({ password }: { password: string }) {
                     placeholder="add alias…"
                     className="text-[11px] border border-gray-200 rounded px-1.5 py-0.5 w-28"
                   />
-                  <button onClick={() => addAlias(c)} className="text-[11px] text-[#2D5A5A] font-medium">add</button>
+                  <button onClick={() => addAlias(c)} className="text-[11px] text-teal-deep font-medium">add</button>
                 </div>
               </div>
             ))}
@@ -5960,7 +5960,7 @@ function CirclesMapTab({ password }: { password: string }) {
               <input value={newCircle.purpose} onChange={(e) => setNewCircle({ ...newCircle, purpose: e.target.value })}
                 placeholder="Purpose" className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 flex-1 min-w-40" />
               <button onClick={createCircle} disabled={!newCircle.name}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40">Create</button>
+                className="text-sm bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40">Create</button>
             </div>
           </div>
 
@@ -6194,7 +6194,7 @@ function ToolsAdminTab({ password }: { password: string }) {
                     <td className="px-4 py-2.5 text-right whitespace-nowrap">
                       <button onClick={() => move(t.id, -1)} disabled={i === 0} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1">↑</button>
                       <button onClick={() => move(t.id, 1)} disabled={i === (data?.tools ?? []).length - 1} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1">↓</button>
-                      <button onClick={() => { setEditingId(t.id); setForm({ ...EMPTY_TOOL, ...t }); }} className="text-xs text-[#2D5A5A] font-medium px-2">Edit</button>
+                      <button onClick={() => { setEditingId(t.id); setForm({ ...EMPTY_TOOL, ...t }); }} className="text-xs text-teal-deep font-medium px-2">Edit</button>
                       <button onClick={() => remove(t.id)} className="text-xs text-red-500 px-1">Remove</button>
                     </td>
                   </tr>
@@ -6255,7 +6255,7 @@ function ToolsAdminTab({ password }: { password: string }) {
             </div>
             <div className="flex gap-2 mt-3">
               <button onClick={save} disabled={!form.name || !form.purpose || !form.url || !form.category}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                 {editingId ? "Save changes" : "Add tool"}
               </button>
               {editingId && (
@@ -6438,7 +6438,7 @@ function StaysAdminTab({ password }: { password: string }) {
         </p>
         <button
           onClick={async () => { const d = await post("/admin/stays/post-nights"); if (d) { toast.success(`${d.posted} night(s) posted across ${d.swept} stay(s)`); load(); } }}
-          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+          className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium"
         >
           Post nights now
         </button>
@@ -6528,7 +6528,7 @@ function StaysAdminTab({ password }: { password: string }) {
                   own room to clear the examples.
                 </p>
               ) : (
-                <button onClick={() => savePrices(a)} className="mt-2 text-sm text-[#2D5A5A] font-medium hover:underline">
+                <button onClick={() => savePrices(a)} className="mt-2 text-sm text-teal-deep font-medium hover:underline">
                   Post prices
                 </button>
               )}
@@ -6554,7 +6554,7 @@ function StaysAdminTab({ password }: { password: string }) {
               className={`${inputCls} w-full mt-1`}
             />
           </label>
-          <button onClick={addRoom} className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Add room</button>
+          <button onClick={addRoom} className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium">Add room</button>
         </div>
       </div>
 
@@ -6611,7 +6611,7 @@ function StaysAdminTab({ password }: { password: string }) {
                           ))}
                       </select>
                       <button onClick={async () => { const d = await post(`/admin/stays/${s.id}/activate`, { tokenType: activateToken[s.id] ?? "stay-credit" }); if (d) { toast.success(`Active at ${d.rateSnapshotCredits}/night (${d.audienceSnapshot})`); load(); } }}
-                        className="text-xs text-[#2D5A5A] font-medium hover:underline">
+                        className="text-xs text-teal-deep font-medium hover:underline">
                         {s.status === "active" ? "Re-rate" : "Activate"}
                       </button>
                       </>
@@ -6648,7 +6648,7 @@ function StaysAdminTab({ password }: { password: string }) {
               <input placeholder="Note" value={grant.note} onChange={(e) => setGrant({ ...grant, note: e.target.value })} className={`${inputCls} flex-1`} />
             </div>
             <button onClick={grantCredits} disabled={!grant.userId || !grant.credits}
-              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Apply</button>
+              className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Apply</button>
           </div>
         </div>
         <div className="bg-white border border-gray-100 rounded-xl p-5">
@@ -6668,7 +6668,7 @@ function StaysAdminTab({ password }: { password: string }) {
               <input type="number" step="0.01" placeholder="USD" value={manual.amountUsd} onChange={(e) => setManual({ ...manual, amountUsd: e.target.value })} className={`${inputCls} w-24`} />
             </div>
             <button onClick={recordManual} disabled={!manual.userId || !manual.accommodationId || !manual.nights}
-              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Record & grant</button>
+              className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">Record & grant</button>
           </div>
         </div>
       </div>
@@ -6722,7 +6722,7 @@ function StaysAdminTab({ password }: { password: string }) {
           <div key={s.id} className="flex items-center justify-between border-t border-gray-50 py-2 text-sm">
             <span><b>{s.user_name ?? s.user_id}</b>: {s.reason}</span>
             <button onClick={async () => { const d = await post(`/admin/payments/suspensions/${s.id}/lift`); if (d) { toast.success("Lifted"); load(); } }}
-              className="text-xs text-[#2D5A5A] font-medium hover:underline">Lift</button>
+              className="text-xs text-teal-deep font-medium hover:underline">Lift</button>
           </div>
         ))}
         {(payments?.suspensions ?? []).filter((s: any) => !s.lifted_at).length === 0 && (
@@ -6818,7 +6818,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
       {/* Gate B's switch. Internal trading is a decision each deployment makes
           for itself, so the caution card is read HERE, by the steward doing it,
           and the acceptance is version-stamped by the server. */}
-      <div className={`rounded-xl border p-5 ${data?.tradingEnabled ? "border-[#2D5A5A]/30 bg-[#2D5A5A]/5" : "border-gray-200 bg-gray-50"}`}>
+      <div className={`rounded-xl border p-5 ${data?.tradingEnabled ? "border-teal-deep/30 bg-teal-deep/5" : "border-gray-200 bg-gray-50"}`}>
         <h3 className="font-semibold text-gray-900 mb-1">
           Token-for-token swapping is {data?.tradingEnabled ? "ON" : "OFF"}
         </h3>
@@ -6884,7 +6884,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                 }, "PUT");
                 if (d) { toast.success("Swapping is on. Set caps per token below"); load(); }
               }}
-              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+              className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium"
             >
               Accept and open swapping
             </button>
@@ -6896,7 +6896,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
           changes what the token IS, so it opens like trading opened —
           read here, accepted by a named admin, stamped by the server. */}
       {data?.creditSale?.libraryOn && (
-        <div className={`rounded-xl border p-5 ${data.creditSale.open ? "border-[#2D5A5A]/30 bg-[#2D5A5A]/5" : "border-amber-200 bg-amber-50/50"}`}>
+        <div className={`rounded-xl border p-5 ${data.creditSale.open ? "border-teal-deep/30 bg-teal-deep/5" : "border-amber-200 bg-amber-50/50"}`}>
           <h3 className="font-semibold text-gray-900 mb-1">
             Selling library credits is {data.creditSale.open ? "OPEN" : "CLOSED"}
           </h3>
@@ -6949,7 +6949,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                   }, "PUT");
                   if (d) { toast.success("Credit sales open. List and price library-credit below"); load(); }
                 }}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+                className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium"
               >
                 Accept and open credit sales
               </button>
@@ -7003,7 +7003,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                           load();
                         }
                       }}
-                      className={`text-sm rounded-lg px-3 py-1.5 font-medium ${s?.purchasable ? "bg-gray-100 text-gray-600" : "bg-[#2D5A5A] text-white"}`}
+                      className={`text-sm rounded-lg px-3 py-1.5 font-medium ${s?.purchasable ? "bg-gray-100 text-gray-600" : "bg-teal-deep text-white"}`}
                     >
                       {s?.purchasable ? "Delist" : "List for purchase"}
                     </button>
@@ -7029,7 +7029,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                         });
                         if (d) { toast.success("Price posted"); setPriceForm((p) => ({ ...p, [t.slug]: {} })); load(); }
                       }}
-                      className="text-sm text-[#2D5A5A] font-medium hover:underline pb-2"
+                      className="text-sm text-teal-deep font-medium hover:underline pb-2"
                     >
                       Post price
                     </button>
@@ -7066,7 +7066,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                               // on a real token retires the example market.
                               if (d) { forgetExamplesCache("exchange"); toast.success(s?.swappable ? "Caps saved" : "Swapping opened"); load(); }
                             }}
-                            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium"
+                            className="text-sm bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium"
                           >
                             {s?.swappable ? "Save caps" : "Open swapping"}
                           </button>
@@ -7119,7 +7119,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
                                   const d = await call(`/admin/exchange/tokens/${t.slug}/resume`, { note: swapForm[t.slug]?.note ?? "" });
                                   if (d) { toast.success("Swapping resumed"); setSwapForm((p) => ({ ...p, [t.slug]: {} })); load(); }
                                 }}
-                                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium"
+                                className="text-sm bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium"
                               >
                                 Resume
                               </button>
@@ -7159,7 +7159,7 @@ function ExchangeAdminTab({ password }: { password: string }) {
               if (d) { toast.success(`Treasury now holds ${d.treasuryBalance}`); setStockForm({ tokenSlug: "", amount: "" }); load(); }
             }}
             disabled={!stockForm.tokenSlug || !stockForm.amount}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+            className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
           >
             Stock
           </button>
@@ -7310,7 +7310,7 @@ function BadgesAdminTab({ password }: { password: string }) {
         </div>
         <button
           onClick={async () => { const d = await call("/admin/badges/evaluate"); if (d) { toast.success(`${d.newTiers.length} new tier(s) across ${d.badgesEvaluated} earned badge(s)`); load(); } }}
-          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium"
+          className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium"
         >
           Evaluate earned badges
         </button>
@@ -7387,7 +7387,7 @@ function BadgesAdminTab({ password }: { password: string }) {
               <div className="flex flex-wrap gap-1.5">
                 {CAPS.map((c) => (
                   <button key={c} onClick={() => setForm({ ...form, capabilities: toggleIn(form.capabilities, c) })}
-                    className={`text-xs px-2 py-1 rounded-full border ${form.capabilities.includes(c) ? "bg-[#2D5A5A] text-white border-[#2D5A5A]" : "border-gray-200 text-gray-500"}`}>
+                    className={`text-xs px-2 py-1 rounded-full border ${form.capabilities.includes(c) ? "bg-teal-deep text-white border-teal-deep" : "border-gray-200 text-gray-500"}`}>
                     {c}
                   </button>
                 ))}
@@ -7414,7 +7414,7 @@ function BadgesAdminTab({ password }: { password: string }) {
             </div>
           )}
           <button onClick={createBadge} disabled={!form.name.trim()}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+            className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
             Create badge
           </button>
         </div>
@@ -7466,7 +7466,7 @@ function BadgesAdminTab({ password }: { password: string }) {
               if (d) { toast.success("Awarded"); setAward({ badgeId: "", userId: "", note: "", days: "" }); load(); }
             }}
             disabled={!award.badgeId || !award.userId}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+            className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
           >
             Award
           </button>
@@ -7629,14 +7629,14 @@ function LibraryAdminTab({ password }: { password: string }) {
             }
           }}
           disabled={!intake.name.trim() || !intake.donorUserId || !intake.appraisal}
-          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+          className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
         >
           Record intake
         </button>
         <div className="mt-3 flex items-end gap-2">
           <input placeholder="New category label" value={catLabel} onChange={(e) => setCatLabel(e.target.value)} className={inputCls} />
           <button onClick={async () => { const d = await call("/admin/library/categories", { label: catLabel }); if (d) { setCatLabel(""); load(); } }}
-            disabled={!catLabel.trim()} className="text-sm text-[#2D5A5A] font-medium hover:underline pb-2 disabled:opacity-40">
+            disabled={!catLabel.trim()} className="text-sm text-teal-deep font-medium hover:underline pb-2 disabled:opacity-40">
             Add category
           </button>
         </div>
@@ -7664,7 +7664,7 @@ function LibraryAdminTab({ password }: { password: string }) {
                   <td className="py-2 text-right space-x-2 whitespace-nowrap">
                     {i.status === "intake_pending" && (
                       <button onClick={async () => { const d = await call(`/admin/library/items/${i.id}/approve`); if (d) { toast.success(`Signed off: ${d.award} credit(s) awarded`); load(); } }}
-                        className="text-xs text-[#2D5A5A] font-medium hover:underline">Second sign-off</button>
+                        className="text-xs text-teal-deep font-medium hover:underline">Second sign-off</button>
                     )}
                     {i.status === "available" && (
                       <button onClick={async () => { if (!window.confirm("Write this item off the shelves?")) return; const d = await call(`/admin/library/items/${i.id}`, { status: "written_off" }, "PUT"); if (d) load(); }}
@@ -7693,7 +7693,7 @@ function LibraryAdminTab({ password }: { password: string }) {
                 <div className="flex items-center gap-2">
                   {l.status === "reserved" && (
                     <button onClick={async () => { const d = await call(`/admin/library/loans/${l.id}/pickup`); if (d) { toast.success(`Picked up. Due ${d.dueOn}`); load(); } }}
-                      className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium">Mark picked up</button>
+                      className="text-xs bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium">Mark picked up</button>
                   )}
                   <input type="number" min={0} placeholder="wear" value={settleDraft[l.id]?.wear ?? ""} title="Wear fee (blank = computed default)"
                     onChange={(e) => setSettleDraft((s) => ({ ...s, [l.id]: { ...(s[l.id] ?? {}), wear: e.target.value } }))} className={`${inputCls} w-16`} />
@@ -7847,7 +7847,7 @@ function HealthAdminTab({ password }: { password: string }) {
             <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={`${inputCls} w-full block mt-1`} />
           </label>
           <button onClick={record} disabled={!form.value}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+            className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
             Record
           </button>
         </div>
@@ -7910,7 +7910,7 @@ function StepListEditor({
     [next[i], next[j]] = [next[j], next[i]];
     onChange(next);
   };
-  const btn = "min-h-[44px] min-w-[44px] px-3 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A] disabled:opacity-40";
+  const btn = "min-h-[44px] min-w-[44px] px-3 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-deep disabled:opacity-40";
   // An HTML id may not contain whitespace, and the label is a sentence.
   const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return (
@@ -7923,7 +7923,7 @@ function StepListEditor({
             <span className="text-xs text-gray-400 mt-3 w-4 text-right shrink-0">{i + 1}.</span>
             <label className="sr-only" htmlFor={`step-${slug}-${i}`}>{`Step ${i + 1} of ${label}`}</label>
             <textarea id={`step-${slug}-${i}`} rows={2} value={s} onChange={(e) => set(i, e.target.value)}
-              className="flex-1 min-h-[44px] border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]" />
+              className="flex-1 min-h-[44px] border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-deep" />
             <div className="flex flex-col gap-1 shrink-0">
               <button type="button" className={btn} onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move step ${i + 1} up`}>Up</button>
               <button type="button" className={btn} onClick={() => move(i, 1)} disabled={i === steps.length - 1} aria-label={`Move step ${i + 1} down`}>Down</button>
@@ -7933,7 +7933,7 @@ function StepListEditor({
         ))}
       </ol>
       <button type="button" onClick={() => onChange([...steps, ""])}
-        className="mt-2 min-h-[44px] px-3 text-xs rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]">
+        className="mt-2 min-h-[44px] px-3 text-xs rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-deep">
         Add a step
       </button>
     </fieldset>
@@ -8068,7 +8068,7 @@ function ExitsAdminTab({ password }: { password: string }) {
               {!openExit ? (
                 <>
                   <button onClick={async () => { const d = await call("/admin/exits", { userId: selectedUser, kind: "voluntary" }); if (d) { toast.success("Exit opened"); load(); loadState(selectedUser); } }}
-                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Open exit</button>
+                    className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium">Open exit</button>
                   <button onClick={async () => { const note = window.prompt("Involuntary exits follow the published process. Note for the record:"); if (note === null) return; const d = await call("/admin/exits", { userId: selectedUser, kind: "involuntary", note }); if (d) { toast.success("Exit opened"); load(); loadState(selectedUser); } }}
                     className="text-sm border border-red-300 text-red-600 rounded-lg px-4 py-2 font-medium">Open involuntary…</button>
                 </>
@@ -8224,7 +8224,7 @@ function ExitsAdminTab({ password }: { password: string }) {
             <label className="text-xs text-gray-700 flex items-start gap-2">
               <input type="checkbox" checked={!policyDraft.placeholder} disabled={stale.length > 0}
                 onChange={(e) => setPolicyDraft({ ...policyDraft, placeholder: !e.target.checked })}
-                className="mt-0.5 w-5 h-5 shrink-0 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]" />
+                className="mt-0.5 w-5 h-5 shrink-0 focus:outline-none focus:ring-2 focus:ring-teal-deep" />
               <span>These terms were decided by the community, and the draft banner comes off /exit-policy.</span>
             </label>
             {stale.length > 0 && (
@@ -8238,7 +8238,7 @@ function ExitsAdminTab({ password }: { password: string }) {
           </div>
 
           <button onClick={async () => { const d = await call("/admin/exit-policy", policyDraft, "PUT"); if (d) { toast.success("Policy published"); load(); } }}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 min-h-[44px] font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#2D5A5A]">Publish policy</button>
+            className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 min-h-[44px] font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-teal-deep">Publish policy</button>
         </div>
         );
       })()}
@@ -8416,7 +8416,7 @@ function CallsAdminTab({ password }: { password: string }) {
                 );
               }
             }}
-            className="text-xs text-[#2D5A5A] font-medium hover:underline"
+            className="text-xs text-teal-deep font-medium hover:underline"
           >
             Copy
           </button>
@@ -8460,7 +8460,7 @@ function CallsAdminTab({ password }: { password: string }) {
               }
             }}
             disabled={!form.title.trim()}
-            className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+            className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
           >
             Ingest
           </button>
@@ -8473,7 +8473,7 @@ function CallsAdminTab({ password }: { password: string }) {
         <div className="space-y-1.5">
           {(data?.recordings ?? []).map((r: any) => (
             <button key={r.id} onClick={() => setSelected(selected === r.id ? "" : r.id)}
-              className={`w-full text-left flex items-center justify-between border rounded-lg px-4 py-2.5 text-sm ${selected === r.id ? "border-[#2D5A5A] bg-[#2D5A5A]/5" : "border-gray-200 hover:bg-gray-50"}`}>
+              className={`w-full text-left flex items-center justify-between border rounded-lg px-4 py-2.5 text-sm ${selected === r.id ? "border-teal-deep bg-teal-deep/5" : "border-gray-200 hover:bg-gray-50"}`}>
               <span className="font-medium text-gray-900">
                 {r.title} <span className="text-xs text-gray-400">({r.source})</span>
                 {flagged(r) && <ExampleChip className="ml-2 align-middle" />}
@@ -8497,11 +8497,11 @@ function CallsAdminTab({ password }: { password: string }) {
             </h3>
             {!exampleDetail && !detail.synthesis && detail.transcript && (
               <button onClick={async () => { const d = await call(`/admin/recordings/${detail.recording.id}/synthesize`); if (d) { toast.success(`${d.tasks} task(s) kept, ${d.dropped} dropped by the evidence rule`); load(); loadDetail(selected); } }}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Synthesize</button>
+                className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium">Synthesize</button>
             )}
             {!exampleDetail && detail.synthesis && !detail.synthesis.published_at && (
               <button onClick={async () => { const d = await call(`/admin/syntheses/${detail.synthesis.id}/publish`); if (d) { toast.success(`Published: ${d.notified} role-holder(s) notified`); load(); loadDetail(selected); } }}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">Publish to forum</button>
+                className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium">Publish to forum</button>
             )}
           </div>
 
@@ -8551,7 +8551,7 @@ function CallsAdminTab({ password }: { password: string }) {
                     className={`${inputCls} w-full`} />
                   {!detail.synthesis.published_at && !exampleDetail && (
                     <button onClick={async () => { const d = await call(`/admin/syntheses/${detail.synthesis.id}/body`, { body: bodyDraft }, "PUT"); if (d) { toast.success("Saved"); loadDetail(selected); } }}
-                      className="mt-1 text-sm text-[#2D5A5A] font-medium hover:underline">Save edit</button>
+                      className="mt-1 text-sm text-teal-deep font-medium hover:underline">Save edit</button>
                   )}
                 </div>
               </div>
@@ -8961,7 +8961,7 @@ function TokensTab({ password }: { password: string }) {
                             className="text-sm border border-gray-200 rounded-lg px-2 py-1 w-40"
                           />
                           <button onClick={rename} disabled={!renaming.name.trim()}
-                            className="text-xs bg-[#2D5A5A] text-white rounded-lg px-2 py-1 disabled:opacity-40">Save</button>
+                            className="text-xs bg-teal-deep text-white rounded-lg px-2 py-1 disabled:opacity-40">Save</button>
                           <button onClick={() => setRenaming(null)} className="text-xs text-gray-400">Cancel</button>
                         </span>
                       ) : (
@@ -8975,7 +8975,7 @@ function TokensTab({ password }: { password: string }) {
                               is the registry telling the founder a lie. */}
                           {t.governance === "platform" && !t.isExample && (
                             <button onClick={() => setRenaming({ slug: t.slug, name: t.name })}
-                              className="ml-2 text-xs text-[#2D5A5A] underline">rename</button>
+                              className="ml-2 text-xs text-teal-deep underline">rename</button>
                           )}
                         </>
                       )}
@@ -8984,7 +8984,7 @@ function TokensTab({ password }: { password: string }) {
                     <td className="px-4 py-2.5">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
                         t.governance === "platform"
-                          ? "bg-[#2D5A5A]/10 text-[#2D5A5A]"
+                          ? "bg-teal-deep/10 text-teal-deep"
                           : "bg-purple-50 text-purple-700 border border-purple-200"
                       }`}>
                         {t.governance === "platform" ? "platform" : "Hypha (read-only)"}
@@ -9003,7 +9003,7 @@ function TokensTab({ password }: { password: string }) {
                           aria-pressed={!!t.transferable}
                           className={`min-h-9 text-xs rounded-full px-3 py-1.5 border ${
                             t.transferable
-                              ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-[#2D5A5A]/30"
+                              ? "bg-teal-deep/10 text-teal-deep border-teal-deep/30"
                               : "bg-gray-100 text-gray-600 border-gray-300"
                           }`}
                         >
@@ -9023,7 +9023,7 @@ function TokensTab({ password }: { password: string }) {
                           aria-pressed={t.active !== false}
                           className={`min-h-9 text-xs rounded-full px-3 py-1.5 border ${
                             t.active !== false
-                              ? "bg-[#2D5A5A]/10 text-[#2D5A5A] border-[#2D5A5A]/30"
+                              ? "bg-teal-deep/10 text-teal-deep border-teal-deep/30"
                               : "bg-gray-100 text-gray-600 border-gray-300"
                           }`}
                         >
@@ -9074,7 +9074,7 @@ function TokensTab({ password }: { password: string }) {
                 members may send it
               </label>
               <button onClick={create} disabled={!form.slug || !form.name}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                 Create
               </button>
             </div>
@@ -9110,7 +9110,7 @@ function TokensTab({ password }: { password: string }) {
               <input value={mint.reason} onChange={(e) => setMint({ ...mint, reason: e.target.value })}
                 placeholder="Reason (required)" className="text-sm border border-gray-200 rounded-lg px-3 py-2 flex-1 min-w-48" />
               <button onClick={doMint} disabled={!mint.slug || !mint.toUserId || !mint.amount || !mint.reason.trim()}
-                className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                 Mint
               </button>
             </div>
@@ -9150,7 +9150,7 @@ function TokensTab({ password }: { password: string }) {
                     {g.status === "pending" && (
                       <div className="flex items-center gap-2">
                         <button onClick={() => signGrant(g.id)}
-                          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-2 font-medium">
+                          className="text-sm bg-teal-deep text-white rounded-lg px-3 py-2 font-medium">
                           Sign it
                         </button>
                         <button onClick={() => declineGrant(g.id)}
@@ -9424,7 +9424,7 @@ function CyclesTab({ password }: { password: string }) {
           </div>
 
           {confirming ? (
-            <div className="border-2 border-[#2D5A5A] rounded-xl p-4 bg-white">
+            <div className="border-2 border-teal-deep rounded-xl p-4 bg-white">
               <p className="font-semibold text-gray-900">Close what is due</p>
               <ul className="mt-2 space-y-1">
                 {intent.map((line, i) => (
@@ -9441,7 +9441,7 @@ function CyclesTab({ password }: { password: string }) {
                 <button
                   disabled={closing || blocked}
                   onClick={() => void settle()}
-                  className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 hover:bg-[#234747] disabled:opacity-40"
+                  className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 hover:bg-teal-deep-dark disabled:opacity-40"
                 >
                   {closing ? "Settling..." : "Yes, settle it"}
                 </button>
@@ -9463,7 +9463,7 @@ function CyclesTab({ password }: { password: string }) {
             <button
               onClick={() => { setOutcome(null); setConfirming(true); }}
               disabled={!pending}
-              className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 hover:bg-[#234747] disabled:opacity-40"
+              className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 hover:bg-teal-deep-dark disabled:opacity-40"
             >
               Close what is due
             </button>
@@ -9689,7 +9689,7 @@ function IntegrateDaoPanel({ password, onAssigned }: { password: string; onAssig
           type="button"
           onClick={find}
           disabled={busy || !tokenName.trim()}
-          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-1.5 font-medium disabled:opacity-40"
+          className="text-sm bg-teal-deep text-white rounded-lg px-4 py-1.5 font-medium disabled:opacity-40"
         >
           {busy ? "Searching…" : "Find on chain"}
         </button>
@@ -9701,10 +9701,10 @@ function IntegrateDaoPanel({ password, onAssigned }: { password: string; onAssig
             <code className="select-all">{result.token.contractAddress}</code>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => assign("tokens.equity_address", result.token.contractAddress)} className="text-[#2D5A5A] font-medium hover:underline">
+            <button type="button" onClick={() => assign("tokens.equity_address", result.token.contractAddress)} className="text-teal-deep font-medium hover:underline">
               Use as equity token
             </button>
-            <button type="button" onClick={() => assign("tokens.voice_address", result.token.contractAddress)} className="text-[#2D5A5A] font-medium hover:underline">
+            <button type="button" onClick={() => assign("tokens.voice_address", result.token.contractAddress)} className="text-teal-deep font-medium hover:underline">
               Use as voice token
             </button>
             <button
@@ -9814,7 +9814,7 @@ function VariablesTab({ password }: { password: string }) {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search dials: a word from the name, key or description"
             aria-label="Search game variables"
-            className="w-full border border-gray-200 rounded-xl pl-3 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]/30"
+            className="w-full border border-gray-200 rounded-xl pl-3 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-deep/30"
           />
           {search && (
             <button
@@ -9892,7 +9892,7 @@ function VariablesTab({ password }: { password: string }) {
                         <button
                           onClick={() => save(v.key, draft)}
                           disabled={!dirty || saving === v.key}
-                          className="text-xs bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                          className="text-xs bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
                         >
                           {saving === v.key ? "Saving…" : "Save"}
                         </button>
@@ -9989,7 +9989,7 @@ function SeasonTab({ password }: { password: string }) {
             whichever season covers today. Queue the next one and it hands over by itself.
           </p>
         </div>
-        <button onClick={save} disabled={saving} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50 shrink-0">
+        <button onClick={save} disabled={saving} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50 shrink-0">
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
@@ -10031,8 +10031,8 @@ function SeasonTab({ password }: { password: string }) {
           const isCurrent = cfg.currentId === s.id;
           const upcoming = s.startsOn > (cfg.today ?? "");
           return (
-            <div key={s.id} className={`border rounded-xl overflow-hidden ${isCurrent ? "border-[#2D5A5A]" : "border-gray-200"}`}>
-              <div className={`flex items-center justify-between px-4 py-2 text-xs font-semibold ${isCurrent ? "bg-[#2D5A5A]/10 text-[#2D5A5A]" : "bg-gray-50 text-gray-500"}`}>
+            <div key={s.id} className={`border rounded-xl overflow-hidden ${isCurrent ? "border-teal-deep" : "border-gray-200"}`}>
+              <div className={`flex items-center justify-between px-4 py-2 text-xs font-semibold ${isCurrent ? "bg-teal-deep/10 text-teal-deep" : "bg-gray-50 text-gray-500"}`}>
                 <span>{isCurrent ? "Running now" : upcoming ? "Upcoming" : "Past"}</span>
                 <button onClick={() => setSeasons(seasons.filter((_, idx) => idx !== i))} className="text-red-600 hover:text-red-700 font-medium">
                   Remove
@@ -10058,7 +10058,7 @@ function SeasonTab({ password }: { password: string }) {
                           type="checkbox"
                           checked={g.done}
                           onChange={(e) => update(i, { goals: s.goals.map((x, xi) => xi === gi ? { ...x, done: e.target.checked } : x) })}
-                          className="h-4 w-4 accent-[#2D5A5A] shrink-0"
+                          className="h-4 w-4 accent-teal-deep shrink-0"
                         />
                         <input
                           type="text"
@@ -10075,7 +10075,7 @@ function SeasonTab({ password }: { password: string }) {
                   </div>
                   <button
                     onClick={() => update(i, { goals: [...(s.goals ?? []), { text: "", done: false }] })}
-                    className="mt-2 inline-flex items-center gap-1 text-xs text-[#2D5A5A] font-medium hover:underline"
+                    className="mt-2 inline-flex items-center gap-1 text-xs text-teal-deep font-medium hover:underline"
                   >
                     <Plus className="w-3 h-3" /> Add goal
                   </button>
@@ -10165,7 +10165,7 @@ function BrandImageField({
         )}
       </div>
 
-      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2D5A5A] text-white text-xs font-medium cursor-pointer hover:opacity-90">
+      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-deep text-white text-xs font-medium cursor-pointer hover:opacity-90">
         <Upload className="w-3.5 h-3.5" />
         {value ? "Replace image" : "Upload image"}
         <input
@@ -10205,7 +10205,7 @@ function BrandImageField({
             value={alt}
             onChange={(e) => onAltChange(e.target.value)}
             placeholder="Describe what is in this picture"
-            className="w-full mt-1 px-3 py-2 min-h-[44px] text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]"
+            className="w-full mt-1 px-3 py-2 min-h-[44px] text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep"
           />
         </label>
       )}
@@ -10357,14 +10357,14 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
     <div className="border border-gray-200 rounded-xl overflow-hidden mb-4">
       <div className="flex items-center justify-between gap-3 bg-gray-50 px-5 py-3 border-b border-gray-100">
         <div className="flex items-center gap-3">
-          <span className="w-7 h-7 rounded-full bg-[#2D5A5A] text-white text-sm font-bold flex items-center justify-center">{n}</span>
+          <span className="w-7 h-7 rounded-full bg-teal-deep text-white text-sm font-bold flex items-center justify-center">{n}</span>
           <div>
             <h3 className="font-semibold text-gray-900 leading-tight">{title}</h3>
             <p className="text-xs text-gray-500">{subtitle}</p>
           </div>
         </div>
         <label className="flex items-center gap-2 text-xs font-medium text-gray-600 shrink-0 cursor-pointer">
-          <input type="checkbox" checked={!!brand.setup?.[id]} onChange={() => toggleStep(id)} className="h-4 w-4 accent-[#2D5A5A]" />
+          <input type="checkbox" checked={!!brand.setup?.[id]} onChange={() => toggleStep(id)} className="h-4 w-4 accent-teal-deep" />
           Done
         </label>
       </div>
@@ -10389,7 +10389,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         {!setupComplete ? (
           <div className="flex items-center gap-3 mt-4">
             <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden max-w-xs">
-              <div className="h-2 bg-[#2D5A5A] rounded-full transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+              <div className="h-2 bg-teal-deep rounded-full transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
             </div>
             <span className="text-sm text-gray-500">{doneCount} / {steps.length} steps</span>
           </div>
@@ -10415,7 +10415,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
           {brandField("project", "eventsUrl", "Events page URL (optional)", (defaults.project as any).eventsUrl ?? "")}
           {brandField("project", "footerBlurb", "Footer introduction (one sentence)", (defaults.project as any).footerBlurb ?? "")}
         </div>
-        <button onClick={() => saveBrand("identity", { project: brand.project, currency: brand.currency })} disabled={savingSection === "identity"} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+        <button onClick={() => saveBrand("identity", { project: brand.project, currency: brand.currency })} disabled={savingSection === "identity"} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
           {savingSection === "identity" ? "Saving..." : "Save identity"}
         </button>
         <p className="text-xs text-gray-400 mt-2">Instantly updates the game layer (profile, gratitude, season banner, pulse). Page marketing copy is edited under Content below.</p>
@@ -10437,7 +10437,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
             "A tab icon has no alt text. Browsers name the tab from the page title, so there is nothing here for a screen reader to read.",
           )}
         </div>
-        <button onClick={() => saveBrand("images", { images: brand.images })} disabled={savingSection === "images"} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+        <button onClick={() => saveBrand("images", { images: brand.images })} disabled={savingSection === "images"} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
           {savingSection === "images" ? "Saving..." : "Save pictures"}
         </button>
         <p className="text-xs text-gray-400 mt-2">The logo, footer mark and tab icon apply live, no deploy. Alt text ships with the pictures and is what a screen reader reads aloud in place of the image. Crawler-facing metadata (og:image, canonical URL) stays neutral in <code>client/index.html</code>; a fork that wants it adds it in its own fork.</p>
@@ -10454,7 +10454,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
           investor page and the master plan show. Every one of them ships blank. A blank figure
           means the page shows no figure at all, so your site only ever states what you stated.
         </p>
-        <button onClick={() => onOpenTab("settings")} className="px-4 py-2 bg-white border border-gray-200 text-[#2D5A5A] rounded-lg text-sm font-medium hover:bg-gray-50">
+        <button onClick={() => onOpenTab("settings")} className="px-4 py-2 bg-white border border-gray-200 text-teal-deep rounded-lg text-sm font-medium hover:bg-gray-50">
           Open Settings →
         </button>
       </Section>
@@ -10467,7 +10467,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
                 <div className="text-sm font-medium text-gray-900">{c.label}</div>
                 <div className="text-xs text-gray-500 truncate">{c.hint}</div>
               </div>
-              <button onClick={() => onOpenTab(c.tab)} className="shrink-0 px-3 py-1.5 text-xs font-medium text-[#2D5A5A] border border-gray-200 rounded-lg hover:bg-gray-50">
+              <button onClick={() => onOpenTab(c.tab)} className="shrink-0 px-3 py-1.5 text-xs font-medium text-teal-deep border border-gray-200 rounded-lg hover:bg-gray-50">
                 Open →
               </button>
             </div>
@@ -10588,7 +10588,7 @@ function SettingsTab({ password }: { password: string }) {
           <h2 className="text-xl font-bold text-gray-900">Settings</h2>
           <p className="text-sm text-gray-500 mt-1">The plain numbers on the site you can change any time, no code needed.</p>
         </div>
-        <button onClick={save} disabled={saving} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+        <button onClick={save} disabled={saving} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
@@ -10637,7 +10637,7 @@ function SettingsTab({ password }: { password: string }) {
           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y mb-3"
         />
         <div className="text-sm text-gray-500">
-          Preview on site: <span className="font-semibold text-[#2D5A5A]">{preview}</span>
+          Preview on site: <span className="font-semibold text-teal-deep">{preview}</span>
         </div>
       </div>
 
@@ -10721,7 +10721,7 @@ function WorkWithUsTab({ password }: { password: string }) {
           <h2 className="text-xl font-bold text-gray-900">Work With Us</h2>
           <p className="text-sm text-gray-500 mt-1">The intro, the reciprocity (exchange) options, and your AI guide's name and greeting.</p>
         </div>
-        <button onClick={save} disabled={saving} className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+        <button onClick={save} disabled={saving} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
@@ -10752,7 +10752,7 @@ function WorkWithUsTab({ password }: { password: string }) {
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-medium text-gray-700">Reciprocity (exchange) options</label>
-            <button onClick={addOpt} className="text-xs text-[#2D5A5A] font-medium hover:underline">+ Add option</button>
+            <button onClick={addOpt} className="text-xs text-teal-deep font-medium hover:underline">+ Add option</button>
           </div>
           <div className="space-y-3">
             {opts.map((o: any, i: number) => (
@@ -10887,7 +10887,7 @@ function ProductsAdminTab({ password }: { password: string }) {
                   }
                 }}
                 disabled={f.name.trim().length < 3}
-                className="col-span-2 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+                className="col-span-2 text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
               >
                 Create product
               </button>
@@ -10909,7 +10909,7 @@ function ProductsAdminTab({ password }: { password: string }) {
                   {o.status === "pending" && (
                     <button
                       onClick={async () => { if (await call(`/admin/products/purchases/${o.id}/confirm`, {})) { toast.success("Confirmed"); load(); } }}
-                      className="text-xs text-[#2D5A5A] font-medium hover:underline"
+                      className="text-xs text-teal-deep font-medium hover:underline"
                     >
                       Confirm received
                     </button>
@@ -11124,7 +11124,7 @@ export default function Admin() {
           top of every admin visit until a founder marks the village launched —
           then it retires itself. */}
       <LaunchBanner password={password} />
-      <header className="bg-[#2D5A5A] text-white px-6 py-4 flex items-center justify-between shadow-md">
+      <header className="bg-teal-deep text-white px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
             <Lock className="w-4 h-4" />

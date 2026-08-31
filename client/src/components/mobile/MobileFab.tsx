@@ -112,7 +112,7 @@ export default function MobileFab() {
       {/* Focus scrim, between the tab bar (z-50) and the FAB (z-[60]). */}
       <div
         aria-hidden="true"
-        className={`fixed inset-0 z-[55] md:hidden bg-[#062322]/45 transition-opacity duration-300 ${
+        className={`fixed inset-0 z-[55] md:hidden bg-black/45 transition-opacity duration-300 ${
           open ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         style={{ backdropFilter: open ? "blur(2px)" : undefined }}
@@ -147,10 +147,10 @@ export default function MobileFab() {
 
             const inner = (
               <>
-                <span className="select-none whitespace-nowrap rounded-xl border border-white/15 bg-[#0f4f4e]/95 px-3 py-1.5 text-[13px] font-semibold text-[#efe8d7] shadow-lg backdrop-blur-sm transition-colors group-hover/row:bg-[#157f7d] group-hover/row:text-white">
+                <span className="select-none whitespace-nowrap rounded-xl border border-white/15 bg-teal-band/95 px-3 py-1.5 text-[13px] font-semibold text-cream shadow-lg backdrop-blur-sm transition-colors group-hover/row:bg-teal-deep group-hover/row:text-white">
                   {a.label}
                 </span>
-                <span className="w-12 h-12 flex-shrink-0 rounded-full border border-[#7fb8ac]/60 bg-[#157f7d] text-[#efe8d7] flex items-center justify-center shadow-lg transition-transform duration-200 group-hover/row:scale-105 group-hover/row:border-[#7fb8ac] group-active/row:scale-95">
+                <span className="w-12 h-12 flex-shrink-0 rounded-full border border-teal/60 bg-teal-deep text-cream flex items-center justify-center shadow-lg transition-transform duration-200 group-hover/row:scale-105 group-hover/row:border-teal group-active/row:scale-95">
                   <a.Icon className="w-[18px] h-[18px]" />
                 </span>
               </>
@@ -205,7 +205,7 @@ export default function MobileFab() {
             open ? "scale-105" : ""
           }`}
           style={{
-            background: "linear-gradient(to top, #0f5f5e, #157f7d)",
+            background: "linear-gradient(to top, var(--tone-brand-band, #105e5d), var(--tone-brand, #157f7d))",
             boxShadow: open
               ? "0 0 0 4px rgba(236,177,99,0.45), 0 12px 32px rgba(0,0,0,0.4)"
               : "0 10px 24px rgba(0,0,0,0.35)",
@@ -219,9 +219,9 @@ export default function MobileFab() {
               scrim already carry the open state. */}
           <span className="flex items-center justify-center">
             {open ? (
-              <X className="w-7 h-7 text-[#efe8d7]" />
+              <X className="w-7 h-7 text-cream" />
             ) : (
-              <FabTriggerIcon className="w-7 h-7 text-[#efe8d7] drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)]" />
+              <FabTriggerIcon className="w-7 h-7 text-cream drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)]" />
             )}
           </span>
         </button>

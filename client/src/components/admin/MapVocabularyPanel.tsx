@@ -28,9 +28,9 @@ const authHeaders = (password: string, extra: Record<string, string> = {}) => ({
 });
 
 const inputCls =
-  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm min-h-[44px] w-full focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]";
+  "border border-gray-200 rounded-lg px-2 py-1.5 text-sm min-h-[44px] w-full focus:outline-none focus:ring-2 focus:ring-teal-deep";
 const btnCls =
-  "min-h-[44px] px-3 text-sm rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2D5A5A] disabled:opacity-40";
+  "min-h-[44px] px-3 text-sm rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-deep disabled:opacity-40";
 
 /** One word per line in, a trimmed list out. */
 const linesOf = (list: unknown): string =>
@@ -108,7 +108,7 @@ export default function MapVocabularyPanel({ password }: { password: string }) {
         <textarea rows={5} value={value} onChange={(e) => onChange(e.target.value)}
           aria-label={label}
           aria-describedby={hintId}
-          className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2D5A5A]" />
+          className="w-full mt-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-deep" />
         <span id={hintId} className="block text-[11px] text-gray-400 mt-0.5">{hint}</span>
       </label>
     );
@@ -166,7 +166,7 @@ export default function MapVocabularyPanel({ password }: { password: string }) {
       </p>
 
       <button type="button" onClick={save} disabled={saving}
-        className="mt-3 min-h-[44px] px-4 text-sm rounded-lg bg-[#2D5A5A] text-white font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#2D5A5A] disabled:opacity-40">
+        className="mt-3 min-h-[44px] px-4 text-sm rounded-lg bg-teal-deep text-white font-medium focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-teal-deep disabled:opacity-40">
         {saving ? "Saving…" : "Save the words"}
       </button>
     </div>

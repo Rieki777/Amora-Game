@@ -113,7 +113,7 @@ export default function SeatClaimCard() {
               <button
                 onClick={() => void claim(s)}
                 disabled={busy === s.assignmentId}
-                className="inline-flex items-center gap-1 text-sm bg-[#2D5A5A] text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
+                className="inline-flex items-center gap-1 text-sm bg-teal-deep text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-40"
               >
                 <Check className="w-4 h-4" /> That is me
               </button>

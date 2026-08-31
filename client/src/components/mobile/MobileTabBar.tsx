@@ -39,14 +39,14 @@ export default function MobileTabBar() {
 
   const bar = (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-t from-[#0f5f5e] to-[#157f7d] backdrop-blur-xl border-t border-white/15 shadow-[0_-10px_30px_-12px_rgba(0,0,0,0.45)]"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-t from-teal-band to-teal-deep backdrop-blur-xl border-t border-white/15 shadow-[0_-10px_30px_-12px_rgba(0,0,0,0.45)]"
       style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       aria-label="Bottom navigation"
     >
       {/* Seafoam accent hairline along the top edge */}
       <div
         className="absolute top-0 left-0 right-0 h-0.5 opacity-70"
-        style={{ background: "linear-gradient(to right, transparent, #7fb8ac, transparent)" }}
+        style={{ background: "linear-gradient(to right, transparent, var(--tone-brand-soft, #7fb8ac), transparent)" }}
       />
       <div className="grid grid-cols-[repeat(5,minmax(0,1fr))] h-16 items-stretch max-w-2xl mx-auto min-w-0">
         {TAB_SLOTS.map((slot) => {
@@ -59,7 +59,7 @@ export default function MobileTabBar() {
           const inner = (
             <>
               <span
-                className={`pointer-events-none absolute top-0 h-0.5 w-8 rounded-full bg-[#ecb163] transition-opacity duration-300 ${
+                className={`pointer-events-none absolute top-0 h-0.5 w-8 rounded-full bg-amber transition-opacity duration-300 ${
                   active ? "opacity-100" : "opacity-0"
                 }`}
               />

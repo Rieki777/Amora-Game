@@ -1,0 +1,19 @@
+{
+  "totalLiterals": 162,
+  "files": {
+    "client/src/components/CycleClock.tsx": 1,
+    "client/src/components/InfoTip.tsx": 5,
+    "client/src/components/ManusDialog.tsx": 7,
+    "client/src/components/calendar/YearWheel.tsx": 6,
+    "client/src/components/crowdpool/PoolPieces.tsx": 73,
+    "client/src/components/governance/QuorumField.tsx": 6,
+    "client/src/components/mobile/MobileFab.tsx": 3,
+    "client/src/components/power/DecideLens.tsx": 10,
+    "client/src/components/power/Legend.tsx": 3,
+    "client/src/pages/Characters.tsx": 4,
+    "client/src/pages/CoCreatorsGuide.tsx": 8,
+    "client/src/pages/Crowdpool.tsx": 5,
+    "client/src/pages/CrowdpoolCampaign.tsx": 30,
+    "client/src/pages/VillageMap.tsx": 1
+  }
+}

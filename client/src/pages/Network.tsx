@@ -186,7 +186,7 @@ export default function Network() {
                   placeholder="How the network reaches your village about this (a shared inbox, not a personal one)"
                   className="w-full text-sm border border-border rounded-lg px-3 py-2" />
                 <button onClick={publish} disabled={busy === "publish" || form.title.trim().length < 4 || form.detail.trim().length < 10}
-                  className="inline-flex items-center gap-1.5 text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                  className="inline-flex items-center gap-1.5 text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                   {busy === "publish" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Publish
                 </button>
               </div>
@@ -278,7 +278,7 @@ export default function Network() {
                     placeholder="https://their-village.example"
                     className="flex-1 min-w-[220px] text-sm border border-border rounded-lg px-3 py-2" />
                   <button onClick={addPeerUrl} disabled={busy === "peer" || !peerUrl.trim()}
-                    className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+                    className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                     {busy === "peer" ? "Shaking hands…" : "Add"}
                   </button>
                 </div>

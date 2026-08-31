@@ -220,7 +220,7 @@ export default function SetupWalk({
               by construction. Visitors and peer villages read the same tier.
             </p>
             <div className="flex gap-2">
-              <a href="/admin" className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium">
+              <a href="/admin" className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium">
                 Open the setting in Admin
               </a>
               <button type="button" onClick={onClose} className="text-sm text-muted-foreground px-2">
@@ -296,7 +296,7 @@ function SeatStep({
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={busy} onClick={() => setPicking(true)} className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
+          <button type="button" disabled={busy} onClick={() => setPicking(true)} className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
             Assign somebody
           </button>
           <button type="button" disabled={busy} onClick={() => onOpenCall(seat.id)} className="text-sm bg-amber/90 text-teal-deep rounded-lg px-4 py-2 font-semibold disabled:opacity-40">
@@ -365,7 +365,7 @@ function CircleStep({
           type="button"
           disabled={busy || !method || (method === "other" && !gloss.trim())}
           onClick={() => onDeclare(circle.id, method, gloss)}
-          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+          className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
         >
           Declare it
         </button>
@@ -425,7 +425,7 @@ function ShapeStep({
           type="button"
           disabled={busy || !shape || (shape === "other" && !gloss.trim())}
           onClick={() => onDeclare(shape, gloss)}
-          className="text-sm bg-[#2D5A5A] text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
+          className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40"
         >
           Declare it
         </button>

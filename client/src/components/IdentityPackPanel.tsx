@@ -115,7 +115,7 @@ export default function IdentityPackPanel({ password }: { password: string }) {
       <div className="flex items-center gap-2 mb-3">
         <input ref={fileRef} type="file" accept="image/*" className="text-xs text-gray-600" />
         <button onClick={upload} disabled={uploading}
-          className="px-3 py-1.5 bg-white border border-gray-200 text-[#2D5A5A] rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
+          className="px-3 py-1.5 bg-white border border-gray-200 text-teal-deep rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
           {uploading ? "Uploading…" : "Add reference"}
         </button>
       </div>
@@ -130,7 +130,7 @@ export default function IdentityPackPanel({ password }: { password: string }) {
         <p className="text-xs text-gray-400 mb-3">Rights confirmed {String(pack.rightsAck.at).slice(0, 10)}.</p>
       )}
       <button onClick={save} disabled={saving}
-        className="px-4 py-2 bg-[#2D5A5A] text-white rounded-lg text-sm font-medium disabled:opacity-50">
+        className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
         {saving ? "Saving…" : "Save identity pack"}
       </button>
     </div>

@@ -327,7 +327,7 @@ function ConsentCard({
           type="checkbox"
           checked={consented}
           onChange={(e) => onChange(e.target.checked)}
-          className="mt-1 w-5 h-5 accent-[#2D5A5A]"
+          className="mt-1 w-5 h-5 accent-teal-deep"
         />
         <span className="text-sm text-foreground">{sentence}</span>
       </label>
@@ -465,7 +465,7 @@ function Compose({ onDone }: { onDone: (created: boolean) => void }) {
               onChange={() => setTier(t)}
               aria-label={t.charAt(0).toUpperCase() + t.slice(1)}
               aria-describedby={`tier-${t}-gloss`}
-              className="mt-1 accent-[#2D5A5A]"
+              className="mt-1 accent-teal-deep"
             />
             <span>
               <span className="font-semibold capitalize">{t}</span>
