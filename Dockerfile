@@ -147,6 +147,24 @@ FROM deps AS build
 ARG GIT_SHA=""
 ENV GITHUB_SHA=$GIT_SHA
 
+# The same fact, arriving under Railway's own name.
+#
+# .github/workflows/release.yml passes GIT_SHA explicitly, so the published
+# image always knows what it is. Railway does not: it builds this Dockerfile
+# itself, nothing sets GIT_SHA there, and the marker fell back to "dev" on the
+# first Docker deploy. That defeated the commit whose whole point was that the
+# marker can never lie, and the marker is load-bearing (FORK_RUNBOOK tells a
+# village to verify a deploy with it, and the feedback relay sends it upstream
+# as the identity of the deployment a bug came from).
+#
+# Railway exposes the commit as RAILWAY_GIT_COMMIT_SHA. Declaring the ARG is
+# what makes a service variable of that name reach the build; without the
+# declaration the value is dropped silently. scripts/build-server.mjs prefers
+# this over GITHUB_SHA and treats empty as absent, so if Railway does not pass
+# it the marker still reads an honest "dev" rather than guessing.
+ARG RAILWAY_GIT_COMMIT_SHA=""
+ENV RAILWAY_GIT_COMMIT_SHA=$RAILWAY_GIT_COMMIT_SHA
+
 COPY . .
 RUN pnpm run build
 
