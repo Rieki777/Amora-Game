@@ -47,7 +47,17 @@ export interface GratitudeLogRepo {
    * spendable total, so the two aggregates below deliberately differ.
    */
   spentInCycle(fromId: string, cycleId: string): Promise<number>;
-  /** How many of ONE kind have gone from one member to another this cycle. */
+  /**
+   * How many of ONE kind have gone from one member to another this cycle.
+   *
+   * NOT what `sendGratitude` decides against any more (ECON lane, S3): a bare
+   * pool query like this one cannot ride the SERIALIZABLE lock
+   * `writeGratitudeRow` (server/lib/economy.ts) holds while it writes, so a
+   * read through here and a write moments later is exactly the check-then-act
+   * race that let concurrent sends overspend the heart-tap cap. The guard
+   * inside `writeGratitudeRow` runs the same count on the LOCKED connection
+   * instead. This method stays for informational, non-deciding reads only.
+   */
   countPair(fromId: string, toId: string, cycleId: string, kind: string): Promise<number>;
   /**
    * How much GRATITUDE has gone from one member to another this cycle, across
@@ -55,6 +65,11 @@ export interface GratitudeLogRepo {
    * the allowance is one across the channels, so its aggregate has to be one
    * too: kind-filtering this would let a heart carry what an acknowledgment
    * was refused, which is the concentration the share exists to bound.
+   *
+   * NOT what either gratitude door decides against any more, for the same
+   * reason `countPair` above is not: see `writeGratitudeRow` in
+   * server/lib/economy.ts, which reads the identical running total on the
+   * SAME locked connection it writes through. Informational only from here.
    */
   sumPair(fromId: string, toId: string, cycleId: string): Promise<number>;
 }
