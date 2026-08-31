@@ -1426,3 +1426,44 @@ setting the key keeps working on its existing plaintext values. The follow-up
 release stops accepting them, and any entry not converted by then reads as
 absent with the environment variable taking over. Set the key before that
 follow-up.
+## Writing your own migration (2026-08-30, safety lane)
+
+Your village may add SQL migrations of its own. Number them **9000 and above**.
+
+That band is reserved for you and this repository promises never to take a number
+in it; `scripts/check-migration-numbers.mjs` fails upstream CI if it ever does.
+The reservation is not a formality. `server/db/migrate.ts` discovers migrations
+by filename, sorts them **by filename**, and records each applied file in
+`_migrations_applied` **by filename, with no checksum**. Two consequences follow,
+and both of them are quiet.
+
+- A file numbered `9001_...` sorts after every upstream number that will ever
+  exist, so your migration always runs last and always builds on a complete
+  upstream schema.
+- If instead you take the next free upstream number, say `0121`, the week we
+  ship our own `0121` you have two files on one number. If the descriptions
+  differ, both run, in the alphabetical order of the descriptions. If the
+  descriptions match, the pull overwrites your file, your database already has
+  that filename recorded as applied, and **our version never runs on your
+  instance and nothing tells you.** Every migration after it then assumes a
+  schema you do not have.
+
+Run the check yourself before you commit one:
+
+```
+node scripts/check-migration-numbers.mjs --village
+```
+
+`--village` (or `VILLAGE_LOCAL_MIGRATIONS=1` in your CI) is what tells it that a
+9000+ file is expected here rather than an upstream mistake. It still refuses
+two files on one number.
+
+**Never edit a migration file that has already run**, ours or your own. The
+ledger holds only the filename, so the edited body will never be applied on the
+instance that ran it. Fix forward with a new file.
+
+**And when you write one, expand rather than contract**, for the same reason we
+do: adding a column is safe to roll back over, dropping one is not. The full
+rule, with the table of what is safe to land and what is not, is in `CLAUDE.md`
+under "Writing a migration", and `node scripts/check-migration-compat.mjs`
+enforces it.

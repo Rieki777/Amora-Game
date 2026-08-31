@@ -61,6 +61,18 @@ jobs:
       TEST_DATABASE_URL: mysql://root:ci-test@127.0.0.1:3306/mysql
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The two migration guards below both ask "what did the PREVIOUS
+          # release have?", and answer it from git. The default here is
+          # `fetch-depth: 1`, a single commit with no remote-tracking refs, so
+          # `origin/main` does not resolve and neither guard can run at all.
+          #
+          # Both are written to go RED rather than skip when they cannot
+          # resolve a base, so the shallow default would have failed the job
+          # loudly rather than passing it quietly. That is the right polarity
+          # and it is still not a reason to leave the fetch shallow: a gate
+          # that is red for a reason nobody can fix gets deleted.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         # version comes from package.json "packageManager" — one source of truth
@@ -90,6 +102,101 @@ jobs:
         # one that is not. Delete node_modules/typescript/tsbuildinfo before
         # trusting a local result.
         run: npx tsc -p tsconfig.tests.json --noEmit
+
+      - name: Migration numbers
+        # Two migrations may not share a number, and no upstream migration may
+        # take a number a village was promised.
+        #
+        # It has already gone wrong three times here and a person caught it
+        # every time. `git log --all` at 052d042 shows 0062, 0063 and 0090 each
+        # carrying two different files; two of those pairs were added on main;
+        # the fix is its own commit, d0e09b9, "Renumber 0062-0065 to 0063-0066,
+        # around a collision on main". Reviewer attention worked with one
+        # deployment. It does not survive thirteen founder instances pulling
+        # one image, because nobody is reading when a container boots.
+        #
+        # The runner sorts and records BY FILENAME with no checksum. Two files
+        # on one number therefore run in the alphabetical order of their
+        # DESCRIPTIONS, and two files with the same NAME are worse and silent:
+        # the instance that already ran the old one has that name in
+        # _migrations_applied, so the new body never runs and nothing says so.
+        #
+        # First, before the typecheck-adjacent guards, because it reads
+        # filenames and git and needs neither node_modules nor a database.
+        #
+        # Watched RED five ways before wiring: a duplicate number, a filename
+        # the runner's own discovery regex would skip, a file in the 9000+
+        # village band, a burned gap number reused with no duplicate, and an
+        # unresolvable base ref. The last one is the point of it: "did not run"
+        # exits 1 and says so rather than printing the same line as "found
+        # nothing".
+        run: node scripts/check-migration-numbers.mjs
+
+      - name: Migration compatibility (expand, never contract)
+        # The gate above asks whether a migration can be TOLD APART from
+        # another one. This asks whether landing it leaves the fleet
+        # recoverable.
+        #
+        # Migrations are applied at boot, fail loud, by server/db/migrate.ts.
+        # There is no separate migrate step and no approval: the container
+        # starts and the founder's village is on the new schema whether or not
+        # the new code works. When it does not, the only lever is to put the
+        # previous image back, and that lever only works if the previous
+        # release can still read and write the schema the migration produced.
+        #
+        # Four phases, each with its own count in the log so none can go
+        # missing behind another one's success: git-only immutability of
+        # shipped files, a scan for destructive statements that leave no schema
+        # difference to find, the new migrations run against SEEDED ROWS on the
+        # MySQL service above, and an information_schema contract diff.
+        #
+        # Phase 3 is the one that earns the runner time. The historical LPAD
+        # collapse (LPAD truncates as well as pads, so a rename put two ids on
+        # one value) passes reading, passes the destructive scan because it
+        # carries a WHERE, and changes no column, type or constraint, so the
+        # contract diff sees nothing at all. Against seeded rows it fails with
+        # "Duplicate entry 'comp' for key 'PRIMARY'". Against empty tables the
+        # identical file exits 0. Watched both ways.
+        #
+        # It needs the database, so it sits after the typechecks rather than
+        # with the file-reading guards. A push with no new migration finishes
+        # in under a second and says so; one with a new migration spends about
+        # twenty five seconds replaying the previous release's schema once.
+        #
+        # New migrations plus no TEST_DATABASE_URL exits 1 rather than
+        # skipping. The script's own header states in full what it cannot see,
+        # so nobody rebuilds a bigger version believing the bigger version was
+        # untried: meaning, the forward direction, the previous release's
+        # actual code, triggers, collation, and a village's own migrations.
+        run: node scripts/check-migration-compat.mjs
+
+      - name: Guard regression test, brand refs
+        # THE GUARDS BELOW HAVE SELF-TESTS AND NOTHING HAS EVER RUN THEM.
+        #
+        # Filed by the gates lane and wired here because ci.yml has one owner.
+        # Verified independently before wiring: vitest.config.ts includes
+        # `server/**/*.test.ts`, `shared/**/*.test.ts` and `client/**/*.test.ts`
+        # and nothing under `scripts/`, and none of these files end in `.ts`
+        # anyway, so `pnpm test` cannot see them by two separate rules.
+        # module-intake.yml cannot carry them either: it is path-gated on
+        # shared/modules.ts and its friends, and none of those paths cover the
+        # classifier or the scanner themselves.
+        #
+        # So a guard could have been regressed into uselessness and its own test
+        # would have gone on passing in a file nobody executed. That is the
+        # vacuous-pass shape the rest of this workflow exists to refuse, sitting
+        # inside the guards' own test suite.
+        #
+        # Plain node, no database, sub-second each. All three measured green at
+        # 2524da7 before wiring, so this starts from a known state rather than
+        # from a hope.
+        run: node scripts/check-brand-refs.test.mjs
+
+      - name: Guard regression test, contribution scan
+        run: node scripts/contribution-scan.test.mjs
+
+      - name: Guard regression test, intake classifier
+        run: node scripts/intake-classify.test.mjs
 
       - name: Brand guard
         # S56: platform code carries no village's brand (invariant 2.1 #2).
@@ -322,6 +429,22 @@ jobs:
         #
         # Before the build, same reason as the artifact budget above.
         run: node scripts/check-image-budget.mjs
+
+      - name: Theme literals
+        # A ratchet on hard-coded colour literals in the client, filed by the
+        # tokens lane and wired here because ci.yml has one owner. Same shape
+        # and same neighbourhood as the two budgets above: dependency-free, no
+        # database, may only burn down. Baseline in
+        # scripts/theme-literals-baseline.json, and --update-baseline refuses
+        # to write a total above the one already committed.
+        #
+        # scripts/check-theme-literals.mjs AND its baseline live on
+        # `wt/s2-tokens` and are NOT on the safety branch, so this step is red
+        # here on purpose and goes green the moment the two branches are on
+        # main together. It is wired hard rather than guarded with a "skip if
+        # missing", because a step that quietly does nothing when its script is
+        # absent is exactly the failure the rest of this file exists to stop.
+        run: node scripts/check-theme-literals.mjs
 
       - name: Build
         run: pnpm build
