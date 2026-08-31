@@ -1,14 +1,17 @@
 /**
  * A member's own LLM key, encrypted at rest (round 4, lane L6).
  *
- * The village secrets store (`secrets.ts`) is plaintext JSON in app_config,
- * masked on read, by a deliberate 2026-07-27 choice: those keys belong to the
- * village and its operator can already read the database. A MEMBER's key is a
- * different thing. It is a third party's credential that one person typed for
- * their own use, and an operator reading the table should not be able to spend
- * it. So this file is the one place in the platform that encrypts, and it is
- * asymmetric with the village store on purpose. Report the asymmetry; do not
- * "fix" it by weakening this side.
+ * A MEMBER's key is a third party's credential that one person typed for their
+ * own use, and an operator reading the table should not be able to spend it.
+ *
+ * This file used to say it was the one place in the platform that encrypts,
+ * and that its asymmetry with the plaintext village store was deliberate. That
+ * stopped being true on 2026-08-30: `secrets.ts` now seals the village's
+ * integration credentials too, under its own `VILLAGE_SECRETS_KEY`, because
+ * the database backup started leaving the deployment. The cipher both use is
+ * `sealedBox.ts`, extracted from this file unchanged rather than copied, so
+ * the two stores cannot drift into two different ideas of what sealing means.
+ * Separate keys, one implementation.
  *
  * AES-256-GCM under MEMBER_SECRETS_KEY, 32 bytes hex, set at provisioning.
  * ABSENT MEANS REFUSE. `AUTH_TOKEN_SECRET` shows why a per-process fallback
@@ -22,9 +25,11 @@
  * Nothing in this file logs, returns or persists a plaintext. `open` is
  * called on the way to the provider and nowhere else.
  */
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
+import { keyFromEnv, openWith, sealWith, type Sealed } from "./sealedBox";
 import { guardOutboundUrl } from "./toolcheck";
+
+export type { Sealed };
 
 export const MEMBER_SECRETS_ENV = "MEMBER_SECRETS_KEY";
 
@@ -50,54 +55,31 @@ export interface MemberKeyView {
  * not surprised by a stale read.
  */
 export function memberSecretsKey(env: NodeJS.ProcessEnv = process.env): Buffer | null {
-  const raw = (env[MEMBER_SECRETS_ENV] ?? "").trim();
-  if (!/^[0-9a-fA-F]{64}$/.test(raw)) return null;
-  return Buffer.from(raw, "hex");
+  return keyFromEnv(MEMBER_SECRETS_ENV, env);
 }
 
 export function memberSecretsConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   return memberSecretsKey(env) !== null;
 }
 
-export interface Sealed {
-  ciphertext: string;
-  iv: string;
-  tag: string;
-}
-
 /**
- * Seal a plaintext. Fresh 12-byte iv per call, so the same key stored twice
- * produces two different rows and nothing about the plaintext leaks through
- * equality. Throws when the deployment has no key: callers check
- * `memberSecretsConfigured` first and answer with the sentence.
+ * Seal a plaintext under this deployment's member key. Fresh 12-byte iv per
+ * call, so the same key stored twice produces two different rows and nothing
+ * about the plaintext leaks through equality. Throws when the deployment has
+ * no key: callers check `memberSecretsConfigured` first and answer with the
+ * sentence.
  */
 export function seal(plaintext: string, env: NodeJS.ProcessEnv = process.env): Sealed {
   const key = memberSecretsKey(env);
   if (!key) throw new Error(NO_MEMBER_SECRETS_KEY_SENTENCE);
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  return {
-    ciphertext: ciphertext.toString("base64"),
-    iv: iv.toString("base64"),
-    tag: cipher.getAuthTag().toString("base64"),
-  };
+  return sealWith(key, plaintext);
 }
 
 /** Open a sealed value. Null on a missing key or a tampered row, never a throw into a route. */
 export function open(sealed: Sealed, env: NodeJS.ProcessEnv = process.env): string | null {
   const key = memberSecretsKey(env);
   if (!key) return null;
-  try {
-    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(sealed.iv, "base64"));
-    decipher.setAuthTag(Buffer.from(sealed.tag, "base64"));
-    return Buffer.concat([
-      decipher.update(Buffer.from(sealed.ciphertext, "base64")),
-      decipher.final(),
-    ]).toString("utf8");
-  } catch {
-    return null;
-  }
+  return openWith(key, sealed);
 }
 
 // ── Storage ──────────────────────────────────────────────────────────────────

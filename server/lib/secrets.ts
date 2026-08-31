@@ -1,6 +1,7 @@
 /**
  * Integration secrets (S63): third-party keys a village sets from its own
- * admin panel — masked on every read, resolved admin-first-then-env.
+ * admin panel, masked on every read, resolved admin-first-then-env, and since
+ * 2026-08-30 encrypted at rest.
  *
  * The posture this replaces was the worst of both worlds: Stripe keys were
  * env-only (a founder without Railway access could not launch payments at
@@ -9,8 +10,9 @@
  * the browser in plaintext on every settings load. This store fixes both
  * ends with one rule: **a secret is write-only TO THE BROWSER, and read by
  * the server.** Reads through `secretStatus` return
- * {configured, last4, source, setBy, setAt} and never the value; the value
- * leaves this module through `secretValue` toward the service it belongs to.
+ * {configured, last4, source, setBy, setAt, atRest, unreadable} and never the
+ * value; the value leaves this module through `secretValue` toward the
+ * service it belongs to.
  *
  * That distinction is load-bearing and the header used to say only
  * "write-only". A server caller CAN read a stored value back, which means
@@ -31,14 +33,50 @@
  * resolution is admin-typed first, env second. `last4` is enough for a
  * founder to recognize which key is live without being enough to steal.
  *
- * Storage is plaintext JSON in app_config, same as the email config always
- * was — encryption-at-rest was offered and Rye chose masked-read without it
- * (2026-07-27); revisit if backups start leaving the deployment's trust
- * boundary. What changed today is that the browser stopped being a place
- * secrets visit.
+ * ── ENCRYPTION AT REST, AND WHY THE 2026-07-27 DECISION WAS REVERSED ────────
+ *
+ * Storage used to be plaintext JSON in app_config, same as the email config
+ * always was. Encryption at rest was offered and Rye chose masked-read without
+ * it on 2026-07-27, with one written revisit condition: revisit if backups
+ * start leaving the deployment's trust boundary.
+ *
+ * That condition fired. `.github/workflows/db-backup.yml` mysqldumps the whole
+ * database and uploads it as a GitHub Actions artifact with 30 day retention.
+ * The repository was public while those artifacts were produced, so every
+ * Stripe secret key, every webhook signing secret and every external calendar
+ * URL in this document travelled out of the trust boundary on a schedule. It
+ * was made private on 2026-08-30, which narrows who can fetch the artifacts
+ * that already exist and does not un-produce them. The condition stays fired
+ * either way, because Season 2 fires it a second time: ReGen is about to hold
+ * OTHER villages' payment credentials for a fee, and "the operator can read the
+ * database anyway" stops being an answer the moment the operator is not the
+ * credential's owner.
+ *
+ * So values are now sealed with AES-256-GCM under `VILLAGE_SECRETS_KEY`, using
+ * the same primitive as `memberSecrets.ts` (`sealedBox.ts`, one cipher for the
+ * whole platform). The harm metric is the one that matters: a database dump on
+ * its own no longer yields a usable payment credential.
+ *
+ * FAIL CLOSED. With no key, a write REFUSES. It does not fall back to
+ * plaintext, because a store that quietly degrades under a missing variable
+ * gives an operator a panel that says "set" over a credential sitting in the
+ * clear. Clearing a secret (value "") is still allowed without a key: deleting
+ * an exposed plaintext value is strictly a safety improvement and an operator
+ * locked out of writes must never be locked out of removal.
+ *
+ * THE DUAL-READ WINDOW. `ACCEPT_LEGACY_PLAINTEXT` is true for one release, so
+ * a village upgrading with existing plaintext entries keeps working while they
+ * are converted. Conversion happens at boot inside `loadSecrets`: with a key
+ * present, every plaintext entry is sealed in place and written back once.
+ * Second boot finds nothing to do and writes nothing. There is no numbered SQL
+ * migration for this and there cannot be one, because MySQL is not holding the
+ * key and must not be asked to. The follow-up release flips
+ * `ACCEPT_LEGACY_PLAINTEXT` to false, after which a plaintext entry reads as
+ * absent and the env fallback (if any) takes over.
  */
 import type { Pool } from "mysql2/promise";
 import { registrySecretKeys } from "../../shared/modules";
+import { keyFromEnv, openWith, sealWith, type Sealed } from "./sealedBox";
 
 /** The platform's own seven. A literal union, so every call site still typechecks. */
 const BASE_SECRET_KEYS = [
@@ -73,7 +111,7 @@ export const SECRET_KEYS: readonly SecretKey[] = [
   ...registrySecretKeys().filter((k) => !(BASE_SECRET_KEYS as readonly string[]).includes(k)),
 ];
 
-/** Env fallback per platform key — the names FORK_RUNBOOK.md has always documented. */
+/** Env fallback per platform key, the names FORK_RUNBOOK.md has always documented. */
 const BASE_ENV_FALLBACK: Record<BaseSecretKey, string> = {
   stripe_secret_key: "STRIPE_SECRET_KEY",
   stripe_webhook_secret: "STRIPE_WEBHOOK_SECRET",
@@ -93,22 +131,85 @@ export function envNameFor(key: SecretKey): string {
   return BASE_ENV_FALLBACK[key as BaseSecretKey] ?? String(key).toUpperCase();
 }
 
-interface StoredSecret {
+// ── The key ─────────────────────────────────────────────────────────────────
+
+/** 32 bytes as 64 hex characters. Its own variable, not MEMBER_SECRETS_KEY. */
+export const VILLAGE_SECRETS_ENV = "VILLAGE_SECRETS_KEY";
+
+/**
+ * The one sentence an operator sees when the key is missing. Deliberately
+ * shaped like the member-secrets one, and tested verbatim, so two refusals
+ * from the same platform read like the same platform.
+ */
+export const NO_VILLAGE_SECRETS_KEY_SENTENCE =
+  "this deployment has no village-secrets key; ask your operator";
+
+export function villageSecretsKey(env: NodeJS.ProcessEnv = process.env): Buffer | null {
+  return keyFromEnv(VILLAGE_SECRETS_ENV, env);
+}
+
+export function villageSecretsConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return villageSecretsKey(env) !== null;
+}
+
+/**
+ * One release of reading both shapes. Flip to false in the follow-up and a
+ * plaintext entry stops resolving. Every read path takes it as a default
+ * argument so a test can prove both sides of the flip today, rather than the
+ * follow-up shipping a branch nobody has ever executed.
+ */
+export const ACCEPT_LEGACY_PLAINTEXT = true;
+
+// ── The document ────────────────────────────────────────────────────────────
+
+/** What this store held before 2026-08-30, and still reads during the window. */
+interface LegacySecret {
   value: string;
   setBy: string;
   setAt: string;
 }
 
+/**
+ * The shape written from 2026-08-30. `last4` sits beside the ciphertext on
+ * purpose: the admin panel has to render a mask for a key this process may not
+ * be able to open, and asking it to decrypt in order to draw four characters
+ * would make the panel go blank exactly when an operator needs it to explain
+ * what happened.
+ */
+interface SealedSecret extends Sealed {
+  last4: string;
+  setBy: string;
+  setAt: string;
+}
+
+type StoredSecret = LegacySecret | SealedSecret;
 type SecretsDoc = Record<string, StoredSecret | undefined>;
 
-/** Boot-loaded cache, write-through — the store-db discipline. */
+function isSealed(entry: StoredSecret | undefined): entry is SealedSecret {
+  return !!entry && typeof (entry as SealedSecret).ciphertext === "string";
+}
+
+/** An empty value has always meant "not stored", so it is not legacy either. */
+function isLegacy(entry: StoredSecret | undefined): entry is LegacySecret {
+  return !!entry && !isSealed(entry) && !!(entry as LegacySecret).value;
+}
+
+/** Boot-loaded cache, write-through, the store-db discipline. */
 let cache: SecretsDoc | null = null;
 
-export async function loadSecrets(pool: Pool): Promise<void> {
-  const [[row]] = await pool.query<any[]>(
-    "SELECT value FROM app_config WHERE config_key = 'integration-secrets'",
-  );
+/** Keys this process has already complained about. One log line, not one per call. */
+const warnedUnreadable = new Set<string>();
+
+const DOC_SELECT = "SELECT value FROM app_config WHERE config_key = 'integration-secrets'";
+const DOC_UPSERT =
+  "INSERT INTO app_config (config_key, value) VALUES ('integration-secrets', ?) " +
+  "ON DUPLICATE KEY UPDATE value = VALUES(value)";
+
+export async function loadSecrets(pool: Pool, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const [[row]] = await pool.query<any[]>(DOC_SELECT);
   cache = row ? (typeof row.value === "string" ? JSON.parse(row.value) : row.value) : {};
+  warnedUnreadable.clear();
+  await resealPlaintextSecrets(pool, env);
 }
 
 function mustCache(): SecretsDoc {
@@ -117,13 +218,106 @@ function mustCache(): SecretsDoc {
 }
 
 /**
- * The ONE value read. Callers are the outbound integrations (Stripe call,
- * Resend call, Anthropic call) — never a route serializing JSON to a browser.
+ * Seal every plaintext entry in place, once, at boot.
+ *
+ * This is the migration, and it lives here rather than in `drizzle/` because
+ * the database cannot do AES and must never be handed the key. Idempotent by
+ * construction: it only ever looks at entries carrying a `value` field, and it
+ * writes nothing when there are none, so a second boot is a no-op and a
+ * hundredth boot is a no-op.
+ *
+ * With no key it converts nothing and says so, naming the exposed KEYS and
+ * never their values. That log line is the only warning an operator gets
+ * before the first refused write.
  */
-export function secretValue(key: SecretKey): string {
-  const stored = mustCache()[key]?.value;
+export async function resealPlaintextSecrets(
+  pool: Pool,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ sealed: number; leftPlaintext: number }> {
+  const doc = mustCache();
+  const plaintext = Object.keys(doc).filter((k) => isLegacy(doc[k]));
+  if (plaintext.length === 0) return { sealed: 0, leftPlaintext: 0 };
+
+  const key = villageSecretsKey(env);
+  if (!key) {
+    console.warn(
+      `[secrets] ${plaintext.length} integration secret(s) are stored in plaintext and cannot be ` +
+        `sealed: ${VILLAGE_SECRETS_ENV} is not set. Every database dump carries them. Keys: ` +
+        plaintext.join(", "),
+    );
+    return { sealed: 0, leftPlaintext: plaintext.length };
+  }
+
+  const next: SecretsDoc = { ...doc };
+  for (const k of plaintext) {
+    const legacy = doc[k] as LegacySecret;
+    next[k] = {
+      ...sealWith(key, legacy.value),
+      last4: legacy.value.slice(-4),
+      setBy: legacy.setBy,
+      setAt: legacy.setAt,
+    };
+  }
+  await pool.query(DOC_UPSERT, [JSON.stringify(next)]); // module-review-ok: this store IS the repo for its one app_config row, as it has been since S63
+  cache = next;
+  console.log(`[secrets] sealed ${plaintext.length} plaintext integration secret(s) at rest`);
+  return { sealed: plaintext.length, leftPlaintext: 0 };
+}
+
+/** Which keys are still stored in the clear. For tests and for an ops read. */
+export function plaintextSecretKeys(): string[] {
+  const doc = mustCache();
+  return Object.keys(doc).filter((k) => isLegacy(doc[k]));
+}
+
+// ── Reads ───────────────────────────────────────────────────────────────────
+
+/**
+ * The admin-typed value, or null when there is not one this process can read.
+ * Null covers three different situations on purpose, and `readStored` is the
+ * only place that has to tell them apart.
+ */
+function openStored(
+  key: SecretKey,
+  env: NodeJS.ProcessEnv,
+  acceptLegacy: boolean,
+): string | null {
+  const entry = mustCache()[key];
+  if (isSealed(entry)) {
+    const k = villageSecretsKey(env);
+    const opened = k ? openWith(k, entry) : null;
+    if (opened === null && !warnedUnreadable.has(String(key))) {
+      warnedUnreadable.add(String(key));
+      console.warn(
+        `[secrets] cannot open the stored value for "${String(key)}": ` +
+          (k
+            ? `${VILLAGE_SECRETS_ENV} does not match the key it was sealed with`
+            : `${VILLAGE_SECRETS_ENV} is not set`) +
+          `. Falling back to ${envNameFor(key)} if that is set.`,
+      );
+    }
+    // An empty plaintext is the same as nothing stored: this store has always
+    // treated "" as a delete, so it must never present as a configured
+    // credential on the way back out.
+    return opened || null;
+  }
+  if (isLegacy(entry)) return acceptLegacy ? entry.value : null;
+  return null;
+}
+
+/**
+ * The ONE value read. Callers are the outbound integrations (Stripe call,
+ * Resend call, Anthropic call) and the inbound signature checks, never a route
+ * serializing JSON to a browser.
+ */
+export function secretValue(
+  key: SecretKey,
+  env: NodeJS.ProcessEnv = process.env,
+  acceptLegacy: boolean = ACCEPT_LEGACY_PLAINTEXT,
+): string {
+  const stored = openStored(key, env, acceptLegacy);
   if (stored) return stored;
-  return process.env[envNameFor(key)] ?? "";
+  return env[envNameFor(key)] ?? "";
 }
 
 export function secretConfigured(key: SecretKey): boolean {
@@ -139,34 +333,64 @@ export interface SecretStatus {
   last4: string | null;
   setBy: string | null;
   setAt: string | null;
+  /**
+   * How the admin-typed value is held. `null` when nothing is stored here.
+   * `"plaintext"` is a finding, not a state: it means this row is readable in
+   * any database dump and is waiting for a boot with the key set.
+   */
+  atRest: "sealed" | "plaintext" | null;
+  /**
+   * A value IS stored and this process cannot open it, so the store is
+   * behaving as if it were empty. The panel needs this to say "the
+   * village-secrets key changed" instead of silently losing a credential.
+   */
+  unreadable: boolean;
 }
 
 /** Masked status for the admin UI. NEVER includes a value. */
-export function secretStatus(key: SecretKey): SecretStatus {
-  const stored = mustCache()[key];
-  if (stored?.value) {
+export function secretStatus(
+  key: SecretKey,
+  env: NodeJS.ProcessEnv = process.env,
+  acceptLegacy: boolean = ACCEPT_LEGACY_PLAINTEXT,
+): SecretStatus {
+  const entry = mustCache()[key];
+  const atRest: SecretStatus["atRest"] = isSealed(entry)
+    ? "sealed"
+    : isLegacy(entry)
+      ? "plaintext"
+      : null;
+  if (entry && atRest !== null && openStored(key, env, acceptLegacy) !== null) {
     return {
       key,
       configured: true,
       source: "admin",
-      last4: stored.value.slice(-4),
-      setBy: stored.setBy,
-      setAt: stored.setAt,
+      last4: isSealed(entry) ? entry.last4 : (entry as LegacySecret).value.slice(-4),
+      setBy: entry.setBy,
+      setAt: entry.setAt,
+      atRest,
+      unreadable: false,
     };
   }
-  const env = process.env[envNameFor(key)] ?? "";
+  const envValue = env[envNameFor(key)] ?? "";
   return {
     key,
-    configured: !!env,
-    source: env ? "env" : "none",
-    last4: env ? env.slice(-4) : null,
+    configured: !!envValue,
+    source: envValue ? "env" : "none",
+    last4: envValue ? envValue.slice(-4) : null,
     setBy: null,
     setAt: null,
+    atRest,
+    unreadable: atRest !== null,
   };
 }
 
-export function allSecretStatuses(): SecretStatus[] {
-  return SECRET_KEYS.map(secretStatus);
+/**
+ * The wrapper is not a style choice. `SECRET_KEYS.map(secretStatus)` passed the
+ * index and the array into the second and third parameters, which is harmless
+ * only for as long as `secretStatus` takes exactly one argument.
+ */
+export function allSecretStatuses(env: NodeJS.ProcessEnv = process.env): SecretStatus[] {
+  return SECRET_KEYS.map((k) => secretStatus(k, env));
 }
 
 /**
@@ -180,21 +404,41 @@ export function isSecretKey(key: string): key is SecretKey {
   return SECRET_KEYS.includes(key);
 }
 
-/** Set (or with "" clear) one secret, attributed. Write-through. */
+// ── Writes ──────────────────────────────────────────────────────────────────
+
+/**
+ * Set (or with "" clear) one secret, attributed. Write-through, sealed.
+ *
+ * Throws `NO_VILLAGE_SECRETS_KEY_SENTENCE` rather than storing a plaintext
+ * value when the deployment has no key. The signature stays `Promise<void>`
+ * because a refusal a caller can ignore is not a refusal: every existing call
+ * site awaits this and none of them inspect a return value, so the throw is
+ * the only shape that cannot be dropped on the floor.
+ */
 export async function putSecret(
   pool: Pool,
   key: SecretKey,
   value: string,
   by: string,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   const doc = { ...mustCache() };
   const trimmed = value.trim();
-  if (trimmed) doc[key] = { value: trimmed, setBy: by, setAt: new Date().toISOString() };
-  else delete doc[key];
-  await pool.query(
-    "INSERT INTO app_config (config_key, value) VALUES ('integration-secrets', ?) " +
-      "ON DUPLICATE KEY UPDATE value = VALUES(value)",
-    [JSON.stringify(doc)],
-  );
+  if (trimmed) {
+    const k = villageSecretsKey(env);
+    if (!k) throw new Error(NO_VILLAGE_SECRETS_KEY_SENTENCE);
+    doc[key] = {
+      ...sealWith(k, trimmed),
+      last4: trimmed.slice(-4),
+      setBy: by,
+      setAt: new Date().toISOString(),
+    };
+  } else {
+    // Clearing needs no key. An operator who has lost the key must still be
+    // able to take an exposed plaintext value back out of the database.
+    delete doc[key];
+  }
+  await pool.query(DOC_UPSERT, [JSON.stringify(doc)]); // module-review-ok: this store IS the repo for its one app_config row, as it has been since S63
+  warnedUnreadable.delete(String(key));
   cache = doc;
 }

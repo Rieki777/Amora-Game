@@ -128,6 +128,11 @@ beforeAll(async () => {
       ADMIN_PASSWORD: ADMIN,
       JOURNEY_PASSWORD: "loop-test-journey",
       AUTH_TOKEN_SECRET: "loop-test-token-secret",
+      // Integration secrets are sealed at rest and the store refuses to write
+      // without a key, so the admin Integrations calls this suite makes need
+      // one. A fixture value for a throwaway server on a scratch schema.
+      VILLAGE_SECRETS_KEY: "1f".repeat(32), // module-review-ok: fixture sealing key, same as every e2e suite
+
       // No Resend key: notification sends are fire-and-forget and must not block
       // or fail the loop. Their absence is part of what this asserts.
       RESEND_API_KEY: "",

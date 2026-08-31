@@ -143,6 +143,11 @@ describe.skipIf(!configured)("subscriptions against a real schema", () => {
   beforeAll(async () => {
     db = await provisionTestDb();
     pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 });
+    // A calendar address is stored through the secrets store, which seals at
+    // rest since 2026-08-30 and REFUSES to write without a key. This suite
+    // asserts the round trip, so it needs one; without it every write here
+    // fails with "this deployment has no village-secrets key".
+    process.env.VILLAGE_SECRETS_KEY = "c4".repeat(32);
     await loadSecrets(pool);
     // Every log line the module could write, captured, so the URL can be shown absent.
     for (const level of ["log", "warn", "error", "info"] as const) {
