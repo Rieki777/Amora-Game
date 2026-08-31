@@ -100,12 +100,12 @@ describe("ModuleGate", () => {
   it("never tells an already-signed-in member to sign in - falls through to the module-off card", () => {
     useModulesMock.mockReturnValue({ ...BASE_MODULES, signInToSee: ["forum"] });
     useAuthMock.mockReturnValue({ user: { id: "u1", name: "Rye" }, loading: false });
-    useGameConfigMock.mockReturnValue({ project: { name: "Amora" } });
+    useGameConfigMock.mockReturnValue({ project: { name: "Riverbend" } });
 
     renderGate({ moduleId: "forum", name: "Forum" });
 
     expect(screen.queryByText(/opens when you sign in/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/Amora hasn.t enabled this module/i)).toBeInTheDocument();
+    expect(screen.getByText(/Riverbend hasn.t enabled this module/i)).toBeInTheDocument();
   });
 
   it("names the village by its configured name, not a hardcoded one, when a module is off", () => {

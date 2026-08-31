@@ -1946,8 +1946,8 @@ function InvestorInboxCard({ password }: { password: string }) {
     <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
       <div className="flex items-start justify-between gap-4 mb-1">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">Who receives investor requests</h3>
-          <p className="text-xs text-gray-500 mt-1">
+          <h3 className="text-sm font-semibold text-foreground">Who receives investor requests</h3>
+          <p className="text-xs text-muted-foreground mt-1">
             When somebody asks for the packet below, the documents go to them and
             the alert comes to you. These are the addresses it reaches. They are
             the same two inboxes as Email Settings, so an edit in either place is
@@ -1964,7 +1964,7 @@ function InvestorInboxCard({ password }: { password: string }) {
       </div>
 
       {loading ? (
-        <p className="text-xs text-gray-400 py-4">Loading the current addresses...</p>
+        <p className="text-xs text-muted-foreground py-4">Loading the current addresses...</p>
       ) : loadFailed ? (
         <p className="text-xs text-red-600 py-4">
           The current addresses did not load. Reload the page before editing,
