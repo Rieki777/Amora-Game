@@ -952,7 +952,95 @@ honest position on the dash and brand rules is: they are enforced on the surface
 walk, and the guards walk less than the rules claim. That is a improvements-list item, not a
 blocker, but nobody should cite these guards as repo-wide.
 
-## 9 - Post-deploy actions (queued, not yet done)
+## 9 - SHIPPED, and the live regression it caused
+
+**PUSHED AND DEPLOYED.** `052d042..1871034` to origin/main. Railway deploy SUCCESS.
+`GET https://amora.regencivics.earth/health` returns:
+
+    {"status":"ok","build":"2026-07-28-wave1-1871034","database":{"ok":true,"ms":1},
+     "uploads":{"files":14,"mb":1,...}}
+
+The build marker carries the exact pushed SHA, so the new code IS the code serving. And
+`database:{ok:true,ms:1}` is the ops lane's honest health check live in production, where before
+this endpoint answered 200 without ever touching the database.
+
+### LIVE REGRESSION, caused by this work, found by checking rather than assuming
+
+`GET /api/game/config` on production now reports:
+
+    name        'Unnamed Village'      (was 'Amora')
+    memberName  'Village member'       (was 'Amora Family member')
+    logo        ''                     (was an Amora mark)
+    favicon     ''                     (was an Amora mark)
+    tagline     'Co-Become the Most Beautiful Village'   (set in Amora's own overlay, survived)
+
+CAUSE, and it is a fair consequence rather than a mistake: the identity lane changed the
+PLATFORM DEFAULT name from "Amora" to "Unnamed Village", which is correct and is the whole point
+for the 13 villages. But Amora's own brand overlay never set a name, a logo or a favicon: it was
+relying on BEING the default. Tenant one was the default. The tagline is set in its overlay and
+came through untouched, which proves the overlay mechanism works and only these fields were
+missing from it.
+
+The architecturally correct fix is to put Amora's identity in Amora's OWN overlay, exactly as
+each of the 13 will, NOT to move the platform default back.
+
+**I DID NOT WRITE TO THE PRODUCTION DATABASE TO FIX IT, deliberately.** `DATABASE_URL` is a
+service reference that does not resolve through `railway run`, and more importantly THIS
+VILLAGE HAS NO WORKING BACKUP: the daily job has failed since 2026-08-28 on a stale
+`PROD_DATABASE_URL` secret. Writing to a production database with no restore point, to fix a
+display name, is the exact risk this whole programme exists to prevent. The founder sets it in
+Admin, Make This Yours, in seconds.
+
+Also live and expected: `GET /api/content/legal` returns 404, so Amora's legal pages show the
+honest placeholders rather than Amora's own text. `server/seeds/brochure-legal-seed.json` holds
+that text and needs one authenticated admin PUT to `/api/admin/content/legal`.
+
+### Live QA finding: ballot detail is anonymous, weights are not
+
+VERIFIED LIVE by me, independently of the QA lane that raised it:
+
+    GET /api/governance/weights      -> 401 auth_required
+    GET /api/governance/ballots      -> 200 anonymous
+    GET /api/governance/ballots/:id  -> 404 (no ballot exists on this village yet)
+
+`serveBallot` (`server/index.ts:28173`, route registered at :28651) has NO auth gate and
+returns, for any anonymous caller: every voter's name and choice and weight, every objection's
+author and FREE TEXT, ruling notes, and the names of members who have not voted yet. The code
+says this is deliberate: "Votes and weights are member-visible on purpose... This village does
+not run secret ballots."
+
+That is a legitimate governance stance and NOT something a coordinator should quietly change.
+Two things make it worth a decision before the first vote rather than after:
+
+1. **It is inconsistent with its own sibling.** `/api/governance/weights` carries
+   similarly-shaped data (names, weights, notes) and DOES require auth. One of the two pairings
+   was not considered.
+2. **Objection text is the sharp part.** A vote choice is a position. An objection is somebody
+   explaining, in their own words, why they are blocking their neighbours. Publishing choices to
+   the village is a defensible constitutional choice; publishing a member's reasoning to the
+   open internet, unauthenticated, is a different promise, and it sits oddly beside this
+   platform's own counts-never-names rule for session-less surfaces.
+
+LATENT TODAY: Amora has run zero ballots, so nothing is exposed right now. It stops being latent
+the first time any of the 13 villages opens one. This is pre-existing, NOT introduced by this
+programme.
+
+FOUNDER DECISION, with the default I will take if nothing is said: leave it exactly as it is,
+because it is a stated constitutional position and changing who can read a village's votes is
+not a coordinator's call.
+
+### Founder actions, in priority order
+
+1. **Set Amora's name and member name** in Admin, Make This Yours. Restores the live site.
+2. **Fix `PROD_DATABASE_URL`** so backups resume. Two days dark and counting.
+3. **Apply the legal seed** with one admin PUT, so Amora's own legal text returns.
+4. **Re-upload Amora's logo and favicon** through the wizard's Pictures step. The 8 Amora marks
+   were deleted from `client/public` (correctly, they were platform-level branding); a village's
+   art belongs in its own uploads volume, which is what that step writes to.
+5. **Delete the 29 stale unencrypted backup artifacts**, and confirm Stripe and the signing key
+   were rotated alongside the database password.
+
+
 
 1. **Apply `server/seeds/brochure-legal-seed.json` to Amora's live content document.** Amora already has a `content` row, so the boot-time seed-on-empty path will not touch it, and Amora's own legal wording would render as placeholders until this is applied. One authenticated admin PUT to `/api/admin/content/legal`. Coordinator to run after deploy.
 2. Verify the Railway deploy reaches SUCCESS and that `/health` reports the pushed SHA.
