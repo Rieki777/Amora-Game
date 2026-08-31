@@ -29,6 +29,31 @@
 # The audit gate is separate from this file and stays separate. Advisories with
 # no upstream fix are documented in `docs/SECURITY_ADVISORIES.md`; nothing here
 # suppresses anything.
+#
+# THE ONE `ignore` ENTRY. Express 5 is held back, and the reason is a boot-time
+# crash rather than taste. `path-to-regexp` v8, which Express 5 depends on,
+# REMOVED inline regular expressions in route parameters. Two routes here use
+# that syntax:
+#
+#     server/index.ts:9969   app.patch("/api/forum/:kind(threads|replies)/:id", ...)
+#     server/index.ts:16268  app.post("/api/admin/call-tasks/:id/:action(accept|dismiss)", ...)
+#
+# Under Express 5 those throw when the route is REGISTERED, so the server would
+# fail to start at all. Dependabot pull request #121 bumped express 4.21.2 to
+# 5.2.1 and its CI went red on `pnpm check` with three TS2339 errors, where the
+# parameter is typed as the literal key `"kind(threads|replies)"` because the
+# name no longer parses out. A typecheck failure was the visible symptom; the
+# outage is the real one.
+#
+# Ignoring the major does NOT hold back the security fix. `express@4.22.2` asks
+# for `path-to-regexp: ~0.1.12`, which admits the patched 0.1.13, plus
+# `qs: ~6.15.1` and `body-parser: ~1.20.5`. That minor closed all five express
+# advisories on 2026-08-31, and it arrives through the `production` group below
+# like any other minor.
+#
+# REMOVE THIS ENTRY when those two routes are rewritten as plain parameters with
+# the validation moved into the handler. Then Express 5 is an ordinary major
+# that gets read on its own, which is what the paragraph above wants.
 version: 2
 
 updates:
@@ -45,6 +70,11 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       prefix-development: "chore(deps-dev)"
+    ignore:
+      - dependency-name: "express"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/express"
+        update-types: ["version-update:semver-major"]
     groups:
       radix:
         patterns:
