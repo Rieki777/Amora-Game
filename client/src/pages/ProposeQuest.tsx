@@ -26,7 +26,15 @@ const EMPTY: QuestProposal = {
 
 export default function ProposeQuest() {
   const { user } = useAuth();
-  const [projectName, setProjectName] = useState("Amora");
+  /*
+   * A generic stand-in until /api/game/config answers, and on a village that
+   * has not named itself yet. This read "Amora" on every instance, so the
+   * platform's first tenant's name was what every founder's page showed on
+   * first paint, whatever they had called their own village. The word is
+   * chosen for the one sentence that interpolates it, which already carries
+   * its own article: "It moves to the {projectName} team".
+   */
+  const [projectName, setProjectName] = useState("village");
   // LANE Q: the guide's name is a per-deployment persona set in the Setup
   // Wizard, and this page hardcoded "Maia" in two places. A fork that renamed
   // its guide had the button and the chat header calling her by the platform's

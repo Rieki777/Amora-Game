@@ -69,7 +69,17 @@ const RECIPROCITY_FALLBACK: ReciprocityOption[] = [
 
 export default function WorkWithUs() {
   const { user } = useAuth();
-  const [projectName, setProjectName] = useState("Amora");
+  /*
+   * A generic stand-in until /api/game/config answers, and on a village that
+   * has not named itself yet. This read "Amora" on every instance, so the
+   * platform's first tenant's name was what every founder's page showed on
+   * first paint, whatever they had called their own village.
+   */
+  const [projectName, setProjectName] = useState("this village");
+  /* Four of the five sentences below put the name mid-sentence and two start
+   * with it, and a real village name is already capitalised, so this is a
+   * no-op for every named village and grammar for the stand-in. */
+  const projectNameSentenceStart = projectName.charAt(0).toUpperCase() + projectName.slice(1);
   const [wwu, setWwu] = useState<WwuConfig | null>(null);
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   const [mode, setMode] = useState<"ai" | "form">("form");
@@ -138,7 +148,7 @@ export default function WorkWithUs() {
           </h1>
           <p className="text-white/80 text-lg max-w-2xl leading-relaxed">
             {wwu?.intro ??
-              `${projectName} grows through the people who bring their gifts to it. We welcome ideas, offerings, and ventures: a garden, a piece of infrastructure, a service, a craft, a program, or something we haven't yet imagined. Propose it here.`}
+              `${projectNameSentenceStart} grows through the people who bring their gifts to it. We welcome ideas, offerings, and ventures: a garden, a piece of infrastructure, a service, a craft, a program, or something we haven't yet imagined. Propose it here.`}
           </p>
         </div>
       </section>
@@ -181,7 +191,8 @@ export default function WorkWithUs() {
               onRefineInForm={(p) => { saveDraft({ ...EMPTY, ...form, ...p }); setMode("form"); }}
             />
           ) : (
-            <ProposalForm projectName={projectName} reciprocityOptions={reciprocityOptions} form={form} setForm={saveDraft} onSubmitted={onSubmitted} />
+            /* ProposalForm's one use of the name opens a sentence with it. */
+            <ProposalForm projectName={projectNameSentenceStart} reciprocityOptions={reciprocityOptions} form={form} setForm={saveDraft} onSubmitted={onSubmitted} />
           )}
         </div>
       </section>
