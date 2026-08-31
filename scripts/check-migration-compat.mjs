@@ -19,6 +19,15 @@
  * to both, release N+1 (once N is proven) removes the old one. That is the
  * expand/contract rule, and this script is where it stops being a convention.
  *
+ * THE ONE ESCAPE HATCH, and what it does not open. An inline
+ * `-- compat-ok: <reason>` comment in a migration waives the destructive scan
+ * for that file, and waives the schema contract when EVERY new migration in the
+ * change carries one (the contract is a property of the schema the whole change
+ * produces, so a violation cannot be attributed back to one file). It does NOT
+ * waive immutability, and it does NOT waive the migration actually running: a
+ * file that fails on a populated table fails here whatever comment it carries,
+ * because that is not a policy judgement, it is the boot failure.
+ *
  * WHAT IT DOES, in four phases. Each one is reported separately, with its own
  * count, so no phase can go missing behind another phase's success.
  *
@@ -355,7 +364,7 @@ async function snapshot(conn, schema) {
   );
   const [columns] = await conn.query(
     "SELECT TABLE_NAME t, COLUMN_NAME c, COLUMN_DEFAULT d, IS_NULLABLE nul, DATA_TYPE dt, " +
-      "CHARACTER_MAXIMUM_LENGTH clen, NUMERIC_PRECISION nprec, COLUMN_TYPE ctype, EXTRA ex, " +
+      "CHARACTER_MAXIMUM_LENGTH clen, NUMERIC_PRECISION nprec, NUMERIC_SCALE nscale, COLUMN_TYPE ctype, EXTRA ex, " +
       "GENERATION_EXPRESSION gen, ORDINAL_POSITION pos " +
       "FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION",
     [schema],
@@ -397,19 +406,46 @@ function enumValues(ctype) {
   return m[1].split(",").map((s) => s.trim().replace(/^'|'$/g, ""));
 }
 
+/**
+ * Types a column may GROW into, in capacity order. Without these two ladders
+ * every `int` to `bigint` and every `varchar` to `text` reads as a type change
+ * and fails, and phase 4 has no per-violation escape hatch, so a gate that
+ * blocks the safest widening there is would be a gate somebody deletes.
+ */
+const INT_LADDER = ["tinyint", "smallint", "mediumint", "int", "integer", "bigint"];
+const TEXT_LADDER = ["char", "varchar", "tinytext", "text", "mediumtext", "longtext"];
+
 function isWidening(a, b) {
-  if (String(a.dt) !== String(b.dt)) return false;
+  const da = String(a.dt).toLowerCase();
+  const db = String(b.dt).toLowerCase();
+  // An unsigned column that becomes signed loses its whole top half, whatever
+  // else the change did.
+  if (/unsigned/i.test(String(a.ctype)) && !/unsigned/i.test(String(b.ctype))) return false;
+  if (da !== db) {
+    const i = INT_LADDER.indexOf(da);
+    const j = INT_LADDER.indexOf(db);
+    if (i >= 0 && j >= 0) return j >= i;
+    const k = TEXT_LADDER.indexOf(da);
+    const l = TEXT_LADDER.indexOf(db);
+    if (k >= 0 && l >= 0) return l >= k;
+    return false;
+  }
   const ea = enumValues(a.ctype);
   const eb = enumValues(b.ctype);
   if (ea && eb) return ea.every((v) => eb.includes(v));
   const ca = a.clen === null ? null : Number(a.clen);
   const cb = b.clen === null ? null : Number(b.clen);
   if (ca !== null && cb !== null && cb < ca) return false;
+  // decimal(10,2) to decimal(10,4) READS as more precision and is a narrowing:
+  // the scale grew out of the integer digits. Both halves have to hold.
   const pa = a.nprec === null ? null : Number(a.nprec);
   const pb = b.nprec === null ? null : Number(b.nprec);
-  if (pa !== null && pb !== null && pb < pa) return false;
-  // An unsigned column that becomes signed loses its top half.
-  if (/unsigned/i.test(String(a.ctype)) && !/unsigned/i.test(String(b.ctype))) return false;
+  const sa = a.nscale === null ? null : Number(a.nscale);
+  const sb = b.nscale === null ? null : Number(b.nscale);
+  if (pa !== null && pb !== null) {
+    if (pb < pa) return false;
+    if (sa !== null && sb !== null && (sb < sa || pb - sb < pa - sa)) return false;
+  }
   return true;
 }
 
@@ -810,21 +846,36 @@ if (report.newMigrations.length === 0) {
       }
 
       if (report.violations.length) {
-        failed = true;
-        console.error("");
-        console.error(
-          `::error::${report.violations.length} change(s) leave the schema unrunnable by the previous release. ` +
-            `Rolling this image back would not recover a founder's instance.`,
+        // The waiver covers the CHANGE, not a file, because the contract diff
+        // is a property of the whole change: two new migrations produce one
+        // schema and a violation cannot be attributed back to one of them. So
+        // it only applies when EVERY new migration carries the token.
+        const schemaWaived = waivers.length === report.newMigrations.length;
+        report.schemaWaived = schemaWaived;
+        const speak = schemaWaived ? console.log : console.error;
+        if (!schemaWaived) failed = true;
+        speak("");
+        speak(
+          `::${schemaWaived ? "warning" : "error"}::${report.violations.length} change(s) leave the schema unrunnable ` +
+            `by the previous release. Rolling this image back would not recover a founder's instance.`,
         );
         for (const v of report.violations) {
-          console.error(`    [${v.kind}] ${v.at}`);
-          console.error(`      ${v.why}`);
+          speak(`    [${v.kind}] ${v.at}`);
+          speak(`      ${v.why}`);
         }
-        console.error("");
-        console.error(`  EXPAND NOW, CONTRACT LATER. Add the new column or table in this release and keep the old`);
-        console.error(`  one written to. Remove the old one in a later release, after this one has run on all`);
-        console.error(`  thirteen instances long enough that rolling back to it is no longer the plan.`);
-        console.error(`  Nullable, or NOT NULL with a DEFAULT on a column the previous release never names.`);
+        speak("");
+        if (schemaWaived) {
+          speak(`  Reported and not failed: every new migration carries a compat-ok waiver.`);
+          for (const w of waivers) speak(`    drizzle/${w.file}: ${w.reason}`);
+        } else {
+          console.error(`  EXPAND NOW, CONTRACT LATER. Add the new column or table in this release and keep the old`);
+          console.error(`  one written to. Remove the old one in a later release, after this one has run on all`);
+          console.error(`  thirteen instances long enough that rolling back to it is no longer the plan.`);
+          console.error(`  Nullable, or NOT NULL with a DEFAULT on a column the previous release never names.`);
+          console.error(`  A deliberate exception takes "-- compat-ok: <reason>" in EVERY new migration in the`);
+          console.error(`  change, because these violations are a property of the schema the whole change`);
+          console.error(`  produces and cannot be attributed back to one file.`);
+        }
       }
     }
   } finally {
