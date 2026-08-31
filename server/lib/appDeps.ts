@@ -240,4 +240,50 @@ export interface AppDeps {
    * have handled.
    */
   notify(input: NotifyInput): Promise<NotifyResult>;
+
+  // MAIL, AND THE ABUSE GUARDS AROUND IT
+  // For a domain that answers somebody who has no account, so the notify
+  // spine above has no member id to key on. A public form is also the surface
+  // a stranger can hit hardest, so the rate limiter and the client-IP reader
+  // sit here beside the sender rather than in a different section: a module
+  // taking one of these usually needs all four.
+
+  /**
+   * Send one email. Never throws; the result says what happened.
+   *
+   * Returns `sent: false` with a reason when the deployment has no API key,
+   * no sender, or no recipients, which are ordinary states on a fresh fork
+   * and must not read as an outage.
+   */
+  sendResendEmail(opts: {
+    to: string[];
+    subject: string;
+    html: string;
+    from?: string;
+    replyTo?: string;
+  }): Promise<{ sent: boolean; reason?: string }>;
+
+  /** Escape a string for HTML. Every value interpolated into an email body. */
+  escapeHtml(s: string): string;
+
+  /** The configured inboxes for one pathway, falling back to all of them. */
+  recipientsForType(type: string): string[];
+
+  /**
+   * True when this bucket has already had `max` hits inside `windowMs`.
+   *
+   * FAILS OPEN on a database outage, deliberately and like every other call
+   * site: a guard that takes a public form down during an outage costs the
+   * village real leads.
+   */
+  overLimit(bucket: string, max: number, windowMs: number): Promise<boolean>;
+
+  /** The caller's address, for keying a rate-limit bucket. */
+  clientIp(req: express.Request): string;
+
+  /** Where this deployment lives, for a link inside an email. */
+  deploymentOrigin(): string;
+
+  /** What this village calls itself, for an email subject line. */
+  projectName(): string;
 }
