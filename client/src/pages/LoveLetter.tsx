@@ -2,7 +2,7 @@ import Layout from "@/components/Layout";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, CheckCircle2, ArrowRight, Users, Home, TrendingUp, Sparkles, Send } from "lucide-react";
 import { useState } from "react";
-import { authToken } from "@/lib/gameApi";
+import { authToken, useVillageLinks } from "@/lib/gameApi";
 import { useVillageContent } from "@/hooks/useVillageContent";
 
 /**
@@ -80,6 +80,12 @@ export default function LoveLetter() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
+  // The covenant form's failure path used to name one village's inbox, so a
+  // would-be member of any other village was told, on the worst screen of the
+  // flow, to write to strangers. With no published address the sentence stops
+  // early rather than inventing a recipient.
+  const { contactEmail } = useVillageLinks();
+  const emailFallback = contactEmail ? ` or email ${contactEmail}` : "";
 
   const togglePath = (pathId: string) => {
     setForm(prev => ({
@@ -150,10 +156,10 @@ export default function LoveLetter() {
       if (res.ok) {
         setSubmitted(true);
       } else {
-        setError("Something went wrong. Please try again or email us directly at hello@amora.cr");
+        setError(`Something went wrong. Please try again${emailFallback}.`);
       }
     } catch {
-      setError("Could not connect. Please try again or email hello@amora.cr");
+      setError(`Could not connect. Please try again${emailFallback}.`);
     }
     setSubmitting(false);
   };

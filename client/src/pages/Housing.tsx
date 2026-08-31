@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useVillageLinks } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useVillageContent } from "@/hooks/useVillageContent";
@@ -80,6 +81,8 @@ const landFeatures = [
 ];
 
 export default function Housing() {
+  // Blank hides the button rather than pointing at another village.
+  const { eventsUrl } = useVillageLinks();
   /**
    * S2 brochure lane, 2026-08-30: this section used to state the land share
    * transfers "tax-free" unconditionally: Costa Rica's tax treatment,
@@ -282,15 +285,17 @@ export default function Housing() {
               and the process for becoming a resident.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-8 py-4 bg-teal text-white rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join Community Call
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-8 py-4 bg-teal text-white rounded-lg font-semibold hover:opacity-90 transition-opacity flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join Community Call
+                </a>
+              )}
               <Link
                 href="/resident"
                 className="px-8 py-4 bg-muted text-foreground rounded-lg font-semibold hover:bg-muted/80 transition-colors"

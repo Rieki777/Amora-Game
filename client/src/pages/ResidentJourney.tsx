@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { altOr, useBrandImages } from "@/lib/gameApi";
+import { altOr, useBrandImages, useVillageLinks } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import { useVillageContent } from "@/hooks/useVillageContent";
@@ -38,7 +38,8 @@ const journeySteps = [
     title: "Attend Community Call",
     description: "Learn about the basics and ask any immediate questions about living at Amora.",
     icon: Calendar,
-    link: "https://amora.cr/event/discover-amora-webinar-qa/",
+    // Resolved at render from this village's own eventsUrl.
+    link: "",
     linkText: "Join Community Call",
     external: true,
     details: ["Meet the founding team", "Learn about our vision", "Ask questions live", "Connect with other visitors"]
@@ -49,7 +50,8 @@ const journeySteps = [
     title: "Attend Community Events",
     description: "Join potlucks, land tours, and community gatherings to experience Amora's living culture.",
     icon: Users,
-    link: "https://amora.cr/events/",
+    // Resolved at render from this village's own eventsUrl.
+    link: "",
     linkText: "View Events",
     external: true,
     details: ["Weekly potluck dinners", "Land tours with the founding team", "Community celebrations", "Children's events and family gatherings"]
@@ -60,7 +62,9 @@ const journeySteps = [
     title: "Become a Founding Seeder",
     description: "Join the Founding Seeders, our waitlist of soul-aligned people securing first access to homes and land at Amora. This is how you raise your hand and say: I'm serious about this.",
     icon: Sprout,
-    link: "https://amora.cr/founding-seeder/",
+    // No config home for a waitlist page, and a village's front door is not
+    // its waitlist, so this CTA stays hidden until there is a field for it.
+    link: "",
     linkText: "Become a Founding Seeder",
     external: true,
     details: ["Join the Founding Seeders waitlist", "First access to homes and land", "Priority as lots are released", "No obligation to purchase"]
@@ -148,7 +152,8 @@ const journeySteps = [
     title: "Children's Play Day",
     description: "If you have children, attend our family day to see how kids thrive in our community.",
     icon: Baby,
-    link: "https://amora.cr/events/",
+    // Resolved at render from this village's own eventsUrl.
+    link: "",
     linkText: "View Family Events",
     external: true,
     details: ["Meet other families", "Experience child-friendly spaces", "Learn about our school plans", "Connect with parents"]
@@ -228,7 +233,12 @@ export default function ResidentJourney() {
   const { content: legal } = useVillageContent<LegalContent>("legal");
   const transferNote = legal?.landShareTransferNote?.trim();
   const backgroundCheckNote = legal?.membership?.backgroundCheckNote?.trim();
+  // This village's own destinations. Blank hides the control below.
+  const { eventsUrl } = useVillageLinks();
   const steps = journeySteps.map((step) => {
+    if (step.id === "community-call" || step.id === "events" || step.id === "family") {
+      return { ...step, link: eventsUrl };
+    }
     if (step.id === "background") {
       return {
         ...step,
@@ -331,15 +341,17 @@ export default function ResidentJourney() {
               transition={{ delay: 0.3 }}
               className="flex flex-wrap gap-4"
             >
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-amora flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Start with Community Call
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-amora flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Start with Community Call
+                </a>
+              )}
               <Link
                 href="/housing"
                 className="px-6 py-3 bg-white/90 text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white transition-all"
@@ -511,7 +523,7 @@ export default function ResidentJourney() {
                                 ))}
                               </ul>
                             </div>
-                            {step.external ? (
+                            {!step.link ? null : step.external ? (
                               <a
                                 href={step.link}
                                 target="_blank"
@@ -708,15 +720,17 @@ export default function ResidentJourney() {
               then explore our housing options and available lots.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-amora flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join Community Call
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-amora flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join Community Call
+                </a>
+              )}
               <Link
                 href="/housing"
                 className="px-6 py-3 bg-white text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white/90 transition-all border border-border"

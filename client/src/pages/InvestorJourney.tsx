@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { altOr, statedFacts, useBrandImages, useVillageSettings } from "@/lib/gameApi";
+import { altOr, statedFacts, useBrandImages, useVillageLinks, useVillageSettings } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import InvestorSummary from "@/components/InvestorSummary";
@@ -44,7 +44,9 @@ const journeySteps = [
     description: "Learn about our vision, values, and regenerative approach to community development.",
     icon: Sparkles,
     action: "Join Community Call",
-    link: "https://amora.cr/event/discover-amora-webinar-qa/",
+    // Resolved at render from this village's own eventsUrl. Blank here so no
+    // village inherits another village's calendar.
+    link: "",
     external: true,
     details: [
       "Understand our mission and values",
@@ -90,7 +92,10 @@ const journeySteps = [
     description: "Choose your investment vehicle and formalize your contribution to the Amora vision.",
     icon: Heart,
     action: "Contact Team",
-    link: "mailto:invest@amora.cr?subject=Investment%20Commitment",
+    // Resolved at render from this village's own contactEmail. An investment
+    // commitment is the single worst enquiry to misroute, so blank hides the
+    // control entirely rather than addressing it to somebody else.
+    link: "",
     external: true,
     details: [
       "Select investment structure",
@@ -190,6 +195,21 @@ export default function InvestorJourney() {
   const [packFormData, setPackFormData] = useState({ name: "", email: "", investmentRange: "", message: "", accredited: false });
   const [callFormData, setCallFormData] = useState({ name: "", email: "", preferredTime: "", message: "" });
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
+  // This village's own destinations. Blank hides the control that uses one.
+  const { eventsUrl, contactEmail, mailTo } = useVillageLinks();
+  const commitHref = mailTo("Investment Commitment");
+  const steps = journeySteps.map((step) => {
+    if (step.id === "discover") return { ...step, link: eventsUrl };
+    if (step.id === "commit") return { ...step, link: commitHref };
+    return step;
+  });
+  // Named once so the two failure paths below cannot drift apart. With no
+  // published address the sentence simply stops after "try again": pointing a
+  // failed investor at a mailbox this village does not own is how the lead
+  // disappears without anybody noticing.
+  const retryNote = contactEmail
+    ? `Something went wrong. Please try again or email ${contactEmail}.`
+    : "Something went wrong. Please try again.";
 
   // Load progress from localStorage
   useEffect(() => {
@@ -234,12 +254,12 @@ export default function InvestorJourney() {
         setPackFormData({ name: "", email: "", investmentRange: "", message: "", accredited: false });
         setTimeout(() => setFormSuccess(null), 6000);
       } else {
-        setFormSuccess("Something went wrong. Please try again or email invest@amora.cr.");
+        setFormSuccess(retryNote);
         setTimeout(() => setFormSuccess(null), 5000);
       }
     } catch (error) {
       console.error("Form submission error:", error);
-      setFormSuccess("Something went wrong. Please try again or email invest@amora.cr.");
+      setFormSuccess(retryNote);
       setTimeout(() => setFormSuccess(null), 5000);
     }
   };
@@ -337,22 +357,32 @@ export default function InvestorJourney() {
               transition={{ delay: 0.3 }}
               className="flex flex-wrap gap-4"
             >
-              <a
-                href="mailto:invest@amora.cr?subject=Investor%20Pack%20Request"
+              {/* This asked for the investor pack by mail. The page already
+                  serves that exact request with its own form, posting to this
+                  village's own /api/forms/submit, so the hero now opens that
+                  form. Better than hiding it: the lead is captured either way,
+                  it reaches the right village, and the request now passes
+                  through the accreditation step the journey already had rather
+                  than around it. */}
+              <button
+                type="button"
+                onClick={() => setShowPackForm(true)}
                 className="btn-amora flex items-center gap-2"
               >
                 <FileText className="w-5 h-5" />
                 Request Investor Pack
-              </a>
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-6 py-3 bg-white/90 text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white transition-all flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Join Community Call
-              </a>
+              </button>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-6 py-3 bg-white/90 text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white transition-all flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Join Community Call
+                </a>
+              )}
             </motion.div>
           </div>
         </div>
@@ -506,7 +536,7 @@ export default function InvestorJourney() {
             </motion.div>
 
             <div className="space-y-4">
-              {journeySteps.map((step, index) => {
+              {steps.map((step, index) => {
                 const isCompleted = completedSteps.includes(step.id);
                 const isExpanded = expandedStep === step.id;
                 
@@ -633,7 +663,7 @@ export default function InvestorJourney() {
                                 {step.action}
                                 <ArrowRight className="w-4 h-4" />
                               </button>
-                            ) : (
+                            ) : step.link ? (
                               <a
                                 href={step.link}
                                 target={step.external ? "_blank" : undefined}
@@ -643,7 +673,7 @@ export default function InvestorJourney() {
                                 {step.action}
                                 {step.external ? <ExternalLink className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
                               </a>
-                            )}
+                            ) : null}
                           </div>
                         </motion.div>
                       )}

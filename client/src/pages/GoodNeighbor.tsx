@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useVillageLinks } from "@/lib/gameApi";
 import { motion } from "framer-motion";
 import { Link } from "wouter";
 import {
@@ -192,6 +193,8 @@ const commitments = [
 ];
 
 export default function GoodNeighbor() {
+  // Blank hides the button rather than pointing at another village.
+  const { eventsUrl } = useVillageLinks();
   return (
     <Layout>
       {/* Hero */}
@@ -521,15 +524,17 @@ export default function GoodNeighbor() {
                     <ArrowRight className="w-5 h-5" />
                   </a>
                 </Link>
-                <a
-                  href="https://amora.cr/event/discover-amora-webinar-qa/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-8 py-4 bg-secondary text-secondary-foreground rounded-lg font-semibold text-lg hover:opacity-90 transition-all duration-200 flex items-center gap-2"
-                >
-                  <Calendar className="w-5 h-5" />
-                  Attend a Community Call
-                </a>
+                {eventsUrl && (
+                  <a
+                    href={eventsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-8 py-4 bg-secondary text-secondary-foreground rounded-lg font-semibold text-lg hover:opacity-90 transition-all duration-200 flex items-center gap-2"
+                  >
+                    <Calendar className="w-5 h-5" />
+                    Attend a Community Call
+                  </a>
+                )}
               </div>
             </motion.div>
           </div>

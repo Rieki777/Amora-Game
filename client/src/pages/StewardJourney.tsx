@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useVillageLinks } from "@/lib/gameApi";
 import { altOr, useBrandImages } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
 import { useState, useEffect } from "react";
@@ -29,7 +30,8 @@ const journeySteps = [
     title: "Attend Community Call",
     description: "Learn about the basics and ask any immediate questions about Amora.",
     icon: Calendar,
-    link: "https://amora.cr/event/discover-amora-webinar-qa/",
+    // Resolved at render from this village's own eventsUrl.
+    link: "",
     linkText: "Join Community Call",
     external: true,
     details: ["Meet the founding team", "Learn about our vision", "Ask questions live", "Connect with other visitors"]
@@ -40,7 +42,8 @@ const journeySteps = [
     title: "Participate in Events",
     description: "Join potlucks, events, workshops, and parties on our land to experience the community.",
     icon: Users,
-    link: "https://amora.cr/events/",
+    // Resolved at render from this village's own eventsUrl.
+    link: "",
     linkText: "View Events",
     external: true,
     details: ["Weekly potlucks", "Village weaving gatherings", "Land tours", "Workshops and retreats"]
@@ -162,6 +165,13 @@ const longTermArc = [
 ];
 
 export default function StewardJourney() {
+  // This village's own destinations. Blank hides the control.
+  const { eventsUrl } = useVillageLinks();
+  const steps = journeySteps.map((step) =>
+    step.id === "community-call" || step.id === "events"
+      ? { ...step, link: eventsUrl }
+      : step,
+  );
   const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("community-call");
@@ -253,15 +263,17 @@ export default function StewardJourney() {
               transition={{ delay: 0.3 }}
               className="flex flex-wrap gap-4"
             >
-              <a
-                href="https://amora.cr/event/discover-amora-webinar-qa/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-amora flex items-center gap-2"
-              >
-                <Calendar className="w-5 h-5" />
-                Start with Community Call
-              </a>
+              {eventsUrl && (
+                <a
+                  href={eventsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-amora flex items-center gap-2"
+                >
+                  <Calendar className="w-5 h-5" />
+                  Start with Community Call
+                </a>
+              )}
               <Link
                 href="/how-we-create"
                 className="px-6 py-3 bg-white/90 text-foreground rounded-full font-medium uppercase tracking-wider text-sm hover:bg-white transition-all"
@@ -307,7 +319,7 @@ export default function StewardJourney() {
 
           <div className="max-w-3xl mx-auto">
             <div className="space-y-3">
-              {journeySteps.map((step, index) => {
+              {steps.map((step, index) => {
                 const isCompleted = completedSteps.includes(step.id);
                 const isExpanded = expandedStep === step.id;
                 
@@ -409,7 +421,7 @@ export default function StewardJourney() {
                                 ))}
                               </ul>
                             </div>
-                            {step.external ? (
+                            {!step.link ? null : step.external ? (
                               <a
                                 href={step.link}
                                 target="_blank"
@@ -626,6 +638,9 @@ export default function StewardJourney() {
 }
 
 function StewardNextStepForm() {
+  // Blank hides the two invitations below rather than sending a
+  // would-be steward to a different village's calendar.
+  const { eventsUrl } = useVillageLinks();
   const [form, setForm] = useState({ name: "", email: "", gifts: "", question: "" });
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -667,15 +682,17 @@ function StewardNextStepForm() {
           We've received your message and will be in touch soon with your next
           invitation into the village.
         </p>
-        <a
-          href="https://amora.cr/event/discover-amora-webinar-qa/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-sage text-white rounded-lg font-semibold hover:opacity-90 transition-opacity"
-        >
-          <Calendar className="w-5 h-5" />
-          Join the Next Community Call
-        </a>
+        {eventsUrl && (
+          <a
+            href={eventsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-sage text-white rounded-lg font-semibold hover:opacity-90 transition-opacity"
+          >
+            <Calendar className="w-5 h-5" />
+            Join the Next Community Call
+          </a>
+        )}
       </motion.div>
     );
   }
@@ -773,18 +790,20 @@ function StewardNextStepForm() {
           </>
         )}
       </button>
-      <p className="text-xs text-muted-foreground text-center">
-        Or{" "}
-        <a
-          href="https://amora.cr/event/discover-amora-webinar-qa/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline"
-        >
-          join our next community call
-        </a>{" "}
-        to learn more first.
-      </p>
+      {eventsUrl && (
+        <p className="text-xs text-muted-foreground text-center">
+          Or{" "}
+          <a
+            href={eventsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline"
+          >
+            join our next community call
+          </a>{" "}
+          to learn more first.
+        </p>
+      )}
     </form>
   );
 }

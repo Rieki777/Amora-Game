@@ -10446,6 +10446,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
           {brandField("currency", "nameLower", "Currency, lowercase (in a sentence)", defaults.currency.nameLower)}
           {brandField("project", "siteUrl", "Main website URL (blank = no outside links)", (defaults.project as any).siteUrl ?? "")}
           {brandField("project", "eventsUrl", "Events page URL (optional)", (defaults.project as any).eventsUrl ?? "")}
+          {brandField("project", "contactEmail", "Contact email for enquiries (blank hides every email button)", (defaults.project as any).contactEmail ?? "")}
           {brandField("project", "footerBlurb", "Footer introduction (one sentence)", (defaults.project as any).footerBlurb ?? "")}
         </div>
         <button onClick={() => saveBrand("identity", { project: brand.project, currency: brand.currency })} disabled={savingSection === "identity"} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
