@@ -169,8 +169,20 @@ has not actually landed yet.
 
 ## 6. Create your founder account
 
-With `ADMIN_PASSWORD` set in Railway (from step 3) and the deploy live, call
-the one-time bootstrap route:
+Open `https://<your-domain>/claim` in a browser. Enter your email and the
+`ADMIN_PASSWORD` you generated in step 3, and submit.
+
+You get a link to set your own password. If `RESEND_API_KEY` and `EMAIL_FROM`
+are both set and your sender domain is verified, that link is also emailed to
+you. If it was not sent, the page says so and shows you the link instead,
+along with the reason nothing went out. Open it on the device you are already
+using.
+
+That page works from a phone, which matters: this step has stranded two people
+so far, and both times the only way through was a terminal.
+
+<details>
+<summary>The same thing from a shell, if you would rather</summary>
 
 ```
 curl -X POST https://<your-domain>/api/admin/bootstrap \
@@ -178,12 +190,54 @@ curl -X POST https://<your-domain>/api/admin/bootstrap \
   -d '{"password":"<the ADMIN_PASSWORD you generated>","email":"you@example.org","name":"Your Name"}'
 ```
 
-The response carries a `claimUrl`. If `RESEND_API_KEY` and `EMAIL_FROM` are
-both set and your sender domain is verified, an email with that same link is
-on its way to you. If either is missing, or if the response's `emailed`
-field reads `false`, open `claimUrl` yourself; the response's `emailNote`
-field says exactly why nothing was sent. Either way, this password now
-stops working: it authenticates exactly once, for this one call.
+The response carries `claimUrl`, plus an `emailed` field and an `emailNote`
+saying why nothing was sent when it reads `false`.
+</details>
+
+Either way, `ADMIN_PASSWORD` now stops working. It authenticates exactly once,
+for this one call, and refuses everyone once your village has a founder.
+
+### Set `FOUNDER_EMAILS` too, so you can never be locked out again
+
+`ADMIN_PASSWORD` spends itself here. If you later lose access, there is nothing
+left to reach for, and `forgot-password` cannot help an account that never set
+a password. That is the exact hole both lockouts fell into.
+
+Add this in Railway alongside your other variables:
+
+```
+FOUNDER_EMAILS=you@example.org
+```
+
+Any Google sign-in from a listed address that Google has verified gets the
+founder role, on every sign-in rather than only the first. So if your role ever
+goes missing, signing in again restores it. It needs step 6a below to be done
+first.
+
+## 6a. Google sign-in, which ReGen Civics can host for you
+
+Two ways to switch this on. Both set the same three variables, and the code
+does not know or care which you used.
+
+**Ask ReGen Civics for the shared credentials (start here).** We hold one
+Google client with every incubator village's callback address registered on it.
+Send us your village's domain, and we send back a `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` to paste into Railway. Your Google Cloud Console work is
+zero. Two things to know while you use them: the Google consent screen will say
+**ReGen Civics** rather than your village's name, and the secret is shared with
+the other incubator villages, so it is right for a village being designed and
+wrong for one holding a real community's accounts.
+
+**Register your own client (do this before you go live).** Ten minutes in
+Google Cloud Console, and then the consent screen carries your village's name,
+the secret is yours alone, and you can change your own domain without asking
+anybody. Full steps in `docs/GOOGLE_SIGN_IN.md`.
+
+Moving from the first to the second is a two-variable change and no code, so
+starting on ours costs you nothing later.
+
+Skipping this entirely is fine. Your village works on email and password, and
+no Google button is drawn where it would not work.
 
 ## 7. Make it yours
 

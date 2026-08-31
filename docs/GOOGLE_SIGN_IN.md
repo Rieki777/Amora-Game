@@ -13,8 +13,26 @@ button, and the server prints this on every boot:
 [auth] sign-in methods: email and password. Google is OFF, missing: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET. No Google button is shown while it is off.
 ```
 
-To turn it on, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (and
-`FRONTEND_URL`, which you need anyway). The boot line then reads:
+To turn it on you need a `GOOGLE_CLIENT_ID` and a `GOOGLE_CLIENT_SECRET`, and
+there are two ways to get them.
+
+**Ask ReGen Civics, and do no console work at all.** We hold one Google client
+with each incubator village's callback registered on it, and Google allows 100
+callbacks on one client, so thirteen is nowhere near the limit. Send your
+village's domain, paste the two values we send back, done. This is the right
+starting point for a village being designed, and it is the wrong one for a
+village holding a real community's accounts, for two reasons worth saying
+plainly: the Google consent screen will say **ReGen Civics** rather than your
+village's name, and one leaked secret is every incubator village's problem at
+once.
+
+**Register your own, which is the answer once you go live.** Ten minutes below.
+Moving from ours to yours is a two-variable change with no code and no
+migration, so starting on ours costs you nothing later.
+
+Either way you set the same variables (and `FRONTEND_URL`, which you need
+anyway). The deployment reads its own credentials and has no idea who
+registered them. The boot line then reads:
 
 ```
 [auth] sign-in methods: email and password, Google. Google callback: https://your-village.example/api/auth/google/callback
@@ -96,7 +114,19 @@ is handed the same client ID and secret.
   Civics** to a member signing in to their own village, which is wrong on a
   platform whose whole claim is that a village owns itself.
 
-### One client per village, created by the founder (chosen)
+**Update, 2026-08-31: both of the first two are now in use, in that order.**
+The analysis below was written for a village running a real community, and for
+that village it still holds. It was not written for the phase thirteen villages
+are actually in, which is months of design before anyone joins. During that
+phase the shared client's costs land almost entirely on us rather than on a
+member, and its friction saves each founder ten minutes of console work they
+would have to redo anyway when their real domain is chosen. So the shared
+client is the documented starting point and a village's own client is the
+documented graduation, taken before going live. The mechanism did not change:
+that is the point, and it is what the closing paragraph of this section already
+said.
+
+### One client per village, created by the founder
 
 * Costs the founder: the ten minutes above, once. Real friction, and it is
   paid on a path that is optional, so a founder who skips it still has a
