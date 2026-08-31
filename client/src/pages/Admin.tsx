@@ -1732,6 +1732,28 @@ function IntegrationsTab({ password }: { password: string }) {
                     {h.operation}: {h.detail}
                   </p>
                 ))}
+                {/* How the value is HELD, which the pill above cannot say.
+                    Both states read as "Not connected" or as an ordinary
+                    "Connected" pill, so a steward looking at this card had no
+                    way to tell a key sitting in the clear from a sealed one,
+                    or a key this deployment has lost from one never set.
+                    Unreadable first: it is the stronger fact, and the two can
+                    be true at once. */}
+                {s?.unreadable ? (
+                  <p className="text-xs text-red-600 mb-2">
+                    A key is saved here and this deployment cannot open it, so it
+                    is being treated as unset. VILLAGE_SECRETS_KEY is missing, or
+                    it changed after this key was saved. Put the old value back,
+                    or save this key again.
+                  </p>
+                ) : s?.atRest === "plaintext" ? (
+                  <p className="text-xs text-amber-700 mb-2">
+                    Saved in the clear, from before this platform encrypted these
+                    keys. Any copy of the database carries it. Set
+                    VILLAGE_SECRETS_KEY on this deployment and restart, and it is
+                    encrypted on the next boot.
+                  </p>
+                ) : null}
                 {c.credential && (
                   <div className="flex flex-wrap items-center gap-2">
                     <input
