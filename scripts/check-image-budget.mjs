@@ -75,7 +75,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const SELF = fileURLToPath(import.meta.url);
+const ROOT = path.resolve(path.dirname(SELF), "..");
 const SCAN_ROOT = path.join(ROOT, "client", "public");
 const BASELINE_PATH = path.join(ROOT, "scripts", "image-budget-baseline.json");
 
@@ -171,6 +172,19 @@ function blankImageSlots() {
  * survives all of them. Directories whose files are built at runtime already
  * carry a `manifest.json` naming each one, which is where a dynamically
  * constructed path is supposed to be declared.
+ *
+ * THIS FILE IS EXCLUDED FROM ITS OWN HAYSTACK, and that is not tidiness. The
+ * header above names the PNG from the incident, and while it did, replaying
+ * the incident showed this gate reading its own comment and concluding the
+ * file was still referenced. A guard is not evidence for itself.
+ *
+ * A mention anywhere else does count, comments included, because telling code
+ * from commentary is a separate hard problem (`scripts/brand-strip.mjs` exists
+ * for it, and got two machine-dependent answers wrong before it was right).
+ * That errs toward calling a file referenced, so this check under-reports
+ * orphans rather than inventing them, which is the safe direction for
+ * something that fails a build. Markdown is not read at all: a doc naming a
+ * file is describing it, never fetching it.
  */
 const SOURCE_EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".html", ".css", ".json", ".sql", ".webmanifest"]);
 const SOURCE_SKIP = new Set(["node_modules", ".git", "dist", "build", "coverage", ".vite", "attached_assets"]);
@@ -183,7 +197,7 @@ function sourceText() {
       if (entry.isDirectory()) {
         if (SOURCE_SKIP.has(entry.name)) continue;
         visit(full);
-      } else if (SOURCE_EXT.has(path.extname(entry.name))) {
+      } else if (SOURCE_EXT.has(path.extname(entry.name)) && full !== SELF) {
         try { parts.push(fs.readFileSync(full, "utf8")); } catch { /* unreadable is not a reference */ }
       }
     }
