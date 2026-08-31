@@ -480,6 +480,22 @@ jobs:
         # is a ratchet that reports green either way.
         run: node scripts/check-identity-keys.test.mjs
 
+      - name: Server index size
+        # The monolith ratchet: server/index.ts may only ever shrink, in lines
+        # AND in route registrations, and no file under server/routes/ may pass
+        # 2,000 lines so it cannot simply move house.
+        #
+        # It has been enforced only through the last describe in
+        # server/serverIndexRatchet.test.ts, which pnpm test reaches at line 487
+        # of this file. That works, and it puts the one gate protecting the
+        # architecture behind the slowest step in the run, after the build. A
+        # contributor who adds a route waits for the whole suite to find out.
+        #
+        # Named here as its own step for two reasons: it fails in seconds
+        # instead of minutes, and a required check can point at it by name.
+        # Dependency-free, no database.
+        run: node scripts/check-server-index-size.mjs
+
       - name: Build
         run: pnpm build
 
