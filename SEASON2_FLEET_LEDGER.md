@@ -807,6 +807,31 @@ as a DELETE-then-reinsert of a caller-held snapshot with no per-row upsert and n
 with the tools link-check job named as a live lost-update window. A file or row contention race
 under twelve concurrent lanes is exactly the shape that finding predicts.
 
+## 7l - The container image is UNEXECUTED, and why that is acceptable for this push
+
+`docker` is not installed on this machine (`command not found`, verified). So the release
+lane's `Dockerfile` has never actually been built or booted anywhere. It is reviewed code, not
+demonstrated code, and the report must say so rather than implying an image exists.
+
+The Dockerfile itself is well made. Its last RUN re-derives the server's real runtime
+dependency list FROM THE BUILT BUNDLE and fails the build if any of it is unresolvable, so
+nobody maintains that list by hand. It names the two dependencies that reading the source
+misses: `sharp` arrives through a dynamic import, and `dotenv` through a side-effect import
+with no from clause.
+
+WHY THIS DOES NOT BLOCK THE PUSH, and the distinction matters:
+
+- Pushing `main` deploys Amora through the EXISTING nixpacks path in `railway.toml`. That path
+  is unchanged by this work and has deployed this village many times.
+- The image is only built by `.github/workflows/release.yml`, which triggers on a pushed SEMVER
+  TAG. No tag is being pushed. So the container work is additive and dormant.
+- The release workflow boots the image and checks its health BEFORE publishing to the registry,
+  so the first real exercise of the Dockerfile fails in CI rather than reaching a village.
+
+CONSEQUENCE FOR THE FLEET PLAN: the fleet roller cannot be exercised end to end until a tag is
+cut and the first image publishes. That is the next milestone after this push, and it should be
+done deliberately, watched, and on a scratch target before Amora.
+
 ## 9 - Post-deploy actions (queued, not yet done)
 
 1. **Apply `server/seeds/brochure-legal-seed.json` to Amora's live content document.** Amora already has a `content` row, so the boot-time seed-on-empty path will not touch it, and Amora's own legal wording would render as placeholders until this is applied. One authenticated admin PUT to `/api/admin/content/legal`. Coordinator to run after deploy.
