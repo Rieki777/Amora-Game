@@ -41,13 +41,16 @@
  * start leaving the deployment's trust boundary.
  *
  * That condition fired. `.github/workflows/db-backup.yml` mysqldumps the whole
- * database and uploads it as a GitHub Actions artifact with 30 day retention,
- * and the repository is public, so every Stripe secret key, every webhook
- * signing secret and every external calendar URL in this document travelled
- * out of the trust boundary on a schedule. Season 2 makes it worse rather than
- * better: ReGen is about to hold OTHER villages' payment credentials for a fee,
- * and "the operator can read the database anyway" stops being an answer the
- * moment the operator is not the credential's owner.
+ * database and uploads it as a GitHub Actions artifact with 30 day retention.
+ * The repository was public while those artifacts were produced, so every
+ * Stripe secret key, every webhook signing secret and every external calendar
+ * URL in this document travelled out of the trust boundary on a schedule. It
+ * was made private on 2026-08-30, which narrows who can fetch the artifacts
+ * that already exist and does not un-produce them. The condition stays fired
+ * either way, because Season 2 fires it a second time: ReGen is about to hold
+ * OTHER villages' payment credentials for a fee, and "the operator can read the
+ * database anyway" stops being an answer the moment the operator is not the
+ * credential's owner.
  *
  * So values are now sealed with AES-256-GCM under `VILLAGE_SECRETS_KEY`, using
  * the same primitive as `memberSecrets.ts` (`sealedBox.ts`, one cipher for the

@@ -391,8 +391,8 @@ planes.
    the same primitive `server/lib/memberSecrets.ts` uses. Masked-read without
    encryption was an explicit decision on 2026-07-27 whose stated revisit
    condition was backups leaving the trust boundary; `db-backup.yml` uploads a
-   full mysqldump as an artifact of a public repository, so it was revisited on
-   2026-08-30. With no key a write refuses rather than falling back to
+   full mysqldump as a GitHub Actions artifact, and the repository was public
+   while those artifacts were produced, so it was revisited on 2026-08-30. With no key a write refuses rather than falling back to
    plaintext, reads accept both shapes for one release, and the conversion runs
    in `loadSecrets` at boot because the database cannot do AES and is never
    handed the key.

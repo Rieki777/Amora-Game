@@ -1106,10 +1106,13 @@ Storage in this document used to be plaintext JSON, by a written decision on
 2026-07-27 that named its own revisit condition: revisit if backups start
 leaving the deployment's trust boundary. `.github/workflows/db-backup.yml`
 mysqldumps the whole database and uploads it as a GitHub Actions artifact kept
-for 30 days, and the repository is public, so the condition had already fired.
-A hosted fleet fires it a second time: once ReGen holds another village's
-Stripe key, "the operator can read the database anyway" stops being an answer,
-because the operator is no longer the credential's owner.
+for 30 days, and the repository was public while those artifacts were produced,
+so the condition had already fired. The repository was made private on
+2026-08-30, which narrows who can fetch the artifacts that already exist and
+does not un-produce them. A hosted fleet fires the condition a second time:
+once ReGen holds another village's Stripe key, "the operator can read the
+database anyway" stops being an answer, because the operator is no longer the
+credential's owner.
 
 ### Who generates it
 
