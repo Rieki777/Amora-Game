@@ -28,7 +28,7 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
 import ICAL from "ical.js";
 import { CALENDAR_LAYERS, type CalendarLayer } from "../../shared/gatherings";
 import { calendarRemoveMissing, calendarUpsert } from "./calendar";
-import { putSecret, secretValue } from "./secrets";
+import { NO_VILLAGE_SECRETS_KEY_SENTENCE, putSecret, secretValue, villageSecretsConfigured } from "./secrets";
 import { guardOutboundUrl, guardedFetchText } from "./toolcheck";
 
 export const EXTERNAL_SECRET_PREFIX = "external_calendar_url:";
@@ -118,6 +118,11 @@ export type AddOutcome = { ok: true; calendar: ExternalCalendarView } | { ok: fa
 export async function addExternalCalendar(pool: Pool, input: AddExternalCalendarInput): Promise<AddOutcome> {
   const name = String(input.name ?? "").trim().slice(0, 120);
   if (!name) return { ok: false, error: "Give the calendar a name" };
+  // The address is a credential and the secrets store seals it, so it refuses
+  // to write without a key. Asking first keeps that refusal in this function's
+  // own shape: every other failure here is an {ok:false, error} a founder can
+  // read, and a thrown one would be the only 500 on the path.
+  if (!villageSecretsConfigured()) return { ok: false, error: NO_VILLAGE_SECRETS_KEY_SENTENCE };
   // webcal:// is what Apple hands out; it is https underneath. The prefix is
   // rewritten as a string because WHATWG ignores a scheme change from a
   // non-special scheme on a parsed URL.
