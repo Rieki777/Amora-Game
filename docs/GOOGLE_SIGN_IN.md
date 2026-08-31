@@ -72,8 +72,7 @@ is handed the same client ID and secret.
   working village on day one with email and password.
 * Costs us: this document, and a boot line that says what is missing.
 * What breaks: founders who will not do it get no Google button. That is the
-  honest outcome and it is why the button is configuration-gated rather than
-  always drawn.
+  honest outcome and it is why the button is drawn only where it works.
 * What it buys: the consent screen carries the village's own name, a leaked
   secret is one village's problem, a village can change its own domain without
   asking anybody, and a fork that never talks to us can still turn this on.

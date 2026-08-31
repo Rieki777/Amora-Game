@@ -21,7 +21,7 @@ import { fetchSignInMethods } from "./signInMethods";
 interface Props {
   /**
    * Where to land after signing in. Server-side normalised, so an off-site
-   * value is dropped rather than followed.
+   * value is dropped.
    */
   next?: string;
   /** Override for a surface where "Sign in" reads oddly, such as a join page. */

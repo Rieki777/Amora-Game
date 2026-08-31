@@ -16,7 +16,7 @@
  * the far end. The stand-in supplies the one thing this process cannot: a
  * response from Google.
  *
- * WHAT IS THEREFORE UNPROVEN HERE, stated plainly rather than implied:
+ * WHAT IS THEREFORE UNPROVEN HERE, stated plainly:
  *
  *  1. That a real Google authorization screen redirects back with a usable
  *     code. The /start redirect is asserted to be a correct Google URL with
@@ -42,7 +42,7 @@ import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } 
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
-  console.warn("[authGoogle.routes] TEST_DATABASE_URL not set — DB-backed tests SKIPPED.");
+  console.warn("[authGoogle.routes] TEST_DATABASE_URL not set. DB-backed tests SKIPPED.");
 }
 
 const DIST = path.resolve(process.cwd(), "dist/index.js");

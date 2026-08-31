@@ -10,7 +10,8 @@
  * A village with no Google credentials serves `/api/auth/methods` with
  * `google: false`, the client renders no button, and `start` answers 404. A
  * dead button that fails on click would be worse than no button, and a village
- * that never configured Google is a real zero rather than a broken setup.
+ * that never configured Google is a real zero, and a broken setup is a
+ * different fact with a different message.
  *
  * The decisions live in server/lib/oauthGoogle.ts (protocol) and
  * server/lib/oauthAccounts.ts (which account a sign-in becomes). Read the

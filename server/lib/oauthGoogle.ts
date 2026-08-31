@@ -139,8 +139,8 @@ export interface OAuthState {
  * authorization code and quietly link the victim's browser to the attacker's
  * Google account.
  *
- * The nonce rides inside the SIGNED payload rather than a cookie, so the flow
- * survives a browser that drops cookies across the Google hop. It is readable
+ * The nonce rides inside the SIGNED payload. A cookie would not survive a
+ * browser that drops them across the Google hop, and this does. It is readable
  * by whoever holds the URL, which is fine: its job is to prove that the
  * id_token Google returned answers THIS authorization request, and an id_token
  * is minted by Google against a nonce it was given, not by the holder of one.

@@ -1,7 +1,7 @@
 /**
  * Which account a Google sign-in is allowed to become, and who may be sent a
  * set-password link. The decisions, with no Express and no database, so the
- * security argument is a test rather than a paragraph.
+ * security argument is a test.
  *
  * ── WHERE THE LINK IS STORED, AND WHY IT IS SIGNED ──────────────────────────
  *
@@ -137,7 +137,7 @@ export type SignInDecision =
  * no password hash it did not: `forgot-password` sent nothing and answered
  * success, forever. That is fixed in the same change (see
  * `maySendSetPasswordLink`), which is what makes "the mailbox could already do
- * this" true for every account rather than most of them.
+ * this" true for every account. Before that fix it held for most.
  *
  * WHAT IS REFUSED, and why each one:
  *
@@ -154,8 +154,8 @@ export type SignInDecision =
  * subject still matches. The email is consulted only when no account carries
  * this subject yet.
  *
- * THE RESIDUAL RACE, named rather than hidden: two callbacks for the same new
- * Google subject arriving at the same instant both read "no account" and both
+ * THE RESIDUAL RACE, named here: two callbacks for the same new Google
+ * subject arriving at the same instant both read "no account" and both
  * create one, leaving two member records for one Google identity. There is no
  * unique index behind `prefs.googleLink` to refuse the second. It needs a
  * double click at exactly the wrong millisecond, it degrades to a duplicate
