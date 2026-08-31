@@ -1,9 +1,10 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { 
-  Home, 
-  ArrowRight, 
+import { useVillageContent } from "@/hooks/useVillageContent";
+import {
+  Home,
+  ArrowRight,
   Calendar,
   MapPin,
   TreePine,
@@ -11,6 +12,10 @@ import {
   Droplets,
   Sun
 } from "lucide-react";
+
+interface LegalContent {
+  landShareTransferNote?: string;
+}
 
 // `key` is the home type the reservation form and the server both use (0077).
 // It travels as ?type= so a card click lands on the form with that home
@@ -75,6 +80,16 @@ const landFeatures = [
 ];
 
 export default function Housing() {
+  /**
+   * S2 brochure lane, 2026-08-30: this section used to state the land share
+   * transfers "tax-free" unconditionally: Costa Rica's tax treatment,
+   * compiled into every fork. `content.legal.landShareTransferNote`
+   * (GET /api/content/legal) is empty on a fresh instance, so the card below
+   * falls back to a plain, honest description with no tax claim in it. See
+   * WhyCostaRica.tsx for the fuller version of this fix.
+   */
+  const { content: legal } = useVillageContent<LegalContent>("legal");
+  const transferNote = legal?.landShareTransferNote?.trim();
   /*
    * FORWARD the hamlet, if this page was handed one (0077). A card click
    * would otherwise drop it and the person would have to say where they want
@@ -232,7 +247,9 @@ export default function Housing() {
               <div className="bg-card p-6 rounded-xl">
                 <h3 className="font-semibold text-foreground mb-2">Transferable</h3>
                 <p className="text-sm text-muted-foreground">
-                  Pass your land share to your children tax-free, keeping it in the family.
+                  {transferNote
+                    ? `Pass your land share to your children ${transferNote}, keeping it in the family.`
+                    : "Pass your land share to your children, keeping it in the family. Ask a steward about this village's specific transfer and tax terms."}
                 </p>
               </div>
               <div className="bg-card p-6 rounded-xl">

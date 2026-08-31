@@ -5,53 +5,81 @@ import {
   Landmark,
   MapPin,
   TrendingUp,
+  FileQuestion,
 } from "lucide-react";
+import { useVillageContent } from "@/hooks/useVillageContent";
 
-const POINTS = [
-  {
-    icon: ShieldCheck,
-    title: "Foreign Resident Rights",
-    body:
-      "Costa Rica explicitly protects foreign property ownership. Land Share Agreements are registered under Costa Rican Horizontal Condominium law, the same legal structure used by resorts and gated communities throughout the country.",
-  },
-  {
-    icon: Plane,
-    title: "Residency Pathways",
-    body:
-      "Costa Rica offers multiple legal residency programs including Pensionado ($1,000/month income), Rentista ($2,500/month), and Inversionista (investment-based). Amora actively helps residents navigate whichever pathway fits them.",
-  },
-  {
-    icon: Scale,
-    title: "Tax Environment",
-    body:
-      "No capital gains tax on real estate appreciation. No inheritance tax. Foreign income is not taxed in Costa Rica.",
-  },
-  {
-    icon: Landmark,
-    title: "Political Stability",
-    body:
-      "Costa Rica has had no military since 1948. Ranked among the most stable democracies in Latin America. Strong rule of law and independent judiciary. Tourism and foreign investment are core to national identity.",
-  },
-  {
-    icon: MapPin,
-    title: "Southern Zone Location",
-    body:
-      "Say where the land sits, what it sits between, and how long the drive is from the nearest airports. Surf, national parks, and international infrastructure within reach.",
-  },
-  {
-    icon: TrendingUp,
-    title: "Why Now",
-    body:
-      // The appreciation figure came out. It was a claim about one specific
-      // market over one specific window, stated as this village's own on every
-      // fork of this platform, and it is one of the four numbers the fork test
-      // holds the line on. What a village's own land has done belongs in Admin,
-      // Settings, where the investor page reads it from.
-      "Phase 1 infrastructure investment is underway. Founding member pricing won't last, each development phase resets the entry point.",
-  },
-];
+/**
+ * The village's own legal, tax and residency environment (S2 brochure lane,
+ * 2026-08-30). This used to be six paragraphs of Costa Rican property, visa
+ * and tax law compiled directly into this file: correct for Amora, and
+ * quietly wrong for every one of the 13 fresh instances that inherit this
+ * component unchanged. A family deciding whether to move money onto shared
+ * land was reading this platform's word for what their own country's law
+ * allows.
+ *
+ * Now it reads `content.legal.jurisdictionOverview` (GET /api/content/legal,
+ * the same generic content document Team.tsx and the FAQ sections already
+ * use. See server/repos/store.ts and server/index.ts's
+ * `/api/content/:section`). A fresh instance has never written that section,
+ * so the fetch 404s, and this renders an honest "not published yet" card
+ * instead of Amora's law. Amora's own six points are preserved as DATA in
+ * server/seeds/brochure-legal-seed.json (not deleted, moved), but that seed
+ * is not yet wired to auto-apply to Amora's already-existing content
+ * document (see the brochure lane's report); until it lands here, Amora's
+ * production instance shows the same neutral placeholder as a fresh one.
+ *
+ * No new legal or tax claim is invented here for any village. The
+ * placeholder never says what the law is, only that the village has not
+ * said yet.
+ */
+
+const ICONS = [ShieldCheck, Plane, Scale, Landmark, MapPin, TrendingUp];
+
+interface JurisdictionPoint {
+  title: string;
+  body: string;
+}
+
+interface LegalContent {
+  jurisdictionOverview?: {
+    heading?: string;
+    intro?: string;
+    points?: JurisdictionPoint[];
+  };
+}
 
 export default function WhyCostaRica() {
+  const { content, loading, isPlaceholder } = useVillageContent<LegalContent>("legal");
+  const overview = content?.jurisdictionOverview;
+  const points = overview?.points?.filter((p) => p?.title && p?.body) ?? [];
+
+  if (loading) return null;
+
+  if (isPlaceholder || points.length === 0) {
+    return (
+      <section className="bg-sage/15 py-20">
+        <div className="container max-w-3xl mx-auto px-4">
+          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-8 flex gap-4 items-start">
+            <div className="shrink-0 w-12 h-12 rounded-xl bg-teal-deep/10 text-teal-deep flex items-center justify-center">
+              <FileQuestion className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="font-display text-xl font-semibold text-teal-deep mb-1.5">
+                Legal, Tax and Residency Context
+              </h2>
+              <p className="text-sm text-stone-600 leading-relaxed">
+                This village has not yet published the legal, tax and residency details
+                for where it sits. Ask a steward, or check back once the community has
+                written its own.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="bg-sage/15 py-20">
       <div className="container max-w-5xl mx-auto px-4">
@@ -60,15 +88,15 @@ export default function WhyCostaRica() {
             Location & Context
           </span>
           <h2 className="font-display text-3xl md:text-4xl font-bold text-teal-deep mb-3">
-            Why Costa Rica, Why Now
+            {overview?.heading || "Legal, Tax and Residency Context"}
           </h2>
-          <p className="text-muted-foreground max-w-2xl mx-auto">
-            The legal, financial, and practical reasons this place and this moment make sense.
-          </p>
+          {overview?.intro && (
+            <p className="text-muted-foreground max-w-2xl mx-auto">{overview.intro}</p>
+          )}
         </div>
         <div className="grid md:grid-cols-2 gap-5">
-          {POINTS.map((p) => {
-            const Icon = p.icon;
+          {points.map((p, i) => {
+            const Icon = ICONS[i % ICONS.length];
             return (
               <div
                 key={p.title}

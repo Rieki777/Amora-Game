@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
+import { useVillageContent } from "@/hooks/useVillageContent";
 import {
   Home,
   Heart,
@@ -18,12 +19,24 @@ import {
   RefreshCw,
 } from "lucide-react";
 
+/**
+ * S2 brochure lane, 2026-08-30: RIGHTS[0]'s description used to assert the
+ * land share transfers "tax-free" as compiled-in platform code: Costa
+ * Rica's tax treatment, stated unconditionally, on every fork. It is now
+ * built in the component from `content.legal.landShareTransferNote`
+ * (GET /api/content/legal), which is empty on any instance that has not
+ * written its own. See WhyCostaRica.tsx for the fuller version of this same
+ * fix; Amora's original wording is preserved as data in
+ * server/seeds/brochure-legal-seed.json, not deleted.
+ */
+const LAND_SHARE_BASE_DESCRIPTION =
+  "Your Land Share Agreement gives you long-term security on your piece of this land, renewable, transferable to your children{{TRANSFER}}, and protected by community ownership structures that ensure the land itself can never be sold away from the community.";
+
 const RIGHTS = [
   {
     icon: Home,
     title: "Your Land Share is Yours",
-    description:
-      "Your Land Share Agreement gives you long-term security on your piece of this land, renewable, transferable to your children tax-free, and protected by community ownership structures that ensure the land itself can never be sold away from the community.",
+    description: LAND_SHARE_BASE_DESCRIPTION.replace("{{TRANSFER}}", ""),
   },
   {
     icon: Shield,
@@ -132,7 +145,19 @@ The goal is a life here that is economically net-positive. Where your contributi
 This is what "Wealth Through Contribution" actually means. Not a promise. A design intention we're building toward together.`,
 };
 
+interface LegalContent {
+  landShareTransferNote?: string;
+}
+
 export default function ResidentRights() {
+  const { content } = useVillageContent<LegalContent>("legal");
+  const transferNote = content?.landShareTransferNote?.trim();
+  const rights = RIGHTS.map((right, i) =>
+    i === 0 && transferNote
+      ? { ...right, description: LAND_SHARE_BASE_DESCRIPTION.replace("{{TRANSFER}}", ` ${transferNote}`) }
+      : right,
+  );
+
   return (
     <Layout>
       {/* Hero */}
@@ -215,7 +240,7 @@ export default function ResidentRights() {
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            {RIGHTS.map((right, i) => {
+            {rights.map((right, i) => {
               const Icon = right.icon;
               return (
                 <motion.div
