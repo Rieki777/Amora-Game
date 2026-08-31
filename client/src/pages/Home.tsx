@@ -259,16 +259,28 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.3 }}
               className="relative flex flex-wrap gap-4"
             >
+              {/* THE TWO CONTROLS ARE DRAWN AGAINST THE BAND, NOT AGAINST A
+                  SCRIM. WCAG 1.4.11 asks 3:1 for the boundary that tells a
+                  visitor a control is there, and bg-primary can never give
+                  that here: --tone-brand-band IS --tone-brand darkened, so the
+                  fill and the surface behind it are the same hue a few steps
+                  apart, for every village rather than only for the platform
+                  default. Measured on the band: 1.46:1 for the filled button
+                  and 1.92:1 for the outline one. White is the pairing this
+                  codebase already uses for a control on the band
+                  (Decisions.tsx), at 15.13:1, and the second control keeps its
+                  translucent fill with a border that clears 3:1 on its own.
+                  Measured after: 15.13:1 and 3.55:1. */}
               <a
                 href="#choose-path"
-                className="px-8 py-4 bg-primary text-primary-foreground rounded-lg font-semibold text-lg hover:opacity-90 transition-all duration-200 flex items-center gap-2"
+                className="px-8 py-4 bg-white text-teal-band rounded-lg font-semibold text-lg hover:bg-cream transition-all duration-200 flex items-center gap-2"
               >
                 Find Your Path
                 <ArrowRight className="w-5 h-5" />
               </a>
               <Link
                 href="/co-creators-guide"
-                className="px-8 py-4 bg-white/20 backdrop-blur-sm text-white rounded-lg font-semibold text-lg hover:bg-white/30 transition-all duration-200"
+                className="px-8 py-4 bg-white/20 backdrop-blur-sm border border-white/40 text-white rounded-lg font-semibold text-lg hover:bg-white/30 transition-all duration-200"
               >
                 Read the Co-Creators Guide
               </Link>
