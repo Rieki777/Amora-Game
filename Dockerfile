@@ -249,10 +249,12 @@ EXPOSE 3000
 # start-period is long because boot is long. It applies every pending
 # migration, loads the token registry, seeds the economy and walks the ledger
 # invariants BEFORE it calls listen(). MEASURED 2026-08-30 against a
-# completely empty schema: 228 seconds and 107 migrations. That is the
-# cheapest boot this app has, so a 300s start period would leave a first boot
-# 72 seconds of margin. 600 is the honest number; see railway.toml for the
-# same reasoning applied to the platform's own probe.
+# completely empty schema, twice, doing identical work both times (107
+# migrations): 228.5 seconds against a cold database server and 37.5 seconds
+# against a warm one. Size against the cold number, because a container coming
+# up on a freshly provisioned instance is the cold case. A 300s start period
+# would leave a first boot about 72 seconds of margin. See railway.toml for
+# the same reasoning applied to the platform's own probe.
 HEALTHCHECK --start-period=600s --interval=30s --timeout=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 

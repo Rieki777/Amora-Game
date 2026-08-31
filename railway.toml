@@ -32,23 +32,31 @@ restartPolicyMaxRetries = 3
 # the point of pairing it with a timeout that a slow boot can survive.
 healthcheckPath = "/health"
 
-# Seconds, and the number is a measurement, not a hunch.
+# Seconds, and the number comes from two measurements that disagree by 6x.
 #
 # The server calls listen() LAST. Before it does, boot applies every pending
 # migration, loads the token registry, seeds the economy, and walks the ledger
-# invariants across the whole ledger. MEASURED 2026-08-30, booting the exact
-# production file set against a COMPLETELY EMPTY MySQL schema on a local disk:
-# 228 seconds from process start to "Server listening", 107 migrations
-# applied. That is the cheapest possible boot this app has, and it already
-# spends three quarters of Railway's 300 second default.
+# invariants. MEASURED 2026-08-30, booting the exact production file set
+# against a COMPLETELY EMPTY MySQL schema, twice, doing provably identical
+# work both times (107 migrations, 7 seed operations, verified by comparing
+# the two boot logs):
 #
-# So the default is not merely tight, it is close to failing the very first
-# deploy of every new village instance, and it would fail on a slower disk or
-# a database that is a network hop away. A later deploy applies fewer
-# migrations but walks a bigger ledger.
+#   228.5 s  against a cold database server
+#    37.5 s  against the same server minutes later, caches warm
 #
-# 900 gives roughly four times the measured cold boot. It is a ceiling and not
-# a wait: a fast boot passes on the first probe. If a deploy ever fails this
+# Both numbers are honest and the spread is the finding. The work does not
+# vary; how warm the database is varies, by a factor of six. The number to
+# size a timeout against is therefore the cold one, because a container coming
+# up on a freshly provisioned instance is exactly the cold case.
+#
+# 228 seconds already spends three quarters of Railway's 300 second default,
+# so the default is not merely tight: it is within about seventy seconds of
+# failing the FIRST deploy of every new village, and it would fail outright on
+# a slower disk or a database one network hop away. A later deploy applies
+# fewer migrations but walks a bigger ledger.
+#
+# 900 gives roughly four times the cold measurement. It is a ceiling and not a
+# wait: a fast boot passes on the first probe. If a deploy ever fails this
 # check while the container log still shows migrations running, RAISE THIS
 # NUMBER. Do not remove the probe: a village serving 500s behind a green light
 # is the failure this pairing exists to prevent.
