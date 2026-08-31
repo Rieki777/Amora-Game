@@ -1,14 +1,14 @@
 # Module design: Token Registry + Ledger (keystone)
 
 > Produced by the 13-agent design workflow, 2026-07-26, from the 2020 village-demo deck (slides + speaker notes),
-> the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
+> the platform foundation plan's constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).
 
 **A runtime tokens registry plus one conservation-checked transfer ledger that every internal currency flows through — replacing the day-one MySQL enum with a registry FK BEFORE the next foundation session's JSON→MySQL ledger cutover freezes the wrong column shape into hundreds of forks.**
 
 Estimated sessions: 5
 
-## Improvements over the 2020 slide concept
+## Design decisions, and why
 
 - Split the deck's everything-on-chain model by governance: slide 33's library-item 'internal NFTs', slide 32's stay credits and slide 31's Gratitude Fund become rows in a fast, free, gas-less internal ledger, while anything share-like (slide 25 village shares, slide 26 restaurant ownership tokens) is structurally forced onto Hypha as read-only display + deep link. A villager borrowing a tent never touches a wallet.
 - Made slide 26's 'buy a share of village businesses' impossible to recreate by accident: ownership/equity can never exist as a platform token (governance='hypha' rows have no mint path and zero ledger rows, enforced at write time and asserted at reconciliation), so a fork admin cannot create an unregistered security with a dropdown. The 2020 deck had no such guardrail.
@@ -16,7 +16,7 @@ Estimated sessions: 5
 - Turned the deck's vague pools ('Gratitude Fund' slide 31, 'Library Pool' slide 33 notes) into first-class ledger accounts, so 'how much is in the library pool' and 'total Gratitude ever issued' are queries (the gratitude-pool account's negative balance IS lifetime issuance), not beliefs.
 - Resolved a contradiction the 2020 deck never noticed: slide 31 describes a pool-share model ('clicking the heart gives a share of the Gratitude Fund') while the dashboard slides show instant claims — the two double-pay each other. Encoded pay-at-send XOR pool-release per token as a boot-time invariant with a pinned test, matching the foundation plan's highest-ranked collision.
 - Replaced chain-given idempotency (the SEEDS/EOS assumption) with explicit >=160-char idempotency keys on every movement, so double-clicks, retried requests and re-run jobs credit exactly once off-chain.
-- Hardened the wallet assumption: the deck trusted the light wallet; we bind wallets with a signed-message challenge, refuse to display equity against unverified bindings, and show nothing (null) on RPC failure instead of persisting a zero — because Amora-as-equity beside a member's name must never be misstated.
+- Hardened the wallet assumption: the deck trusted the light wallet; we bind wallets with a signed-message challenge, refuse to display equity against unverified bindings, and show nothing (null) on RPC failure instead of persisting a zero — because an equity balance beside a member's name must never be misstated.
 - White-labeled slide 39's 'currency diversity': per-deployment registry rows with platform-seeded defaults mean hundreds of forks inherit the mechanics under their own names with zero platform-file edits, per the config-driven mandate.
 - Every tunable the deck buried in speaker notes (the 120% credit premium, health tick rates, mint caps) becomes a fail-loud game variable with bounds, admin-editable, inherited by forks.
 
@@ -44,7 +44,7 @@ Estimated sessions: 5
 | createdBy | varchar(64) FK users.id NULL | |
 | createdAt / updatedAt | timestamp | |
 
-Seeds (in `server/seeds/`, Amora values in seed data, never platform files): `gratitude` (platform, recognition, enabled), `amora` (hypha, equity, disabled until address set), `voice` (hypha, voice, disabled). Names read from registry rows; `GAME_CONFIG.currency` becomes the seed source, not the runtime lookup.
+Seeds (in `server/seeds/`, a village's values in seed data, never platform files): `gratitude` (platform, recognition, enabled), `amora` (hypha, equity, disabled until address set), `voice` (hypha, voice, disabled). Names read from registry rows; `GAME_CONFIG.currency` becomes the seed source, not the runtime lookup.
 
 ### ledger_accounts (pools are accounts, not columns)
 | column | type | notes |
@@ -156,7 +156,7 @@ Tokens tab: create/edit/enable/disable platform tokens (create ships disabled; g
 
 Ship with/before the Phase 1b ledger cutover (2 sessions). Session A: tokens + ledger_accounts + token_ledger (varchar tokenId FK, NOT enum) + token_balances in schema.ts; seed the three plan tokens + three system accounts; JSON→MySQL import preserving every idempotencyKey; postTransfer() repository with hypha/enabled/duplicate guards; rewire quest consent and gratitude send through it; boot invariants (hypha-never-mints, pay-at-send XOR releases); pinned tests — loop e2e stays green, cycle close writes zero ledger rows, duplicate key credits once, per-token conservation sums to zero. Session B: GET /api/tokens, /api/game/balances, extended /api/game/ledger; Admin Tokens tab (list, enable, mint with cap) and Ledger tab with the reconciliation panel; BalancesCard reading names from the registry. Useful alone: the keystone exists, Gratitude runs on it in production, and the enum fossil never ships.
 
-## v2 (the full slide vision)
+## v2 (the rest of the design)
 
 The full slide vision (3 sessions): generic peer transfer endpoint for transferable tokens; ticket expiry sweeps + chain cache refresh on the Phase 3 scheduler; wallet challenge/verify (viem, EIP-191) + chain_balance_cache + EconomicsSection with verified-only hypha balances and DHO deep links (slides 25/35's read-side, minus the trading we deliberately push to Hypha); reversal UI, CSV export, notification hooks; module pool-account registration API so exchange/stays/library/badges (slides 26/32/33/38) each enable against the registry with their own tokens and pools — library-credit with the 120% premium flowing to sys:library-pool, stay-credit debits per night, event tickets with expiry.
 
@@ -173,8 +173,8 @@ The full slide vision (3 sessions): generic peer transfer endpoint for transfera
 ## Open questions
 
 - Should quest consent draw from sys:gratitude-pool (recognition faucet, current implicit behavior) or sys:treasury (making quest spend visibly budget-shaped)? Affects whether the treasury needs funding mechanics before the exchange module
-- One shared 'credit' token vs one token per module (library-credit + stay-credit separately)? The registry supports both; the seeds need a decision from Rye
+- One shared 'credit' token vs one token per module (library-credit + stay-credit separately)? The registry supports both; the seeds need a per-village decision
 - Slide 26's non-equity business tokens (restaurant discounts, loyalty): allowed as platform tokens created by admins, or does creating any third-party-business token require a proposal/decision first?
 - Should Gratitude ever become transferable=true peer-to-peer generically, or stay locked to its dedicated budgeted send flow (current design: locked)?
 - Confirm decimals=0 for all internal tokens at launch (no fractional credits) — bigint minor units make later precision possible but the UI is simpler if v1 is integer-only
-- Does the F2 multi-currency 'releases' mechanism, if Amora ever wires it, target a NEW platform token (compensation kind) or is compensation always Hypha-side for Amora? Determines whether the weighted-pool close job is ever built here at all
+- Does the F2 multi-currency 'releases' mechanism, if a village ever wires it, target a NEW platform token (compensation kind), or is compensation always Hypha-side? Determines whether the weighted-pool close job is ever built here at all

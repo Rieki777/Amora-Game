@@ -3,19 +3,19 @@
 Provenance: platform
 
 > Produced by the 13-agent design workflow, 2026-07-26, from the 2020 village-demo deck (slides + speaker notes),
-> the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
+> the platform foundation plan's constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).
 
 **An admin-managed, audience-aware registry of every tool the village uses — one grid page with an auto-generated Hypha governance card — shipped as the proof-of-concept for the platform's toggleable-module framework.**
 
 Estimated sessions: 2
 
-## Improvements over the 2020 slide concept
+## Design decisions, and why
 
 - Slide 30 was a static hardcoded grid; this is an admin-managed registry so any village edits its toolbox without a developer or deploy — the white-label mandate applied to the cheapest possible surface.
 - Per-audience visibility (public / members / role-gated) — the slide showed Gitlab and Hubspot to everyone; here guests never see core-team internals, and 'core team' is deliberately NOT a new enum: it is a seeded role, reusing roles-as-data instead of inventing a parallel permission concept.
 - The Hypha card is auto-generated from one new global game variable (governance.hypha_org_url) and carries the four governance deep links already drafted in CoCreatorsGuide.tsx (Create Agreement, Contribution Claim, Pay Expenses, Members). This makes the Tools Hub the canonical 'all governance and pay happens on Hypha' surface AND kills the live [YOUR-DHO-SLUG] placeholder bug at CoCreatorsGuide.tsx:54 by refactoring that page to read the same variable.
-- Per-tool 'getting started' note — Rye's stated purpose was 'core teams know all the tools they need to get things done'; a collapsible onboarding note per card serves that purpose where the slide's bare JOIN button did not.
+- Per-tool 'getting started' note. The purpose of a tools page is that a core team knows every tool it needs to get things done, and a collapsible onboarding note per card serves that where a bare JOIN button does not.
 - Click-through analytics (tool_clicks, DB-native, fire-and-forget beacon) — F13 says instrument now, dashboard later, and 'which tools does the community actually use' is exactly the data that is unrecoverable retroactively. Feeds the future health dashboard for free.
 - Dead-link checking as an admin-triggered button in v1 (no scheduler exists yet) and scheduled in v2 — the classic death of every 'tools wiki' is silent link rot; the slide had no answer to it.
 - Configurable CTA label per tool (Open/Join/View) — preserves the slide's one nice detail (JOIN vs OPEN vs VIEW communicated relationship to the tool) as data instead of design.
@@ -105,7 +105,7 @@ Estimated sessions: 2
 ## Game variables
 
 - module.tools.enabled: false (boolean) — master toggle; the module framework's canonical example. OFF by default so every fork opts in.
-- governance.hypha_org_url: "" (text, https-validated by the existing _url-suffix rule in validateVariable) — the village's Hypha DHO base URL, e.g. https://app.hypha.earth/en/dho/amora-village. Drives the auto-generated Governance & Pay card AND the CoCreatorsGuide action cards. Blank = no Hypha card shown, nothing fake rendered.
+- governance.hypha_org_url: "" (text, https-validated by the existing _url-suffix rule in validateVariable) — the village's Hypha DHO base URL, e.g. https://app.hypha.earth/en/dho/your-village. Drives the auto-generated Governance & Pay card AND the CoCreatorsGuide action cards. Blank = no Hypha card shown, nothing fake rendered.
 - tools.click_tracking: true (boolean) — villages that don't want usage analytics switch it off; the beacon endpoint becomes a no-op.
 - tools.link_check_days: 0 (integer, 0–90, unit: days) — v2: scheduler cadence for automatic dead-link checks once Phase 3 lands; 0 = manual-only (the v1 behavior).
 
@@ -126,9 +126,9 @@ Two tabs following the existing Admin.tsx activeTab pattern. (1) **Modules** —
 
 ## v1 (ship first, useful alone)
 
-One session. shared/modules.ts (registry + ModuleDef + requireModule server helper + useModules hook + GET /api/modules) with tools as its only entry; module.tools.enabled + governance.hypha_org_url + tools.click_tracking variables; data/tools.json + seed + ensureDataFiles + toolsRepo; tools + tool_clicks tables added to schema.ts; GET /api/tools with visibility filtering and the virtual pinned Hypha card; click beacon endpoint writing tool_clicks to MySQL; ToolsHub.tsx grid page + ToolCard + HyphaGovernanceCard; Layout drawer entry + mobileNav FAB row filtered by useModules; Admin Modules tab + Tools tab with CRUD, audience picker, lucide-slug/upload icon, framer-motion drag-to-reorder, raw click counts, and the admin-triggered "Check links now" button with SSRF guard; CoCreatorsGuide.tsx refactored onto governance.hypha_org_url; addActivity on tool creation. Useful alone: the day it ships, Amora has slide 30 live and the '[YOUR-DHO-SLUG]' placeholder bug is dead.
+One session. shared/modules.ts (registry + ModuleDef + requireModule server helper + useModules hook + GET /api/modules) with tools as its only entry; module.tools.enabled + governance.hypha_org_url + tools.click_tracking variables; data/tools.json + seed + ensureDataFiles + toolsRepo; tools + tool_clicks tables added to schema.ts; GET /api/tools with visibility filtering and the virtual pinned Hypha card; click beacon endpoint writing tool_clicks to MySQL; ToolsHub.tsx grid page + ToolCard + HyphaGovernanceCard; Layout drawer entry + mobileNav FAB row filtered by useModules; Admin Modules tab + Tools tab with CRUD, audience picker, lucide-slug/upload icon, framer-motion drag-to-reorder, raw click counts, and the admin-triggered "Check links now" button with SSRF guard; CoCreatorsGuide.tsx refactored onto governance.hypha_org_url; addActivity on tool creation. Useful alone: the day it ships, a village has a real tools page and the '[YOUR-DHO-SLUG]' placeholder bug is dead.
 
-## v2 (the full slide vision)
+## v2 (the rest of the design)
 
 Roughly one more session, after Phase 3: scheduled dead-link checking at tools.link_check_days cadence with an admin notification when a link goes red; GET /api/admin/tools/analytics with per-window, per-audience click rollups feeding the F13 health dashboard ('the core team's most-used tool', 'tools nobody has opened in 90 days'); optional per-tool 'request access' mailto/URL affordance for invite-gated tools (still just links — no provisioning, no OAuth); category icons; click-row rollup/retention policy once volume warrants it. Explicitly still out of scope forever-ish: OAuth integrations, embedding third-party UIs, live status polling of external services — the hub links out, deliberately.
 
@@ -137,7 +137,7 @@ Roughly one more session, after Phase 3: scheduled dead-link checking at tools.l
 - SSRF via the link checker: admin-entered URLs are fetched server-side. Mitigated (https-only, DNS-resolve then refuse private/loopback/link-local ranges, 5s timeout, admin-triggered only) but the guard must be written, not assumed — flagging because 'admin-only' is one shared password today.
 - Icon upload must stay raster-only: piping SVG through to /api/uploads would create a stored-XSS vector; the sharp pipeline's mimetype whitelist already excludes SVG — keep it that way explicitly.
 - Module framework scope creep is the real budget risk: the framework must stay ~100 lines (registry, variable toggles, one hook, one helper). If it grows plugin loading or dynamic imports in this session, the 1-session estimate is dead and the PoC has failed its own point.
-- data/ volume shadowing: the tools seed only lands on fresh volumes (same caveat as the gated seed quests noted in the upgrade plan) — production Amora starts with an empty registry and an admin adds tools by hand, which is fine but should be said out loud.
+- data/ volume shadowing: the tools seed only lands on fresh volumes (same caveat as the gated seed quests noted in the upgrade plan) — a production deployment starts with an empty registry and an admin adds tools by hand, which is fine but should be said out loud.
 - tool_clicks stores userId: mild internal privacy surface; admin UI shows only aggregates, and tools.click_tracking gives villages a full opt-out; revisit retention in v2.
 - Tabnabbing: every card CTA needs rel='noopener noreferrer'; trivial and easy to forget.
 - In-memory rate limiting on the click beacon resets per redeploy and per process (standing hazard #5 in the plan) — acceptable for analytics, not to be leaned on for anything stronger.
@@ -145,8 +145,8 @@ Roughly one more session, after Phase 3: scheduled dead-link checking at tools.l
 
 ## Open questions
 
-- Is the /tools page itself publicly routable when the module is on (cards filtered per viewer — recommended, since slide 30 includes public-facing tools like the Telegram community), or gated behind login entirely?
-- Confirm 'core team' as a seeded role rather than a visibility enum value — the task brief said audience: public/members/core-team/role-slugs[], and this design collapses core-team into roles to avoid a parallel permission concept. Needs Rye's nod.
+- Is the /tools page itself publicly routable when the module is on (cards filtered per viewer, which is the recommendation, since a tools page usually includes public-facing tools like a community chat), or gated behind login entirely?
+- Confirm 'core team' as a seeded role rather than a visibility enum value — the task brief said audience: public/members/core-team/role-slugs[], and this design collapses core-team into roles to avoid a parallel permission concept.
 - Should the CoCreatorsGuide Hypha refactor ride in this session (recommended, ~30 lines) or be split out so the module lands pure?
 - Do the four Hypha deep-link suffixes (/agreements/create, /agreements/create/propose-contribution, /agreements/create/pay-for-expenses, /members) hold across Hypha DHO configurations, or do some villages need the sub-links to be editable data too? (Cheap escape hatch: an optional hyphaLinks override array in the variable's neighborhood — but only if a real second village needs it.)
 - Does Tools deserve one of the FAB shortcut rows on mobile by default, or drawer-only? TAB_SLOTS is deliberately fixed at five and Tools should not displace one.
