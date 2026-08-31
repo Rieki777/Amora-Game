@@ -18,7 +18,7 @@ import Celebration from "@/components/natural/Celebration";
 import { useMomentWindow } from "@/components/natural/moments";
 import { playMoment } from "@/lib/sound";
 import { useAuth } from "@/contexts/AuthContext";
-import { authToken } from "@/lib/gameApi";
+import { authToken, useGameConfig } from "@/lib/gameApi";
 import { holdCancelled, swipeIntent } from "@/lib/gestures";
 import { Link } from "wouter";
 import { BUILDER_GUIDE_URL, MODULE_GROUPS, POOL_REASON_COPY } from "@shared/moduleCatalog";
@@ -136,6 +136,11 @@ function refusal(d: any, fallback: string): string {
  */
 const CONTENT_SECTIONS = [
   { key: "team", label: "Team Page", icon: Users },
+  // Added for the brochure lane's legal-content extraction (fe3f3e1): 22
+  // jurisdiction-specific claims moved out of compiled JSX into this section,
+  // read through the same generic content routes. Without a registry entry
+  // here a founder has no door to write their own jurisdiction's notices.
+  { key: "legal", label: "Legal & Jurisdiction Notices", icon: FileText },
 ] as const;
 
 /**
@@ -869,6 +874,12 @@ function prettyType(t: string) {
 
 function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
   const { user, loading, login, logout } = useAuth();
+  // Same config the rest of the app reads its identity from (Layout.tsx and
+  // every public page use this hook). Null until the fetch resolves, so
+  // villageName starts blank and the heading falls back to plain "Admin"
+  // rather than flashing anyone's name.
+  const cfg = useGameConfig();
+  const villageName = String(cfg?.project?.name ?? "").trim();
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
@@ -939,7 +950,7 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
           <Lock className="w-7 h-7 text-teal-deep" />
         </div>
         <h1 className="font-display text-2xl font-bold text-center text-gray-900 mb-2">
-          Amora Admin
+          {villageName ? `${villageName} Admin` : "Admin"}
         </h1>
         <p className="text-sm text-gray-500 text-center mb-8">
           Sign in with your admin account
@@ -10307,7 +10318,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         placeholder={defaultVal}
         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
       />
-      <p className="text-[11px] text-gray-400 mt-0.5">Amora's value: {defaultVal}</p>
+      <p className="text-[11px] text-gray-400 mt-0.5">Platform default: {defaultVal}</p>
     </div>
   );
 
@@ -10384,7 +10395,7 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
         <p className="text-sm text-gray-500 mt-1">
           {setupComplete
             ? "Your project's identity, pictures, and numbers. Change any of it any time."
-            : "Everything you need to turn this into your project's coordination game. Blank fields keep Amora's value as the suggestion."}
+            : "Everything you need to turn this into your project's coordination game. Blank fields keep the platform default as the suggestion."}
         </p>
         {!setupComplete ? (
           <div className="flex items-center gap-3 mt-4">
@@ -11058,6 +11069,15 @@ function LaunchBanner({ password }: { password: string }) {
 
 export default function Admin() {
   const [password, setPassword] = useState<string | null>(null);
+  // Live config, same hook the rest of the app already reads its identity
+  // from. The panel header used to hardcode "Amora Admin" over
+  // "game.amora.cr" — the first screen a founder on a fresh instance opens,
+  // telling them they were looking at somebody else's site. siteUrl follows
+  // the codebase's established rule (Layout.tsx): blank hides the element,
+  // it never renders as an empty line.
+  const cfg = useGameConfig();
+  const villageName = String(cfg?.project?.name ?? "").trim();
+  const siteUrl = String(cfg?.project?.siteUrl ?? "").trim();
   // S62: the tab lives in the URL (?tab=x), not in useState. Before this,
   // no surface anywhere — the launch page, Maia, an email — could point at
   // a specific admin screen; "go to Integrations" had no address. Same
@@ -11130,8 +11150,10 @@ export default function Admin() {
             <Lock className="w-4 h-4" />
           </div>
           <div>
-            <h1 className="font-semibold text-lg leading-tight">Amora Admin</h1>
-            <p className="text-xs text-white/60">game.amora.cr</p>
+            <h1 className="font-semibold text-lg leading-tight">{villageName ? `${villageName} Admin` : "Admin"}</h1>
+            {siteUrl && (
+              <p className="text-xs text-white/60">{siteUrl.replace(/^https?:\/\//, "")}</p>
+            )}
           </div>
         </div>
         <button

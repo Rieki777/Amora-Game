@@ -216,9 +216,9 @@ export interface SeasonConfig {
 
 export const GAME_CONFIG: GameConfig = {
   project: {
-    name: "Amora",
+    name: "Unnamed Village",
     tagline: "Co-Become the Most Beautiful Village",
-    memberName: "Amora Family member",
+    memberName: "Village member",
     location: "Dominicalito, Costa Rica",
     country: "CR",
     fiatCurrency: "CRC",
