@@ -53,6 +53,35 @@ Nobody forks. Self-host and ReGen-hosted are the same image with a different ope
   serves. RULING: accepted. The refusal measured something and found my premise wrong, which is
   the behaviour every brief in this program asks for.
 
+- **R8** 2026-08-31. Cross-village value. [Visible in another village, and not spendable they
+  would need to trade their village a tokens for village b tokens in a village exchange.]
+  So: standing and gratitude earned in one village are VISIBLE elsewhere (a portable reputation,
+  carried by signed published summaries and cached reads), and are NEVER spendable across
+  villages. Moving value between villages happens only through an explicit exchange trade,
+  village A token for village B token. No cross-instance settlement layer, no shared balance, and
+  no village's minting decision can ever drain another village's goods.
+
+- **R9** 2026-08-31. Ballot visibility. [Yes ballot details should stay public.] The
+  unauthenticated `GET /api/governance/ballots/:id`, carrying voter names, choices, objection
+  free text and ruling notes, is a deliberate constitutional position and stays. Closed; do not
+  re-litigate. Worth pairing with a member-facing sentence saying so, since people should know
+  their reasoning is public before they write it.
+
+- **R10** 2026-08-31. Investor contact routing. [Add a section in admin where new instances can
+  add the emails that receive investor requests - this should stay editable and be found right
+  next to where they upload investor packet details.] The leads lane hid those controls behind a
+  blank config field; this ruling says give founders a real editable home for them, adjacent to
+  the investor packet upload.
+
+- **R11** 2026-08-31. Docker. [Download docker if you need it!] Authorised, so the container
+  image can actually be built and booted rather than remaining reviewed-but-unexecuted.
+
+- **R12** 2026-08-31. The rebrand is a TEST OF THE FOUNDER PATH. [I leave the rebrand to trying
+  out what any new instance will. So I'll give the brand kit and see if that route is working to
+  set up all the branding for amora.] Consequence for the programme: Amora's rebrand is now an
+  acceptance test of the kit lane's work. If the founder cannot brand Amora through the admin
+  surfaces alone, that is a fork-ability defect, not a founder problem.
+
 ## 2 - Lane registry
 
 Every lane: base ref above, its own worktree, its own branch, commits with `git add -p`,
