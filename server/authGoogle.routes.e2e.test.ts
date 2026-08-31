@@ -321,7 +321,19 @@ describe.skipIf(!DB_CONFIGURED)("the happy path: a new member signs in with Goog
       headers: { Authorization: `Bearer ${body.token}` },
     });
     expect(profile.status).toBe(200);
-    expect((await profile.json()).email).toBe("newcomer@example.com");
+    const me = await profile.json();
+    expect(me.email).toBe("newcomer@example.com");
+
+    // The link never leaves the server. It is sign-in plumbing carrying the id
+    // that names this person at Google, and `prefs` is returned to the account
+    // owner and to an admin looking at a member, so it is stripped in
+    // publicUser beside the password hash.
+    expect(me.prefs?.googleLink).toBeUndefined();
+    expect(JSON.stringify(me)).not.toContain("googleLink");
+    expect(JSON.stringify(body.user)).not.toContain("googleLink");
+    // Positive control: the response really does carry prefs, so the two
+    // assertions above are not passing because the whole object is missing.
+    expect(me.prefs).toBeDefined();
   });
 
   it("signs the same person back in without making a second account", async () => {

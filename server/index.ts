@@ -3793,10 +3793,12 @@ function suggestNextSeasonDates(cadence: string, lastEndsOn: string): { startsOn
 // where a page expects an array or number (see Profile.tsx contributions crash).
 function publicUser(u: any) {
   if (!u) return null;
-  // tokenVersion is internal plumbing (session revocation), not profile data.
+  // tokenVersion is session-revocation plumbing and prefs.googleLink is
+  // sign-in plumbing naming this person at Google. Neither is profile data.
   const { passwordHash, tokenVersion, ...rest } = u;
   return {
     ...rest,
+    prefs: rest.prefs ? { ...rest.prefs, googleLink: undefined } : rest.prefs,
     paths: u.paths ?? [],
     contributions: u.contributions ?? [],
     quests: u.quests ?? [],
@@ -8614,10 +8616,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   // written here inline, and Express matches in registration order, so where
   // register() is CALLED is part of the behaviour.
   //
-  // Google sign-in is configuration-gated. `resolveGoogleConfig` is handed the
-  // CONFIGURED origin only, never the observed one: Google compares a redirect
-  // URI byte for byte against a registered value, and a value derived from
-  // whichever hostname a stranger happened to reach first is not that.
+  // Google sign-in is configuration-gated, and reads the CONFIGURED origin
+  // only. See docs/GOOGLE_SIGN_IN.md.
   const recordAuthAudit = (text: string, userId: string) => {
     void recordEvent(getPool(), {
       kind: "audit", text, actorUserId: userId, entityType: "user", entityRef: userId, audience: "admin",
