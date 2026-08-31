@@ -24,20 +24,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Check, RefreshCw, Search } from "lucide-react";
-
-const API_BASE = "/api";
-
-function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
-  return { Authorization: `Bearer ${password}`, ...extra };
-}
-
-function refusalText(d: any, fallback: string): string {
-  for (const value of [d?.message, d?.error]) {
-    const text = value == null ? "" : String(value).trim();
-    if (text) return text;
-  }
-  return fallback;
-}
+import { API_BASE, authHeaders, refusal } from "./adminApi";
 
 const card = "border border-gray-200 rounded-xl px-4 py-4 bg-white";
 const btn =
@@ -68,7 +55,7 @@ export default function HyphaModulePanel({ password }: { password: string }) {
       // instead of showing an error, because off is a state and not a fault.
       if (res.status === 404) { setStatus({ moduleOff: true }); return; }
       const d = await res.json();
-      if (!res.ok) throw new Error(refusalText(d, "Could not read the bridge"));
+      if (!res.ok) throw new Error(refusal(d, "Could not read the bridge"));
       setStatus(d);
     } catch (e: any) {
       toast.error(e?.message || "Could not read the bridge");
@@ -90,7 +77,7 @@ export default function HyphaModulePanel({ password }: { password: string }) {
         body: JSON.stringify({ nameHint: hint.trim() }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(refusalText(d, "The lookup failed"));
+      if (!res.ok) throw new Error(refusal(d, "The lookup failed"));
       setCandidates(d.candidates ?? []);
       if ((d.candidates ?? []).length === 0) {
         toast.error("Nothing found on that account. Issue yourself some of the token on Hypha first");
@@ -111,8 +98,8 @@ export default function HyphaModulePanel({ password }: { password: string }) {
         body: JSON.stringify({ tokenSlug: slug, contractAddress }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(refusalText(d, "Nothing was stored"));
-      toast.success(refusalText(d, "Confirmed"));
+      if (!res.ok) throw new Error(refusal(d, "Nothing was stored"));
+      toast.success(refusal(d, "Confirmed"));
       await load();
     } catch (e: any) {
       toast.error(e?.message || "Nothing was stored");
@@ -131,7 +118,7 @@ export default function HyphaModulePanel({ password }: { password: string }) {
         body: JSON.stringify({ value: address }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(refusalText(d, "Could not save"));
+      if (!res.ok) throw new Error(refusal(d, "Could not save"));
       toast.success(`Saved as ${variableKey}`);
       await load();
     } catch (e: any) {
@@ -149,8 +136,8 @@ export default function HyphaModulePanel({ password }: { password: string }) {
         headers: authHeaders(password),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(refusalText(d, "Could not unbind"));
-      toast.success(refusalText(d, "Unbound"));
+      if (!res.ok) throw new Error(refusal(d, "Could not unbind"));
+      toast.success(refusal(d, "Unbound"));
       await load();
     } catch (e: any) {
       toast.error(e?.message || "Could not unbind");
@@ -168,8 +155,8 @@ export default function HyphaModulePanel({ password }: { password: string }) {
         body: "{}",
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(refusalText(d, "Could not read Base"));
-      toast.success(refusalText(d, "Read"));
+      if (!res.ok) throw new Error(refusal(d, "Could not read Base"));
+      toast.success(refusal(d, "Read"));
       await load();
     } catch (e: any) {
       toast.error(e?.message || "Could not read Base");
@@ -189,8 +176,8 @@ export default function HyphaModulePanel({ password }: { password: string }) {
         body: JSON.stringify({ note: note.trim() }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(refusalText(d, "Could not answer that one"));
-      toast.success(refusalText(d, "Answered"));
+      if (!res.ok) throw new Error(refusal(d, "Could not answer that one"));
+      toast.success(refusal(d, "Answered"));
       await load();
     } catch (e: any) {
       toast.error(e?.message || "Could not answer that one");

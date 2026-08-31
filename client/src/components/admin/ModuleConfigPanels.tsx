@@ -24,22 +24,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Coins, MessageSquare, Wrench } from "lucide-react";
-
-const API_BASE = "/api";
-
-/** Same shape Admin.tsx uses: the admin password rides as a bearer token. */
-function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
-  return { Authorization: `Bearer ${password}`, ...extra };
-}
-
-/** Server refusals carry the sentence in `message` and the code in `error`. */
-function refusalText(d: any, fallback: string): string {
-  for (const value of [d?.message, d?.error]) {
-    const text = value == null ? "" : String(value).trim();
-    if (text) return text;
-  }
-  return fallback;
-}
+import { API_BASE, authHeaders, refusal } from "./adminApi";
 
 const inputCls =
   "border border-gray-200 rounded-lg px-2 py-1.5 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-teal-deep";
@@ -91,7 +76,7 @@ function useModuleConfig(moduleId: string, password: string) {
       body: JSON.stringify({ config: { ...live, ...patch } }),
     });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { toast.error(refusalText(d, "That did not save")); return false; }
+    if (!res.ok) { toast.error(refusal(d, "That did not save")); return false; }
     setConfig(d.config ?? { ...live, ...patch });
     return true;
   };

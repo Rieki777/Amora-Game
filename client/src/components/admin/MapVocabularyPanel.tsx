@@ -19,13 +19,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-
-const API_BASE = "/api";
-
-const authHeaders = (password: string, extra: Record<string, string> = {}) => ({
-  Authorization: `Bearer ${password}`,
-  ...extra,
-});
+import { API_BASE, authHeaders } from "./adminApi";
 
 const inputCls =
   "border border-gray-200 rounded-lg px-2 py-1.5 text-sm min-h-[44px] w-full focus:outline-none focus:ring-2 focus:ring-teal-deep";
