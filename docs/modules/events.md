@@ -12,7 +12,7 @@ wins and this file is stale.
 
 `brand.project.eventsUrl` pointed somewhere else and `/seasonal-festivals` was
 prose. Nothing could answer "what is on this week", nothing knew who was
-coming, and the map had no way to know a building was busy. Rye's call: events
+coming, and the map had no way to know a building was busy. The call: events
 are their own module, and the foundation other surfaces read.
 
 ## Naming, so nobody trips

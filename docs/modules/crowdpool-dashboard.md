@@ -1,14 +1,14 @@
-# Module design: Crowdpool Commitments Dashboard (slides 43-45) — post-campaign capital inventory, commitment ledger, and fulfillment fan-out
+# Module design: Crowdpool Commitments Dashboard — post-campaign capital inventory, commitment ledger, and fulfillment fan-out
 
 > Produced by the 13-agent design workflow, 2026-07-26, from the 2020 village-demo deck (slides + speaker notes),
-> the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
+> the platform foundation plan's constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).
 
 **After a crowdpool campaign passes on regen-civics, this module becomes its home in the village: every pledge (money, land, materials, labor, skills, connections) tracked across the 8 forms of capital from pledged to fulfilled, with evidence, nudges, and fan-out that turns fulfilled pledges into material-library items, quests, and treasury history.**
 
 Estimated sessions: 9
 
-## Improvements over the 2020 slide concept
+## Design decisions, and why
 
 - The 2020 slides were three wizard questions with no data model. This design pairs slide 44 (needs) with slide 45 (gives) as first-class tables, so the dashboard shows needs-vs-committed-vs-fulfilled GAP bars per capital type — the village can see what is still missing, not just what was promised.
 - Quantification the slides lacked: every commitment carries amount + unit (USD, hours, acres, items) plus an optional admin-entered estValueUsd used for display-only aggregate totals — explicitly never an exchange rate, preserving the closed-loop legal posture.
@@ -19,7 +19,7 @@ Estimated sessions: 9
 - A hard legal/Hypha firewall the deck did not have: fulfilling a money pledge records a fiat receipt (manual or Stripe URL), never mints a token. Anything equity-like is a deep link to the village's Hypha DHO with the proposal URL recorded on the commitment. Optional Gratitude acknowledgment is bounded by a game variable (default 0/off) and idempotent through the one ledger.
 - Follow-through mechanics: capped, audited nudge emails via the existing Resend plumbing (max per pledge, min gap days, every send logged as an event), so unfulfilled pledges do not silently rot — the deck had no post-pledge process at all.
 - Import provenance as a real integration spec: CSV batches with dry-run preview and reversibility, plus a versioned webhook/pull contract for regen-civics with HMAC signing and idempotent externalRef upserts — replacing the deck's implicit same-platform assumption.
-- Fully white-label: module ships OFF, capital-type display labels/icons overridable via config, nudge email copy templated on project name, zero Amora-specific copy in platform files — hundreds of forks inherit it.
+- Fully white-label: module ships OFF, capital-type display labels/icons overridable via config, nudge email copy templated on project name, zero village-specific copy in platform files — hundreds of forks inherit it.
 
 ## Data model
 
@@ -100,7 +100,7 @@ id PK, campaignId FK, source enum('csv','regen-civics'), filename varchar(255), 
 | recordedBy varchar(64) / receivedAt timestamp / createdAt | | |
 | UNIQUE(source, sourceRef, receiptUrl) | | double-entry guard |
 
-Ledger touchpoint: the ONLY write to `token_ledger` this module ever makes is the optional Gratitude acknowledgment, `source='crowdpool'`, `idempotencyKey='crowdpool:recognition:{commitmentId}'` — re-release credits nothing twice. Amora/Voice are never written, per the Hypha boundary.
+Ledger touchpoint: the ONLY write to `token_ledger` this module ever makes is the optional Gratitude acknowledgment, `source='crowdpool'`, `idempotencyKey='crowdpool:recognition:{commitmentId}'` — re-release credits nothing twice. Equity and Voice are never written, per the Hypha boundary.
 
 ## Endpoints
 
@@ -124,7 +124,7 @@ Ledger touchpoint: the ONLY write to `token_ledger` this module ever makes is th
 - `POST /api/admin/crowdpool/relink — re-run email linking across all users (also runs automatically inside the existing registration route)`
 - `GET /api/admin/crowdpool/export.csv — full export`
 - `POST /api/webhooks/regen-civics/crowdpool — v2; HMAC (X-RegenCivics-Signature, sha256 over raw body, env REGEN_CIVICS_WEBHOOK_SECRET); events campaign.passed | pledge.created | pledge.updated | pledge.withdrawn; payload {v:1, event, deliveryId, sentAt, campaign?, pledge?}; idempotent on externalRef + deliveryId`
-- `SPEC FOR THE REGEN-CIVICS REPO (v2 pull fallback): expose GET /api/public/crowdpool/campaigns/:id/export?since=<cursor> with Bearer token auth returning {v:1, campaign:{id,slug,title,description,passedAt,goals:[{capitalType,title,targetAmount,unit}]}, pledges:[{id,email,name,capitalType,title,description,amount,unit,estValueUsd?,status,createdAt,updatedAt}], nextCursor} — cursor-paged so Amora can poll without a webhook`
+- `SPEC FOR THE REGEN-CIVICS REPO (v2 pull fallback): expose GET /api/public/crowdpool/campaigns/:id/export?since=<cursor> with Bearer token auth returning {v:1, campaign:{id,slug,title,description,passedAt,goals:[{capitalType,title,targetAmount,unit}]}, pledges:[{id,email,name,capitalType,title,description,amount,unit,estValueUsd?,status,createdAt,updatedAt}], nextCursor} — cursor-paged so the village can poll without a webhook`
 
 ## Surfaces
 
@@ -157,7 +157,7 @@ pledged -> scheduled (pledger or admin, sets scheduledFor) -> fulfilled (ADMIN O
 - Anything equity-like (e.g. "$50k for future equity") -> the platform records it and shows a deep link "Propose recognition on Hypha" using the admin-configured DHO URL; hyphaProposalUrl saved on the commitment. Read-and-display + link-out only.
 - Every release emits addActivity('crowdpool', "...fulfilled their pledge of {title}") — name suppressed when isAnonymousPublic, amount never included (F3 posture).
 
-**Nudges:** admin-triggered (no scheduler exists yet). Eligible = status pledged|scheduled AND (now - max(createdAt,lastNudgedAt)) >= nudge_min_gap_days AND nudgeCount < nudge_max_per_pledge AND (scheduledFor null or past). Sends via existing sendResendEmail with templated copy ({{projectName}}, {{pledgeTitle}}, {{dashboardLink}} — no hardcoded Amora copy). Each send: nudgeCount++, lastNudgedAt, 'nudge_sent' event. v2: route through Phase 3 insertNotification with dedupeKey crowdpool:nudge:{commitmentId}:{n}, inheriting the 20-emails/user/day ceiling.
+**Nudges:** admin-triggered (no scheduler exists yet). Eligible = status pledged|scheduled AND (now - max(createdAt,lastNudgedAt)) >= nudge_min_gap_days AND nudgeCount < nudge_max_per_pledge AND (scheduledFor null or past). Sends via existing sendResendEmail with templated copy ({{projectName}}, {{pledgeTitle}}, {{dashboardLink}} — no hardcoded village copy). Each send: nudgeCount++, lastNudgedAt, 'nudge_sent' event. v2: route through Phase 3 insertNotification with dedupeKey crowdpool:nudge:{commitmentId}:{n}, inheriting the 20-emails/user/day ceiling.
 
 **Gating:** extends shared/capabilities.ts with 'crowdpool.manage' (role-grant only, no stage unlock — so a village can appoint a Campaign Steward role without admin credentials). Members act on own rows via userId match; admins bypass per the existing hasCapability isAdmin rule. One gate, no bypass.
 
@@ -198,7 +198,7 @@ Admin tab "Crowdpool" (existing Admin.tsx tab pattern): campaign CRUD with archi
 
 Ships alone and is useful alone: the six tables (campaigns, needs, commitments, events, import_batches, treasury_receipts) with Drizzle migrations; manual admin entry + CSV import with dry-run and reversible batches; email linking at registration + relink tool; the full status machine with evidence and append-only events; financial fulfill -> treasury receipts with installment view; material fulfill -> draft library item when that module exists, plain record otherwise; "create quest from pledge" pre-fill button; /commitments dashboard with capital tiles, need gap bars, and aggregate-only public wall; /commitments/:slug detail; MyCommitmentsCard on the profile; admin tab; manual cap-checked Resend nudges; Pulse entries; 'crowdpool.manage' capability; all ten game variables registered; module OFF by default with nav/routes/admin-tab contributed only when on. Acceptance: an admin imports a passed campaign's 40 pledges from CSV, a non-member pledger registers with their pledge email and sees their pledge, admin fulfills a $5k pledge against two Stripe receipts, releases a tool pledge into a draft material item, and the public page shows totals but no amounts against names.
 
-## v2 (the full slide vision)
+## v2 (the rest of the design)
 
 The full slide vision plus the integration: signed regen-civics webhook (campaign.passed auto-creates the campaign; pledge events upsert on externalRef) and the cursor-paged pull endpoint spec implemented in that repo; Maia 'commitment-activation' proposal kind drafting quests from labor/skill pledges as suggestions in a review queue; standing offers (crowdpool.allow_self_pledge) so the capital inventory stays alive between campaigns — slide 43 as a permanent 'what does the village hold' snapshot aggregating fulfilled commitments across all campaigns; partial fulfillment amounts for non-money pledges (hours logged against hours pledged); needs matching UI (drag a commitment onto a need); nudges routed through the Phase 3 notification spine with dedupe keys and the daily email ceiling, plus an auto-proposed weekly nudge queue once the scheduler exists (suggestions, not actions); 'pledge-unfulfilled' NextActionRule; per-member commitment history on the full member profile; Hypha equity deep-link flow polished with proposal status read-back.
 
@@ -206,7 +206,7 @@ The full slide vision plus the integration: signed regen-civics webhook (campaig
 
 - LEGAL (flag for real review): any pattern where fiat comes in and tokens go out can look like a security or money transmission. Mitigated: recognition defaults to 0/off, is Gratitude-only (closed-loop, non-withdrawable), equity anything is Hypha deep-link only, estValueUsd is display-only — but the admin warning copy and the default must survive future edits; add an invariant test that crowdpool never writes tokenType 'amora'|'voice'.
 - Email-linking to the wrong person: registration email is asserted, not verified, so someone registering with a pledger's email sees that pledge's details. Mitigated: linking grants view/self-service only (never value release) and admin can unlink — but consider requiring email verification before auto-link, or gating link behind admin confirmation for financial pledges.
-- estValueUsd drift into a de-facto price: if aggregate USD totals ever sit next to Gratitude or Amora numbers, it implies an exchange rate (the exact F2 posted-price trap). Keep them on separate surfaces; never render both on one card.
+- estValueUsd drift into a de-facto price: if aggregate USD totals ever sit next to Gratitude or equity numbers, it implies an exchange rate (the exact F2 posted-price trap). Keep them on separate surfaces; never render both on one card.
 - Double fan-out / double receipts under retry: guarded by fanout json keys, ledger idempotencyKey, and the treasury_receipts unique constraint — but the fan-out must be written transactionally per leg once the DB cutover lands; do not build it on JSON files.
 - No scheduler exists: v1 nudges are manual; any UI copy promising automatic reminders would be another promise published ahead of its mechanism (the exact failure Revision 2 calls out).
 - regen-civics contract drift: the webhook/export payloads are versioned (v:1) and the importer must reject unknown versions loudly rather than guessing; the contract spec should land in the regen-civics repo as a doc before v2 starts.
@@ -215,7 +215,7 @@ The full slide vision plus the integration: signed regen-civics webhook (campaig
 
 ## Open questions
 
-- Is regen-civics always the pledge intake, or should members eventually create standing offers in-platform (crowdpool.allow_self_pledge)? Default is off; Rye's call.
+- Is regen-civics always the pledge intake, or should members eventually create standing offers in-platform (crowdpool.allow_self_pledge)? Default is off, and it is a village decision.
 - Does regen-civics' crowdpool data model already carry capital types and amount+unit, or should the contract spec in this design drive that build? If its pledges are money-only today, the multi-capital import will start as CSV.
 - Who enters estValueUsd — the pledger during the campaign, or the admin at import/fulfill? Recommend admin-at-import to keep the campaign UX simple and the number curated.
 - Should email linking require verified email (safer) or match-at-registration (frictionless, current design)? Depends on whether Phase 3 adds email verification anyway.

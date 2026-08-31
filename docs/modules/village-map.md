@@ -1,9 +1,9 @@
-# Module design: Village Map (slide 28) — interactive sociocratic map + coordination concierge
+# Module design: Village Map — interactive sociocratic map + coordination concierge
 
 Provenance: platform
 
 > Produced by the 13-agent design workflow, 2026-07-26, from the 2020 village-demo deck (slides + speaker notes),
-> the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
+> the platform foundation plan's constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).
 
 > **Superseded on one point, 2026-08-03: what a "role" on this map is.**
@@ -36,7 +36,7 @@ Provenance: platform
 
 Estimated sessions: 7
 
-## Improvements over the 2020 slide concept
+## Design decisions, and why
 
 - Closed the loop the 2020 slide left open: the slide was a visualization; every node here has an action — occupied role -> view profile/contact relay, vacant role -> raise-your-hand application into the EXISTING admin submissions inbox (no new moderation surface), quest satellite -> claim via the shipped quest flow.
 - Concierge with deterministic-first matching: keyword/tag scoring over circles/roles/quests resolves unambiguous queries with ZERO LLM tokens (the plan's 'deterministic first' pattern); the LLM ('coordination' assistant kind, reusing Maia's guards, caps and injection framing) only disambiguates and drafts the intro message. Slide had no search at all.
@@ -46,14 +46,14 @@ Estimated sessions: 7
 - Vacancy is a DERIVED state (zero role_holders rows) plus a seats count, so 'Food Forest crew — 1 of 3 seats filled' renders as a partial call instead of the slide's binary greyed/filled; no status column to drift out of sync.
 - Circle name reconciliation: quests.circle free-text values ('Regenerative Agriculture') don't match the hardcoded Circles.tsx page ('Permaculture Council'); circles get an aliases[] column and an admin reconciliation helper, turning an existing latent data bug into structure.
 - Mobile-first honesty: below 768px the force/radial canvas is replaced by a circle-accordion list with identical data and actions — the 2020 concept ignored phones entirely, and a network graph at 390px is unusable.
-- White-label per the config mandate: all Amora circle names live in server/seeds/circles-seed.json, colors come from CSS theme tokens, the module ships OFF behind map.enabled and contributes nav/route/admin-tab only when on.
+- White-label per the config mandate: all circle names live in server/seeds/circles-seed.json, colors come from CSS theme tokens, the module ships OFF behind map.enabled and contributes nav/route/admin-tab only when on.
 - Hypha boundary made explicit where the slide said 'on-chain data nested by circle': v1 sources entirely from platform roles/quests; v2 adds an optional per-deployment read-and-display of a Hypha DHO circle structure with deep-links out — never writes, per the locked rule.
 
 ## Data model
 
 ## New tables (Drizzle/MySQL; JSON-file twins first, since data/ is still authoritative — `data/circles.json`, `data/contact-requests.json`, `data/concierge-queries.json`, each with a seed in `server/seeds/` + `ensureDataFiles()` entries)
 
-### `circles` (seed: `server/seeds/circles-seed.json` — Amora names live in the seed, never platform files)
+### `circles` (seed: `server/seeds/circles-seed.json` — a village's own names live in the seed, never platform files)
 | column | type | notes |
 |---|---|---|
 | id | varchar(64) PK | slug, e.g. `permaculture-council` |
@@ -176,15 +176,15 @@ One new Admin tab, "Circles & Map" (existing tab pattern in Admin.tsx): (1) Circ
 
 ## v1 (ship first, useful alone)
 
-Ships useful alone in 5 sessions: (S1) circles as data — schema + circles.json/seed/ensureDataFiles, roles.circleId + seats, GET /api/circles, admin Circles CRUD + alias reconciliation, aliases resolving quests.circle; (S2) GET /api/map + mapLayout.ts pure function with unit tests + MapCanvas SVG orbit render with pan/zoom, public-vs-member payload tiers via map.viewPeople; (S3) NodeCard sheet + CircleAccordion mobile fallback + nav/route/mobileNav gated behind map.enabled + vacant-role pulse + raise-hand into submissions; (S4) contact relay — users.contactable, contact_requests + idempotency, caps, Resend Reply-To relay, profile toggle, admin contact log, map.contact capability; (S5) concierge — deterministic matcher + concierge_queries logging + 'coordination' assistant kind with candidate-set validation + ConciergeBar + admin unmatched-queries view. Each session leaves the app deployable; sessions 1–3 already deliver Rye's "dynamic and beautiful sociocratic map"; 4–5 make it the coordination tool.
+Ships useful alone in 5 sessions: (S1) circles as data — schema + circles.json/seed/ensureDataFiles, roles.circleId + seats, GET /api/circles, admin Circles CRUD + alias reconciliation, aliases resolving quests.circle; (S2) GET /api/map + mapLayout.ts pure function with unit tests + MapCanvas SVG orbit render with pan/zoom, public-vs-member payload tiers via map.viewPeople; (S3) NodeCard sheet + CircleAccordion mobile fallback + nav/route/mobileNav gated behind map.enabled + vacant-role pulse + raise-hand into submissions; (S4) contact relay — users.contactable, contact_requests + idempotency, caps, Resend Reply-To relay, profile toggle, admin contact log, map.contact capability; (S5) concierge — deterministic matcher + concierge_queries logging + 'coordination' assistant kind with candidate-set validation + ConciergeBar + admin unmatched-queries view. Each session leaves the app deployable; sessions 1–3 already deliver a dynamic, legible sociocratic map; 4–5 make it the coordination tool.
 
-## v2 (the full slide vision)
+## v2 (the rest of the design)
 
 The full slide vision plus what Phase 3+ unlocks (~2 sessions): nested sub-circle orbits (parentCircleId depth 2+, collapse/expand per circle — the amcharts 'collapsible tree' behavior, still deterministic); accounting-budget colored tags on nodes once a budget object exists (slide's second grouping axis — depends on the F5/F8 governance work, not built here); notification-spine integration (contact -> insertNotification + bell + daily-digest inclusion, replacing email-only); concierge funnel dashboard (query -> match -> contact -> quest-claim conversion, on top of the v1 instrumentation); optional per-deployment Hypha DHO circle read — display a village's on-chain circle/role structure alongside platform roles with deep-links to app.hypha.earth (read-and-display only, per the boundary); map snapshot on the founder command centre (Phase 8) showing vacancy heat.
 
 ## Risks
 
-- Circle-name drift is live today: quests.json uses 'Regenerative Agriculture' etc. while Circles.tsx hardcodes 'Permaculture Council' etc. — the alias system absorbs it, but until quests get a real circle_id FK (Phase 1b), a typo'd new quest silently lands uncircled; the admin reconciliation helper is the mitigation, write-time validation is the cure.
+- Circle-name drift: a village's free-text quest circle names and its circle records drift apart, which is why aliases exist. Circles.tsx read hardcoded names when this was written and reads /api/org now, so the drift that remains is between quests.json and the circle records — the alias system absorbs it, but until quests get a real circle_id FK (Phase 1b), a typo'd new quest silently lands uncircled; the admin reconciliation helper is the mitigation, write-time validation is the cure.
 - Contact relay abuse/harassment: caps + opt-out + admin log cover volume, but there is no per-pair block yet; a recipient's only hard stop is going fully uncontactable. Flag for a block-list follow-up before real membership scales.
 - Reply-To exposes the SENDER's email to the recipient by design (that is what makes reply-by-email work) — must be disclosed in the compose UI; if unacceptable, v2 needs a tokenized reply relay, which is real work.
 - Storing contact message bodies + concierge queries is personal data — retention window and the 'admin can read messages for abuse review' posture should get a real legal/privacy pass before a fork sells this to a village in a GDPR jurisdiction.
@@ -381,12 +381,11 @@ guess about who a quest is for.
 ## Open questions
 
 - Source of truth for circles per deployment: some villages will already model circles in their Hypha DHO — should map.circles_source (platform | hypha-readonly) be a v2 deployment choice, and if hypha, does the concierge still resolve contacts against platform role_holders?
-- Confirm the 'members see people' floor: design uses any logged-in account (stage guest) for faces and stage member for contacting — does Rye want faces member-gated too?
+- Confirm the 'members see people' floor: design uses any logged-in account (stage guest) for faces and stage member for contacting. Should faces be member-gated too?
 - Retire or keep Circles.tsx: fold the marketing content page into the /api/circles-driven map (one source of truth) or keep both during transition?
 - Should raise-your-hand hard-block below role.minStage, or warn-and-allow so founders can consider exceptional applicants (design currently warns)?
 - Investors: automatically excluded since they hold no roles — but should an investor account be able to USE the concierge/contact (currently yes, if stage/capability allows)?
 - Does contact deserve a Gratitude-adjacent gesture later (e.g. attach thanks after a successful connection), and if so it must route through the one ledger — deliberately out of scope now?
-- Seed content: who writes Amora's real circles-seed.json — port the 8 Circles.tsx councils verbatim, or restructure to match the 9 distinct quests.circle values first?
 
 ## How Power Is Held: the /map/circles rebuild (round 4, lane L2, 0083)
 
@@ -448,8 +447,8 @@ existing seating endpoint, so it stays a dated row.
 
 ## Photographs of a place (round 5, 0093)
 
-Rye: "sprite cards to accept photos but we should also make this like a google
-maps listing where the community can upload photos". A place stops being a
+The ask: sprite cards accept photos, and past that a place works like a
+maps listing where the community uploads its own. A place stops being a
 drawing with facts attached and becomes a place people have photographed.
 
 **Why it earns its schema.** Every other number on this map is something a

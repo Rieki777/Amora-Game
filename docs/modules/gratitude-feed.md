@@ -1,18 +1,18 @@
-# Module design: Gratitude Feed ("Village Feed") — slide 31
+# Module design: Gratitude Feed ("Village Feed")
 
 Provenance: platform
 
 > Produced by the 13-agent design workflow, 2026-07-26, from the 2020 village-demo deck (slides + speaker notes),
-> the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
+> the platform foundation plan's constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).
 
 **A feed-style lens over the Phase 4 forum (a config-designated "Village Life" category) interleaved with Village Pulse system events, where a heart click IS a real Gratitude send through the existing pay-at-send path — budget-bounded, cap-respecting, one ledger, no new content store.**
 
 Estimated sessions: 5
 
-## Improvements over the 2020 slide concept
+## Design decisions, and why
 
-- The slide's 'share of Nyani's Gratitude Fund' was a pool model — exactly the pay-at-CLOSE design revision 3 bans. Redesigned: hearts pay at SEND from the sender's existing cycle budget through the one ledger; the already-shipped cycle settlement report remains the bridge founders carry to Hypha, where the actual fund (Amora/Voice) is governed. No platform-held fund, no double-pay, no security created.
+- The original 'share of a named member's Gratitude Fund' concept was a pool model — exactly the pay-at-CLOSE design revision 3 bans. Redesigned: hearts pay at SEND from the sender's existing cycle budget through the one ledger; the already-shipped cycle settlement report remains the bridge founders carry to Hypha, where the actual fund (the village's equity and Voice tokens) is governed. No platform-held fund, no double-pay, no security created.
 - Hearts cost real budget (feed.heart_amount, default 1), so they are scarce signal, not infinite likes. The slide's heart was free and therefore meaningless; ours is a micro-gift with gift semantics: idempotent (one per member per post, enforced by a unique key, not a flag) and irrevocable (no un-heart — reversing would mean clawing back moved value).
 - One surface instead of four. The slide implied a standalone social product next to governance tools; here the feed is a read-model over forum threads + pulse events, so replies, @mentions, moderation, notifications, and even the decision primitive all live in ONE place. Deleting the feed module leaves zero orphaned content.
 - Two-tier recognition instead of one: wall acknowledgments stay considered (sender-chosen amount, required message, cap 1/recipient/cycle) while hearts are micro-appreciations (fixed tiny amount, derived message quoting the post, separate per-recipient cap) — both draw from the SAME budget and land in the SAME gratitude_log, so hearts cannot bypass the giving cap or inflate supply.
@@ -88,12 +88,12 @@ id varchar(64) PK, threadId varchar(64), replyId varchar(64) NULL, reporterId va
 ## Surfaces
 
 **Pages/routes** (module OFF by default; contributes nav + routes + admin tab only when enabled):
-- `client/src/pages/VillageFeed.tsx` at `/feed` — nav label config-driven (Amora: "Village Feed"); infinite scroll; filter chips: All / Posts / Events / Gratitude(v2) / per-tag; composer pinned top for members.
+- `client/src/pages/VillageFeed.tsx` at `/feed` — nav label config-driven (default: "Village Feed"); infinite scroll; filter chips: All / Posts / Events / Gratitude(v2) / per-tag; composer pinned top for members.
 - Components: `FeedComposer.tsx` (textarea + char counter, image attach via /api/feed/upload, live #tag highlight; event-fields toggle appears only when the user holds feed.announce), `FeedPostCard.tsx` (avatar, first name, timeAgo, linkified #tags, optional image, HeartButton, reply count → opens forum thread view), `FeedEventCard.tsx` (banner variant: date/location line, CTA button — internal wouter Link or external https anchor with visible domain), `FeedSystemCard.tsx` (muted style; reuses VillagePulse's TYPE_ICON map), `HeartButton.tsx` (optimistic; tooltip "Sends N {currency.nameLower} from your cycle budget"; disabled states: own post, already hearted, budget 0 → "your giving budget unlocks as you progress", per-recipient cap reached).
 - `client/src/pages/Home.tsx`: existing VillagePulse section gains a "See the Village Feed →" link when the module is on (pulse component itself untouched).
 - Mobile: entry added to `client/src/config/mobileNav.ts` (config-driven per Phase 2 pattern).
 - Admin: `FeedAdminTab` in `client/src/pages/Admin.tsx` following the existing *Tab function pattern — reports queue, hide/restore, announcement composer, this-cycle heart stats, deep link to Game Mechanics variables.
-- All copy through GAME_CONFIG/mergedConfig (currency.name etc.) — zero Amora-specific strings in platform files.
+- All copy through GAME_CONFIG/mergedConfig (currency.name etc.) — zero village-specific strings in platform files.
 
 ## Mechanics
 
@@ -113,7 +113,7 @@ id varchar(64) PK, threadId varchar(64), replyId varchar(64) NULL, reporterId va
 
 **Interleaving:** server-side merge of two ordered sources with an ISO-timestamp cursor; system items are read-only cards; toggle var feed.show_system_events. Nothing runs on a timer — no scheduler dependency anywhere in this module.
 
-**Hypha boundary:** the feed touches only platform-governed Gratitude. The "Gratitude Fund" of the slide is realized as: cycle settlement report (already shipped at /api/game/cycle/distributions) → founders carry to the village's configured Hypha DHO URL → Amora/Voice distributed there. The feed's only Hypha surface is an optional deep-link card at cycle close ("this cycle's settlement is ready — view on Hypha").
+**Hypha boundary:** the feed touches only platform-governed Gratitude. The "Gratitude Fund" of the slide is realized as: cycle settlement report (already shipped at /api/game/cycle/distributions) → founders carry to the village's configured Hypha DHO URL → equity and Voice distributed there. The feed's only Hypha surface is an optional deep-link card at cycle close ("this cycle's settlement is ready — view on Hypha").
 
 ## Game variables
 
@@ -148,9 +148,9 @@ FeedAdminTab in Admin.tsx (existing tab pattern): open-reports queue with severi
 
 ## v1 (ship first, useful alone)
 
-Ships first, useful alone (3 sessions, sequenced immediately after Phase 4 forum lands): (S1) Server — forum_threads kind/meta/imageUrl/heartCount columns specified into the Phase 4 schema, forum_thread_tags, gratitude_log kind/context columns + unique heart index, ten feed.* variables, feed.announce capability, endpoints (merged GET /api/feed, POST posts, heart, report reuse, upload), plus tests: heart idempotency under double-fire, both caps enforced from one budget, hidden-post heart rejection, and a regression asserting the heart path writes through sendGratitude()/creditTokens with no second payment path. (S2) Client — VillageFeed page, FeedComposer, FeedPostCard/FeedSystemCard, HeartButton with all disabled states, nav + mobileNav config entries, module toggle. (S3) Events/announcements — event kind + meta validation, FeedEventCard with CTA deep-links, FeedAdminTab (reports queue, announce composer, heart stats), Home cross-link. V1 delivers the whole slide-31 experience except ticket payments: microposts with hashtags and images, hearts that genuinely pay people, event cards with Get-Tickets CTAs (linking out), system life interleaved.
+Ships first, useful alone (3 sessions, sequenced immediately after Phase 4 forum lands): (S1) Server — forum_threads kind/meta/imageUrl/heartCount columns specified into the Phase 4 schema, forum_thread_tags, gratitude_log kind/context columns + unique heart index, ten feed.* variables, feed.announce capability, endpoints (merged GET /api/feed, POST posts, heart, report reuse, upload), plus tests: heart idempotency under double-fire, both caps enforced from one budget, hidden-post heart rejection, and a regression asserting the heart path writes through sendGratitude()/creditTokens with no second payment path. (S2) Client — VillageFeed page, FeedComposer, FeedPostCard/FeedSystemCard, HeartButton with all disabled states, nav + mobileNav config entries, module toggle. (S3) Events/announcements — event kind + meta validation, FeedEventCard with CTA deep-links, FeedAdminTab (reports queue, announce composer, heart stats), Home cross-link. v1 delivers the whole feed experience except ticket payments: microposts with hashtags and images, hearts that genuinely pay people, event cards with Get-Tickets CTAs (linking out), system life interleaved.
 
-## v2 (the full slide vision)
+## v2 (the rest of the design)
 
 The full slide vision plus what 2026 knows better (2 sessions): tag filter pages + trending tags; pinned posts (pinnedAt); Gratitude filter chip rendering wall entries as feed cards (wall page kept as an alias — begins gently unifying the two gratitude surfaces); Maia integration as a new PROPOSAL_KINDS entry "event-post" helping role holders draft announcements through the existing injection-guarded /api/assistant/proposal plumbing; Phase 3 notification wiring (heart milestones 1/5/10/25, mentions, replies, optional weekly feed digest once a scheduler exists); heart-received highlights on member profiles ("what people keep thanking you for" themes per F3, never totals); internal closed-loop event-ticket credits through the one ledger (platform-governed, non-withdrawable) — explicitly gated behind real legal review before build; optional Hypha deep-link card at cycle close pointing at the village's configured DHO URL.
 
@@ -168,10 +168,10 @@ The full slide vision plus what 2026 knows better (2 sessions): tag filter pages
 
 ## Open questions
 
-- Heart UX: pure one-click with a derived quote-the-post message (designed default), or a one-tap popover offering an optional short note? Rye's stated principle is 'the message is what makes recognition mean something' — the post-as-context argument needs his sign-off
-- Should the cycle settlement report split heart totals from acknowledgment totals (two columns) since founders carry it to Hypha for real distribution? Recommended yes, but it changes a shipped report shape — Rye's call
+- Heart UX: pure one-click with a derived quote-the-post message (designed default), or a one-tap popover offering an optional short note? The principle the design holds to is that the message is what makes recognition mean something, and the open half is whether quoting the post carries that on its own
+- Should the cycle settlement report split heart totals from acknowledgment totals (two columns) since founders carry it to Hypha for real distribution? Recommended yes, and it changes a shipped report shape, so it is a deliberate break rather than an addition
 - Does the feed eventually replace the Home VillagePulse section, or stay complementary (v1 keeps both with a cross-link)?
 - Visitors with budget 0: heart button greyed with progression tooltip (designed default) or hidden entirely?
-- Event CTA internal targets: /visit exists today; the accommodation-exchange and marketplace modules (slides 32/26) are being designed in parallel — confirm their route names before hardcoding the CTA picker options
+- Event CTA internal targets: /visit exists today; the accommodation-exchange and marketplace modules are being designed in parallel — confirm their route names before hardcoding the CTA picker options
 - Should hearting be allowed on system cards (e.g. hearting a stage-advance to congratulate someone)? Tempting and cheap since system events now carry actorId, but it blurs 'appreciation for contribution' into 'reactions' — deferred, needs a product decision
 - feed.category_slug assumes exactly one feed category per deployment; does any fork want multiple feed-rendered categories (e.g. separate Events feed)? Affects whether the variable is a slug or a list

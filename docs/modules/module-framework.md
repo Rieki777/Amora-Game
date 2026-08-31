@@ -19,16 +19,16 @@ Provenance: platform
 >    JSON reader.
 >
 > Produced by the 13-agent design workflow, 2026-07-26, from the 2020 village-demo deck (slides + speaker notes),
-> the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
+> the platform foundation plan's constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).
 
 **The substrate every other module rides on: a platform-defined module registry with a per-deployment lifecycle (off → admin-preview → members-only → public), dependency-checked enable/disable, server gating middleware, client nav/route/admin-tab contribution only when enabled, delta-only storage so forks inherit new modules as OFF, and one global Hypha integration setting (org URL + named deep links) that every governance-touching module references instead of rebuilding governance.**
 
 Estimated sessions: 6
 
-## Improvements over the 2020 slide concept
+## Design decisions, and why
 
-- Lifecycle instead of a binary switch. Rye asked for on/off; the deck (slides 16-34) assumed everything always-on for everyone. This design adds off -> preview -> members -> public, so a village can soft-launch the Material Library to admins, then to members, before the public sees it. The 2020 deck had no rollout concept at all.
+- Lifecycle instead of a binary switch. The requirement was on/off, and the original concept assumed everything always-on for everyone. This design adds off -> preview -> members -> public, so a village can soft-launch the Material Library to admins, then to members, before the public sees it. The 2020 deck had no rollout concept at all.
 - Existence-hiding 404 posture. A disabled or admin-preview module returns 404 to the public, so a fork's site never advertises features the village hasn't configured or bought. The deck's Nyani dashboard showed every tool to every visitor including half-built ones.
 - Dependency graph with hard/soft edges. The deck's tools were siloed screens with implicit couplings (Library credits implied a ledger, Gratitude feed implied a fund). Here exchange hard-requires ledger, forum hard-requires notifications, map soft-recommends notifications - checked server-side at enable time and re-checked at boot with loud demotion, never silent breakage.
 - Delta-only inheritance for forks. Absent row = platform default = OFF, copying the game_variables pattern. When the platform ships a new module, every existing fork sees it appear in their admin panel as OFF automatically - a product-line concept the 2020 single-village deck could not have had.
@@ -78,7 +78,7 @@ Estimated sessions: 6
 ```ts
 interface ModuleDef {
   id: string;                    // 'forum', 'library', 'stays', 'exchange', 'map', 'tools', 'notifications', 'economics', 'automation'
-  name: string; description: string;   // founder-facing copy, config-driven, no Amora specifics
+  name: string; description: string;   // founder-facing copy, config-driven, no village specifics
   core?: boolean;                // quests/gratitude/stages/profiles: listed but not disableable in v1
   requires: string[];            // hard deps (block enable, block disabling the dependency)
   recommends: string[];          // soft deps (warn only)
@@ -138,11 +138,11 @@ Capability checks stay in `shared/capabilities.ts`; modules only ADD keys to the
 
 **Config split:** tunables (rates, caps, ticks) = bounded game variables namespaced per module, declared with `module` tag in `shared/gameVariables.ts`, admin-edited on the Game Mechanics page which hides off-module groups; structural config (category lists, link directories) = the `config` JSON on module_settings, validated per module. Both editable without deploy (F8).
 
-**Fork seeding:** `modules-seed.json` = `{}` — everything OFF, every default inherited. Enabling is always a deliberate per-deployment admin act, which is exactly Rye's requirement.
+**Fork seeding:** `modules-seed.json` = `{}` — everything OFF, every default inherited. Enabling is always a deliberate per-deployment admin act, which is the requirement.
 
 ## Game variables
 
-- hypha.org_url: "" (https URL, ≤255) — The village's Hypha DHO base URL (e.g. https://app.hypha.earth/amora). Blank = every Hypha button in every module hides. Validated https like tokens.base_rpc_url.
+- hypha.org_url: "" (https URL, ≤255) — The village's Hypha DHO base URL (e.g. https://app.hypha.earth/your-dho). Blank = every Hypha button in every module hides. Validated https like tokens.base_rpc_url.
 - hypha.link_governance: "" (https URL or blank) — Override for the governance deep link; blank derives orgUrl + conventional suffix.
 - hypha.link_proposals: "" (https URL or blank) — Override for the proposals deep link; blank derives from org_url.
 - hypha.link_treasury: "" (https URL or blank) — Override for the treasury deep link; blank derives from org_url.
@@ -151,7 +151,7 @@ Capability checks stay in `shared/capabilities.ts`; modules only ADD keys to the
 
 ## Admin controls
 
-A new **Modules** tab in Admin (the control panel Rye asked for). Layout: (1) **Hypha Integration card** pinned on top — org URL field, live preview of the four resolved deep links, an "open ↗" test button per link, and the note "all governance, voting, and equity live on Hypha; modules link out, never rebuild". (2) **Module card grid** — every registry module: name, founder-facing description, lifecycle pill, a four-step lifecycle stepper (Off / Preview / Members / Public), dependency chips with green/grey status dots, "what it adds" summary (N nav entries, N admin tabs, N game variables), and a Configure button that jumps to the module's own contributed admin tab once non-off. Core modules (quests, gratitude, stages, profiles) render greyed with a Core badge and no stepper in v1. (3) **Guardrails in the flow:** enabling with a missing hard dep opens a dialog listing the deps with "Enable both" / cancel; disabling a depended-on module is blocked with the dependents named; modules flagged legalReview show the closed-loop-credits caution card ("non-withdrawable, non-refundable-to-fiat credits — read the legal posture note") requiring an explicit confirm; a red banner surfaces boot-time demotions ("forum is configured ON but notifications is OFF — it is not being served") and orphan ids from hand-edited data files. (4) **Audit:** every change appends to module_events; v2 adds the per-module history viewer and health checks. All copy comes from the registry definitions — no Amora-specific text in the panel (decision 2).
+A new **Modules** tab in Admin, the control panel for all of this. Layout: (1) **Hypha Integration card** pinned on top — org URL field, live preview of the four resolved deep links, an "open ↗" test button per link, and the note "all governance, voting, and equity live on Hypha; modules link out, never rebuild". (2) **Module card grid** — every registry module: name, founder-facing description, lifecycle pill, a four-step lifecycle stepper (Off / Preview / Members / Public), dependency chips with green/grey status dots, "what it adds" summary (N nav entries, N admin tabs, N game variables), and a Configure button that jumps to the module's own contributed admin tab once non-off. Core modules (quests, gratitude, stages, profiles) render greyed with a Core badge and no stepper in v1. (3) **Guardrails in the flow:** enabling with a missing hard dep opens a dialog listing the deps with "Enable both" / cancel; disabling a depended-on module is blocked with the dependents named; modules flagged legalReview show the closed-loop-credits caution card ("non-withdrawable, non-refundable-to-fiat credits — read the legal posture note") requiring an explicit confirm; a red banner surfaces boot-time demotions ("forum is configured ON but notifications is OFF — it is not being served") and orphan ids from hand-edited data files. (4) **Audit:** every change appends to module_events; v2 adds the per-module history viewer and health checks. All copy comes from the registry definitions — no village-specific text in the panel (decision 2).
 
 ## Dependencies
 
@@ -168,7 +168,7 @@ A new **Modules** tab in Admin (the control panel Rye asked for). Layout: (1) **
 
 Ship the substrate plus one proving consumer, useful alone. Session 1: `shared/modules.ts` (ModuleDef + registry with core entries and the first real ids), `server/lib/modules.ts` (mtime-memoised reader, effectiveLifecycle, requireModule middleware, assertModuleGraph boot check), `data/modules.json` + `data/module-events.json` seeds and ensureDataFiles entries, module_settings/module_events added to `server/db/schema.ts`, endpoints GET /api/modules, GET /api/admin/modules, PUT lifecycle, PUT config, and vitest coverage: dependency block both directions, 404/401 posture per lifecycle, delta-inheritance (absent row = off), boot demotion, unknown-id rejection. Session 2: Admin ModulesTab (card grid, stepper, dep dialogs, legal caution, orphan/demotion banner), the five hypha.* game variables + `shared/hypha.ts` + `HyphaLink` component, ModuleProvider/ModuleGate, drawer + FAB nav contribution wiring. Session 3: the **tools** module (deck slide 30, "one place to find all the tools your village uses") as the reference implementation — config-only links directory, no new tables, its own admin config editor, nav entry, and a public page — proving registry → enable → nav → route → config end-to-end; plus a README section documenting how the forum/library/stays teams plug in. Acceptance: with modules.json = {} the site is byte-identical to today; enabling tools at preview shows it to admins only; at public it appears in nav and serves; disabling returns it to 404; a hand-forged dependency violation demotes loudly at boot.
 
-## v2 (the full slide vision)
+## v2 (the rest of the design)
 
 The full slide-vision substrate: lazy-loaded per-module client chunks in App.tsx (off modules cost ~0 bundle bytes); admin-tab and profile-widget injection points from the client registry; per-module health endpoint (GET /api/admin/modules/:id/health) with readiness checks the card grid surfaces; module_events history viewer in the panel; soft-dependency nudges ("map works better with notifications on"); lifecycle-rank warnings resolved into a guided fix flow; a catalog view showing registry modules that exist on the platform but are unreleased for this deployment ("coming soon" cards, off by default via a variable); per-deployment nav ordering/renaming overlay (brand.json pattern) for module nav entries; role-based preview cohorts (capability `module.preview` grant so a beta group beyond admins can test); and a CI lint enforcing the master-plan rule that platform files never reference village-specific module config — the enforcement code the upgrade plan notes is currently missing.
 
@@ -185,7 +185,7 @@ The full slide-vision substrate: lazy-loaded per-module client chunks in App.tsx
 ## Open questions
 
 - Should the core loop ever become disableable (a 'brochure-mode' fork with no game)? If yes, what is the minimum viable core — auth + profiles only? v1 says no; the registry shape supports changing the answer later.
-- Preview lifecycle: admins only, or a role-grantable beta cohort (capability module.preview) from day one? v1 ships admin-only; the ONE GATE mechanism makes the upgrade trivial if Rye wants beta groups sooner.
+- Preview lifecycle: admins only, or a role-grantable beta cohort (capability module.preview) from day one? v1 ships admin-only; the ONE GATE mechanism makes the upgrade trivial for a village that wants beta groups sooner.
 - Hypha named links: is the fixed four (governance, proposals, treasury, members) enough, or do villages need admin-definable named links (e.g. a specific standing proposal)? Fixed set is safer for fail-loud lookups.
 - Should GET /api/modules expose members-only module ids (id + name only) to signed-out viewers so the login page can advertise what's inside, or is full existence-hiding the right default for every lifecycle below the viewer's?
 - Where does per-deployment nav ordering live — brand.json overlay (Setup Wizard pattern) or module config? Deferred to v2 but the answer decides whether the Setup Wizard grows a Nav step.

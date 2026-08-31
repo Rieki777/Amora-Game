@@ -1,16 +1,16 @@
-# Module design: Village Material Library (slide 33) — flagship tool-lending commons with item provenance, health decay, credit escrow, and a steward-run Library Pool
+# Module design: Village Material Library — flagship tool-lending commons with item provenance, health decay, credit escrow, and a steward-run Library Pool
 
 Provenance: platform
 
 > Produced by the 13-agent design workflow, 2026-07-26, from the 2020 village-demo deck (slides + speaker notes),
-> the AMORA_FOUNDATION_UPGRADE_PLAN constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
+> the platform foundation plan's constraints, and the live codebase. Reconciled by MODULES_MASTER_PLAN.md —
 > where this file and the master plan disagree, **the master plan wins** (it applies the two critique passes).
 
 **A closed-loop lending commons where members contribute gear for Library Credits, borrow against escrowed credits, and every item carries a provenance-and-health history ("internal NFT" = an append-only DB event chain, not a blockchain token), with wear priced deterministically up front and all value movement flowing through the one platform ledger.**
 
 Estimated sessions: 10
 
-## Improvements over the 2020 slide concept
+## Design decisions, and why
 
 - Honest 'internal NFT': the provenance is an append-only library_item_events chain in OUR MySQL (optionally hash-chained for tamper-evidence in v2), not a blockchain token. No gas, no wallets, no securities surface. If a village ever wants a high-value asset genuinely tokenized/tradeable, that is share-like and goes to Hypha via deep-link — the platform never mints it.
 - Wear is quoted BEFORE you borrow. The slide priced wear retroactively via subjective dual-assessment at handoff. Here expected decay is computed from duration x age-curve x declared wear-class and shown as a quote ('10 days ≈ 1.4% ≈ 84 credits') at reserve time — informed consent instead of a surprise deduction.
@@ -71,7 +71,7 @@ Estimated sessions: 10
 | status | enum('reserved','pickup_pending','active','return_pending','disputed','closed','cancelled','expired') |
 | escrow_amount | int (snapshot of credit_requirement at lock time) |
 | escrow_ledger_ref | varchar(160) (idempotency key of the lock entry: `loan:{id}:escrow`) |
-| declared_wear_class | enum('normal','heavy','extreme') DEFAULT 'normal' (Rye's 'the person taking the item can choose higher') |
+| declared_wear_class | enum('normal','heavy','extreme') DEFAULT 'normal' (the person taking the item may declare a higher class) |
 | health_at_checkout_bp, health_at_return_bp | int |
 | computed_decay_bp | int (automatic wear) |
 | assessed_damage_bp | int DEFAULT 0 (human-assessed, beyond computed) |
@@ -125,7 +125,7 @@ Estimated sessions: 10
 - `POST /api/library/steward/intake/:itemId/decline — with reason`
 - `POST /api/library/steward/loans/:id/adjudicate — {healthAfterBp, deduction, note} -> signed correction entries, dispute_resolved event`
 - `POST /api/library/steward/items/:id/repair — start/done {healthRestoredBp, creditCost} -> pool burns creditCost to sys:library-sink`
-- `POST /api/library/steward/items/:id/retire — {mode:'retired'|'written_off', reason}; mid-loan writeoff charges min(escrow, remaining-health value) per Rye's proportional rule`
+- `POST /api/library/steward/items/:id/retire — {mode:'retired'|'written_off', reason}; mid-loan writeoff charges min(escrow, remaining-health value), the proportional rule`
 - `POST /api/library/steward/items/:id/revalue — {creditValue} with revalue event (no retroactive escrow change on active loans)`
 - `GET /api/library/steward/queue — intake pending, disputes, overdue (lazy-evaluated), return_pending, below writeoff_health_floor`
 - `GET /api/admin/library/pool — pool balance + inflow/outflow ledger lines`
@@ -135,7 +135,7 @@ Estimated sessions: 10
 ## Surfaces
 
 **Pages (routes + nav contributed ONLY when the module is enabled, via the config-driven module registry):**
-- `client/src/pages/Library.tsx` — the slide-33 screen: search bar, category chips, item cards (photo, HealthBar, credit requirement, custodian avatar, Reserve/Join-queue). Right rail 'Your Library Details': **Total vs Available credits with the escrowed difference itemized per loan** (the slide's 18,000/12,000 made mechanical), Currently Borrowing list with health bars, due dates, Return buttons.
+- `client/src/pages/Library.tsx` — the library screen: search bar, category chips, item cards (photo, HealthBar, credit requirement, custodian avatar, Reserve/Join-queue). Right rail 'Your Library Details': **Total vs Available credits with the escrowed difference itemized per loan** (the slide's 18,000/12,000 made mechanical), Currently Borrowing list with health bars, due dates, Return buttons.
 - `client/src/pages/LibraryItem.tsx` — photo gallery, health history sparkline, **provenance timeline (the internal NFT made visible: every custody hop, appraisal, repair)**, reservation queue, and the WearQuote calculator ('borrow 10 days ≈ 1.4% ≈ 84 credits') with duration + wear-class inputs.
 - `client/src/pages/LibraryHandoff.tsx` (route /library/loans/:id) — the dual-sign screen: two signature slots showing who has/hasn't confirmed, condition-ack health display, wear-class selector at pickup, damage note + photo attach at return, dispute button.
 - Components: `LibraryHealthBar.tsx` (color-graded, from the slide), `CreditBalanceCard.tsx`, `WearQuote.tsx`, `ItemProvenanceTimeline.tsx`, `HandoffSignPanel.tsx`, `StewardQueuePanel.tsx`.
@@ -151,22 +151,22 @@ Estimated sessions: 10
 **Escrow:** on hold/pickup, transferTokens(borrower -> sys:library-escrow, escrow_amount, key `loan:{id}:escrow`). On close: deduction goes escrow -> sys:library-pool (`loan:{id}:wear`), remainder escrow -> borrower (`loan:{id}:release`). Available = SUM(user ledger); Total = Available + active escrows. Nothing else in the module holds a balance.
 
 **Decay formula (computed at settlement, NOT a cron tick — platform has no scheduler):**
-- ageMultiplier = 1 + (new_item_wear_multiplier − 1) × exp(−item.total_borrow_days / newness_halflife_days) — front-loaded: a brand-new item wears ~2.5x base, asymptotes to 1x as it breaks in (Rye's 'ticks down more at the beginning... slows down').
+- ageMultiplier = 1 + (new_item_wear_multiplier − 1) × exp(−item.total_borrow_days / newness_halflife_days) — front-loaded: a brand-new item wears ~2.5x base, asymptotes to 1x as it breaks in: wear ticks down fastest at the beginning and slows as the item settles.
 - billedDays = min(actualDays, loanDays) + overdueDays × overdue_decay_multiplier.
-- computed_decay_bp = clamp(round(base_decay_bp_per_day × billedDays × ageMultiplier × wearClassMult), 0, health_at_checkout_bp). wearClassMult: normal 1x, heavy 2x, extreme 4x (borrower-declared at pickup = Rye's 'can choose higher', now honest up-front pricing).
+- computed_decay_bp = clamp(round(base_decay_bp_per_day × billedDays × ageMultiplier × wearClassMult), 0, health_at_checkout_bp). wearClassMult: normal 1x, heavy 2x, extreme 4x (borrower-declared at pickup, so a rough job is priced honestly up front).
 - total_deduction = round(credit_value × (computed_decay_bp + assessed_damage_bp) / 10000), capped at escrow_amount. Shortfall (damage > escrow): recorded as a shortfall event; borrower's library.borrow is suspended until the steward clears it — no negative balances, no fines.
 - health_after = health_before − computed_decay_bp − assessed_damage_bp; item.total_borrow_days += actualDays.
 
 **Credit economy:** intake mints credit_value × intake_award_pct/100 to the contributor (source library_intake_award, key intake:{itemId}) — supply stays backed by appraised replacement value. Ownership transfers to the village commons at appraisal (contributor is compensated in credits; avoids per-member bailment questions). Pool inflows: wear/damage deductions (+ v2 purchase spread). Pool outflows: steward reward, acquisition grants (v2 wishlist), repair burns to sys:library-sink (burning keeps supply ≈ backing). **Steward reward:** at the existing admin-triggered lunar cycle close, transfer steward_reward_pct% of that cycle's pool INFLOW to the Library Steward role holder, idempotency key `library_steward_reward:{cycleNumber}` — piggybacks the shipped cycle-close, credits nobody twice.
 
-**Damage beyond repair:** steward writeoff mid-loan charges min(escrow, credit_value × health_at_checkout_bp/10000) — Rye's proportional rule at the limit; item -> written_off, replacement funded from pool via v2 wishlist.
+**Damage beyond repair:** steward writeoff mid-loan charges min(escrow, credit_value × health_at_checkout_bp/10000) — the proportional rule at its limit; item -> written_off, replacement funded from pool via v2 wishlist.
 
 **Firewalls:** Gratitude cannot buy Library Credits and credits grant no voice — enforced by the same boot-invariant pattern as F4, plus the ledger's token-type guard (amora/voice writes still hard-rejected: Hypha boundary intact). Capabilities via shared/capabilities.ts only: library.borrow (stage 'member' default), library.contribute (stage 'member'), library.steward (role-only; 'Library Steward' seeded in server/seeds/roles-seed.json). Overdue is evaluated lazily on read (steward queue, item pages) until the Phase 3 scheduler adds reminder digests.
 
 ## Game variables
 
 - library.enabled: false (boolean) — module master toggle; OFF by default per platform rule
-- library.base_decay_bp_per_day: 10 (0–100 bp) — base wear per borrowed day; 10bp=0.1%/day, Rye's 0.1–1% range enforced by bounds
+- library.base_decay_bp_per_day: 10 (0–100 bp) — base wear per borrowed day; 10bp=0.1%/day, and the intended 0.1–1% range is enforced by the bounds
 - library.new_item_wear_multiplier: 2.5 (1–10) — decay multiplier for a brand-new item (front-loaded curve peak)
 - library.newness_halflife_days: 60 (7–365) — cumulative borrow-days for the break-in multiplier to halve toward 1x
 - library.wear_class_heavy_multiplier: 2 (1–10) — declared heavy-use multiplier
@@ -176,7 +176,7 @@ Estimated sessions: 10
 - library.overdue_decay_multiplier: 2 (1–10) — overdue days wear at this multiple (pressure without fines)
 - library.escrow_pct: 100 (0–200) — % of credit_requirement locked while borrowing
 - library.intake_award_pct: 100 (0–150) — % of appraised value minted to the contributor at intake
-- library.credit_purchase_premium_pct: 120 (100–200) — v2 fiat purchase: cost of 100 credits as % (Rye's 1200-for-1000); spread accrues to pool
+- library.credit_purchase_premium_pct: 120 (100–200) — v2 fiat purchase: cost of 100 credits as % (1200 buys 1000); spread accrues to pool
 - library.steward_reward_pct: 10 (0–50) — % of each lunar cycle's pool inflow paid to the Library Steward at cycle close
 - library.min_health_to_borrow_bp: 3000 (0–10000) — items below this can't be reserved
 - library.writeoff_health_floor_bp: 2000 (0–10000) — below this the steward queue flags repair-or-retire
@@ -203,7 +203,7 @@ Module toggle (library.enabled) gating routes, nav, and the admin tab. All tunab
 
 Ship first, useful alone (6 sessions): (1) Migration 0006 (4 tables + enum append + balance cache column), ledger transferTokens/system accounts, invariant + idempotency tests. (2) Item registry, categories from config, contribute -> steward appraisal -> intake mint, provenance events, member photo upload via sharp pipeline. (3) Loan state machine end-to-end server-side: reserve/hold/queue, dual-sign pickup, dual-sign return, decay engine + escrow settlement, dispute + steward adjudication, full vitest coverage of the state machine, decay math worked examples, and double-confirm/double-close idempotency. (4) Library.tsx inventory + Your Library Details (Total/Available/escrow itemized) + LibraryItem.tsx with provenance timeline and WearQuote. (5) LibraryHandoff dual-sign UX + steward queue view + dispute flow + Pulse entries + the two Resend emails. (6) LibraryAdminTab (pool dashboard, categories, item ops), steward reward at lunar cycle close, Library Steward role seed, nav wiring behind the toggle, e2e test: contribute -> appraise -> reserve -> pickup(2 signs) -> return(2 signs) -> wear deducted to pool -> cycle close pays steward. v1 deliberately has NO fiat purchase (pure contribute-to-earn faucet), no peer pass-off, notifications via Pulse+email only.
 
-## v2 (the full slide vision)
+## v2 (the rest of the design)
 
 The full slide vision (4 sessions): (7) Buy Library Credits — the slide's 120% purchase panel, fiat via Stripe checkout minting credits at the premium, spread to pool as library_pool_spread, closed-loop/non-refundable disclosure copy, behind its own toggle AND a completed legal review; alternatively (open question) route the sale through Hypha and let the platform only record grants. (8) Peer-to-peer pass-off: return_pending can settle directly to the next-in-queue borrower (loan A closes, loan B activates atomically; escrows swap in one transaction) — the slide's 'receiving account and current borrower both sign'. (9) Wishlist + pool acquisitions (library_wishes, pool grants fund new gear), repair workflow with burns, maintenance notes. (10) Hash-chained provenance (tamper-evident item history), notification-spine wiring (reservation-ready pushes, overdue digests once the scheduler exists), health-history charts, kits/bundles (borrow a 'camping kit' as one loan).
 
@@ -220,10 +220,10 @@ The full slide vision (4 sessions): (7) Buy Library Credits — the slide's 120%
 
 ## Open questions
 
-- v2 credit sales: Stripe in-platform vs routing the purchase through Hypha (village sells a stablecoin package there; platform only records a credit grant). Hypha routing keeps ALL money off-platform and may erase the money-transmitter question entirely — Rye's call.
-- Ownership at intake: design assumes items become village commons property (contributor compensated in credits). Confirm with Rye — a consignment model (contributor retains title) changes the writeoff and legal story materially.
+- v2 credit sales: Stripe in-platform vs routing the purchase through Hypha (village sells a stablecoin package there; platform only records a credit grant). Hypha routing keeps ALL money off-platform and may erase the money-transmitter question entirely, which is the reason to prefer it.
+- Ownership at intake: design assumes items become village commons property (contributor compensated in credits). A consignment model, where the contributor retains title, changes the writeoff and the legal story materially, so a village chooses one before the first intake.
 - Should contributors earn a small ongoing usage royalty (e.g., 1% of each wear deduction) instead of/in addition to the one-time intake award? Incentivizes contributing heavily-used gear; slight inflation cost.
-- starter_credits at 'member' stage: nice onboarding (you can borrow on day one) vs pure contribute-to-earn purity. Default 0; Rye to set.
+- starter_credits at 'member' stage: onboarding warmth (you can borrow on day one) against contribute-to-earn purity. Default 0, and a village raises it if it wants the warmer door.
 - Queue fairness on v2 peer pass-off: strict FIFO enforced, or allow the current borrower to hand to anyone when no queue exists (design says next-in-queue when one exists — confirm).
 - Do high-value items (chainsaw, vehicle) need a role/stage gate above 'member' (per-item minStage or requiresRole reusing quest-gate vocabulary)? Cheap to add to library_items; v1 or v2?
 - Credit decimals: design uses integers (matches ledger int amount). Confirm no village wants sub-credit precision; changing later is a real migration.
