@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // Nineteen icons left this list when navGroups and CONTENT_SECTIONS moved to
 // client/src/components/admin/: they were the nav's icons, not this file's.
-import { Lock, Eye, EyeOff, Inbox, Circle, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, FileText, Upload, ExternalLink, ArrowUp, ArrowDown, Plus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Lock, Eye, EyeOff, Inbox, Circle, CheckCircle2, Trash2, ChevronDown, ChevronUp, Save, RefreshCw, LogOut, FileText, Upload, ExternalLink, ArrowUp, ArrowDown, Plus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { linesToList, listToLines } from "@/lib/questBoard";
@@ -41,6 +41,7 @@ import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
 import { CrowdpoolAdminTab, ForumCategoriesEditor, ToolsCategoriesEditor } from "@/components/admin/ModuleConfigPanels";
 import { CONTENT_SECTIONS } from "@/components/admin/contentSections";
 import { navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
+import { SETUP_STEPS, measureSetup, setupIsComplete } from "@/components/admin/setupProgress";
 import HandoverTab from "@/components/admin/HandoverTab";
 import HyphaModulePanel from "@/components/admin/HyphaModulePanel";
 import VotingWeightsPanel from "@/components/admin/VotingWeightsPanel";
@@ -10013,28 +10014,6 @@ function BrandImageField({
 
 // ── Setup Wizard: the white-label front door — make this site your project's ───
 
-/**
- * The steps, in order, in ONE place.
- *
- * There used to be two lists: the wizard's own, and a copy in the Admin shell
- * that decides whether setup is finished. Adding a sixth step to one of them
- * would have left the shell calling setup complete while a step sat undone,
- * which is the kind of drift that only shows up as "why is it still telling me
- * I'm done".
- *
- * Order is the order a founder works: name the place, dress it, set its
- * numbers, write its words, style its map, then ship. Go live stays last
- * because it is the step you stop coming back to.
- */
-const SETUP_STEPS = [
-  { key: "identity", label: "Identity" },
-  { key: "images", label: "Pictures" },
-  { key: "numbers", label: "Numbers" },
-  { key: "content", label: "Content" },
-  { key: "map", label: "Map & styling" },
-  { key: "technical", label: "Go live" },
-] as const;
-
 function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (tab: string) => void }) {
   const [brand, setBrand] = useState<any>(null);
   const [defaults, setDefaults] = useState<any>(null);
@@ -10078,14 +10057,17 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
 
   if (!brand || !defaults) return <div className="text-center py-12 text-gray-400">Loading...</div>;
 
-  const steps = SETUP_STEPS;
-  const doneCount = steps.filter((s) => brand.setup?.[s.key]).length;
-  const setupComplete = doneCount === steps.length;
+  /* Identity and Pictures are read from `brand`; the other four still come from
+     the flags a founder ticks. See client/src/components/admin/setupProgress.ts. */
+  const rows = measureSetup(brand);
+  const doneCount = rows.filter((r) => r.done).length;
+  const setupComplete = doneCount === rows.length;
 
-  /** Clears the done flags so the walkthrough (and its progress bar) comes back —
-   *  none of the actual settings are touched. */
+  /** Clears the hand-ticked flags so the walkthrough (and its progress bar)
+   *  comes back. None of the actual settings are touched, and the two measured
+   *  rows keep reading the record either way. */
   const resetSetup = () => {
-    const cleared = Object.fromEntries(steps.map((s) => [s.key, false]));
+    const cleared = Object.fromEntries(SETUP_STEPS.map((s) => [s.key, false]));
     setBrand({ ...brand, setup: cleared });
     saveBrand("setup", { setup: cleared });
   };
@@ -10146,7 +10128,11 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
     { tab: "quests-admin", label: "Quests", hint: "Seeded starter quests. Rewrite, add or remove them here so the board is yours." },
   ];
 
-  const Section = ({ id, n, title, subtitle, children }: any) => (
+  /* A measured step shows what the record holds and has no box to tick. A
+     self-reported step keeps its box and says that is what it is. */
+  const Section = ({ id, n, title, subtitle, children }: any) => {
+    const row = rows.find((r) => r.key === id);
+    return (
     <div className="border border-gray-200 rounded-xl overflow-hidden mb-4">
       <div className="flex items-center justify-between gap-3 bg-gray-50 px-5 py-3 border-b border-gray-100">
         <div className="flex items-center gap-3">
@@ -10156,14 +10142,22 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
             <p className="text-xs text-gray-500">{subtitle}</p>
           </div>
         </div>
-        <label className="flex items-center gap-2 text-xs font-medium text-gray-600 shrink-0 cursor-pointer">
-          <input type="checkbox" checked={!!brand.setup?.[id]} onChange={() => toggleStep(id)} className="h-4 w-4 accent-teal-deep" />
-          Done
-        </label>
+        {row?.measured ? (
+          <span className={`flex items-center gap-1.5 text-xs font-medium shrink-0 ${row.done ? "text-emerald-600" : "text-muted-foreground"}`} title={row.blank.length ? `Counted from what you have saved. Still empty: ${row.blank.join(", ")}.` : "Counted from what you have saved. Every field on this step has a value."}>
+            {row.done && <CheckCircle2 className="w-4 h-4" />}
+            {row.filled} of {row.total} filled in
+          </span>
+        ) : (
+          <label className="flex items-center gap-2 text-xs font-medium text-gray-600 shrink-0 cursor-pointer" title="Nothing on this step can be read back from your settings, so this box is your own note to yourself.">
+            <input type="checkbox" checked={!!brand.setup?.[id]} onChange={() => toggleStep(id)} className="h-4 w-4 accent-teal-deep" />
+            Done, my word
+          </label>
+        )}
       </div>
       <div className="p-5">{children}</div>
     </div>
-  );
+    );
+  };
 
   return (
     <div>
@@ -10179,12 +10173,16 @@ function SetupWizard({ password, onOpenTab }: { password: string; onOpenTab: (ta
             ? "Your project's identity, pictures, and numbers. Change any of it any time."
             : "Everything you need to turn this into your project's coordination game. Blank fields keep the platform default as the suggestion."}
         </p>
+        <p className="text-xs text-muted-foreground mt-2">
+          Identity and Pictures are counted from what you have saved here, so they go back to
+          unfinished if a field is ever emptied. The other four steps are yours to tick, and say only what you told them.
+        </p>
         {!setupComplete ? (
           <div className="flex items-center gap-3 mt-4">
             <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden max-w-xs">
-              <div className="h-2 bg-teal-deep rounded-full transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+              <div className="h-2 bg-teal-deep rounded-full transition-all" style={{ width: `${(doneCount / rows.length) * 100}%` }} />
             </div>
-            <span className="text-sm text-gray-500">{doneCount} / {steps.length} steps</span>
+            <span className="text-sm text-gray-500">{doneCount} / {rows.length} steps</span>
           </div>
         ) : (
           <button
@@ -10910,10 +10908,10 @@ export default function Admin() {
     if (!password) return;
     fetch(`${API_BASE}/admin/brand`, { headers: authHeaders(password) })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        const s = d?.brand?.setup ?? {};
-        setSetupComplete(SETUP_STEPS.every((step) => s[step.key]));
-      })
+      // The wizard and this nav have to agree about what "finished" means, so
+      // both ask setupProgress.ts. Reading `setup` here on its own was how the
+      // rail could call a village done while its pictures were empty.
+      .then((d) => setSetupComplete(setupIsComplete(d?.brand)))
       .catch(() => { /* leave as incomplete; the wizard just stays pinned */ });
   }, [password, activeTab]);
 
