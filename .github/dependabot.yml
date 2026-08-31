@@ -1,0 +1,82 @@
+# Dependency updates, grouped so a two-person review queue can absorb them.
+#
+# WHY GROUPS AND NOT THE DEFAULT. Ungrouped, this repository would open roughly
+# one pull request per outdated package, and the dependency list carries about
+# thirty `@radix-ui/*` packages and nine `@fontsource/*` packages that move as
+# families. That is a week where the review queue is entirely dependency bumps
+# and a module listing waits behind them. Grouping trades "one bisectable
+# change per pull request" for "a queue somebody actually reads", which is the
+# right trade at this size and would stop being the right trade with more
+# maintainers.
+#
+# WHY THE COST IS NOT ONLY REVIEW TIME. `.github/workflows/ci.yml` fires on
+# push to every branch AND on pull_request, so one Dependabot branch costs two
+# CI runs. At the durations this repository currently sees that is over a
+# quarter hour of runner time per pull request. On a public repository standard
+# runners are free and this is only wall-clock; on a private one it is billed
+# minutes.
+# Either way, grouping is what keeps a weekly refresh from being the largest
+# line in the Actions bill.
+#
+# MAJORS. The three family groups below take majors too, because a Radix or a
+# Fontsource major that arrived as thirty separate pull requests would be worse
+# than one that arrives as a single readable diff. Everything else takes only
+# minor and patch in a group, so a major on a load-bearing package (express,
+# drizzle-orm, vite, react, viem, zod) still arrives on its own and gets read
+# on its own. That is deliberate: those are the ones where the release notes
+# matter more than the version number.
+#
+# The audit gate is separate from this file and stays separate. Advisories with
+# no upstream fix are documented in `docs/SECURITY_ADVISORIES.md`; nothing here
+# suppresses anything.
+version: 2
+
+updates:
+  - package-ecosystem: "npm"
+    # Dependabot reads `pnpm-lock.yaml` under the `npm` ecosystem. There is one
+    # lockfile and one workspace, so one entry covers the repository.
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      radix:
+        patterns:
+          - "@radix-ui/*"
+      fonts:
+        patterns:
+          - "@fontsource/*"
+      types:
+        patterns:
+          - "@types/*"
+      production:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      development:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(actions)"
+    groups:
+      actions:
+        patterns:
+          - "*"

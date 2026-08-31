@@ -1,0 +1,17 @@
+# Blank issues stay on. A form that does not fit is a worse outcome than an
+# unstructured issue, and the three below cover the cases we can help with
+# fastest, not every case there is.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Security problem
+    url: https://github.com/Rieki777/Amora-Game/security/advisories/new
+    about: Report it privately. A public issue is a disclosure, and it reaches the villages last.
+
+  - name: How to contribute
+    url: https://github.com/Rieki777/Amora-Game/blob/main/CONTRIBUTING.md
+    about: The gates, the writing rules, the migration rules, and how a module is reviewed.
+
+  - name: Standing up or running a village
+    url: https://github.com/Rieki777/Amora-Game/blob/main/docs/PROVISIONING.md
+    about: The ordered walkthrough from nothing to a running instance with your own name on it.

@@ -1,0 +1,83 @@
+# CodeQL: static security analysis of the JavaScript and TypeScript in this repo.
+#
+# WHY THIS EXISTS AND WHAT IT IS NOT. Contract clause 13 makes review at merge
+# the entire security boundary: contributed module code runs inside every
+# village's own server process, with that server's database credentials and
+# network access, and there is no sandbox to fall back on. The guard scripts in
+# `ci.yml` are pattern matches over a diff. CodeQL is a dataflow analysis over
+# the whole tree, so it sees the class of thing a grep cannot: a request value
+# that reaches a query, a path that reaches the filesystem, a redirect that
+# reaches a header. It does not replace the human read. It gives the human read
+# a shorter list.
+#
+# WHY THE JOB IS GATED ON VISIBILITY. Code scanning is free on public
+# repositories and requires a paid GitHub Code Security licence on private
+# ones. Ungated, every run of this workflow on a private repository would fail
+# at the upload step with a permissions error nobody can fix from inside the
+# repository, and this codebase already has the rule that a gate which is red
+# for a reason nobody can fix gets deleted. So the job SKIPS while the
+# repository is private and starts running by itself the day it goes public. A
+# skipped check is honest about having not run; a red one that always was red
+# teaches people to ignore red.
+#
+# If a scheduled run ever skips when the repository is public, this line is
+# why: it reads `github.event.repository.visibility`, which comes from the
+# event payload rather than from an API call.
+#
+# WIDENING IT LATER. `queries:` below is the default suite, which is the
+# lowest-noise one. `security-extended` and `security-and-quality` find more
+# and report more, and the right moment to switch is when somebody has time to
+# triage the first full run rather than the day it is switched on.
+name: codeql
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Weekly. The value of a scheduled run is not that the code changed, it is
+    # that the query suite did: a rule published this month finds things in
+    # code that has not moved since spring.
+    - cron: "37 5 * * 1"
+
+# Same reasoning as the ci.yml concurrency group: a superseded run holds a
+# runner for its full length while its result can no longer matter. The event
+# name is part of the key so a push run never cancels the pull_request run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze javascript-typescript
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # The only two this needs beyond the read above. `security-events: write`
+      # is what uploads the results to the Security tab; `actions: read` is what
+      # lets CodeQL read the workflow run it is analysing.
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # No build step. The extractor reads the source directly for this
+          # language, so nothing here has to reproduce `pnpm build`, and this
+          # workflow stays independent of the bundle work in `ci.yml`.
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
