@@ -13,11 +13,14 @@
  *
  * WHY COMPLETION IS NOW READ RATHER THAN TICKED. All six steps used to be
  * checkboxes a founder ticked, and a ticked box outlives whatever it was
- * ticked about. A founder ticked Pictures during the afternoon they uploaded
- * nine images. The images later went back to empty strings, the site fell back
- * to a placeholder on every hero, and the checklist built to answer "is my
- * village set up" still showed six of six, on the exact screen a founder opens
- * to ask that question. Nothing was lying. Nothing was reading anything either.
+ * ticked about. What is measured on the live deployment: /api/game/config
+ * serves all nine images as empty strings, every hero draws the placeholder,
+ * and this checklist read none of those nine fields. So a village whose
+ * Pictures box was ever ticked showed six of six while carrying no art at all,
+ * on the exact screen a founder opens to ask whether the village is set up.
+ * Who ticked it, and when, is not recorded anywhere this lane could read, so
+ * that part is left unsaid. Nothing was lying. Nothing was reading anything
+ * either.
  *
  * So the two steps whose fields live in the brand record this same screen
  * already loads are MEASURED: their completion is derived from the record and
