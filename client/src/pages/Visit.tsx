@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import { useVillageName } from "@/hooks/useVillageName";
 import { useEffect, useState } from "react";
 import {
   MapPin,
@@ -35,6 +36,9 @@ interface VisitConfig {
 }
 
 export default function Visit() {
+  // The hero subtitle is village-set; this is only the sentence shown
+  // before one is set, so it names the village rather than a village.
+  const villageName = useVillageName("this village");
   const [cfg, setCfg] = useState<VisitConfig | null>(null);
   const [form, setForm] = useState({ name: "", email: "", visitType: "", message: "" });
   const [submitted, setSubmitted] = useState(false);
@@ -88,7 +92,7 @@ export default function Visit() {
             Come and See for Yourself
           </h1>
           <p className="text-white/80 text-lg max-w-3xl leading-relaxed">
-            {cfg?.hero_subtitle ?? "Experience the land, meet the people, and decide if Amora is where you belong."}
+            {cfg?.hero_subtitle ?? `Experience the land, meet the people, and decide if ${villageName} is where you belong.`}
           </p>
         </div>
       </section>

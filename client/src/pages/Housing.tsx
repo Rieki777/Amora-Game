@@ -3,6 +3,7 @@ import { useVillageLinks } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useVillageContent } from "@/hooks/useVillageContent";
+import { useVillageName } from "@/hooks/useVillageName";
 import {
   Home,
   ArrowRight,
@@ -83,6 +84,7 @@ const landFeatures = [
 export default function Housing() {
   // Blank hides the button rather than pointing at another village.
   const { eventsUrl } = useVillageLinks();
+  const villageName = useVillageName();
   /**
    * S2 brochure lane, 2026-08-30: this section used to state the land share
    * transfers "tax-free" unconditionally: Costa Rica's tax treatment,
@@ -128,7 +130,7 @@ export default function Housing() {
             >
               <Home className="w-16 h-16 mb-6 opacity-80" />
               <h1 className="font-display text-4xl md:text-6xl font-bold mb-6">
-                Housing at Amora
+                Housing at {villageName}
               </h1>
               <p className="text-xl text-white/80 leading-relaxed">
                 From tiny homes to luxury villas, find your perfect place in our 
@@ -237,7 +239,7 @@ export default function Housing() {
               Land Share Agreements
             </h2>
             <p className="text-muted-foreground mb-6">
-              At Amora, you don't purchase land outright: you acquire a Land Share Agreement 
+              At {villageName}, you don't purchase land outright: you acquire a Land Share Agreement 
               that gives you long-term access to your lot. This unique structure:
             </p>
             <div className="grid sm:grid-cols-3 gap-6 text-left mb-8">

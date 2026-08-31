@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useGameConfig } from "@/lib/gameApi";
+import { useVillageName } from "@/hooks/useVillageName";
 import {
   Users,
   Heart,
@@ -18,7 +19,7 @@ import {
 
 // A function of the live value-token name (Admin → Tokens): a fork's rename
 // reaches the Gratitude card without a code change.
-const RIGHTS = (valueName: string) => [
+const RIGHTS = (valueName: string, villageName: string) => [
   {
     icon: Users,
     title: "Voice in Governance",
@@ -29,7 +30,7 @@ const RIGHTS = (valueName: string) => [
     icon: Heart,
     title: "Earn Gratitude for Your Contribution",
     description:
-      `Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude: the recognition signal, with no financial value of its own. Each cycle the community shares a real pool of ${valueName} across everyone's Gratitude, so appreciation decides where value flows. As Amora grows, ${valueName} convert to cash, equity, or community currency. Your effort builds real wealth.`,
+      `Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude: the recognition signal, with no financial value of its own. Each cycle the community shares a real pool of ${valueName} across everyone's Gratitude, so appreciation decides where value flows. As ${villageName} grows, ${valueName} convert to cash, equity, or community currency. Your effort builds real wealth.`,
   },
   {
     icon: Star,
@@ -53,11 +54,11 @@ const RIGHTS = (valueName: string) => [
     icon: Shield,
     title: "Retreat and Wellness Access",
     description:
-      "As a contributing steward, you have access to Amora's wellness offerings at community rates. Retreat facilities, healing arts programs, and wellness services are part of what this community builds together, and you are part of what makes them possible.",
+      `As a contributing steward, you have access to ${villageName}'s wellness offerings at community rates. Retreat facilities, healing arts programs, and wellness services are part of what this community builds together, and you are part of what makes them possible.`,
   },
 ];
 
-const RESPONSIBILITIES = [
+const RESPONSIBILITIES = (villageName: string) => [
   {
     icon: Users,
     title: "Show Up for Your Circle",
@@ -80,13 +81,13 @@ const RESPONSIBILITIES = [
     icon: Heart,
     title: "Practice the Community Ways",
     description:
-      "Amora runs on Nonviolent Communication, authentic relating, and consent-based decision-making. As a steward, you commit to practicing these tools, not just knowing them. When conflict arises, you bring it to the appropriate process before it festers.",
+      `${villageName} runs on Nonviolent Communication, authentic relating, and consent-based decision-making. As a steward, you commit to practicing these tools, not just knowing them. When conflict arises, you bring it to the appropriate process before it festers.`,
   },
   {
     icon: Sparkles,
     title: "Contribute to the Seasonal Rhythm",
     description:
-      "Every three months the community shapes its next season. Your presence in that vote matters. Attend seasonal transitions, participate in harvest circles and planting celebrations, and help decide collectively what Amora focuses on next.",
+      `Every three months the community shapes its next season. Your presence in that vote matters. Attend seasonal transitions, participate in harvest circles and planting celebrations, and help decide collectively what ${villageName} focuses on next.`,
   },
   {
     icon: Star,
@@ -119,6 +120,7 @@ const PROGRESSION = [
 
 export default function StewardRights() {
   const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
+  const villageName = useVillageName();
   return (
     <Layout>
       {/* Hero */}
@@ -200,7 +202,7 @@ export default function StewardRights() {
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            {RIGHTS(valueName).map((right, i) => {
+            {RIGHTS(valueName, villageName).map((right, i) => {
               const Icon = right.icon;
               return (
                 <motion.div
@@ -245,7 +247,7 @@ export default function StewardRights() {
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            {RESPONSIBILITIES.map((item, i) => {
+            {RESPONSIBILITIES(villageName).map((item, i) => {
               const Icon = item.icon;
               return (
                 <motion.div

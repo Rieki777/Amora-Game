@@ -3,6 +3,7 @@ import { altOr, useBrandImages, useVillageLinks } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import { useVillageContent } from "@/hooks/useVillageContent";
+import { useVillageName } from "@/hooks/useVillageName";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -31,12 +32,12 @@ import {
 } from "lucide-react";
 
 
-const journeySteps = [
+const buildJourneySteps = (villageName: string) => [
   {
     id: "community-call",
     stage: "Visitor",
     title: "Attend Community Call",
-    description: "Learn about the basics and ask any immediate questions about living at Amora.",
+    description: `Learn about the basics and ask any immediate questions about living at ${villageName}.`,
     icon: Calendar,
     // Resolved at render from this village's own eventsUrl.
     link: "",
@@ -48,7 +49,7 @@ const journeySteps = [
     id: "events",
     stage: "Guest",
     title: "Attend Community Events",
-    description: "Join potlucks, land tours, and community gatherings to experience Amora's living culture.",
+    description: `Join potlucks, land tours, and community gatherings to experience ${villageName}'s living culture.`,
     icon: Users,
     // Resolved at render from this village's own eventsUrl.
     link: "",
@@ -60,7 +61,7 @@ const journeySteps = [
     id: "founding-seeder",
     stage: "Founding Seeder",
     title: "Become a Founding Seeder",
-    description: "Join the Founding Seeders, our waitlist of soul-aligned people securing first access to homes and land at Amora. This is how you raise your hand and say: I'm serious about this.",
+    description: `Join the Founding Seeders, our waitlist of soul-aligned people securing first access to homes and land at ${villageName}. This is how you raise your hand and say: I'm serious about this.`,
     icon: Sprout,
     // No config home for a waitlist page, and a village's front door is not
     // its waitlist, so this CTA stays hidden until there is a field for it.
@@ -139,12 +140,12 @@ const journeySteps = [
     id: "fireside",
     stage: "Fireside",
     title: "Fireside Dinner With the Founding Team",
-    description: "You're invited to an intimate 1-on-1 fireside dinner with the founding team, in person in Costa Rica, or online if you can't make it. A casual, beautiful friendship ritual where both sides explore the commitment fully.",
+    description: "You're invited to an intimate 1-on-1 fireside dinner with the founding team, in person on the land, or online if you can't make it. A casual, beautiful friendship ritual where both sides explore the commitment fully.",
     icon: Flame,
     link: "#",
     linkText: "By Invitation",
     external: false,
-    details: ["Intimate 1-on-1 with the founders", "In person in Costa Rica or online", "A friendship ritual, not an interview", "Explore mutual fit and commitment"]
+    details: ["Intimate 1-on-1 with the founders", "In person on the land, or online", "A friendship ritual, not an interview", "Explore mutual fit and commitment"]
   },
   {
     id: "family",
@@ -195,7 +196,7 @@ const journeySteps = [
     id: "move-in",
     stage: "Resident",
     title: "Move In Celebration!",
-    description: "Welcome home! Celebrate with the Amora Family and begin your life in the village.",
+    description: `Welcome home! Celebrate with the ${villageName} Family and begin your life in the village.`,
     icon: Heart,
     link: "#",
     linkText: "Welcome Home",
@@ -226,6 +227,8 @@ interface LegalContent {
 }
 
 export default function ResidentJourney() {
+  const villageName = useVillageName();
+  const journeySteps = buildJourneySteps(villageName);
   const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("community-call");
@@ -320,7 +323,7 @@ export default function ResidentJourney() {
               transition={{ delay: 0.1 }}
               className="font-display text-5xl md:text-6xl font-semibold text-foreground mb-6"
             >
-              Make Amora{" "}
+              Make {villageName}{" "}
               <span className="text-teal-deep italic">Home</span>
             </motion.h1>
 
@@ -403,7 +406,7 @@ export default function ResidentJourney() {
               Your Path to Residency
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-6">
-              Each step helps both sides decide. You figure out if Amora is right for you; we figure out the same.
+              Each step helps both sides decide. You figure out if {villageName} is right for you; we figure out the same.
             </p>
             
             {/* Progress Bar */}
@@ -569,7 +572,7 @@ export default function ResidentJourney() {
               Growing Your Voice
             </h2>
             <p className="text-white/70 max-w-2xl mx-auto">
-              Amora is governed most by those who participate. As you invest more years 
+              {villageName} is governed most by those who participate. As you invest more years 
               in the community, your voice in governance grows.
             </p>
           </motion.div>
@@ -684,7 +687,7 @@ export default function ResidentJourney() {
               Your Next Step
             </h2>
             <p className="text-muted-foreground mb-8">
-              Schedule a village visit to experience Amora firsthand and ask any questions 
+              Schedule a village visit to experience {villageName} firsthand and ask any questions 
               about becoming a resident.
             </p>
             <Link href="/visit" className="btn-amora inline-flex items-center gap-2">
@@ -716,7 +719,7 @@ export default function ResidentJourney() {
               Find Your Home
             </h2>
             <p className="text-muted-foreground mb-8">
-              Start with a community call to learn about life at Amora, 
+              Start with a community call to learn about life at {villageName}, 
               then explore our housing options and available lots.
             </p>
             <div className="flex flex-wrap justify-center gap-4">

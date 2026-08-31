@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useVillageContent } from "@/hooks/useVillageContent";
+import { useVillageName } from "@/hooks/useVillageName";
 import {
   Home,
   Heart,
@@ -32,7 +33,7 @@ import {
 const LAND_SHARE_BASE_DESCRIPTION =
   "Your Land Share Agreement gives you long-term security on your piece of this land, renewable, transferable to your children{{TRANSFER}}, and protected by community ownership structures that ensure the land itself can never be sold away from the community.";
 
-const RIGHTS = [
+const RIGHTS = (villageName: string) => [
   {
     icon: Home,
     title: "Your Land Share is Yours",
@@ -48,7 +49,7 @@ const RIGHTS = [
     icon: Users,
     title: "Voice in Community Life",
     description:
-      "Residents hold full voice in the Circles that govern daily community life. As you grow into the community and reach the appropriate milestones, your governance rights deepen, from participating in decisions that affect your daily life to shaping the long-term direction of Amora.",
+      `Residents hold full voice in the Circles that govern daily community life. As you grow into the community and reach the appropriate milestones, your governance rights deepen, from participating in decisions that affect your daily life to shaping the long-term direction of ${villageName}.`,
   },
   {
     icon: Leaf,
@@ -60,7 +61,7 @@ const RIGHTS = [
     icon: Heart,
     title: "Community Services and Care",
     description:
-      "As a resident, you have access to the wellness programs, education offerings, healing arts, and community care that Amora develops together. The businesses and services that grow here serve the community first.",
+      `As a resident, you have access to the wellness programs, education offerings, healing arts, and community care that ${villageName} develops together. The businesses and services that grow here serve the community first.`,
   },
   {
     icon: Coins,
@@ -70,7 +71,7 @@ const RIGHTS = [
   },
 ];
 
-const RESPONSIBILITIES = [
+const RESPONSIBILITIES = (villageName: string) => [
   {
     icon: Home,
     title: "Care for Your Home and Its Surroundings",
@@ -93,7 +94,7 @@ const RESPONSIBILITIES = [
     icon: Coins,
     title: "Village Dues",
     description:
-      "Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from Amora's shared businesses, the retreat center, cafe, wellness offerings, and other enterprises, creating a net-positive financial life for all residents. Dues can also be offset through Gratitude earned from community contributions. Exact monthly amounts will be shared before signing your Land Share Agreement.",
+      `Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from ${villageName}'s shared businesses, the retreat center, cafe, wellness offerings, and other enterprises, creating a net-positive financial life for all residents. Dues can also be offset through Gratitude earned from community contributions. Exact monthly amounts will be shared before signing your Land Share Agreement.`,
   },
   {
     icon: Users,
@@ -136,14 +137,14 @@ const PROGRESSION = [
   },
 ];
 
-const FEES_VISION = {
+const FEES_VISION = (villageName: string) => ({
   title: "The Vision for Your Finances Here",
-  description: `Village dues exist to keep the infrastructure running, water, power, roads, shared maintenance. Right now, they're a cost. The longer-term vision is different: as Amora's shared businesses mature, the retreat center, the cafe, the wellness center, the artisan market, the education programs, the revenue they generate flows back into the community.
+  description: `Village dues exist to keep the infrastructure running, water, power, roads, shared maintenance. Right now, they're a cost. The longer-term vision is different: as ${villageName}'s shared businesses mature, the retreat center, the cafe, the wellness center, the artisan market, the education programs, the revenue they generate flows back into the community.
 
 The goal is a life here that is economically net-positive. Where your contribution to the village through your Gratitude earnings, your business participation, or your role in community operations covers your dues and gives you back more than you put in.
 
 This is what "Wealth Through Contribution" actually means. Not a promise. A design intention we're building toward together.`,
-};
+});
 
 interface LegalContent {
   landShareTransferNote?: string;
@@ -151,8 +152,10 @@ interface LegalContent {
 
 export default function ResidentRights() {
   const { content } = useVillageContent<LegalContent>("legal");
+  const villageName = useVillageName();
+  const feesVision = FEES_VISION(villageName);
   const transferNote = content?.landShareTransferNote?.trim();
-  const rights = RIGHTS.map((right, i) =>
+  const rights = RIGHTS(villageName).map((right, i) =>
     i === 0 && transferNote
       ? { ...right, description: LAND_SHARE_BASE_DESCRIPTION.replace("{{TRANSFER}}", ` ${transferNote}`) }
       : right,
@@ -193,7 +196,7 @@ export default function ResidentRights() {
             transition={{ delay: 0.2 }}
             className="text-cream/80 text-lg leading-relaxed"
           >
-            Living at Amora means you are not a tenant. You are a co-owner of the whole village.
+            Living at {villageName} means you are not a tenant. You are a co-owner of the whole village.
             These are the rights that protect you and the responsibilities that make this place
             worth protecting.
           </motion.p>
@@ -214,7 +217,7 @@ export default function ResidentRights() {
               You Live Here. This Is Yours.
             </h2>
             <p className="text-muted-foreground leading-relaxed max-w-xl mx-auto">
-              The land at Amora is held collectively, not by a landlord, not by a developer, not
+              The land at {villageName} is held collectively, not by a landlord, not by a developer, not
               by any single person. Every resident is a steward of the whole of it. Your home
               is your private space. The rest belongs to all of you. Approach every interaction
               with the land and the community from that place: this is mine, and it's also all of
@@ -285,7 +288,7 @@ export default function ResidentRights() {
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            {RESPONSIBILITIES.map((item, i) => {
+            {RESPONSIBILITIES(villageName).map((item, i) => {
               const Icon = item.icon;
               return (
                 <motion.div
@@ -328,10 +331,10 @@ export default function ResidentRights() {
                 <RefreshCw className="w-5 h-5 text-amber-700" />
               </div>
               <h2 className="font-display text-2xl font-semibold text-foreground">
-                {FEES_VISION.title}
+                {feesVision.title}
               </h2>
             </div>
-            {FEES_VISION.description.split("\n\n").map((para, i) => (
+            {feesVision.description.split("\n\n").map((para, i) => (
               <p key={i} className="text-muted-foreground leading-relaxed mb-4 last:mb-0">
                 {para}
               </p>

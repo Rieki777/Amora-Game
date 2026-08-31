@@ -6,6 +6,7 @@ import { Image } from "@/components/Image";
 import { useEffect, useState } from "react";
 import { gameFetch, useGameConfig, useVillageLinks } from "@/lib/gameApi";
 import { PeopleLockNote, type PeopleTier } from "@/components/PeopleLock";
+import { useVillageName } from "@/hooks/useVillageName";
 
 interface TeamMember {
   name: string;
@@ -26,6 +27,7 @@ const advisoryHighlights = [
 
 export default function Team() {
   const config = useGameConfig();
+  const villageName = useVillageName();
   // Blank hides the button rather than pointing at another village.
   const { eventsUrl } = useVillageLinks();
   const [team, setTeam] = useState<TeamMember[] | null>(null);
@@ -319,7 +321,7 @@ export default function Team() {
               Join Our Community
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto mb-6">
-              Whether you're an investor, resident, steward, or prosperity creator, there's a place for you at Amora.
+              Whether you're an investor, resident, steward, or prosperity creator, there's a place for you at {villageName}.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <Link href="/#choose-path">

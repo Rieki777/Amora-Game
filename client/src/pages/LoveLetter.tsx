@@ -4,6 +4,7 @@ import { Heart, CheckCircle2, ArrowRight, Users, Home, TrendingUp, Sparkles, Sen
 import { useState } from "react";
 import { authToken, useVillageLinks } from "@/lib/gameApi";
 import { useVillageContent } from "@/hooks/useVillageContent";
+import { useVillageName } from "@/hooks/useVillageName";
 
 /**
  * S2 brochure lane, 2026-08-30: this page used to state, nine times, that
@@ -23,9 +24,39 @@ import { useVillageContent } from "@/hooks/useVillageContent";
  * claim at all. Never a hedge, never an invented "ask a lawyer" caveat that
  * itself implies deductibility might apply. Absence, not a guess.
  */
+/**
+ * The two paragraphs of the covenant that describe THIS village's own land
+ * and THIS village's own plan (S3 pages lane, 2026-08-31).
+ *
+ * Same mechanism as `legal` above, different section key: the generic
+ * content routes key on whatever string is in the URL, so a new section
+ * needs no server route, only a door in Admin (CONTENT_SECTIONS in
+ * Admin.tsx, where `covenant` is now registered beside `legal`).
+ *
+ * Why these two and not the whole letter: every other paragraph here is
+ * about joining a village and is true of any of them. These two are not.
+ * One described "acres of sacred Costa Rican jungle, ocean-kissed"; the
+ * other promised a governance council "once we've sold 33 lots". A founder
+ * in Vermont was asking their members to SIGN a description of somebody
+ * else's land and somebody else's sales target. That is worse than a name
+ * in a heading, because a signature is supposed to mean the signer read it.
+ *
+ * Unset falls back to the same sentence with the geography and the number
+ * taken out, never to a hedge and never to an invented fact. Amora's own
+ * wording is preserved as data in server/seeds/pages-covenant-seed.json and
+ * needs one authenticated admin PUT to /api/admin/content/covenant, exactly
+ * as the brochure lane's legal seed does.
+ */
+interface CovenantContent {
+  /** The opening invitation. May describe the land, if the village has one to describe. */
+  opening?: string;
+  /** How and when this village will form its governance. */
+  governance?: string;
+}
+
 interface LegalContent {
   membership?: {
-    /** e.g. "Amora 508(c)(1)(a)". Blank falls back to plain "Amora". */
+    /** e.g. "Amora 508(c)(1)(a)". Blank falls back to the village name. */
     entityLabel?: string;
     /** The full paragraph in the letter body. Omitted entirely when blank. */
     contributionParagraph?: string;
@@ -36,12 +67,14 @@ interface LegalContent {
   };
 }
 
-const commitments = [
+// The covenant names the village in one line, so the list is built after
+// the config answers rather than frozen at module load.
+const buildCommitments = (villageName: string) => [
   "Treat all beings with respect, compassion, and authentic communication",
   "Participate in community governance through our sociocratic circles",
   "Contribute to the regeneration of the land and ecosystem",
   "Support fellow community members in their growth and wellbeing",
-  "Honor the values and agreements of the Amora community",
+  `Honor the values and agreements of the ${villageName} community`,
   "Practice Nonviolent Communication and authentic relating",
   "Meet financial obligations as agreed with the community",
   "Show up for community life, circles, celebrations, and shared care",
@@ -56,15 +89,30 @@ const pathOptions = [
 
 export default function LoveLetter() {
   const { content: legal } = useVillageContent<LegalContent>("legal");
+  const { content: covenant } = useVillageContent<CovenantContent>("covenant");
+  const villageName = useVillageName();
+  const commitments = buildCommitments(villageName);
   const membership = legal?.membership;
-  // "Amora" alone when no entity is published: the village's own name, not
-  // a legal claim. Everywhere this file used to say "Amora 508(c)(1)(a)".
-  const entityName = membership?.entityLabel?.trim() || "Amora";
+  // The village's own name alone when no entity is published: a name, not a
+  // legal claim. Everywhere this file used to say "Amora 508(c)(1)(a)".
+  // S3 pages lane: the fallback was the literal "Amora", so a founder who
+  // had never published a legal entity signed their members into somebody
+  // else's church on the line that collects their money.
+  const entityName = membership?.entityLabel?.trim() || villageName;
   const contributionParagraph = membership?.contributionParagraph?.trim();
   const contributionShortNote = membership?.contributionShortNote?.trim();
   const footerNote =
     membership?.footerNote?.trim() ||
     "Ask your community how membership contributions are structured, and whether any part is tax-deductible where you live.";
+
+  // Neither fallback states a fact about any particular place or plan. They
+  // say the same thing the originals said, minus the parts only Amora knew.
+  const openingParagraph =
+    covenant?.opening?.trim() ||
+    "Something in you called you here. Maybe it was the land itself, alive with possibility. Maybe it was the vision of a village where all beings belong and thrive. Maybe it was simply the feeling that the world you want to live in needs to be built.";
+  const governanceParagraph =
+    covenant?.governance?.trim() ||
+    "How residents govern themselves, and how we steward this land together, will be co-created by the first residents. Nothing here is handed down. You are not joining a finished system; you are helping write it.";
 
   const [form, setForm] = useState({
     name: "",
@@ -182,7 +230,7 @@ export default function LoveLetter() {
                 <Heart className="w-12 h-12 text-primary" fill="currentColor" />
               </motion.div>
               <h1 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-6">
-                Welcome to the Amora Family
+                Welcome to the {villageName} Family
               </h1>
               <p className="text-xl text-muted-foreground leading-relaxed mb-8">
                 Your membership form has been received. You are now part of the {entityName} community.
@@ -192,7 +240,7 @@ export default function LoveLetter() {
                 <div className="space-y-4 text-muted-foreground">
                   <div className="flex gap-3">
                     <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                    <p>You'll receive a welcome email from the Amora team within 48 hours with your membership details.</p>
+                    <p>You'll receive a welcome email from the {villageName} team within 48 hours with your membership details.</p>
                   </div>
                   <div className="flex gap-3">
                     <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
@@ -236,7 +284,7 @@ export default function LoveLetter() {
               <Heart className="w-8 h-8 text-primary" />
             </div>
             <h1 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-4">
-              The Amora Love Letter
+              The {villageName} Love Letter
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
               Our founding covenant, and your official membership in {entityName}.
@@ -251,14 +299,9 @@ export default function LoveLetter() {
             transition={{ delay: 0.1 }}
             className="bg-card p-8 md:p-12 rounded-2xl shadow-lg font-accent text-lg leading-relaxed mb-10 border border-border"
           >
-            <p className="mb-6 text-foreground">Dear Future Amora Family Member,</p>
+            <p className="mb-6 text-foreground">Dear Future {villageName} Family Member,</p>
 
-            <p className="mb-6 text-muted-foreground">
-              Something in you called you here. Maybe it was the land, acres of sacred Costa Rican
-              jungle, ocean-kissed and alive with possibility. Maybe it was the vision of a village where
-              all beings belong and thrive. Maybe it was simply the feeling that the world you want to
-              live in needs to be built.
-            </p>
+            <p className="mb-6 text-muted-foreground">{openingParagraph}</p>
 
             <p className="mb-6 text-muted-foreground">
               By signing this Love Letter, you are not just joining a community. You are becoming a
@@ -283,12 +326,7 @@ export default function LoveLetter() {
               deepen your involvement through roles, residency, or business creation.
             </p>
 
-            <p className="mb-6 text-muted-foreground">
-              How residents govern themselves, and how we steward this land together, will be
-              co-created by the first residents. Nothing here is handed down. Once we've sold 33
-              lots, we'll convene a governance council to structure this together. You're not
-              joining a finished system; you're helping write it.
-            </p>
+            <p className="mb-6 text-muted-foreground">{governanceParagraph}</p>
 
             {contributionParagraph && (
               <p className="mb-6 text-muted-foreground">{contributionParagraph}</p>
@@ -296,7 +334,7 @@ export default function LoveLetter() {
 
             <p className="text-foreground font-semibold italic">
               With love and anticipation,<br />
-              <span className="font-display text-xl not-italic">The Amora Community</span>
+              <span className="font-display text-xl not-italic">The {villageName} Community</span>
             </p>
           </motion.div>
 
@@ -311,7 +349,7 @@ export default function LoveLetter() {
               Sign Your Membership
             </h2>
             <p className="text-muted-foreground mb-8">
-              Fill in your details below to officially join the Amora Family and become a member of {entityName}.
+              Fill in your details below to officially join the {villageName} Family and become a member of {entityName}.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -434,7 +472,7 @@ export default function LoveLetter() {
               {/* Why */}
               <div>
                 <label htmlFor="letter-why" className="block text-sm font-medium text-foreground mb-2">
-                  What called you to Amora? <span className="text-destructive">*</span>
+                  What called you to {villageName}? <span className="text-destructive">*</span>
                 </label>
                 <textarea
                   id="letter-why"
@@ -473,7 +511,7 @@ export default function LoveLetter() {
                     className="mt-1 h-4 w-4 flex-shrink-0 accent-teal-deep"
                   />
                   <span className="text-sm text-muted-foreground">
-                    I have read the Love Letter above and commit to the values and agreements of the Amora community as a member of {entityName}. <span className="text-destructive">*</span>
+                    I have read the Love Letter above and commit to the values and agreements of the {villageName} community as a member of {entityName}. <span className="text-destructive">*</span>
                   </span>
                 </label>
               </div>
@@ -510,7 +548,7 @@ export default function LoveLetter() {
                 ) : (
                   <>
                     <Send className="w-5 h-5" />
-                    Sign the Love Letter &amp; Join the Amora Family
+                    Sign the Love Letter &amp; Join the {villageName} Family
                   </>
                 )}
               </button>

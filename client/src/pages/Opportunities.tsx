@@ -1,5 +1,6 @@
 import Layout from "@/components/Layout";
 import { useVillageLinks } from "@/lib/gameApi";
+import { useVillageName } from "@/hooks/useVillageName";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { 
@@ -132,6 +133,7 @@ const statusColors: Record<string, string> = {
 export default function Opportunities() {
   // Blank hides the button rather than pointing at another village.
   const { eventsUrl } = useVillageLinks();
+  const villageName = useVillageName();
   return (
     <Layout>
       {/* Hero */}
@@ -208,7 +210,7 @@ export default function Opportunities() {
               Gratitude Revenue Sharing
             </h2>
             <p className="text-muted-foreground mb-8">
-              All businesses at Amora share a percentage of revenue with the community, 
+              All businesses at {villageName} share a percentage of revenue with the community, 
               paid in Gratitude. This creates alignment between business success and community 
               prosperity. The exact percentage is negotiated based on the business type 
               and community investment.

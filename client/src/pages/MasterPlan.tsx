@@ -15,6 +15,7 @@ import {
   Building
 } from "lucide-react";
 import { Image } from "@/components/Image";
+import { useVillageName } from "@/hooks/useVillageName";
 
 
 /*
@@ -38,10 +39,10 @@ const statShapes = [
   { key: "appraisal", label: "Appraised Value", icon: Building },
 ];
 
-const zones = [
+const villageZones = (villageName: string) => [
   {
     title: "Village Center",
-    description: "The heart of Amora featuring the community center, café, market, and gathering spaces.",
+    description: `The heart of ${villageName} featuring the community center, café, market, and gathering spaces.`,
     icon: Users,
     features: ["Community Center", "Café & Restaurant", "Artisan Market", "Event Spaces"],
   },
@@ -74,6 +75,8 @@ const zones = [
 export default function MasterPlan() {
   // Blank hides the button rather than pointing at another village.
   const { eventsUrl } = useVillageLinks();
+  const villageName = useVillageName();
+  const zones = villageZones(villageName);
   const brand = useBrandImages();
   const settings = useVillageSettings();
   const stats = statedFacts(settings, statShapes);
@@ -104,11 +107,11 @@ export default function MasterPlan() {
             >
               <Map className="w-16 h-16 text-white mb-6 opacity-80" />
               <h1 className="font-display text-4xl md:text-6xl font-bold text-white mb-6">
-                The Amora Master Plan
+                The {villageName} Master Plan
               </h1>
               <p className="text-xl text-white leading-relaxed">
                 Our vision for a regenerative village that harmonizes human habitation 
-                with the natural beauty of Costa Rica's mountains.
+                with the natural beauty of the land it sits on.
               </p>
             </motion.div>
           </div>
@@ -151,7 +154,7 @@ export default function MasterPlan() {
               Our Vision
             </h2>
             <p className="text-muted-foreground text-lg leading-relaxed">
-              Amora is designed as a complete village ecosystem, a place where people live, 
+              {villageName} is designed as a complete village ecosystem, a place where people live, 
               work, learn, and thrive together. Our master plan balances development with 
               conservation, ensuring that the land regenerates even as we build upon it.
             </p>
@@ -293,7 +296,7 @@ export default function MasterPlan() {
               Be Part of the Vision
             </h2>
             <p className="text-white mb-8">
-              Whether you want to invest, live, work, or create at Amora, 
+              Whether you want to invest, live, work, or create at {villageName}, 
               there's a place for you in our master plan.
             </p>
             <div className="flex flex-wrap justify-center gap-4">

@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useGameConfig, useVillageLinks } from "@/lib/gameApi";
+import { useVillageName } from "@/hooks/useVillageName";
 import { 
   Sparkles, 
   ArrowRight, 
@@ -18,7 +19,7 @@ import {
   Handshake
 } from "lucide-react";
 
-const principles = [
+const principles = (villageName: string) => [
   {
     title: "Sociocracy & Teal",
     description: "We blend sociocratic governance with Teal organization principles. Self-management, wholeness, and evolutionary purpose guide our structure.",
@@ -36,14 +37,14 @@ const principles = [
   },
   {
     title: "Seasonal Rhythm",
-    description: "Every 3 months, the community decides together what kind of season comes next, a living response to what Amora needs most right now.",
+    description: `Every 3 months, the community decides together what kind of season comes next, a living response to what ${villageName} needs most right now.`,
     icon: Repeat,
   },
 ];
 
 // The three cards read the LIVE value-token name (Admin → Tokens): a fork
 // that names its token renames every mention here in one act.
-const recognitionInfo = (valueName: string) => [
+const recognitionInfo = (valueName: string, villageName: string) => [
   {
     title: "Earn Gratitude",
     description: "Complete quests, fulfill roles, or receive revenue shares from community and private businesses. Every contribution is acknowledged with Gratitude, the recognition signal. It has no financial value on its own, on purpose.",
@@ -51,12 +52,12 @@ const recognitionInfo = (valueName: string) => [
   },
   {
     title: `Share the ${valueName} Pool`,
-    description: `Each cycle, the community sets aside a real pool of ${valueName} and splits it across everyone's Gratitude. Appreciation is the signal; ${valueName} are the value it steers: the honest record of the work, time, and resources everyone is pooling to make Amora real.`,
+    description: `Each cycle, the community sets aside a real pool of ${valueName} and splits it across everyone's Gratitude. Appreciation is the signal; ${valueName} are the value it steers: the honest record of the work, time, and resources everyone is pooling to make ${villageName} real.`,
     icon: "📊",
   },
   {
     title: "Future Conversion",
-    description: `As Amora matures, ${valueName} convert to cash or equity. For now, they're how we honor contributions we can't yet pay in cash.`,
+    description: `As ${villageName} matures, ${valueName} convert to cash or equity. For now, they're how we honor contributions we can't yet pay in cash.`,
     icon: "🌱",
   },
 ];
@@ -110,6 +111,7 @@ export default function HowWeCreate() {
   // Until the config lands (or on a fork that hasn't named one) speak
   // generically — never render a blank where the token's name belongs.
   const valueName = config?.currency?.value?.name ?? "village tokens";
+  const villageName = useVillageName();
   return (
     <Layout>
       <section className="py-24 bg-background">
@@ -143,7 +145,7 @@ export default function HowWeCreate() {
             whileInView="visible"
             viewport={{ once: true }}
           >
-            {principles.map((principle) => (
+            {principles(villageName).map((principle) => (
               <motion.div
                 key={principle.title}
                 variants={itemVariants}
@@ -187,12 +189,12 @@ export default function HowWeCreate() {
                 Two tokens work together here. <strong>Gratitude</strong> is the recognition signal. It acknowledges contributions, work, time, resources, and expertise, and it has no financial value on its own. <strong>{valueName}</strong> are the tracked value: <strong>each cycle the community sets aside a real pool of {valueName} and shares it across everyone's Gratitude</strong>, so appreciation decides where the value flows.
               </p>
               <p className="text-sm text-muted-foreground">
-                Every {valueName.replace(/s$/, "")} is a promise: as Amora grows, they convert to cash or equity.
+                Every {valueName.replace(/s$/, "")} is a promise: as {villageName} grows, they convert to cash or equity.
               </p>
             </div>
 
             <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              {recognitionInfo(valueName).map((item, index) => (
+              {recognitionInfo(valueName, villageName).map((item, index) => (
                 <motion.div
                   key={item.title}
                   initial={{ opacity: 0, y: 20 }}
@@ -230,7 +232,7 @@ export default function HowWeCreate() {
                 Gratitude is never bought or sold. It's appreciation, kept honest by having no
                 price. {valueName} are the <strong>record of shared investment</strong>: we track
                 the full value of what everyone is contributing so no one's effort goes
-                unacknowledged when Amora becomes financially whole.
+                unacknowledged when {villageName} becomes financially whole.
               </p>
             </motion.div>
           </motion.div>
@@ -388,7 +390,7 @@ export default function HowWeCreate() {
                 Seasonal Rhythm
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">
-                Every 3 months, the community votes on what kind of season comes next, a collective response to what Amora needs most. Each season is its own chapter.
+                Every 3 months, the community votes on what kind of season comes next, a collective response to what {villageName} needs most. Each season is its own chapter.
               </p>
             </motion.div>
             <div className="grid sm:grid-cols-2 gap-6">
@@ -453,7 +455,7 @@ export default function HowWeCreate() {
                 <strong>No fixed cycle.</strong> At the end of each season, the community comes together to vote on what's needed next.
                 A village that just built all summer might choose Winter to design what comes next.
                 A village deep in planning might choose Spring to break ground.
-                The seasons follow Amora's needs, not a calendar.
+                The seasons follow {villageName}'s needs, not a calendar.
               </p>
             </motion.div>
           </div>

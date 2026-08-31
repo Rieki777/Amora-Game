@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { useVillageLinks } from "@/lib/gameApi";
 import { altOr, useBrandImages } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
+import { useVillageName } from "@/hooks/useVillageName";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,12 +24,12 @@ import {
 } from "lucide-react";
 
 
-const journeySteps = [
+const buildJourneySteps = (villageName: string) => [
   {
     id: "community-call",
     stage: "Visitor",
     title: "Attend Community Call",
-    description: "Learn about the basics and ask any immediate questions about Amora.",
+    description: `Learn about the basics and ask any immediate questions about ${villageName}.`,
     icon: Calendar,
     // Resolved at render from this village's own eventsUrl.
     link: "",
@@ -73,7 +74,7 @@ const journeySteps = [
   {
     id: "love-letter",
     stage: "Member",
-    title: "Join the Amora Family",
+    title: `Join the ${villageName} Family`,
     // S2 brochure lane, 2026-08-30: dropped "Amora 508c1a", a US tax-entity
     // reference stated as this village's own on every fork. See LoveLetter.tsx
     // and server/seeds/brochure-legal-seed.json (legal.membership.entityLabel).
@@ -82,7 +83,7 @@ const journeySteps = [
     link: "/love-letter",
     linkText: "Read the Love Letter",
     external: false,
-    details: ["Understand our values deeply", "Reflect on your commitment", "Sign the Love Letter", "Join the Amora Family"]
+    details: ["Understand our values deeply", "Reflect on your commitment", "Sign the Love Letter", `Join the ${villageName} Family`]
   },
   {
     id: "circle",
@@ -167,6 +168,8 @@ const longTermArc = [
 export default function StewardJourney() {
   // This village's own destinations. Blank hides the control.
   const { eventsUrl } = useVillageLinks();
+  const villageName = useVillageName();
+  const journeySteps = buildJourneySteps(villageName);
   const steps = journeySteps.map((step) =>
     step.id === "community-call" || step.id === "events"
       ? { ...step, link: eventsUrl }
@@ -569,7 +572,7 @@ export default function StewardJourney() {
               Seasonal Festivals
             </h2>
             <p className="text-muted-foreground mb-8">
-              Every 3 months, the community votes on what kind of season comes next. Seasons aren't on a fixed cycle, they're chosen based on what Amora needs. Spring for new builds, Summer for events and energy, Fall for harvest and reflection, Winter for systems design and planning. Each seasonal transition is marked by a festival.
+              Every 3 months, the community votes on what kind of season comes next. Seasons aren't on a fixed cycle, they're chosen based on what {villageName} needs. Spring for new builds, Summer for events and energy, Fall for harvest and reflection, Winter for systems design and planning. Each seasonal transition is marked by a festival.
             </p>
             <Link
               href="/how-we-create"
