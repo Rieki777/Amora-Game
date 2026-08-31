@@ -426,17 +426,26 @@ export default function Layout({ children }: LayoutProps) {
           <div className="grid md:grid-cols-5 gap-12 mb-12">
             {/* Brand */}
             <div className="md:col-span-1">
-              {/* 90px box reserved while config loads — same rule as the header. */}
-              <div className="flex items-center gap-2 mb-4" style={{ minHeight: "90px" }}>
-                {cfg?.images?.heartLogo && (
+              {/* The box is reserved WHILE THE CONFIG LOADS and only then, which
+                  is the same three-way distinction the header link makes above.
+                  It used to be unconditional, so a village that has uploaded no
+                  heart mark published a 154x90 hole in its own footer, above
+                  the blurb, forever. The header's defect was a link nobody
+                  could click; this one is only dead space, but it comes from
+                  the same place: `null` config and "no mark uploaded" are
+                  different facts and the box was treating them as one. */}
+              {cfg === null ? (
+                <div aria-hidden="true" style={{ height: "90px" }} className="mb-4" />
+              ) : cfg.images?.heartLogo ? (
+                <div className="flex items-center gap-2 mb-4">
                   <img
                     src={cfg.images.heartLogo}
                     alt={altOr(cfg.images.heartLogoAlt, villageName || "Village mark")}
                     style={{ height: "90px", width: "auto" }}
                     draggable={false}
                   />
-                )}
-              </div>
+                </div>
+              ) : null}
               {cfg?.project?.footerBlurb && (
                 <p className="text-white text-sm leading-relaxed">{cfg.project.footerBlurb}</p>
               )}

@@ -17,6 +17,12 @@
  * anything at all. An empty flex child is what made the anchor zero pixels
  * wide, and a wordmark is what makes it clickable. Delete the wordmark branch
  * in Layout.tsx and the first test here fails on the missing name.
+ *
+ * The footer's brand box is here for the same reason. It is not a control and
+ * nothing about it is unclickable, but it made the identical mistake: an
+ * unconditional 90px reservation cannot tell a config still in flight from a
+ * village that has uploaded no mark, so every empty village published a hole
+ * in its own footer.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -141,5 +147,60 @@ describe("the header home link", () => {
       expect(hasPicture || hasWord || hasReservedBox).toBe(true);
       unmount();
     }
+  });
+});
+
+describe("the footer's brand box", () => {
+  beforeEach(() => {
+    useGameConfigMock.mockReset();
+  });
+
+  /** The footer column that carries the mark and the blurb. Matched on a
+   *  class SUBSTRING rather than an escaped `.md\:col-span-1` selector: the
+   *  colon needs a CSS escape, and getting that escape wrong returns null
+   *  rather than throwing, which reads exactly like an absent element. */
+  function brandColumn() {
+    const col = screen.getByRole("contentinfo").querySelector('[class*="col-span-1"]');
+    if (!col) throw new Error("footer brand column not found");
+    return col as HTMLElement;
+  }
+
+  it("reserves its height only while the config is unknown", () => {
+    useGameConfigMock.mockReturnValue(null);
+
+    renderShell();
+    const reserved = brandColumn().querySelector('div[style*="height"]');
+
+    expect(reserved).toBeTruthy();
+    expect((reserved as HTMLElement).style.height).toBe("90px");
+  });
+
+  it("reserves nothing once the village has answered and has no mark", () => {
+    // The live deployment's state. 90px of empty column, above the blurb, on
+    // every page of the site, is the footer's version of the header defect.
+    useGameConfigMock.mockReturnValue({
+      ...CONFIG,
+      project: { ...CONFIG.project, footerBlurb: "A village on a ridge." },
+    });
+
+    renderShell();
+    const column = brandColumn();
+
+    expect(column.querySelector("img")).toBeNull();
+    expect(column.querySelector('div[style*="height"]')).toBeNull();
+    expect(column.textContent).toContain("A village on a ridge.");
+  });
+
+  it("draws the mark when the village has one", () => {
+    useGameConfigMock.mockReturnValue({
+      ...CONFIG,
+      images: { heartLogo: "/uploads/heart.png", heartLogoAlt: "A hand-drawn heart" },
+    });
+
+    renderShell();
+    const img = brandColumn().querySelector("img");
+
+    expect(img).toHaveAttribute("src", "/uploads/heart.png");
+    expect(img).toHaveAttribute("alt", "A hand-drawn heart");
   });
 });
