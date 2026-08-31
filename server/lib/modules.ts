@@ -60,7 +60,7 @@ let demoted = new Map<string, string[]>();
  * This process refuses this module until the process restarts and the check
  * passes, which is a button a founder already has.
  */
-let quarantined = new Map<string, string[]>();
+const quarantined = new Map<string, string[]>();
 
 export async function loadModuleSettings(p: Pool): Promise<void> {
   pool = p;
@@ -102,8 +102,9 @@ export function effectiveLifecycle(id: string): ModuleLifecycle {
   const def = MODULES_BY_ID[id];
   if (!def) return "off";
   if (def.core) return "public";
-  // A quarantine outranks core-ness nowhere: core modules are the village's
-  // substrate and have no per-module invariant of their own to fail.
+  // Below the core check on purpose. Core modules are the village's substrate,
+  // they have no per-module invariant of their own to fail, and nothing here
+  // should ever be able to switch the front door off.
   if (quarantined.has(id)) return "off";
   if (demoted.has(id)) return "off";
   return storedLifecycle(id);
@@ -163,11 +164,6 @@ export function quarantineModule(id: string, reasons: string[]): void {
 
 export function moduleQuarantines(): Array<{ id: string; reasons: string[] }> {
   return Array.from(quarantined.entries()).map(([id, reasons]) => ({ id, reasons }));
-}
-
-/** Test seam. Production clears a quarantine by restarting and passing the check. */
-export function clearModuleQuarantines(): void {
-  quarantined = new Map();
 }
 
 function reconcileGraph() {
