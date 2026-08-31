@@ -59,7 +59,10 @@ import {
   fetchAndCache,
 } from "../lib/satellite";
 
-type Deps = Pick<AppDeps, "isAdmin" | "guardCapability" | "getPool" | "uploadsDir">;
+type Deps = Pick<
+  AppDeps,
+  "isAdmin" | "authedUser" | "guardCapability" | "getPool" | "uploadsDir"
+>;
 
 /** This deployment is one village; the column exists for the retrofit (0069). */
 const VILLAGE = "local";
@@ -130,7 +133,7 @@ const imageryUrl = (row: LandRow): string | null =>
   row.imageryFilename ? `/api/uploads/${row.imageryFilename}` : null;
 
 export function register(app: Express, deps: Deps): void {
-  const { isAdmin, guardCapability, getPool, uploadsDir } = deps;
+  const { isAdmin, authedUser, guardCapability, getPool, uploadsDir } = deps;
 
   /**
    * What a visitor may know.
@@ -285,22 +288,41 @@ export function register(app: Express, deps: Deps): void {
     const visibility: LandVisibility = isLandVisibility(body.visibility) ? body.visibility : "hidden";
 
     /*
+     * Who changed it. A village's location is a fact about where people sleep,
+     * so a change to it is worth being able to attribute later. Null when the
+     * actor cannot be resolved, which is honest: an unattributed change is a
+     * different record from one attributed to nobody in particular.
+     */
+    const actor = (await authedUser(req))?.id ?? null;
+
+    /*
      * One statement, so two founders saving at once cannot become two rows.
      * The unique key on village_id is what settles it, in the database, rather
      * than in a read-then-write window that a second request slips through.
      */
     await getPool().query(
       `INSERT INTO village_land
-         (id, village_id, centre_lat, centre_lon, span_m, visibility, source_text, source_format)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         (id, village_id, centre_lat, centre_lon, span_m, visibility, source_text, source_format, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          centre_lat = VALUES(centre_lat),
          centre_lon = VALUES(centre_lon),
          span_m = VALUES(span_m),
          visibility = VALUES(visibility),
          source_text = VALUES(source_text),
-         source_format = VALUES(source_format)`,
-      [randomUUID(), VILLAGE, centre.lat, centre.lon, span.span, visibility, sourceText, format],
+         source_format = VALUES(source_format),
+         updated_by = VALUES(updated_by)`,
+      [
+        randomUUID(),
+        VILLAGE,
+        centre.lat,
+        centre.lon,
+        span.span,
+        visibility,
+        sourceText,
+        format,
+        actor,
+      ],
     );
 
     res.json({ success: true, centre, spanM: span.span, visibility });

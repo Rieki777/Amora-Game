@@ -21325,7 +21325,7 @@ ${inner}
   // â”€â”€ Milestones (NEW-3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   registerMilestonesRoutes(app, { isAdmin, guardCapability, milestonesRepo });
-  registerLandRoutes(app, { isAdmin, guardCapability, getPool, uploadsDir: UPLOADS_DIR });
+  registerLandRoutes(app, { isAdmin, authedUser, guardCapability, getPool, uploadsDir: UPLOADS_DIR });
 
   // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

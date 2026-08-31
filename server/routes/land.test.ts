@@ -78,6 +78,7 @@ function mount(row: Record<string, unknown> | null, over: Partial<Record<string,
   const { pool, writes } = stubPool(row);
   register(app, {
     isAdmin: over.isAdmin ?? alwaysAdmin,
+    authedUser: over.authedUser ?? (async () => ({ id: "founder-1" })),
     guardCapability: over.guardCapability ?? alwaysAllowed,
     getPool: () => pool,
     uploadsDir: over.uploadsDir ?? "/tmp/does-not-matter",
@@ -293,6 +294,18 @@ describe("saving a location", () => {
     const { handlers } = mount(null);
     const r = await call(handlers, "PUT /api/admin/land", {});
     expect(r.status).toBe(400);
+  });
+
+  it("records who changed it", async () => {
+    const { handlers, writes } = mount(null);
+    await call(handlers, "PUT /api/admin/land", { body: { text: "9.2345, -83.8412" } });
+    expect(writes[0].params).toContain("founder-1");
+  });
+
+  it("stores null rather than a placeholder when the actor cannot be resolved", async () => {
+    const { handlers, writes } = mount(null, { authedUser: async () => null });
+    await call(handlers, "PUT /api/admin/land", { body: { text: "9.2345, -83.8412" } });
+    expect(writes[0].params).toContain(null);
   });
 
   it("does not write when the capability gate refuses", async () => {
