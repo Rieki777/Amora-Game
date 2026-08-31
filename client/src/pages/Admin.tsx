@@ -28,11 +28,11 @@ import type { ModuleLifecycle } from "@shared/modules";
 import type { UploadsSweepReport } from "@shared/uploadsSweep";
 import { CIRCLE_STATUSES } from "@shared/draftKinds";
 
-const API_BASE = "/api";
 import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
 import IdentityPackPanel from "@/components/IdentityPackPanel";
 import MapSkinPanel from "@/components/MapSkinPanel";
+import { API_BASE, authHeaders, refusal } from "@/components/admin/adminApi";
 import MapVocabularyPanel from "@/components/admin/MapVocabularyPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
 import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
@@ -48,10 +48,6 @@ import { ExampleChip, ExamplesBanner, forgetExamplesCache, RETIRES_WITH } from "
 // membership. Both were reachable only by scrolling "All types". The strings are
 // the ones the pages actually POST, from Visit.tsx and LoveLetter.tsx.
 const FORM_TYPES = ["work-with-us", "quest-proposal", "visit-inquiry", "membership-508", "investor", "steward", "resident", "prosperity", "contact"] as const;
-
-function authHeaders(password: string, extra: Record<string, string> = {}): Record<string, string> {
-  return { Authorization: `Bearer ${password}`, ...extra };
-}
 
 /**
  * THE SERVER'S OWN SENTENCE, WHEN IT HAS ONE.
@@ -94,31 +90,6 @@ function ResolutionNote({ report }: { report: { status: string; resolvedBy?: str
   return <p className="text-xs text-gray-500 mt-2">{line}</p>;
 }
 
-/**
- * A refusal, in English.
- *
- * Server refusal bodies are being unified to `{error, message}`, where `error`
- * is the machine code and `message` is the sentence a person should read. A
- * toast that prints the code hands a founder `auth_required` and calls it an
- * explanation. Both shapes are in flight, so this prefers the sentence, falls
- * back to the code, then to whatever the call site already knew to say.
- *
- * Every admin surface reads refusals through this one function. It was four
- * call sites in the module store first; the other twenty-four were the same
- * `d.error ||` by hand, and one of them dropping back to `d.error` later is
- * exactly the kind of thing nobody notices from a toast.
- */
-function refusal(d: any, fallback: string): string {
-  // Falsy-skipping, not nullish-coalescing: every call site this replaced was
-  // `d.error || "..."`, so a body carrying an empty string fell through to the
-  // words the call site chose. `??` would have shown a founder a blank toast
-  // and called that an improvement.
-  for (const value of [d?.message, d?.error]) {
-    const text = value == null ? "" : String(value).trim();
-    if (text) return text;
-  }
-  return fallback;
-}
 /*
  * ONE SECTION LEFT, and the six that went are why this comment exists.
  *
