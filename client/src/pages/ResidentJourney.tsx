@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { altOr, useBrandImages } from "@/lib/gameApi";
 import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
+import { useVillageContent } from "@/hooks/useVillageContent";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -78,8 +79,8 @@ const journeySteps = [
   {
     id: "love-letter",
     stage: "Member",
-    title: "Sign the Love Letter / 508 Membership",
-    description: "Become an official member of Amora's 508(c)(1)(a) organization by signing the membership agreement.",
+    title: "Sign the Love Letter / Formal Membership",
+    description: "Become an official member of the community by signing the membership agreement.",
     icon: Heart,
     link: "/love-letter",
     linkText: "Read the Love Letter",
@@ -117,7 +118,13 @@ const journeySteps = [
     id: "background",
     stage: "Applicant",
     title: "Background Check",
-    description: "Once your deposit is down, we complete a background check together. It's part of our commitment to community safety, and it's tax deductible.",
+    // S2 brochure lane, 2026-08-30: dropped "and it's tax deductible" from the
+    // default, an unconditional US tax claim attached to a background
+    // check. Amora's original wording is preserved as data
+    // (legal.membership.backgroundCheckNote in
+    // server/seeds/brochure-legal-seed.json) and appended at render time
+    // only when a village has published it. See the override below.
+    description: "Once your deposit is down, we complete a background check together. It's part of our commitment to community safety.",
     icon: FileCheck,
     link: "#",
     linkText: "Coming Soon",
@@ -206,11 +213,27 @@ interface VillageDues {
   note?: string;
 }
 
+interface LegalContent {
+  landShareTransferNote?: string;
+  membership?: {
+    backgroundCheckNote?: string;
+  };
+}
+
 export default function ResidentJourney() {
   const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [expandedStep, setExpandedStep] = useState<string | null>("community-call");
   const [dues, setDues] = useState<VillageDues | null>(null);
+  const { content: legal } = useVillageContent<LegalContent>("legal");
+  const transferNote = legal?.landShareTransferNote?.trim();
+  const backgroundCheckNote = legal?.membership?.backgroundCheckNote?.trim();
+  const steps = journeySteps.map((step) => {
+    if (step.id === "background" && backgroundCheckNote) {
+      return { ...step, description: `${step.description} ${backgroundCheckNote}` };
+    }
+    return step;
+  });
 
   useEffect(() => {
     const saved = localStorage.getItem("amora-resident-progress");
@@ -342,9 +365,9 @@ export default function ResidentJourney() {
               Land Share Agreements
             </h2>
             <p className="text-muted-foreground">
-              Your Land Share Agreement gives you long-term access to your land with the ability 
-              to renew and pass down to your children tax-free. The structure holds ownership 
-              in the community and gives your family security.
+              Your Land Share Agreement gives you long-term access to your land with the ability
+              to renew and pass down to your children{transferNote ? ` ${transferNote}` : ""}. The
+              structure holds ownership in the community and gives your family security.
             </p>
           </motion.div>
         </div>
@@ -384,7 +407,7 @@ export default function ResidentJourney() {
 
           <div className="max-w-3xl mx-auto">
             <div className="space-y-3">
-              {journeySteps.map((step, index) => {
+              {steps.map((step, index) => {
                 const isCompleted = completedSteps.includes(step.id);
                 const isExpanded = expandedStep === step.id;
                 

@@ -3,6 +3,38 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Heart, CheckCircle2, ArrowRight, Users, Home, TrendingUp, Sparkles, Send } from "lucide-react";
 import { useState } from "react";
 import { authToken } from "@/lib/gameApi";
+import { useVillageContent } from "@/hooks/useVillageContent";
+
+/**
+ * S2 brochure lane, 2026-08-30: this page used to state, nine times, that
+ * membership is in "Amora 508(c)(1)(a)" and that monthly contributions are
+ * tax-deductible. That is 26 U.S. Code § 508(c)(1)(A), the automatic-exemption
+ * category for US churches. Correct for Amora (see the Church of the
+ * Regenerative Earth in the project's own docs), and simply false for any
+ * fork operating outside the US, or with no equivalent entity at all. This is
+ * the same class of harm as the Costa Rica property/tax claims in
+ * WhyCostaRica.tsx, arguably sharper: it is a direct promise about the
+ * signer's own tax return, made on the page that collects their money.
+ *
+ * `legal.membership` (GET /api/content/legal, same section WhyCostaRica.tsx
+ * and ResidentRights.tsx read) carries Amora's real entity name and its own
+ * wording, preserved as data in server/seeds/brochure-legal-seed.json, not
+ * deleted. Where a village has not published its own, this renders no tax
+ * claim at all. Never a hedge, never an invented "ask a lawyer" caveat that
+ * itself implies deductibility might apply. Absence, not a guess.
+ */
+interface LegalContent {
+  membership?: {
+    /** e.g. "Amora 508(c)(1)(a)". Blank falls back to plain "Amora". */
+    entityLabel?: string;
+    /** The full paragraph in the letter body. Omitted entirely when blank. */
+    contributionParagraph?: string;
+    /** The short line above the contribution-level selector. */
+    contributionShortNote?: string;
+    /** The fine-print line under the submit button. */
+    footerNote?: string;
+  };
+}
 
 const commitments = [
   "Treat all beings with respect, compassion, and authentic communication",
@@ -23,6 +55,17 @@ const pathOptions = [
 ];
 
 export default function LoveLetter() {
+  const { content: legal } = useVillageContent<LegalContent>("legal");
+  const membership = legal?.membership;
+  // "Amora" alone when no entity is published: the village's own name, not
+  // a legal claim. Everywhere this file used to say "Amora 508(c)(1)(a)".
+  const entityName = membership?.entityLabel?.trim() || "Amora";
+  const contributionParagraph = membership?.contributionParagraph?.trim();
+  const contributionShortNote = membership?.contributionShortNote?.trim();
+  const footerNote =
+    membership?.footerNote?.trim() ||
+    "Ask your community how membership contributions are structured, and whether any part is tax-deductible where you live.";
+
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -136,7 +179,7 @@ export default function LoveLetter() {
                 Welcome to the Amora Family
               </h1>
               <p className="text-xl text-muted-foreground leading-relaxed mb-8">
-                Your membership form has been received. You are now part of the Amora 508(c)(1)(a) community.
+                Your membership form has been received. You are now part of the {entityName} community.
               </p>
               <div className="bg-card border border-primary/20 rounded-2xl p-8 mb-8 text-left">
                 <h2 className="font-display text-2xl font-bold text-foreground mb-4">What happens next</h2>
@@ -190,7 +233,7 @@ export default function LoveLetter() {
               The Amora Love Letter
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Our founding covenant, and your official membership in Amora 508(c)(1)(a).
+              Our founding covenant, and your official membership in {entityName}.
               Read. Reflect. Sign.
             </p>
           </motion.div>
@@ -217,7 +260,7 @@ export default function LoveLetter() {
               regeneration, of the land, of community, of yourself.
             </p>
 
-            <p className="mb-4 text-foreground font-semibold">As a member of Amora 508(c)(1)(a), you commit to:</p>
+            <p className="mb-4 text-foreground font-semibold">As a member of {entityName}, you commit to:</p>
 
             <ul className="space-y-3 mb-8">
               {commitments.map((commitment, i) => (
@@ -229,7 +272,7 @@ export default function LoveLetter() {
             </ul>
 
             <p className="mb-6 text-muted-foreground">
-              In return, you become a full member of Amora's 508(c)(1)(a) organization, gaining access
+              In return, you become a full member of {entityName}, gaining access
               to community spaces, governance participation, Gratitude economy, and the opportunity to
               deepen your involvement through roles, residency, or business creation.
             </p>
@@ -241,10 +284,9 @@ export default function LoveLetter() {
               joining a finished system; you're helping write it.
             </p>
 
-            <p className="mb-6 text-muted-foreground">
-              Your monthly membership contribution supports our shared mission and is
-              tax-deductible as a contribution to our 508(c)(1)(a) nonprofit.
-            </p>
+            {contributionParagraph && (
+              <p className="mb-6 text-muted-foreground">{contributionParagraph}</p>
+            )}
 
             <p className="text-foreground font-semibold italic">
               With love and anticipation,<br />
@@ -263,7 +305,7 @@ export default function LoveLetter() {
               Sign Your Membership
             </h2>
             <p className="text-muted-foreground mb-8">
-              Fill in your details below to officially join the Amora Family and become a member of Amora 508(c)(1)(a).
+              Fill in your details below to officially join the Amora Family and become a member of {entityName}.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -356,7 +398,7 @@ export default function LoveLetter() {
                   Monthly Membership Contribution
                 </label>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Tax-deductible contribution to Amora 508(c)(1)(a). Suggested: $33-$108/month.
+                  {contributionShortNote ? `${contributionShortNote} ` : ""}Suggested: $33-$108/month.
                 </p>
                 <select
                   id="letter-contribution"
@@ -425,7 +467,7 @@ export default function LoveLetter() {
                     className="mt-1 h-4 w-4 flex-shrink-0 accent-teal-deep"
                   />
                   <span className="text-sm text-muted-foreground">
-                    I have read the Love Letter above and commit to the values and agreements of the Amora community as a member of Amora 508(c)(1)(a). <span className="text-destructive">*</span>
+                    I have read the Love Letter above and commit to the values and agreements of the Amora community as a member of {entityName}. <span className="text-destructive">*</span>
                   </span>
                 </label>
               </div>
@@ -467,10 +509,7 @@ export default function LoveLetter() {
                 )}
               </button>
 
-              <p className="text-xs text-center text-muted-foreground">
-                Your membership is in Amora 508(c)(1)(a), a nonprofit mutual benefit organization.
-                Monthly contributions are tax-deductible to the extent permitted by law.
-              </p>
+              <p className="text-xs text-center text-muted-foreground">{footerNote}</p>
             </form>
           </motion.div>
         </div>

@@ -71,7 +71,10 @@ const journeySteps = [
     id: "love-letter",
     stage: "Member",
     title: "Join the Amora Family",
-    description: "Contemplate and sign our Love Letter, formally becoming a member of Amora 508c1a.",
+    // S2 brochure lane, 2026-08-30: dropped "Amora 508c1a", a US tax-entity
+    // reference stated as this village's own on every fork. See LoveLetter.tsx
+    // and server/seeds/brochure-legal-seed.json (legal.membership.entityLabel).
+    description: "Contemplate and sign our Love Letter, formally becoming a member of the community.",
     icon: Heart,
     link: "/love-letter",
     linkText: "Read the Love Letter",

@@ -1,0 +1,40 @@
+{
+  "jurisdictionOverview": {
+    "heading": "Why Costa Rica, Why Now",
+    "intro": "The legal, financial, and practical reasons this place and this moment make sense.",
+    "points": [
+      {
+        "title": "Foreign Resident Rights",
+        "body": "Costa Rica explicitly protects foreign property ownership. Land Share Agreements are registered under Costa Rican Horizontal Condominium law, the same legal structure used by resorts and gated communities throughout the country."
+      },
+      {
+        "title": "Residency Pathways",
+        "body": "Costa Rica offers multiple legal residency programs including Pensionado ($1,000/month income), Rentista ($2,500/month), and Inversionista (investment-based). Amora actively helps residents navigate whichever pathway fits them."
+      },
+      {
+        "title": "Tax Environment",
+        "body": "No capital gains tax on real estate appreciation. No inheritance tax. Foreign income is not taxed in Costa Rica."
+      },
+      {
+        "title": "Political Stability",
+        "body": "Costa Rica has had no military since 1948. Ranked among the most stable democracies in Latin America. Strong rule of law and independent judiciary. Tourism and foreign investment are core to national identity."
+      },
+      {
+        "title": "Southern Zone Location",
+        "body": "Say where the land sits, what it sits between, and how long the drive is from the nearest airports. Surf, national parks, and international infrastructure within reach."
+      },
+      {
+        "title": "Why Now",
+        "body": "Phase 1 infrastructure investment is underway. Founding member pricing won't last, each development phase resets the entry point."
+      }
+    ]
+  },
+  "landShareTransferNote": "tax-free",
+  "membership": {
+    "entityLabel": "Amora 508(c)(1)(a)",
+    "contributionParagraph": "Your monthly membership contribution supports our shared mission and is tax-deductible as a contribution to our 508(c)(1)(a) nonprofit.",
+    "contributionShortNote": "Tax-deductible contribution to Amora 508(c)(1)(a).",
+    "footerNote": "Your membership is in Amora 508(c)(1)(a), a nonprofit mutual benefit organization. Monthly contributions are tax-deductible to the extent permitted by law.",
+    "backgroundCheckNote": "and it's tax deductible"
+  }
+}
