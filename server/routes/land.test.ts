@@ -1,14 +1,16 @@
 /**
  * The land routes, exercised as handlers against a stub pool.
  *
- * WHY NOT THE E2E HARNESS. The DB-backed suites here boot `dist/index.js`
- * against a real MySQL and skip loudly without TEST_DATABASE_URL, which is
- * empty on this machine. A suite written that way would have been committed
- * without ever having run, and "it will pass in CI" is a claim, not a
- * measurement. What these routes actually contain worth testing is decision
+ * WHY NOT THE E2E HARNESS. What these routes contain worth testing is decision
  * logic: the privacy boundary, the unset-is-not-zero rule, the refusal to
  * accept a transposed pair, and the licence refusal. None of that needs a
- * database, and all of it can be proven here and now.
+ * database, and running it without one makes it fast and deterministic.
+ *
+ * An e2e suite over HTTP IS possible here (TEST_DATABASE_URL is set, and the
+ * DB-backed suites do run on this machine), and it would be worth adding
+ * alongside this one when the admin screen lands, because it would cover the
+ * upsert and the volume write that this file stubs. It is not a substitute
+ * for these cases; it is a second, slower angle on them.
  *
  * The database work these routes do is one SELECT and one upsert. The upsert's
  * correctness under two concurrent writers is the UNIQUE KEY's job, asserted
