@@ -1286,3 +1286,42 @@ code. Where a step needs a technical helper, that is called out.
    and when. Keep it with the village's own records. The next person who
    asks "has this ever happened before" should not have to reconstruct the
    answer from memory.
+## 2026-08-30: the onboarding kit
+
+This document stayed the only onboarding material: no `README.md`, no
+`.env.example`, no script that turns "a village name and a few answers" into
+a running instance. A founder with no coding background had no path through
+it. Four new files now sit beside it:
+
+- `README.md` routes by audience instead of explaining everything: a
+  founder standing up an instance, an operator running one, a developer
+  changing the platform.
+- `.env.example` names every environment variable this platform reads with
+  a one-line comment on what breaks without it, generated from the table
+  above so the two describe the same set. If you add a variable here,
+  add the matching line there in the same session, the way this document's
+  own opening rule already asks.
+- `scripts/fork-init.mjs` writes a filled-in `.env` for a new instance: the
+  generated secrets, whatever the founder answered, and an honest report of
+  every variable it could not resolve because the value needs a human step
+  (a Stripe account, a verified Resend domain) this script cannot perform.
+  It does not touch `shared/gameConfig.ts` or any client file, because
+  nothing about a village is a per-instance file to edit: identity lives in
+  the database, set from Admin, Make This Yours, exactly as the Brand
+  overlay section above already describes.
+- `docs/PROVISIONING.md` is the ordered, imperative walkthrough distilled
+  from this document, covering both the self-host and ReGen-hosted paths
+  and naming the steps only a human can do (DNS, Resend domain
+  verification, opening a Stripe account).
+  `docs/FOUNDER_SETUP_PROMPT.md` is the same walkthrough as a single prompt
+  a founder with no terminal experience can hand to their own Claude
+  session.
+
+**A verified trap while building this, worth recording here too:** running
+`pnpm test` with `TEST_DATABASE_URL` unset does not fail and does not warn.
+Every database-backed test file skips itself through `describe.skipIf`, the
+run still exits 0, and nothing on screen says a third of the suite did not
+run except the summary line's own skip count. A green run with the variable
+unset proves nothing about every database-backed test: the skip count is the
+number worth reading, not the exit code. `.env.example` and
+`docs/PROVISIONING.md` both say so now.
