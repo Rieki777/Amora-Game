@@ -148,6 +148,25 @@ Order matters where noted; everything else lands when green.
 
 ## 7 - What I got wrong (coordinator errors, recorded at the same prominence as findings)
 
+- **2026-08-30. I dispatched twelve lanes at ONE MySQL and asked each to run a two-hundred-file
+  suite against it.** My pristine control run measured 38 to 46 seconds PER FILE on
+  database-backed suites under that load. Two costs: every lane full-suite run burns 20-plus
+  minutes, and the numbers reflect machine load rather than code. The tokens lane duly reported
+  `server/loop.e2e.test.ts` S15 failing in files it never touched; that test PASSES on pristine
+  control at 052d042, so it was contention, not a regression. Corrected mid-round: lanes now run
+  typecheck, build, their guards, and ONLY the suites covering their own files. The coordinator
+  runs the full suite serially at integration and compares it against the control. This is the
+  skill's own paired-reps warning (a dozen agents sharing one box) arriving as a bill.
+
+- **2026-08-30. My brief to the tokens lane carried three wrong numbers, and the lane caught all
+  three.** I said about 554 hex literals (real count 573), about 176 in Admin.tsx (real count
+  213), and I named a second teal `#4A7C7C` that DOES NOT EXIST anywhere in the repository. Root
+  cause of the Admin.tsx gap: my method counted matching LINES, and a single line can carry two
+  literals. The lesson is the one already in every brief and it applies hardest to me: a number
+  in a brief is a measurement with a timestamp and a method, and the method is the part that
+  silently lies. The lane counting for itself before fixing is exactly the behaviour the briefs
+  ask for.
+
 - **2026-08-30. My own baseline harness reported a false green.** I captured the exit status
   after piping a gate through `tail`, so I read the status of `tail`. `pnpm check` exited 1
   while my log said the check exited 0. This is the silent-zero class the skill names,
@@ -457,6 +476,27 @@ below for the actual counts, filled in after this section was first drafted so t
 real rather than predicted).
 
 **CI step requested, not applied** (this lane does not own `ci.yml`): filed in section 6.
+
+## 7e - Landed lanes (verified by the coordinator, not self-reported)
+
+Status ladder: CODED means the lane committed and its own gates were green at a named SHA.
+VERIFIED means the coordinator confirmed it. Nothing here is merged to main yet.
+
+| Lane | SHA | State | Note |
+|---|---|---|---|
+| backup | `0aa1f71` | CODED | GPG encryption to two recipients, fail-closed on missing secrets, plus a negative-control job that corrupts the ciphertext and asserts refusal. Proved red locally before landing. Spec'd the uploads endpoint rather than half-building it in a file it does not own. |
+| fleet | `a980d0b` | CODED | Manifest plus ring roller; self-hosted villages modeled as notify, never redeploy. Proved red on an unreachable village AND on a wrong SHA, and green on a correct one. Caught a bug in its own draft where an expired pin read as unpinned. |
+| tokens | `4892c97` | CODED | Theme-literal ratchet that refuses to raise its baseline; 331 occurrences of the legacy teal retired to tokens. Corrected three of my numbers. Dist budget byte-identical at 5768 KB of 6600 KB. |
+
+### Corrections these lanes made to the coordinator, all verified
+
+- The repository is now PRIVATE (flipped 2026-08-31T03:21Z). My blocker entry saying otherwise
+  was stale. Verified directly with `gh repo view`.
+- **29 unexpired, unencrypted `db-backup-*` artifacts remain** in the repository, dated
+  2026-08-02 to 2026-08-29. Going private does not retroactively protect them.
+- **The daily backup has been FAILING since 2026-08-28.** Runs on 08-29 and 08-30 both failed
+  with access denied for user root. Consistent with the database password having been rotated
+  without updating the `PROD_DATABASE_URL` repository secret. Verified with `gh run list`.
 
 ## 8 - Changelog
 
