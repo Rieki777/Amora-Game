@@ -2307,3 +2307,89 @@ Two things to get right when it is done:
    is a baseline write, not a raise. Say both numbers in the commit.
 2. Amora's real history must be written into Amora's record BEFORE the code copy is deleted. That
    is the same sequencing constraint as R14 and section 17, and it has now bitten once already.
+
+## 22 - Auth: two rulings, and the gap between signing in and being able to do anything
+
+### R15 - FOUNDER_EMAILS, because the auth lane granted no role
+
+RAISED BY: the coordinator, on reviewing `wt/s6-auth` before merging.
+
+THE GAP. The lane built the whole Google flow, 2,824 lines with a 620-line e2e suite, and
+granted no role anywhere. `git diff main...wt/s6-auth | grep -E 'role\s*=\s*"(founder|admin)"'`
+returns nothing. That is the difference between "I signed in" and "I can name my village", and
+from a founder's side those are the same problem.
+
+It matters because the founder was ASKING for OAuth as the fix for being locked out. Shipping
+sign-in alone would have handed him a nicer login screen and left him exactly as stuck, which is
+the failure mode this programme keeps finding: a thing that reports success while the harm
+stands.
+
+THE RULING. `FOUNDER_EMAILS` is the deployment owner's declaration of who founds this village.
+Same trust anchor `ADMIN_PASSWORD` already uses, and no weaker: whoever can read that variable
+can already read the database credentials beside it.
+
+Applied on EVERY matching sign-in rather than once, which makes it the permanent recovery path.
+`ADMIN_PASSWORD` spends itself creating the first account and `forgot-password` refuses an
+account with no password hash, so before this there was nothing left to reach for. Both lockouts
+this year fell into exactly that hole.
+
+VERIFIED BEFORE RELYING ON IT, rather than trusting the comment: `identityFromClaims` refuses
+`email_verified !== true` (`server/lib/oauthGoogle.ts:301`) before any account is looked up.
+`decideFounderGrant` refuses an unverified address a second time, so relaxing that check upstream
+cannot quietly turn the grant into a way to hand a village to a stranger.
+
+THREE DELIBERATE REFUSALS: it only ever raises a role, so a typo cannot demote a working founder
+or lock a village out of itself; it never accepts an unverified address; and a blank list means
+nobody and never anyone, which is the empty-versus-zero confusion that caused section 17.
+
+### R16 - ReGen Civics hosts one Google client for the incubator villages
+
+RAISED BY: the founder, verbatim: [*Just add the google cloud console work to the onboarding
+guides for each founder to do (the one they give to thier own Claude session) or is it possible
+that regen civics just hosts the google sign on capability for all instances?*]
+
+THE ANSWER, and it needed no code. The lane's own doc already says why: a founder who registers
+their own client sets the same three variables as one handed shared credentials, and the
+deployment does not know or care who registered them. Hosting it centrally is an operations
+decision rather than an engineering one.
+
+VERIFIED rather than assumed, because it is the class of limit that is easy to get wrong from
+memory: Google allows 100 redirect URIs per OAuth client. Thirteen is nowhere near it.
+
+THE RULING. Shared ReGen Civics client is the documented START. A village's own client is the
+documented GRADUATION, taken before going live. Moving between them is a two-variable change
+with no code and no migration.
+
+WHERE THIS DEPARTS FROM THE LANE, stated plainly rather than quietly overwritten. The lane chose
+per-village clients and argued it well, and its analysis is kept in full. It was written for a
+village running a real community, and for that village it still holds. It was NOT briefed on the
+phase these thirteen are actually in: months of design before a single member joins. In that
+phase the shared client's costs land almost entirely on us rather than on a member, and a
+founder registering their own client would be doing it against a domain they have not chosen
+yet.
+
+THE TWO COSTS ARE DOCUMENTED WHERE A FOUNDER READS THEM, not buried: the Google consent screen
+says ReGen Civics rather than the village's name, and one leaked secret is every incubator
+village's problem at once. That is precisely why it is right for a village being designed and
+wrong for one holding real accounts.
+
+THE BROKER STAYS REFUSED, though for a narrower reason than the lane gave. Its objection was
+that a broker makes us the authentication authority for every village. True, but for villages
+ReGen Civics HOSTS we already hold the database, so that objection does not bite there. The
+real reason is that the shared client delivers an identical founder experience today with zero
+code and no service to run forever. Revisit only if the shared-profile bridge needs it, and do
+not let sign-in convenience drive that decision.
+
+### The onboarding step that had to change with it
+
+`docs/PROVISIONING.md` step 6 told a founder to run `curl` to create their own account. That is
+the step that has stranded two people, and both times the only way through was a terminal. It
+now leads with `/claim`, which works from a phone, and keeps the curl in a details block.
+
+### Measured
+
+Full suite at `1d8c1d7`: **231 files, 3406 tests, 0 skipped, exit 0.** The zero skips matter
+here: the Google e2e suite skips itself without `TEST_DATABASE_URL`, and a fresh worktree has no
+`.env`, so an earlier run reported 26 tests "passing" that had not run. Copying `.env` in was
+what made the 26 real, and the suite then refused loudly for a missing `dist/` rather than
+skipping quietly. That refusal is good design and worth copying.
