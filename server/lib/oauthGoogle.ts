@@ -40,6 +40,30 @@
  * first after a restart. So an explicit origin is REQUIRED, and a deployment
  * without one reports Google sign-in as unavailable instead of rendering a
  * button that fails on click.
+ *
+ * ── THERE IS NO PKCE HERE, AND THAT IS A DECISION ───────────────────────────
+ *
+ * PKCE stops a stolen authorization code being redeemed by whoever stole it.
+ * It earns its place on a PUBLIC client, a mobile app or a single-page app
+ * that holds no secret, where the code is the only thing standing between an
+ * attacker and a session. This is a CONFIDENTIAL client: the code is redeemed
+ * server side in a POST carrying this deployment's `client_secret`, which the
+ * browser never sees, so a stolen code is not redeemable without also stealing
+ * the secret from the server's environment. At that point the attacker has the
+ * deployment and PKCE protects nothing.
+ *
+ * The other half of the reason is that a half-built PKCE is worse than none.
+ * The verifier has to survive the hop to Google, and this flow is stateless by
+ * design (the nonce rides in the signed state so a browser that drops cookies
+ * can still sign in). Putting the verifier in that same state would send the
+ * verifier and the code down the same channel, which is a challenge an
+ * interceptor answers with the values it just intercepted. Doing it properly
+ * needs a cookie the flow deliberately does not depend on.
+ *
+ * What DOES defend this flow is written below and tested: HMAC-signed state
+ * with a fifteen-minute life (login CSRF), a nonce bound into the id_token
+ * (this answer belongs to this request), and an audience check (an id_token
+ * minted for another Google application is refused).
  */
 import crypto from "node:crypto";
 import { signTokenPayload } from "./memberTokens";
