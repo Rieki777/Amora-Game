@@ -38,6 +38,7 @@
  * been untangled rather than a wish list.
  */
 import type express from "express";
+import type { Pool } from "mysql2/promise";
 import type { Capability } from "../../shared/capabilities";
 import type { DbCollection, DbDocument, Row } from "../repos/store-db";
 
@@ -105,4 +106,21 @@ export interface AppDeps {
 
   /** Roadmap milestones, ordered by their `order` field at read time. */
   milestonesRepo: DbCollection<Row>;
+
+  // RAW DATABASE AND VOLUME ACCESS
+  // Wider than a repository, so an entry here is a bigger claim than a repo
+  // entry and is worth a second look in review. A domain whose table is read
+  // and written with SQL rather than through `dbCollection` takes this.
+
+  /** The connection pool, for a domain that owns its own table and its own SQL. */
+  getPool(): Pool;
+
+  /**
+   * The uploads volume's path.
+   *
+   * Handed over rather than imported so that a route module writing a file
+   * can be pointed at a scratch directory in a test. Every byte still goes
+   * through server/lib/uploads.ts; this names WHERE, never HOW.
+   */
+  uploadsDir: string;
 }

@@ -41,6 +41,7 @@ import {
 import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
 import { adminGateWasConsulted, markAdminGate } from "./lib/adminGate";
 import { type FaqPathway, register as registerFaqRoutes } from "./routes/faqs";
+import { register as registerLandRoutes } from "./routes/land";
 import { register as registerMilestonesRoutes } from "./routes/milestones";
 import { register as registerTrainingRoutes } from "./routes/training";
 import { register as registerGoogleAuthRoutes } from "./routes/authGoogle";
@@ -21311,21 +21312,20 @@ ${inner}
 
   // â”€â”€ Training Modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  // Registered at exactly this point: Express matches in registration order,
-  // so where register() is CALLED is part of the behaviour, not a detail.
+  // Every register() below is called at exactly the point its routes used to
+  // sit: Express matches in registration order, so where a register() is
+  // CALLED is part of the behaviour and not a detail. Said once for all of
+  // them, because three verbatim copies of it were three things to keep true.
   registerTrainingRoutes(app, { isAdmin, trainingRepo });
 
   // â”€â”€ FAQs (NEW-1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  // Registered at exactly this point: Express matches in registration order,
-  // so where register() is CALLED is part of the behaviour, not a detail.
   registerFaqRoutes(app, { isAdmin, guardCapability, faqsRepo });
 
   // â”€â”€ Milestones (NEW-3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  // Registered at exactly this point: Express matches in registration order,
-  // so where register() is CALLED is part of the behaviour, not a detail.
   registerMilestonesRoutes(app, { isAdmin, guardCapability, milestonesRepo });
+  registerLandRoutes(app, { isAdmin, guardCapability, getPool, uploadsDir: UPLOADS_DIR });
 
   // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
