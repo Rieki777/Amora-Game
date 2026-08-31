@@ -3,14 +3,21 @@
  * The monolith ratchet: a client file that nobody can read in one sitting is
  * a file that nobody can review, test, or edit alongside somebody else.
  *
- * WHY THIS EXISTS, MEASURED. `client/src/pages/Admin.tsx` is 11,418 lines and
- * is the second-most-edited file in this repository: 124 of 962 commits touch
+ * WHY THIS EXISTS, MEASURED. `client/src/pages/Admin.tsx` was 11,419 lines the
+ * day this guard landed, and it is the second-most-edited file in this
+ * repository: 124 of 962 commits touch
  * it, behind only `server/index.ts` at 283, and 123 of the last 400 commits
  * that touched `client/src` at all landed in that one file, which is 2.3x the
  * next busiest. It is also the surface a non-technical village steward runs
  * their village from, and the surface a founder rebrands through. Every module
  * contributor has to edit it, so it collects merge conflicts the way the
  * server monolith does, and no agent or human can hold it in one context.
+ *
+ * DO NOT QUOTE A LINE COUNT FROM THIS COMMENT. The numbers above are a
+ * measurement of the day this landed, and CLAUDE.md records what happens to a
+ * figure written into a doc: the client-budget section carried a stale one
+ * twice and nobody noticed for months. `scripts/file-lines-baseline.json` is
+ * the live number, and running this script is how you read today's.
  *
  * WHY A RATCHET AND NOT A CEILING. A ceiling picked out of the air is either
  * so high it never fires or so low it blocks the tree on the day it lands.
@@ -39,10 +46,12 @@
  *
  * WHY THE THRESHOLD IS 1000. It is the band where a file stops being long and
  * starts being a monolith: it no longer fits one reading, one review, or one
- * model's working context. Measured against this tree it tracks four files
- * (Admin.tsx 11418, ProjectHistory.tsx 1991, GameMechanics.tsx 1498,
- * CoCreatorsGuide.tsx 1212) and leaves the next one down (InvestorJourney.tsx
- * at 949) alone. Three of those four are prose-heavy content pages that change
+ * model's working context. Measured against this tree the day it landed, it
+ * tracks four files (Admin.tsx 11419, ProjectHistory.tsx 1991,
+ * GameMechanics.tsx 1498, CoCreatorsGuide.tsx 1212) and leaves the next one
+ * down (InvestorJourney.tsx at 949) alone, which is the gap that made 1000 the
+ * honest place to draw it rather than a round number that happened to fit.
+ * Three of those four are prose-heavy content pages that change
  * about 15 times per 400 commits, so the cost of the guard falls almost
  * entirely on the file it was written for.
  *
