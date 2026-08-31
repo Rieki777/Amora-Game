@@ -38,6 +38,7 @@ import {
   readGoogleLink,
   type AccountFacts,
 } from "../lib/oauthAccounts";
+import { decideFounderGrant, parseFounderEmails } from "../lib/founderGrant";
 
 /** What this module reaches. The complete list. */
 export interface GoogleAuthDeps {
@@ -292,6 +293,34 @@ export function register(app: Express, deps: GoogleAuthDeps): void {
       await deps.members.add(member);
       deps.onMemberJoined(member);
       deps.recordAudit("auth:google-joined", member.id);
+    }
+
+    // The role, which is the half that signing in does not settle.
+    //
+    // A founder who reaches this line as an ordinary member cannot name their
+    // village, and from their side that is the same as still being locked out.
+    // FOUNDER_EMAILS is the deployment owner's declaration of who founds this
+    // village, and it is honoured on every matching sign-in rather than once,
+    // so a role lost to a restore or a hand-edit comes back by signing in.
+    //
+    // Safe because identityFromClaims already refused any address Google did
+    // not verify (oauthGoogle.ts:301). decideFounderGrant refuses an unverified
+    // address again anyway, so relaxing that check upstream cannot quietly turn
+    // this into a way in.
+    const grant = decideFounderGrant({
+      email: identity.email,
+      emailVerified: identity.emailVerified,
+      currentRole: member?.role,
+      founderEmails: parseFounderEmails(process.env.FOUNDER_EMAILS),
+      isExample: Boolean(member?.isExample),
+    });
+    if (grant.grant) {
+      const elevated = await deps.members.update(member.id, (u: any) => {
+        u.role = "founder";
+      });
+      if (elevated) member = elevated;
+      console.warn(`[oauth] founder role granted to ${member.id}: ${grant.reason}`);
+      deps.recordAudit("auth:founder-granted", member.id);
     }
 
     const handoff = makeHandoffToken(deps.authSecret, member.id, member.tokenVersion ?? 0);

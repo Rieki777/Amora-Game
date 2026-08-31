@@ -81,10 +81,18 @@ const WRITE_METHODS = new Set(["post", "put", "delete", "patch"]);
  * is one; so is "an operator command, run by hand". "I could not find the
  * caller" is not: if you cannot find it, neither can a founder.
  */
-const ALLOWED = {
-  "POST /api/admin/bootstrap":
-    "First-boot founder creation. It runs before any admin UI can exist, from the runbook.",
-};
+/*
+ * Emptied 2026-08-31. The single entry here was POST /api/admin/bootstrap,
+ * waived on the grounds that first-boot founder creation "runs before any
+ * admin UI can exist, from the runbook". That reason expired the moment
+ * client/src/pages/Bootstrap.tsx shipped: the route now has a real browser
+ * caller at /claim, so the waiver was claiming something untrue and this guard
+ * said so on the next run.
+ *
+ * Worth keeping the shape of that: the waiver was honest when it was written
+ * and became a lie without anyone editing it. That is what this check is for.
+ */
+const ALLOWED = {};
 
 /**
  * THE STANDING DEBT, and the reason this list is separate from `ALLOWED`.
