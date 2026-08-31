@@ -20,6 +20,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { tokenDef, memberAccount } from "./ledger";
+import { isListedForTrade } from "./exchange";
 
 export type WeightMode = "equal" | "token" | "custom";
 
@@ -32,12 +33,44 @@ export interface WeightModeSnapshot {
 /**
  * Refuse a weight-token choice the engine may not conduct. Returns the
  * refusal sentence, or null when the token can weigh votes.
+ *
+ * ── WHY A LISTED TOKEN MAY NOT WEIGH A VOTE ─────────────────────────────────
+ *
+ * Until 2026-08-30 this refused exactly one thing, a hypha mirror, and the
+ * reason was source-of-truth rather than power: weighting by a mirror would
+ * make this platform the cap table's second author. That left every
+ * platform-governed token eligible, INCLUDING one currently listed on the
+ * exchange for a card payment. A founder pointing `governance.weight_token` at
+ * the village's ordinary credit token, in `token` weight mode, turns every
+ * dollar into voting weight, with nothing anywhere refusing it.
+ *
+ * So the rule the exchange states from its side ("the token that weighs votes
+ * is not listed", `weightTokenListingProblem`) is stated here from this one:
+ * a token that is listed does not weigh votes. Two doors, one rule, and
+ * neither door can be reached without passing a check.
+ *
+ * THIS SIDE IS THE ONE THAT FAILS CLOSED IN THE GAP. The exchange's clause is
+ * re-proven at boot and at every listing write; a founder who flips the mode
+ * to `token` between two boots would otherwise have a listed weight token
+ * until the next restart. This runs at every ballot open and inside
+ * `weightsFor`, so during that gap the weights simply cannot be resolved and
+ * no ballot opens.
+ *
+ * Deliberately NOT gated on `weight_mode`. Every caller already asks this only
+ * when the mode is `token` (see `weightsFor` below), so re-reading the mode
+ * here would add a second copy of that judgment and no safety.
  */
 export function weightTokenProblem(slug: string): string | null {
   const def = tokenDef(slug);
   if (!def) return `No token called "${slug}" exists in this village's registry`;
   if (def.governance !== "platform") {
     return `${def.name} is governed on Hypha and only mirrored here. Voting weight reads platform-governed tokens only`;
+  }
+  if (isListedForTrade(slug)) {
+    return (
+      `${def.name} is listed on the exchange, so anybody can buy it. A token money can buy is not what weighs a vote. ` +
+      `Take it off the exchange, or weigh votes with something else`
+    );
   }
   return null;
 }
