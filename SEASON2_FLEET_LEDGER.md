@@ -992,6 +992,67 @@ The full flaky set is now FIVE:
     governance.routes.e2e closing changes nothing
     placePhotos.routes.e2e volume gauge   (new, cache-induced, ours)
 
+## 10 - BACKUPS ARE STILL BROKEN, and the reason is worse than a stale password
+
+Attempted 2026-08-31 on the founder's instruction to get backups working. NOT ACHIEVED, and the
+reason is an infrastructure misconfiguration that needs the Railway console.
+
+**WHAT I DID.** The daily backup had failed since 2026-08-28 on a rejected credential. I read the
+Railway MySQL service's `MYSQL_PUBLIC_URL`, confirmed it connected (MySQL 9.4.0, 262 tables,
+89 users), set it as the `PROD_DATABASE_URL` repository secret, generated the two GPG keypairs
+the newly-encrypted workflow requires, set all three key secrets, and ran the workflow.
+
+**WHAT HAPPENED.** The `backup` job SUCCEEDED and produced an encrypted dump. The
+`restore-drill-negative-control` job SUCCEEDED (corrupted ciphertext correctly refused). The
+`restore-drill` job FAILED:
+
+    ok users = 89
+    ERROR 1146 (42S02) at line 1: Table 'restored.token_ledger' doesn't exist
+
+**WHAT THAT ACTUALLY MEANT.** Not a drill bug. The database behind
+`sakura.proxy.rlwy.net:50483` is NOT game-amora's. Verified by table census:
+
+    game-amora markers present : roles only
+    game-amora markers ABSENT  : quests, circles, ballots, gratitude_log, village_map, module_settings
+    regen-civics markers PRESENT: user_token_ledger, regen_token_ledger, player_profiles, game_variables
+    plus __drizzle_migrations, adminAuditLog, applications
+
+Meanwhile the live game-amora app, which connects over `mysql.railway.internal`, serves 14 real
+quests. So the app reaches the correct database and the PUBLIC TCP PROXY ON THE SAME RAILWAY
+SERVICE REACHES A DIFFERENT ONE. Both report `RAILWAY_PROJECT_NAME=Amora Game`,
+`RAILWAY_SERVICE_NAME=MySQL`, database `railway`.
+
+This is precisely the hazard the swarm skill names: PROVE WHICH DATABASE YOU ARE WRITING TO BY
+LIVE CROSS-CHECK, NEVER BY VARIABLE NAME. The variable was named `MYSQL_PUBLIC_URL` on the right
+project's MySQL service and was still the wrong database.
+
+**WHAT I DID ABOUT IT.**
+
+- Deleted the `PROD_DATABASE_URL` secret, so no scheduled run can back up the wrong database.
+- Deleted the artifact that run produced (an encrypted dump of the WRONG project's data sitting
+  in game-amora's repo). It was GPG-encrypted, so unreadable, but it did not belong there.
+- Scrubbed the captured credential from local disk.
+- Did NOT write the brand fix to the database. The drill failing is the only reason I did not
+  write Amora's identity into another project's production database.
+
+**THE THREE GPG SECRETS ARE CORRECTLY SET AND SHOULD STAY.** The encryption half works: the
+backup job encrypted successfully and the negative control proved corrupted ciphertext is
+refused. Only the target database is wrong. The private recovery key is at
+`C:/Users/taren/Desktop/Amora/AMORA-BACKUP-RECOVERY-KEY/PRIVATE-KEY-KEEP-OFFLINE.asc` and must
+be moved somewhere offline; nothing else can decrypt these backups.
+
+**THIS RAISES THE PRIORITY OF THE 28 OLD ARTIFACTS.** They are unexpired, unencrypted, and were
+produced by the same workflow using whatever `PROD_DATABASE_URL` held historically. If that was
+also `sakura.proxy.rlwy.net:50483`, then 28 plaintext dumps of the REGEN-CIVICS production
+database have been sitting in the game-amora repository, and were world-downloadable during the
+window when that repository was public. The credentials to rotate would then be regen-civics's,
+not only Amora's. THIS NEEDS CHECKING BEFORE ANYTHING ELSE.
+
+**FOUNDER ACTION, and only you can do it:** in the Railway console, establish what
+`sakura.proxy.rlwy.net:50483` actually points at, and get a public TCP proxy that reaches the
+Amora Game database. Then re-set `PROD_DATABASE_URL` and re-run the workflow; the drill will
+tell you truthfully whether it is right, because it just did.
+
 ## 9 - SHIPPED, and the live regression it caused
 
 **PUSHED AND DEPLOYED.** `052d042..1871034` to origin/main. Railway deploy SUCCESS.
