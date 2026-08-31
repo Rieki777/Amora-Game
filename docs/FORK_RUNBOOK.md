@@ -1074,3 +1074,215 @@ this migration is unreferenced by definition, because no `investor_docs` row
 could exist to name it. Compare the volume against `SELECT url FROM
 investor_docs` before deleting anything, since uploads from other doors share
 the directory. `/health` reports the volume totals.
+
+## Backup encryption, the uploads volume gap, and after a suspected exposure (2026-08-30)
+
+**What was found.** `.github/workflows/db-backup.yml` dumped the whole
+production schema daily, gzipped it, and uploaded it as a plain GitHub
+Actions artifact. Actions artifact download follows repository read access.
+It is not a separate permission. On a repository set to public, that made
+every daily dump fetchable by any signed-in GitHub account for the whole
+30-day retention window. The dump held, in plaintext: every `app_config`
+integration secret (Stripe keys included), the village's own ed25519 signing
+key (the one this document's Publishing section says to back up), private
+message bodies, ballot reasons, and every `passwordHash`, a mix of bcrypt and
+legacy unsalted SHA-256 for any account that has not logged in since the
+bcrypt migration (`legacySha256` in `server/index.ts`, upgraded transparently
+on next successful login and not before).
+
+**Making the repository private and rotating the exposed secrets are actions
+only the founder can take**, and both are logged in the fleet ledger's
+blocker list as of this date. Nothing below substitutes for either. What
+follows is the code and documentation side: closing the hole so a fork
+cannot reopen it by accident, and giving a steward a checklist for the day
+one of those two human actions turns out to be needed for real.
+
+### The database dump is now encrypted before it ever leaves the runner
+
+`db-backup.yml` now bundles `dump.sql.gz` and the fidelity `manifest.txt`
+together and encrypts that bundle with GPG before upload. Nothing
+unencrypted is written to an artifact. It encrypts to two recipients, for two
+different reasons, and the distinction matters:
+
+- **`BACKUP_GPG_PUBLIC_KEY`.** The real recovery key. Only the public half
+  ever reaches this repository. Generate the pair somewhere that is not this
+  machine's shell history and not a chat log, keep the private half offline
+  (a password manager's secure note or an encrypted drive, never a plain
+  file in `data/` or anywhere git-tracked), and paste only the public half
+  into the GitHub secret:
+
+  ```bash
+  gpg --batch --full-generate-key <<'EOF'
+  %no-protection
+  Key-Type: EDDSA
+  Key-Curve: Ed25519
+  Subkey-Type: ECDH
+  Subkey-Curve: Cv25519
+  Name-Real: <your village> backup recovery key
+  Name-Email: backup-recovery@<your-village-domain>
+  Expire-Date: 0
+  %commit
+  EOF
+  gpg --armor --export backup-recovery@<your-village-domain>
+  ```
+
+  `%no-protection` above only means GPG will not ask for a passphrase while
+  generating locally. It says nothing about where the private half then
+  lives, that part is the operator's own care. A founder more comfortable
+  with a passphrase-protected key should add one; the workflow never touches
+  this key's private half either way.
+
+- **`BACKUP_DRILL_GPG_PUBLIC_KEY`** and **`BACKUP_DRILL_GPG_PRIVATE_KEY`.** A
+  second, throwaway keypair whose only job is letting the `restore-drill` job
+  prove, automatically, on every run, that the artifact it just built
+  actually decrypts and restores. Its private half lives in CI secrets on
+  purpose: it carries no real recovery value (rotating it loses nothing, and
+  it is never the key that protects a real founder's data), so this is the
+  one place "the private key never enters CI" does not apply. Generate it the
+  same way as above with a name that says what it is, then set both halves:
+
+  ```bash
+  gpg --armor --export <drill-key-id> > drill_pub.asc          # -> BACKUP_DRILL_GPG_PUBLIC_KEY
+  gpg --armor --export-secret-keys <drill-key-id> > drill_priv.asc   # -> BACKUP_DRILL_GPG_PRIVATE_KEY
+  ```
+
+Multi-recipient GPG stores an independent encrypted session key per
+recipient, so the drill job decrypting with its own key never needs, and
+never sees, the founder's recovery private key. This was verified locally
+before landing: a bundle encrypted to both a throwaway "founder" key and a
+throwaway "drill" key decrypts correctly holding only the drill private key,
+and a copy of the same ciphertext with 32 bytes flipped at its midpoint is
+refused by GPG's own integrity check (`gpg: WARNING: encrypted message has
+been manipulated!`, non-zero exit) rather than silently producing garbage.
+The workflow's `restore-drill-negative-control` job runs that exact
+corruption test against the real artifact on every run, specifically so a
+green `restore-drill` means something: if tampering or truncation ever
+stopped being detected, that job goes red on its own, before anyone has to
+notice a bad restore by hand.
+
+**All three secrets are required.** The `backup` job checks for both public
+keys before it dumps anything and refuses to run if either is missing,
+rather than falling back to an unencrypted upload. `restore-drill` and its
+negative control both refuse the same way if the drill private key is
+missing. A skipped assertion that still exits 0 is the false-green failure
+mode the fleet ledger's own section 7 already caught once; none of these
+three checks are allowed to be that.
+
+### The uploads volume: not covered yet, and here is exactly what closing it needs
+
+**Honest status: `data/uploads/` has no backup of any kind, before this round
+and after it.** The workflow above only ever touched MySQL. Member
+photographs, brand images and investor documents live on the Railway volume
+mounted at `/app/data`, and this document already says elsewhere that a
+photograph there is not recoverable from anywhere if it is lost. That
+sentence is still true today.
+
+**What a GitHub Action genuinely cannot do:** reach into a Railway volume
+directly. There is no API for "give me a tarball of this service's mounted
+volume" that a scheduled Action can call, and this repository already has a
+live data point on the alternative: `AMORA_FOUNDATION_UPGRADE_PLAN.md`
+records a one-time volume pull over `railway ssh`, done by hand, once. The
+Railway CLI's `ssh` subcommand is built for an interactive session, and nothing
+in this codebase or its history demonstrates it running unattended, on a
+schedule, on a headless CI runner, without a human at the keyboard. Wiring an
+unverified `railway ssh` pipe into a scheduled workflow and hoping it keeps
+working would be exactly the kind of half-built check this round exists to
+avoid: it would either fail silently on a schedule nobody is watching, or
+report success while quietly doing nothing, and nobody would find out until
+the volume was needed for real.
+
+**What actually closes the gap: an authenticated export endpoint on the
+server**, specified here precisely enough for the lane that owns
+`server/index.ts` to build it without redesigning it:
+
+- **Route.** `GET /api/admin/backup/uploads-archive`.
+- **Auth.** Not an admin session cookie or bearer login token; a GitHub
+  Actions runner cannot hold either. A dedicated secret,
+  `BACKUP_EXPORT_TOKEN`, set as a Railway env var on the app service and
+  mirrored as a GitHub Actions secret, checked against a request header
+  (`x-backup-export-token`) with a constant-time comparison. This follows the
+  same fail-closed shape already used for `RIVERSIDE_WEBHOOK_SECRET` and
+  `GOVERNANCE_HUB_SECRET` above: unset or mismatched means the route answers
+  401 and does nothing, never a silent pass-through.
+- **Body.** A streamed `tar` of `data/uploads/`, written directly to the
+  HTTP response as files are read rather than buffered in memory first. The
+  volume can reach hundreds of megabytes from photographs alone (see the
+  `/health` `uploads.mb` figure and the place-photo sizing note above);
+  buffering that in the one Node process that also serves live traffic risks
+  the same process, so this has to stream.
+- **A fidelity manifest, on the same shape as the MySQL one.** Before or
+  alongside the stream, the route should make available: total file count,
+  total bytes, and a SHA-256 of one deterministic canary file (the
+  lexicographically first filename, so it needs no extra bookkeeping to
+  choose) recorded at export time. That is what a restore-drill for this
+  archive would assert against, exactly like the MySQL job asserts row
+  counts and a round-tripped timestamp: decrypt, untar, count the files,
+  sum the bytes, re-hash the canary, compare. There is no scratch Railway
+  volume to actually redeploy into inside a GitHub Action, so this drill
+  proves the bytes are intact and complete, not that a fresh deploy boots
+  from them; that is the honest ceiling of what CI alone can assert here.
+- **Audit.** Log each successful call (timestamp, at minimum) the same way
+  other sensitive admin actions in this codebase are logged, so a call
+  outside the daily schedule is visible.
+- **Once it exists**, the GitHub Action side is a short addition to
+  `db-backup.yml`: curl the endpoint with the token header, tar the response
+  alongside its manifest, encrypt with the same two-recipient GPG pattern
+  already landed for the database dump (reusing `BACKUP_GPG_PUBLIC_KEY` and
+  `BACKUP_DRILL_GPG_PUBLIC_KEY`, no new keys needed), upload, and add a
+  restore-drill step that decrypts with the drill key and asserts the
+  manifest.
+
+This is flagged in the fleet ledger's blocker list (section 6) against the
+lane that owns `server/index.ts`, with a link back to this section, rather
+than attempted here.
+
+### Secrets rotation checklist, for a steward, after any suspected exposure
+
+Use this any time a backup artifact, a database dump, or a `.env` file may
+have reached someone who should not have had it. It does not require reading
+code. Where a step needs a technical helper, that is called out.
+
+1. **Confirm the repository is private.** GitHub, the repository's own page,
+   Settings, General, scroll to "Danger Zone", "Change repository visibility".
+   If it says Public, change it to Private now, before anything else on this
+   list. This alone stops new artifact downloads; it does not undo one that
+   already happened.
+2. **Stripe.** Log in to the Stripe dashboard, Developers, API keys. Roll the
+   secret key. Update it wherever this village stores it (Admin,
+   Integrations, if set there; otherwise the `STRIPE_SECRET_KEY` Railway env
+   var). Also roll the webhook signing secret (Developers, Webhooks, the
+   endpoint, "roll secret") and update `STRIPE_WEBHOOK_SECRET` the same way.
+   Card checkout answers an honest 503 in the gap; nothing is lost by taking
+   a few minutes here.
+3. **Every other integration secret held in this app.** Resend, Riverside,
+   the Governance Hub secret, a Basescan key, an Anthropic key, a feedback
+   relay URL if it carries a token, an error webhook URL. Admin, Integrations
+   lists what this village has configured and where each one came from
+   (source and last four characters shown). For each one that has a
+   provider-side dashboard, roll it there first, then paste the new value in.
+   For one that is env-only with no admin screen (a Managed listing's key),
+   ask a technical helper to rotate it on the Railway service.
+4. **The village signing key.** This is the ed25519 key in `app_config`
+   under `village-signing-key`, the one every peer village has pinned (see
+   Peering, above). Rotating it is not a simple swap: every peer will pause
+   with "signing key changed" until an admin on their side presses "accept
+   and resume". Do this one deliberately, and tell peer villages it is
+   coming, rather than as a reflexive part of this checklist. Ask a technical
+   helper; it needs a database write, not an admin screen.
+5. **Passwords.** Ask a technical helper to check how many accounts are
+   still on the legacy hash (`passwordHash` not starting with `$2`, a plain
+   64-character hex string). Any account in that state has a password that
+   was crackable offline the moment the dump leaked, not merely guessable.
+   The safe, simple answer that needs no query at all: force every member to
+   reset their password (`POST /api/admin/users/:id/send-password-link` per
+   account, or ask everyone to use "Forgot your password?" on `/login`).
+   Every session ends the moment a password changes, so this also closes any
+   session token that leaked alongside a hash.
+6. **`AUTH_TOKEN_SECRET`.** Rotating this signs every existing session out at
+   once, including yours. Do it after the password step above, not before,
+   so members are not asked to sign back in twice in one day. A technical
+   helper updates the Railway env var and redeploys.
+7. **Write down what happened.** Date, what was exposed, what was rotated,
+   and when. Keep it with the village's own records. The next person who
+   asks "has this ever happened before" should not have to reconstruct the
+   answer from memory.
