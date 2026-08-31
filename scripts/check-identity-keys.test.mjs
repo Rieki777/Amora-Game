@@ -25,6 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   IDENTITY_KEYS,
   KNOWN_PENDING,
@@ -34,8 +35,7 @@ import {
   parseConfigValues,
 } from "./check-identity-keys.mjs";
 
-const HERE = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1");
-const GUARD = path.join(HERE, "check-identity-keys.mjs");
+const GUARD = path.join(path.dirname(fileURLToPath(import.meta.url)), "check-identity-keys.mjs");
 
 let run = 0;
 const check = (name, fn) => { fn(); run += 1; console.log(`  PASS  ${name}`); };

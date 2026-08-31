@@ -68,8 +68,16 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, "$1"), "..");
+// fileURLToPath, not `new URL(...).pathname` with a drive-letter fixup. The
+// hand-rolled form is what the older guards in this directory use and it
+// leaves a checkout under a path containing a space reading `%20` as literal
+// characters, so the guard looks for a file that is not there and reports the
+// config as missing. The platform API handles the encoding and the drive
+// letter both.
+const SELF = fileURLToPath(import.meta.url);
+const ROOT = path.resolve(path.dirname(SELF), "..");
 const CONFIG_PATH = path.join(ROOT, "shared", "gameConfig.ts");
 
 /**
@@ -352,5 +360,7 @@ function main(argv) {
   return problems.length ? 1 : 0;
 }
 
-const invoked = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(ROOT, "scripts", "check-identity-keys.mjs");
+// Run as a gate only when invoked directly. Imported (by its own test, and by
+// shared/gameConfig.test.ts) it is a library of rules with no side effects.
+const invoked = process.argv[1] && path.resolve(process.argv[1]) === SELF;
 if (invoked) process.exit(main(process.argv.slice(2)));
