@@ -40,6 +40,7 @@
 import type express from "express";
 import type { Pool } from "mysql2/promise";
 import type { Capability, CapabilityCtx } from "../../shared/capabilities";
+import type { WeightModeSnapshot } from "./governanceWeights";
 import type { NotifyInput, NotifyResult } from "./notify";
 import type { LapseContext } from "./orgChart";
 import type { ClaimsRepo } from "../repos/quests";
@@ -202,6 +203,16 @@ export interface AppDeps {
 
   /** What every read uses to decide whether a seating's mandate has run out. */
   lapseContext(): LapseContext;
+
+  /**
+   * The weight-mode snapshot the NEXT ballot would freeze.
+   *
+   * Six lines over two game variables, and the one place that decides what a
+   * village's weight mode is. A route module that rebuilt it locally would be
+   * the second place, which is how a seat reads "equal" on one screen and
+   * "token" on the next.
+   */
+  weightModeNow(): WeightModeSnapshot;
 
   /**
    * Tell one member one thing. Fire and forget by contract: the sender never
