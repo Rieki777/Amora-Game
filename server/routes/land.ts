@@ -55,10 +55,8 @@ import {
   LicenceForbidsCaching,
   NotAnImage,
   PROVIDERS,
-  attributionFor,
   configuredProvider,
   fetchAndCache,
-  providerById,
 } from "../lib/satellite";
 
 type Deps = Pick<AppDeps, "isAdmin" | "guardCapability" | "getPool" | "uploadsDir">;
@@ -384,8 +382,3 @@ export function register(app: Express, deps: Deps): void {
     }
   });
 }
-
-/** Exported for the admin screen's provider table and for the docs to stay true. */
-export const LAND_PROVIDER_IDS = PROVIDERS.map((p) => p.id);
-
-export { attributionFor, providerById };

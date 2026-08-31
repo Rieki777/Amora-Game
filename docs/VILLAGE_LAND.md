@@ -232,6 +232,25 @@ Put it in Project Settings, beside Map and styling.
 | Width across | Number, metres | `validateSpan`. 50 to 20000 | Default 800 |
 | Who can see this | Three radios | `hidden` / `approximate` / `exact` | Default `hidden`. Label them with what they mean, not their ids |
 
+**What the three settings actually control, and the limit a founder must be
+told.** They govern the **coordinates**, and only the coordinates:
+
+| Setting | A stranger loading the site gets |
+|---|---|
+| `hidden` | No point at all |
+| `approximate` | The point rounded to two decimals, a little over a kilometre |
+| `exact` | What the founder typed |
+
+**The aerial photograph is served at every setting, including `hidden`.** The
+picture is what makes the map worth looking at, and a photograph of trees is not
+a street address. It is also not nothing: somebody determined could match a
+distinctive coastline or roofline against public imagery. So the screen must say
+this in plain words next to the radios, along the lines of "your picture is
+shown to visitors at every setting; remove it if you would rather it were not."
+A founder can then make the choice knowing what it is. Hiding this behaviour
+would be the failure, because the setting is named in a way that invites a
+founder to assume it covers everything.
+
 Because parsing is in `shared/`, the screen gives instant feedback with no round
 trip. The server re-parses on the way in regardless: a value validated only in a
 browser is a value not validated.
