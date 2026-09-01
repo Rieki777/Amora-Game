@@ -139,17 +139,8 @@ import {
 } from "./lib/mapScene";
 import {
   allRows as housingRows,
-  createReservation,
-  exceedsTotal,
-  isHomeType,
-  isReservationStatus,
-  listReservations,
   publicEntries as housingPublicEntries,
-  readAvailabilityPatch,
-  reservationById,
-  reservationStatusNotice,
   setAvailability as setHousingAvailability,
-  setReservationStatus,
 } from "./lib/housing";
 import { CALENDAR_KINDS, CALENDAR_LAYERS, toSchemaOrg } from "../shared/gatherings";
 import { recordWalkRows, walkReport } from "./lib/walkLog";
@@ -256,10 +247,6 @@ import {
   type BallotRow,
 } from "./lib/ballots";
 import {
-  allWeights,
-  setWeight,
-  weightChangeProblem,
-  weightHistory,
   weightsFor,
   weightTokenProblem,
   type WeightModeSnapshot,
@@ -270,8 +257,6 @@ import {
 // about when it named this module `proposalDrafts.ts`.
 import {
   ADVISORY_TYPES,
-  CONDUCTABLE_TYPES,
-  DRAFT_CAP,
   deleteDraft as deleteProposalDraft,
   draftsOf as proposalDraftsOf,
   saveDraft as saveProposalDraft,
@@ -521,13 +506,7 @@ import {
 } from "./lib/map";
 import { ensureInstanceIdentity, instanceIdentity, PLATFORM_VERSION } from "./lib/identity";
 import {
-  addChange,
-  createDraft,
   listDrafts,
-  previewDraft,
-  publishDraft,
-  revertDraft,
-  setDraftVision,
   visionProgress,
 } from "./lib/orgDrafts";
 import { DECIDES_BY, DOMAINS, HOW_CHOSEN, SHAPES } from "../shared/power";
@@ -535,11 +514,8 @@ import { displayCurrencyProblem } from "../shared/money";
 import { latestRates, refreshDailyRates } from "./lib/fxRates";
 import {
   coveredSeatIds,
-  createRelation,
-  deleteRelation,
   listRelations,
   listRelationTypes,
-  relationsFor,
   seedStarterTypes,
   type NodeKind,
 } from "./lib/orgRelations";
@@ -718,23 +694,12 @@ import {
 } from "./lib/examples";
 import {
   backfillOrgChart,
-  claimSeating,
-  createOrgRole,
-  describeOrgChange,
-  documentedKey,
-  endSeating,
-  forgetDocumentedHolder,
   listOrgAssignments,
   listOrgRoles,
-  orgRoleHistory,
   expiringSeatings,
   releaseSeatingsForUser,
-  seatHolder,
   seatState,
-  statusOverrideProblem,
   structuralLoad,
-  unclaimedSeatingsFor,
-  updateOrgRole,
   circleDecidesProblem,
   declarableTargets,
   mayDeclare,
@@ -774,7 +739,6 @@ import { defaultDisplayCurrency } from "../shared/money";
 import {
   addMember as addPatternMember,
   applyRoll,
-  captureIntoCurrentPattern,
   createPattern,
   listMembers as listPatternMembers,
   listPatterns,
@@ -818,7 +782,6 @@ import {
   currentCycle,
   dueCycles,
   settleCycle,
-  formatCycleId,
   parseCycleId,
   unreadableCycleProblem,
   type CycleRecord,

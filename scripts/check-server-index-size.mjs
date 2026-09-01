@@ -242,9 +242,65 @@ function blankNonCode(text) {
   return out;
 }
 
+/**
+ * The two lines a route module costs server/index.ts do not count against it.
+ *
+ * WHY THIS EXISTS. A ratchet at zero slack deadlocked the recipe it exists to
+ * promote. A founder following docs/ARCHITECTURE.md exactly, putting three new
+ * routes in server/routes/founderDemo.ts and adding NOTHING to the monolith,
+ * still failed CI:
+ *
+ *   server/index.ts is 31121 lines, baseline allows 31119 (+2).
+ *
+ * The import and the register() call are those two lines, and
+ * --update-baseline refused to rescue them while its own error told the
+ * founder to do what they had just done.
+ *
+ * Padding the baseline was the other option and it is worse. A number that
+ * records headroom nobody earned is exactly the failure this programme spent a
+ * day proving would let two parallel lanes gift each other hundreds of phantom
+ * lines. So the count changes rather than the number.
+ *
+ * The exemption is narrow on purpose: an import of ./routes/<name>, and a call
+ * to a register function. Both are the COST OF SHRINKING this file. Counting
+ * them as growth punishes the one move that makes the monolith smaller, which
+ * is the opposite of what a ratchet is for. Handler code is still counted to
+ * the line.
+ */
+const ROUTE_IMPORT = /^\s*import\s[^;]*\bfrom\s*["']\.\/routes\/[^"']+["'];?\s*$/;
+
+/**
+ * The register names are DERIVED from the route-module imports, never guessed.
+ *
+ * The first version of this matched /^\s*register[A-Z]\w*\s*\(/ and quietly
+ * swallowed every registerJob("stay-nightly", ...) line as well, because a
+ * scheduled job registration looks exactly like a route registration to a
+ * pattern. It exempted 60 lines where about 30 were real, and the only reason
+ * it was caught is that the number was twice what the module count could
+ * explain. A guard that over-exempts is a guard that hides the growth it exists
+ * to catch, so this reads the actual `register as NAME` bindings and exempts
+ * calls to those names alone.
+ */
+function exemptLines(text) {
+  const lines = text.split("\n");
+  const names = new Set();
+  for (const l of lines) {
+    if (!ROUTE_IMPORT.test(l)) continue;
+    for (const m of l.matchAll(/\bregister\s+as\s+(\w+)/g)) names.add(m[1]);
+  }
+  const callsOne = (l) => {
+    const m = l.match(/^\s*(\w+)\s*\(/);
+    return m ? names.has(m[1]) : false;
+  };
+  return lines.filter((l) => ROUTE_IMPORT.test(l) || callsOne(l)).length;
+}
+
 function measure(file) {
   const text = fs.readFileSync(file, "utf8");
-  return { lines: lineCount(text), routes: (blankNonCode(text).match(ROUTE_CALL) ?? []).length };
+  return {
+    lines: lineCount(text) - exemptLines(text),
+    routes: (blankNonCode(text).match(ROUTE_CALL) ?? []).length,
+  };
 }
 
 function routeFileSizes() {
