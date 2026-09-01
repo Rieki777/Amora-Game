@@ -142,6 +142,12 @@ export const NEUTRAL = {
   "project.name": ["Unnamed Village"],
   "project.memberName": ["Village member", "Member"],
   "project.adminPath": ["/admin"],
+  // Retired from KNOWN_PENDING on 2026-08-31, in the order the list was built
+  // for: the founder entered Amora's own tagline in the live Admin FIRST, so
+  // the village holds its own copy, and only then did the default become a
+  // neutral platform sentence. Doing it the other way round is what caused the
+  // outage this guard exists because of.
+  "project.tagline": ["healing the land and ourselves, together"],
   "currency.name": ["Gratitude"],
   "currency.nameLower": ["gratitude"],
   "currency.equity.symbol": ["EQUITY"],
@@ -156,11 +162,6 @@ export const NEUTRAL = {
  * has typed it into the live Admin screen.
  */
 export const KNOWN_PENDING = [
-  {
-    key: "project.tagline",
-    since: "2026-08-31",
-    why: "the live deployment renders this and holds no copy of it; the founder enters it in Admin first",
-  },
   {
     key: "project.location",
     since: "2026-08-31",
@@ -191,7 +192,7 @@ export const KNOWN_PENDING = [
  * cannot grow by accident, only by a deliberate edit that shows up in a diff
  * next to this comment.
  */
-export const PENDING_CEILING = 5;
+export const PENDING_CEILING = 4;
 
 // ── Reading the config ──────────────────────────────────────────────────────
 

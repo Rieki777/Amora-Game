@@ -223,7 +223,14 @@ export interface SeasonConfig {
 export const GAME_CONFIG: GameConfig = {
   project: {
     name: "Unnamed Village",
-    tagline: "Co-Become the Most Beautiful Village",
+    // The founder's words for what this platform is for (Rye, 2026-08-31),
+    // and a sentence that belongs to no village in particular: every project
+    // standing one of these up is doing some version of it. The string it
+    // replaced ("Co-Become the Most Beautiful Village") was one village's
+    // slogan, and it is one of the three strings the brand guard structurally
+    // cannot see, because it carries no village's name to match on. Sentence
+    // case, as he wrote it.
+    tagline: "healing the land and ourselves, together",
     memberName: "Village member",
     location: "Dominicalito, Costa Rica",
     country: "CR",
@@ -247,7 +254,50 @@ export const GAME_CONFIG: GameConfig = {
   },
 
   currency: {
+    /*
+     * "GRATITUDE" IS THE DEFAULT, AND THE FOUNDER SETTLED IT.
+     *
+     * A lane changed this to "Recognition" on 2026-08-31 and its reasoning was
+     * good: one village runs a mechanic called Gratitude, and shipping that
+     * village's word as every fork's default looked like the same mistake as
+     * shipping its tagline.
+     *
+     * It was reverted, because the premise was wrong and the premise was mine.
+     * The founder had reported that the Setup Wizard confused him about WHICH
+     * token he was renaming, and I turned that symptom report into a rename
+     * task. Asked directly, he described the model and named this one:
+     *
+     *   "the name for the token that every member gets at the beginning of
+     *    every lunar cycle and distributes that token to recognize other
+     *    people for that cycle is called gratitude and that's the default. Of
+     *    course every project can rename this on their own"
+     *
+     * So Gratitude is the platform's word for this mechanic, not one village's
+     * borrowed vocabulary, and a village that runs something else renames it in
+     * Admin then Tokens.
+     *
+     * NOT "Village Credits". That is already the name of the OTHER currency:
+     * the token gratitude.pool_token names by default (drizzle/0007), which is
+     * the pool the cycle distributes across recognition. Both names appear in
+     * one sentence on the quest board, so two names that collide make that
+     * sentence unreadable. shared/currencyDefaults.test.ts pins it shut.
+     *
+     * THE SLUG DOES NOT MOVE. "gratitude" stays this token's slug forever:
+     * every ledger row is keyed to it and a slug is history's identity. Only
+     * the display name is the village's own word.
+     *
+     * WHAT THIS DEFAULT REACHES, AND WHAT IT DOES NOT. The Setup Wizard prints
+     * it under the field as "Platform default: ...", and mergedConfig() falls
+     * back to it when nothing else holds a name. It does NOT decide what a
+     * brand-new village's members read: drizzle/0006 seeds tokens.name for
+     * this slug and the token registry WINS over both this value and the brand
+     * overlay. That was measured against a freshly migrated database, not
+     * reasoned about.
+     */
     name: "Gratitude",
+    /** Derived, not independent: mergedConfig() computes name.toLowerCase()
+     *  and reaches this stored value only when the name is empty. Held in
+     *  agreement with name by shared/currencyDefaults.test.ts. */
     nameLower: "gratitude",
     // Platform-neutral defaults. A project's real token names and symbols are
     // its own identity (Amora calls its equity token "Amora" per the

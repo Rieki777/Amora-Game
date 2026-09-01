@@ -157,8 +157,29 @@ check("REFUSES a populated key outside the pending list", () => {
 });
 
 check("REFUSES a pending entry whose key has gone clean", () => {
+  // Was project.tagline until 2026-08-31. It graduated: the founder entered
+  // Amora's own tagline in the live Admin, the default became a neutral
+  // platform sentence, and the key moved from KNOWN_PENDING into NEUTRAL.
+  // Repointed at a key that is still pending rather than deleted, because the
+  // rule it covers is still live for the four that remain.
+  const r = auditIdentity(cleanValues({ "project.location": "" }));
+  assert.deepStrictEqual(r.stale, ["project.location"]);
+});
+
+check("REFUSES emptying the tagline now that it carries a neutral default", () => {
+  // The graduation is what makes this reachable. While tagline sat in
+  // KNOWN_PENDING an empty value read as "the founder has taken it into their
+  // own record", which is the good outcome. Now that the default is a real
+  // platform sentence, emptying it removes a fallback every village renders,
+  // and that is the exact shape of the outage this guard was built after.
+  // `includes`, not `deepStrictEqual`, and the reason is worth writing down:
+  // cleanValues() builds its fixture with every key empty, so on that fixture
+  // the emptied rule legitimately names all nine NEUTRAL keys at once. What
+  // this test is for is that project.tagline is now among them, which it was
+  // not while the key sat in KNOWN_PENDING.
   const r = auditIdentity(cleanValues({ "project.tagline": "" }));
-  assert.deepStrictEqual(r.stale, ["project.tagline"]);
+  assert.ok(r.emptied.includes("project.tagline"), "an emptied neutral default must be caught");
+  assert.ok(!r.stale.includes("project.tagline"), "and it is no longer a stale pending entry");
 });
 
 check("REFUSES a key that has vanished from the config", () => {
@@ -171,13 +192,26 @@ check("REFUSES a grown pending list", () => {
   const grown = [...KNOWN_PENDING, { key: "project.memberName", since: "2026-09-01", why: "smuggled in" }];
   const r = auditIdentity(cleanValues({ "project.memberName": "Riverside folk" }), grown, PENDING_CEILING);
   assert.deepStrictEqual(r.unexpected, [], "the new entry does cover the key");
-  assert.deepStrictEqual(r.ceiling, { listed: 6, ceiling: 5 }, "and the ceiling is what refuses it");
+  // Derived from the constants, never hardcoded. This assertion said
+  // { listed: 6, ceiling: 5 } and broke the day the list legitimately shrank
+  // from five to four, which is the one thing this list is supposed to do. A
+  // test that fails when the thing it guards succeeds teaches people to edit
+  // the test without reading it.
+  assert.deepStrictEqual(
+    r.ceiling,
+    { listed: KNOWN_PENDING.length + 1, ceiling: PENDING_CEILING },
+    "and the ceiling is what refuses it",
+  );
 });
 
 check("REFUSES a shrunk list whose ceiling did not follow it down", () => {
   const shrunk = KNOWN_PENDING.slice(1);
   const values = cleanValues({ [KNOWN_PENDING[0].key]: "" });
-  assert.deepStrictEqual(auditIdentity(values, shrunk, PENDING_CEILING).ceiling, { listed: 4, ceiling: 5 });
+  // Derived, for the same reason as the assertion above it.
+  assert.deepStrictEqual(auditIdentity(values, shrunk, PENDING_CEILING).ceiling, {
+    listed: KNOWN_PENDING.length - 1,
+    ceiling: PENDING_CEILING,
+  });
 });
 
 check("ACCEPTS the shrink when the ceiling comes down with it", () => {
@@ -219,7 +253,11 @@ const FIXTURES = fs.mkdtempSync(path.join(os.tmpdir(), "identity-keys-"));
 function configSource({ project = {}, dropFavicon = false } = {}) {
   const p = {
     name: "Unnamed Village",
-    tagline: "A line the founder has not moved yet",
+    // Was "A line the founder has not moved yet", a stand-in for a key still on
+    // KNOWN_PENDING. project.tagline graduated into NEUTRAL on 2026-08-31, so a
+    // CLEAN fixture has to carry the neutral value or the guard is right to
+    // refuse it. A test that wants tagline to violate passes its own string.
+    tagline: "healing the land and ourselves, together",
     memberName: "Village member",
     location: "Somewhere the founder has not moved yet",
     country: "ZZ",
@@ -296,10 +334,27 @@ check("FIXTURE TREE: a village name in project.name exits 1", () => {
 });
 
 check("FIXTURE TREE: a cleared pending key exits 1 and asks for the bookkeeping", () => {
-  const { code, out } = runGate("cleared", configSource({ project: { tagline: "" } }));
+  // Drives whichever key is FIRST on the pending list rather than naming one.
+  // This read project.tagline until that key graduated into NEUTRAL, at which
+  // point clearing it stopped being a stale-entry case and became an emptied
+  // one, and the test failed for a reason that had nothing to do with the rule
+  // it covers.
+  const pendingKey = KNOWN_PENDING[0].key;
+  const field = pendingKey.replace(/^project\./, "");
+  const { code, out } = runGate("cleared", configSource({ project: { [field]: "" } }));
+  assert.strictEqual(code, 1);
+  assert.match(out, new RegExp(pendingKey.replace(".", "\\.")));
+  assert.match(out, new RegExp(`lower PENDING_CEILING to ${KNOWN_PENDING.length - 1}`));
+});
+
+check("FIXTURE TREE: emptying a NEUTRAL key exits 1 and names the outage", () => {
+  // The other half of the pair above, and the rule that was missing when the
+  // live village lost its identity: taking a default OUT is what caused the
+  // outage, and for a key with a declared neutral value it is now refused.
+  const { code, out } = runGate("emptied-neutral", configSource({ project: { tagline: "" } }));
   assert.strictEqual(code, 1);
   assert.match(out, /project\.tagline/);
-  assert.match(out, /lower PENDING_CEILING to 4/);
+  assert.match(out, /OUTAGE/);
 });
 
 check("FIXTURE TREE: a renamed key exits 1 rather than checking one fewer thing", () => {
