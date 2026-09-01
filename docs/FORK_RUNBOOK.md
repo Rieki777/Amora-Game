@@ -225,6 +225,13 @@ two from the admin panel and almost never touches the first.
 
 **ONE PAGE NAMES EVERY TOKEN: Admin → Tokens.** That is the whole surface.
 
+`docs/TOKENS.md` is the full account of what a fresh village holds: every
+token, who issues it, who may move it, what a mint rule pays and what
+happens at cycle close. It is generated from the migrations and the server
+source and a build step fails when it drifts, so it is the one description
+of the tokens that cannot go stale. This section is the operating
+instructions; that file is the reference.
+
 This section used to tell a founder to rename the recognition token in the
 `tokens` row, in `shared/gameConfig.ts` AND in the brand overlay. Only the
 first of those three was ever read. `mergedConfig()` (server/index.ts) computes
