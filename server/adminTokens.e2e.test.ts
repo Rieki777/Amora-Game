@@ -219,6 +219,47 @@ describe.skipIf(!DB_CONFIGURED)("the tokens tab, and what a member sees afterwar
   });
 
   /**
+   * THE SLUG FREEZES ONCE SET (Rye, 2026-08-30), AND SAYS SO.
+   *
+   * The route above only ever wrote the name column, so a `slug` in the body
+   * was already ignored. Ignored is not refused. The caller got 200 and a
+   * token still answering to the old key, which reads as "the rename worked"
+   * from every side, and the next thing they build assumes it did.
+   *
+   * The test is written from the ledger's end rather than the route's,
+   * because a 409 alone would pass even if the write had happened first: the
+   * assertion that matters is that the balance minted under the old slug is
+   * still readable under the old slug afterwards.
+   */
+  it("refuses to move a slug, and says why, while the balance stays readable", async () => {
+    const held = await call("GET", "/api/wallet", undefined, oraToken);
+    expect(held.json?.ledger?.[SLUG], "the fixture from the rename test is still here").toBe(25);
+
+    const moved = await call("PUT", `/api/admin/tokens/${SLUG}`, { slug: "qa-moved", name: "Seeds" }, founderToken);
+    expect(moved.status, `expected a refusal, got: ${moved.text.slice(0, 200)}`).toBe(409);
+    // The refusal has to carry the reason. A bare 409 teaches the operator
+    // nothing and gets retried with a different spelling.
+    expect(String(moved.json?.error)).toMatch(/never changes/i);
+    expect(String(moved.json?.error)).toMatch(/ledger row/i);
+
+    // Nothing moved: the old slug still resolves, the new one was never made.
+    const after = await call("GET", "/api/admin/tokens", undefined, founderToken);
+    const slugs = (after.json?.tokens ?? []).map((t: any) => t.slug);
+    expect(slugs).toContain(SLUG);
+    expect(slugs).not.toContain("qa-moved");
+    const wallet = await call("GET", "/api/wallet", undefined, oraToken);
+    expect(wallet.json?.ledger?.[SLUG], "the balance is still keyed where it was written").toBe(25);
+
+    // And the door the freeze leaves open is still open: a plain rename with
+    // no slug in the body works, so this guard costs the founder nothing.
+    const renamed = await call("PUT", `/api/admin/tokens/${SLUG}`, { name: "Seeds" }, founderToken);
+    expect(renamed.status, `rename: ${renamed.text.slice(0, 200)}`).toBe(200);
+    // An echo of the token's OWN slug is not an attempt to move it.
+    const echoed = await call("PUT", `/api/admin/tokens/${SLUG}`, { slug: SLUG, name: "Seeds" }, founderToken);
+    expect(echoed.status, `echo: ${echoed.text.slice(0, 200)}`).toBe(200);
+  });
+
+  /**
    * QA2-03. "The person who runs the software paid themselves and nobody had
    * to agree."
    *

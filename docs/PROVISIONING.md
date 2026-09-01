@@ -242,8 +242,8 @@ no Google button is drawn where it would not work.
 ## 7. Make it yours
 
 Log in with the password you just set, go to Admin, Make This Yours, and
-work through the wizard: your village's name, tagline, currency name, main
-site and events links; your pictures (logo, hero images); your dues and
+work through the wizard: your village's name, tagline, what a member is
+called, main site and events links; your pictures (logo, hero images); your dues and
 budgets; your page copy; your map styling. Every field left blank inherits
 the platform's own default rather than showing something wrong, so you can
 do this in one sitting or spread it over a week.

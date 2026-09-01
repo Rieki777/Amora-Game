@@ -11,6 +11,7 @@ import crypto from "crypto";
 import multer from "multer";
 import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
+import { recognitionNameCheck } from "../shared/launchRequirements";
 import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { sceneStopsFor } from "../shared/questScenes";
 import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
@@ -284,7 +285,7 @@ import { isMintRuleKey, parseMintRuleKey } from "../shared/mintRuleKeys";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
-  tokenNameClash,
+  tokenNameClash, slugFreezeRefusal,
   RECOGNITION_FAUCET,
   balanceOf,
   balancesFor,
@@ -13900,12 +13901,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           ? { state: "ok" as const, detail: `This village introduces itself as “${mergedConfig().project.name}”` }
           : { state: "missing" as const, detail: "The project name, tagline and location still come from the template" };
       },
-      "brand-token-names": () => {
-        const b = getBrand();
-        return b.currency?.name
-          ? { state: "ok" as const, detail: `Recognition is called “${b.currency.name}” here` }
-          : { state: "missing" as const, detail: "Recognition still carries the template's default name" };
-      },
+      // THE REGISTRY, never `brand.currency.name`: mergedConfig() prefers `tokens`.`name` over the brand overlay, so the old read here was red after a correct rename and green after the wizard's dead box. Rule, reasons and test: shared/launchRequirements.ts.
+      "brand-token-names": () => recognitionNameCheck(tokenDef(HEARTS)?.name, GAME_CONFIG.currency.name),
       "resend-key": () => {
         const s = allSecretStatuses().find((x) => x.key === "resend_api_key")!;
         if (!s.configured) return { state: "missing" as const, detail: "No Resend key, no email leaves this deployment" };
@@ -17228,7 +17225,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     let onchain: Record<string, any> | null = null;
     if (economicsEnabled && user.walletVerifiedAt && user.walletAddress) {
       const contracts = [
-        { slug: "amora", address: stringVar("tokens.equity_address").trim() },
+        { slug: "equity", address: stringVar("tokens.equity_address").trim() },
         { slug: "voice", address: stringVar("tokens.voice_address").trim() },
       ];
       onchain = {};
@@ -19231,9 +19228,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const slug = String(req.params.slug);
     const def = tokenDef(slug);
     if (!def) return res.status(404).json({ error: `unknown token "${slug}"` });
-    if (def.governance !== "platform") {
-      return res.status(400).json({ error: `${slug} is a read-only Hypha mirror. Its name is a fact about Base, not a setting` });
-    }
+    const frozen = slugFreezeRefusal(req.body?.slug, slug);
+    if (frozen) return res.status(409).json({ error: frozen });
+    if (def.governance !== "platform") return res.status(400).json({ error: `${slug} is a read-only Hypha mirror. Its name is a fact about Base, not a setting` });
     // Renaming an example keeps its flag, so the admin's own word for the
     // token would be deleted by the first real one they create.
     if (def.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);

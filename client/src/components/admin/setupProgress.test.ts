@@ -17,7 +17,6 @@ const ALL_TICKED = { identity: true, images: true, numbers: true, content: true,
 function emptyBrand(): BrandLike {
   return {
     project: { name: "", tagline: "", memberName: "", location: "", footerBlurb: "", siteUrl: "", eventsUrl: "", contactEmail: "" },
-    currency: { name: "", nameLower: "" },
     images: Object.fromEntries(Object.keys(GAME_CONFIG.images).map((k) => [k, ""])),
     setup: { ...ALL_TICKED },
   };
@@ -52,7 +51,7 @@ describe("measureSetup", () => {
     // The positive control for the case above: the same reader, the same
     // record shape, reporting done on a village that really did fill it in.
     const brand = filledBrand();
-    expect(row(brand, "identity")).toMatchObject({ done: true, filled: 7, total: 7, blank: [] });
+    expect(row(brand, "identity")).toMatchObject({ done: true, filled: 5, total: 5, blank: [] });
     expect(row(brand, "images")).toMatchObject({ done: true, filled: 9, total: 9, blank: [] });
     expect(setupIsComplete(brand)).toBe(true);
   });
@@ -95,7 +94,7 @@ describe("measureSetup", () => {
 
   it("reads a missing record as nothing seen rather than throwing", () => {
     for (const brand of [null, undefined, {}]) {
-      expect(row(brand, "identity")).toMatchObject({ done: false, filled: 0, total: 7 });
+      expect(row(brand, "identity")).toMatchObject({ done: false, filled: 0, total: 5 });
       expect(row(brand, "numbers").done).toBe(false);
       expect(setupIsComplete(brand)).toBe(false);
     }
@@ -118,10 +117,23 @@ describe("the step list", () => {
   });
 
   it("names identity fields the config actually carries", () => {
-    const known = { project: Object.keys(GAME_CONFIG.project), currency: Object.keys(GAME_CONFIG.currency) };
+    const known = { project: Object.keys(GAME_CONFIG.project) };
     expect(known.project).toContain("tagline");
     for (const field of SETUP_STEPS.find((s) => s.key === "identity")!.fields) {
-      expect(known[field.group as "project" | "currency"]).toContain(field.key);
+      expect(known[field.group as "project"]).toContain(field.key);
+    }
+  });
+
+  it("measures no currency field, because no box here sets one", () => {
+    // The wizard's "Recognition currency name" and "Currency, lowercase" boxes
+    // were dead: mergedConfig() reads that name from the token registry ahead
+    // of the brand document, so nothing typed there ever showed anywhere. Both
+    // boxes are gone and so is their count. A token is named under Admin then
+    // Tokens, which is not part of the brand record.
+    for (const step of SETUP_STEPS) {
+      for (const field of step.fields) {
+        expect(field.group, `${step.key}.${field.key}`).not.toBe("currency");
+      }
     }
   });
 });

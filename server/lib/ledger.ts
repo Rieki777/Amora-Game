@@ -143,6 +143,44 @@ export function tokenNameClash(name: string, exceptSlug: string): string | null 
 }
 
 /**
+ * THE SLUG FREEZES ONCE SET (Rye, 2026-08-30).
+ *
+ * Returns a refusal sentence, or null when the request is not trying to move
+ * a slug. Sits beside `tokenNameClash` because it is the same shape of thing:
+ * the one place a rule about a token's identity is written down, so the route
+ * cannot state it one way and a future caller another.
+ *
+ * WHY IT IS A REFUSAL AND NOT A NO-OP. PUT /api/admin/tokens/:slug only ever
+ * wrote the name column, so a `slug` in the body was already ignored. Ignored
+ * is not refused. The caller asked for a re-denomination, got a 200 and a
+ * token still answering to the old key, which reads as success from every
+ * side, and whatever they build next assumes it worked.
+ *
+ * WHY IT IS ONE-WAY. This schema carries no foreign keys at all (counted
+ * 2026-08-31: zero across every table), so the slug is the only thread
+ * holding a token's history together. `token_ledger.token_type`,
+ * `token_balances.token_type`, `onchain_balances.token_slug` and every
+ * idempotency key are written against it, and nothing would raise an error if
+ * it moved out from under them. Every balance would quietly read zero.
+ *
+ * 0124 moved the seeded equity token's slug once, in the window when all of
+ * those tables were provably empty. That window is what this guard closes.
+ *
+ * An ECHO of the token's own slug is not an attempt to move it: a client that
+ * PUTs the record it just read is doing the ordinary thing, and refusing that
+ * would make the guard something callers work around rather than obey.
+ */
+export function slugFreezeRefusal(asked: unknown, currentSlug: string): string | null {
+  if (asked === undefined || asked === null) return null;
+  if (String(asked) === currentSlug) return null;
+  return (
+    `A token's slug never changes. "${currentSlug}" is what every ledger row, balance and ` +
+    `idempotency key for this token is written against, and moving it would orphan all of them ` +
+    `without raising a single error. Change the display name instead: every surface follows it`
+  );
+}
+
+/**
  * Create or update a token (S9 admin surface; module layer later). Writes the
  * table first, then refreshes the registry — the table is the truth.
  */
@@ -156,6 +194,17 @@ export async function registerToken(
 ): Promise<void> {
   await pool.query(
     "INSERT INTO tokens (slug, name, kind, governance, transferable, decimals, active) VALUES (?,?,?,?,?,?,?) " +
+      // The slug is the KEY of this upsert, which is what makes it the one
+      // column here that cannot move: a `def.slug` nobody has used before
+      // inserts a NEW token, and a slug that exists updates that token in
+      // place. There is deliberately no path through this function, or any
+      // other, that re-denominates an existing one. Every ledger row, balance
+      // row and idempotency key is written against the slug and this schema
+      // carries no foreign keys, so a moved slug orphans a token's whole
+      // history in silence. PUT /api/admin/tokens/:slug refuses the attempt
+      // out loud; 0124 did it once, in the one window when every one of those
+      // tables was provably empty.
+      //
       // decimals is deliberately ABSENT from this list. Re-registering a token
       // at boot must not silently rescale one that already holds a balance:
       // changing the scale under existing rows multiplies or divides everyone's

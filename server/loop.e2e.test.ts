@@ -1163,7 +1163,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const list = await api("GET", "/api/admin/tokens", undefined, founderToken);
     expect(list.status).toBe(200);
     expect(list.json.tokens.map((t: any) => t.slug)).toEqual(
-      expect.arrayContaining(["gratitude", "amora", "voice", "credits"]),
+      expect.arrayContaining(["gratitude", "equity", "voice", "credits"]),
     );
     // Recognition issuance is visible per faucet channel.
     const gratitude = list.json.tokens.find((t: any) => t.slug === "gratitude");
@@ -1195,7 +1195,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // Guards, in order: hypha refusal, missing reason, then the cap as an
     // AGGREGATE — two mints that individually fit but jointly exceed it are
     // refused on the second call.
-    const hypha = await api("POST", "/api/admin/tokens/amora/mint", { toUserId: peerId, amount: 5, reason: "nope" }, founderToken);
+    const hypha = await api("POST", "/api/admin/tokens/equity/mint", { toUserId: peerId, amount: 5, reason: "nope" }, founderToken);
     expect(hypha.status).toBe(400);
     const noReason = await api("POST", "/api/admin/tokens/stay-credits/mint", { toUserId: peerId, amount: 5 }, founderToken);
     expect(noReason.status).toBe(400);
@@ -1290,7 +1290,42 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const poolRow = rec.json.systemAccounts.find(
       (s: any) => s.id === "sys:cycle-pool" && s.tokenType === "credits",
     );
-    expect(poolRow?.issuedToDate).toBe(1000);
+
+    /*
+     * CREDITS COME FROM TWO PLACES NOW, so this asserts the COMPOSITION and
+     * never a magic total.
+     *
+     * It used to read `toBe(1000)`, the whole cycle pool and nothing else,
+     * because the cycle pool was the only thing that had ever issued a Village
+     * Credit. Since 0125 a confirmed quest pays 25 Village Credits alongside
+     * its Village Voice, so this suite's consents issue some too and the
+     * faucet's negative balance is larger by exactly that much.
+     *
+     * Bumping the number to 1050 would have been the wrong repair: 1050 is a
+     * figure nobody reading this file could check, and the next lane to change
+     * a payout would bump it again without ever learning what it was made of.
+     * The per-source feed tells the two apart, so the assertion below says
+     * where every credit came from and that nothing else issued any.
+     */
+    const econ = await api("GET", "/api/admin/economy", undefined, founderToken);
+    expect(econ.status).toBe(200);
+    const credits: Record<string, number> = Object.fromEntries(
+      econ.json.supply
+        .filter((s: any) => s.token === "credits")
+        .map((s: any) => [String(s.source), Number(s.issued)]),
+    );
+    // The cycle pool released the whole default pool at close, as asserted
+    // above in the settlement case.
+    expect(credits.gratitude_pool).toBe(1000);
+    // Two confirmed contributions past the economy epoch, at the seeded 25.
+    // If a rule change ever stops quests paying credits, this is what says so.
+    expect(credits.quest_consent).toBe(50);
+    // And nothing else issued a credit: the total over the faucet equals the
+    // two sources named, so a third channel appearing fails here.
+    expect(poolRow?.issuedToDate).toBe(
+      Object.values(credits).reduce((n, v) => n + v, 0),
+    );
+    expect(poolRow?.issuedToDate).toBe(1050);
   });
 
   it("S13: modules ship OFF, lifecycle guards hold, and preview never leaks", async () => {
@@ -2495,7 +2530,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const recRefused = await api("PUT", "/api/admin/exchange/tokens/gratitude", { purchasable: true }, founderToken);
     expect(recRefused.status).toBe(409);
     expect(String(recRefused.json.error)).toContain("recognition");
-    const hyphaRefused = await api("PUT", "/api/admin/exchange/tokens/amora", { purchasable: true }, founderToken);
+    const hyphaRefused = await api("PUT", "/api/admin/exchange/tokens/equity", { purchasable: true }, founderToken);
     expect(hyphaRefused.status).toBe(409);
     expect(String(hyphaRefused.json.error)).toContain("Hypha");
     const secondSeller = await api("PUT", "/api/admin/exchange/tokens/stay-credit", { purchasable: true }, founderToken);
@@ -2931,10 +2966,10 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
       // FIXED POINT: 5e17 raw at decimals()=18 renders "0.5" — never 0.
       const fresh = await api("GET", "/api/wallet", undefined, peerToken);
-      expect(fresh.json.onchain.amora.formatted).toBe("0.5");
-      expect(fresh.json.onchain.amora.raw).toBe("500000000000000000");
-      expect(fresh.json.onchain.amora.decimals).toBe(18);
-      expect(fresh.json.onchain.amora.stale).toBe(false);
+      expect(fresh.json.onchain.equity.formatted).toBe("0.5");
+      expect(fresh.json.onchain.equity.raw).toBe("500000000000000000");
+      expect(fresh.json.onchain.equity.decimals).toBe(18);
+      expect(fresh.json.onchain.equity.stale).toBe(false);
       expect(fresh.json.onchain.voice).toBeNull(); // no voice address posted
       expect(rpcCalls).toBeGreaterThan(0);
 
@@ -2943,15 +2978,15 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       // when it was true — never zero, and nothing new is written.
       rpcDown = true;
       await testDb.conn.query(
-        "UPDATE onchain_balances SET fetched_at = (NOW() - INTERVAL 10 MINUTE) WHERE user_id = ? AND token_slug = 'amora'",
+        "UPDATE onchain_balances SET fetched_at = (NOW() - INTERVAL 10 MINUTE) WHERE user_id = ? AND token_slug = 'equity'",
         [peerId],
       );
       const staleRead = await api("GET", "/api/wallet", undefined, peerToken);
-      expect(staleRead.json.onchain.amora.formatted).toBe("0.5");
-      expect(staleRead.json.onchain.amora.stale).toBe(true);
-      expect(new Date(staleRead.json.onchain.amora.fetchedAt).getTime()).toBeLessThan(Date.now() - 5 * 60 * 1000);
+      expect(staleRead.json.onchain.equity.formatted).toBe("0.5");
+      expect(staleRead.json.onchain.equity.stale).toBe(true);
+      expect(new Date(staleRead.json.onchain.equity.fetchedAt).getTime()).toBeLessThan(Date.now() - 5 * 60 * 1000);
       const [[cacheRow]] = await testDb.conn.query<any[]>(
-        "SELECT raw_balance FROM onchain_balances WHERE user_id = ? AND token_slug = 'amora'", [peerId],
+        "SELECT raw_balance FROM onchain_balances WHERE user_id = ? AND token_slug = 'equity'", [peerId],
       );
       expect(String(cacheRow.raw_balance)).toBe("500000000000000000"); // no zero was ever written
 

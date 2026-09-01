@@ -24,7 +24,7 @@ const headers = (): Record<string, string> => {
  * first tenant's token names in platform code, which is the debt the
  * white-label ratchet exists to shrink.
  */
-const TOKEN_ROLE: Record<string, string> = { amora: "Equity", voice: "Governance" };
+const TOKEN_ROLE: Record<string, string> = { equity: "Equity", voice: "Governance" };
 
 /**
  * One village-level figure, with the null-never-zero rule carried all the way
@@ -152,7 +152,7 @@ export default function OnchainCard() {
         </p>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
-          {["amora", "voice"].map((slug) => {
+          {["equity", "voice"].map((slug) => {
             const b = data?.onchain?.[slug];
             const chain = chainToken(slug);
             return (
@@ -172,7 +172,7 @@ export default function OnchainCard() {
                   </>
                 ) : (
                   <p className="text-sm text-gray-400">
-                    {slug === "amora" || slug === "voice" ? "not readable right now. Nothing is shown instead of a wrong number" : ""}
+                    {slug === "equity" || slug === "voice" ? "not readable right now. Nothing is shown instead of a wrong number" : ""}
                   </p>
                 )}
               </div>

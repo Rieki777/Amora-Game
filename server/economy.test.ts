@@ -20,7 +20,11 @@ import {
   checkGive,
   clampToCeiling,
   claimRefunds,
+  CREDITS,
   economyEpoch,
+  faucetFor,
+  publicSupply,
+  ruleCannotPay,
   economyReady,
   ensureVoiceToken,
   forgetEpoch,
@@ -42,7 +46,7 @@ import {
   villageId,
   type MintRule,
 } from "./lib/economy";
-import { balanceOf, loadTokenRegistry, memberAccount, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
+import { balanceOf, CYCLE_POOL_FAUCET, loadTokenRegistry, memberAccount, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
 import { loadVariables } from "./lib/variables";
 import { cycleBoundsFor } from "../shared/lunar";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
@@ -61,6 +65,14 @@ let pool: mysql.Pool;
  * every registered member is at minimum.
  */
 const AT_GUEST = async () => 1;
+
+/**
+ * The Hypha-governed voice mirror seeded by 0006, used here as the stand-in
+ * for "a token this platform is forbidden to issue". The equity token is the
+ * other one and would say the same thing, but it is a brand name and platform
+ * code may not carry one (scripts/check-brand-refs.mjs).
+ */
+const HYPHA_MIRROR = "voice";
 
 /** A member with a ledger account, which `give` needs to lock. */
 async function makeMember(id: string): Promise<string> {
@@ -490,6 +502,163 @@ describe.skipIf(!configured)("the village economy engine", () => {
       expect(out.skipped).toMatch(/epoch/);
       expect(out.minted).toHaveLength(0);
       expect(await balanceOf(pool, memberAccount(u), VILLAGE_VOICE)).toBe(0);
+    });
+  });
+
+  // ── A rule that cannot pay says so ───────────────────────────────────────
+  //
+  // Measured on this build before the fix: a `quest.completed` rule on
+  // `credits`, enabled, in force, after the epoch, returned `{ minted: [] }`
+  // with no `skipped` reason and left the member's balance at 0. Nothing threw
+  // and nothing logged. The Mint panel went on listing the rule as enabled and
+  // `publicRules` went on publishing it as "25 Village Credits when a steward
+  // confirms finished work". `faucetFor` returned null for `credits` and both
+  // mint paths did `if (!faucet) continue`.
+  //
+  // Two separate defects, so two separate groups of tests: the engine could not
+  // mint the token, and the engine did not say that it could not.
+
+  describe("paying in village credits", () => {
+    beforeAll(async () => {
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+          "VALUES ('rule-credits-test', ?, 'quest.completed', ?, 25, 250, 'claimant', 1) " +
+          "ON DUPLICATE KEY UPDATE `enabled` = 1, `amount` = 25",
+        [villageId(), CREDITS],
+      );
+    });
+
+    it("issues credits from the cycle pool, which is where credits come from", () => {
+      // Not sys:mint. That faucet's negative balance is each MODULE voucher's
+      // outstanding supply; the cycle pool's is credits released to date, and
+      // a quest releasing credits is a release. One counter, one answer to
+      // "how many credits exist".
+      expect(faucetFor(CREDITS)).toBe(CYCLE_POOL_FAUCET);
+    });
+
+    it("actually pays a member the credits the rule promises", async () => {
+      const u = await makeMember("econ-credits-1");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-credits-1", questId: "q-credits", userId: u, confirmedAt: new Date(),
+      });
+      expect(out.minted.map((m) => m.token)).toContain(CREDITS);
+      // The assertion that would have caught the original defect. Whole units:
+      // `credits` carries decimals 0, so 25 in the rule is 25 in the ledger.
+      expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(25);
+    });
+
+    it("counts what it issued against the cycle pool, not against nothing", async () => {
+      // Conservation is the invariant every other surface is built on. A mint
+      // that credited a member without debiting a faucet would still balance
+      // only if it never happened at all, which is exactly the bug.
+      const issued = await balanceOf(pool, CYCLE_POOL_FAUCET, CREDITS);
+      expect(issued).toBeLessThan(0);
+    });
+
+    it("shows the credits it issued on the public supply feed", async () => {
+      // `sys:cycle-pool` was missing from this feed's faucet list, so a village
+      // publishing its books showed every token except the one members spend.
+      const supply = await publicSupply(pool);
+      expect(supply.tokens.map((t) => t.token)).toContain("Village Credits");
+    });
+  });
+
+  describe("a rule the engine cannot honour", () => {
+    it("names the reason rather than skipping in silence", async () => {
+      // `voice` is the read-only Hypha mirror seeded by 0006. A village that
+      // points a rule at a Hypha-governed token is asking this platform to
+      // become the source of truth for something that lives on Base, which it
+      // must refuse. Refusing is correct; refusing without saying so is the
+      // defect. (The equity token is the other one of these, and is not named
+      // here because it is a brand name and platform code may not carry one.)
+      const problem = ruleCannotPay(HYPHA_MIRROR);
+      expect(problem).toBeTruthy();
+      expect(problem).toMatch(/Hypha/);
+      // And a token that is not in the registry at all.
+      expect(ruleCannotPay("no-such-token")).toMatch(/no token called/);
+      // The tokens a village actually pays in are all payable.
+      expect(ruleCannotPay(CREDITS)).toBeNull();
+      expect(ruleCannotPay(VILLAGE_VOICE)).toBeNull();
+      expect(ruleCannotPay(HEARTS)).toBeNull();
+    });
+
+    it("reports an unpayable quest rule to the caller", async () => {
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+          "VALUES ('rule-unpayable-test', ?, 'quest.completed', ?, 5, 50, 'claimant', 1) " +
+          "ON DUPLICATE KEY UPDATE `enabled` = 1",
+        [villageId(), HYPHA_MIRROR],
+      );
+      const u = await makeMember("econ-unpayable-1");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-unpayable-1", questId: "q-unpayable", userId: u, confirmedAt: new Date(),
+      });
+      // The whole point: the caller now HAS something to log. Before this the
+      // consent route had no way to know one of the village's rules had just
+      // paid nobody.
+      expect(out.unpayable.map((x) => x.token)).toContain(HYPHA_MIRROR);
+      expect(await balanceOf(pool, memberAccount(u), HYPHA_MIRROR)).toBe(0);
+      // And the rules that CAN pay are unaffected: one bad rule must not stop
+      // a member being paid what the others promise.
+      expect(out.minted.map((m) => m.token)).toContain(VILLAGE_VOICE);
+    });
+
+    it("names a quest rule that reads its amount from work that posts none", async () => {
+      // `amount: null` means "read it from whatever posted the work", and
+      // `queueRuleChange` accepts it on any rule. The only amount a quest
+      // posts is its Gratitude range, which the consent route already spends,
+      // so a from_source rule on a second token can never resolve an amount on
+      // any quest, ever. It used to fall through `if (human <= 0) continue`.
+      // A token of its own. `mint_rules` is UNIQUE on
+      // (village_id, trigger, token_slug), so reusing `credits` here would not
+      // add a rule at all: it would silently rewrite the credits rule the
+      // block above proved, and this test would then pass by mutating its
+      // neighbour rather than by testing anything.
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+          "VALUES ('rule-fromsource-test', ?, 'quest.completed', 'stay-credit', NULL, 50, 'claimant', 1) " +
+          "ON DUPLICATE KEY UPDATE `enabled` = 1, `amount` = NULL",
+        [villageId()],
+      );
+      const u = await makeMember("econ-fromsource-1");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-fromsource-1", questId: "q-fromsource", userId: u, confirmedAt: new Date(),
+      });
+      const said = out.unpayable.find((x) => x.token === "stay-credit");
+      expect(said?.reason).toMatch(/reads its amount/);
+      // The credits rule beside it is untouched and still pays.
+      expect(out.minted.map((m) => m.token)).toContain(CREDITS);
+      // Clear it again: the rules table is shared by the tests below.
+      await pool.query("DELETE FROM `mint_rules` WHERE `id` = 'rule-fromsource-test'");
+    });
+
+    it("stays quiet about a rule a village deliberately set to zero", async () => {
+      // Zero is a decision, and shouting about it on every consent would bury
+      // the rules that are genuinely broken.
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+          "VALUES ('rule-zero-test', ?, 'quest.completed', 'library-credit', 0, 50, 'claimant', 1) " +
+          "ON DUPLICATE KEY UPDATE `enabled` = 1, `amount` = 0",
+        [villageId()],
+      );
+      const u = await makeMember("econ-zero-1");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-zero-1", questId: "q-zero", userId: u, confirmedAt: new Date(),
+      });
+      expect(out.unpayable.map((x) => x.token)).not.toContain("library-credit");
+      await pool.query("DELETE FROM `mint_rules` WHERE `id` = 'rule-zero-test'");
+    });
+
+    it("keeps an unpayable rule out of the settlement forecast", async () => {
+      // This used to multiply every enabled rule by the seat count, unpayable
+      // ones included, and print the total as what next moon would pay.
+      const view = await mintView(pool);
+      const bad = view.rules.find((r) => r.id === "rule-unpayable-test");
+      expect(bad?.problem).toMatch(/Hypha/);
+      expect(view.settlementPreview.mints.map((m) => m.token)).not.toContain(HYPHA_MIRROR);
+      // A rule that works carries no problem, so the panel can tell them apart.
+      const good = view.rules.find((r) => r.id === "rule-credits-test");
+      expect(good?.problem).toBeNull();
     });
   });
 
