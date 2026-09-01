@@ -480,6 +480,32 @@ jobs:
         # is a ratchet that reports green either way.
         run: node scripts/check-identity-keys.test.mjs
 
+      - name: Token doc
+        # docs/TOKENS.md is GENERATED from the migrations and the server
+        # source, and this is the step that makes it worth reading. It
+        # regenerates the document and fails when the committed text and the
+        # code have come apart, which happens whenever somebody changes a
+        # token, a faucet, a sending rule or a seeded mint rule and does not
+        # run the generator.
+        #
+        # A generated document with no guard behind it is a hand-written
+        # document with extra steps: correct the day it lands and quietly wrong
+        # a month later, which is what happened to the three places
+        # FORK_RUNBOOK told a founder to rename their token.
+        #
+        # Dependency-free, no database. The deeper proof (that the generator's
+        # SQL reader agrees with a real MySQL, and that its wording agrees with
+        # the functions it describes) is server/db/tokenDoc.test.ts, in the
+        # suite below.
+        run: node scripts/check-token-doc.mjs
+
+      - name: Token doc, self-test
+        # The generator's own fixture suite: the UPDATE sweep it exists to
+        # catch, the statement shapes it must refuse rather than skip, and the
+        # two escape-hatch directives. A reader nobody has proven can refuse is
+        # a reader that reports green either way.
+        run: node scripts/generate-token-doc.test.mjs
+
       - name: Server index size
         # The monolith ratchet: server/index.ts may only ever shrink, in lines
         # AND in route registrations, and no file under server/routes/ may pass

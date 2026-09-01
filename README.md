@@ -23,6 +23,14 @@ environment variable, seed, provisioning step and operational trap this
 platform has, in the order they were learned. `docs/PROVISIONING.md` is
 distilled from it; this is where the full reasoning lives.
 
+## Understanding the tokens
+
+Read **`docs/TOKENS.md`**. It names every token a village issues, what each one
+means in one sentence, who may issue it, who may move it, and what happens to
+it when a moon closes. It is generated from the migrations and the server
+source, and a build step fails when it and the code have come apart, so it is
+safe to trust rather than a snapshot of what was true once.
+
 ## Building or changing the platform
 
 Start with **`CLAUDE.md`** at the repository root, then

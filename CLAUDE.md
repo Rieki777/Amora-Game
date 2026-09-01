@@ -36,6 +36,7 @@ node scripts/check-repo-payloads.mjs   # every repo insert names the columns its
 node scripts/check-mirror-annotations.mjs  # a hand-kept map of server values is keyed by the union
 node scripts/check-upload-strip.mjs    # nothing reaches the uploads volume without the strip
 node scripts/check-doc-links.mjs       # every path the builder docs name resolves on disk
+node scripts/check-token-doc.mjs       # docs/TOKENS.md is GENERATED; regenerate with generate-token-doc.mjs
 node scripts/check-route-reachability.mjs  # two ways in to every route (--table prints the doors)
 node scripts/check-map-routes.mjs      # the living map's SITE_PAGES allowlist still matches the router
 node scripts/check-migration-numbers.mjs   # no two migrations share a number; 9000+ is the village band
