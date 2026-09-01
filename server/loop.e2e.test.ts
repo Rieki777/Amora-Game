@@ -1279,7 +1279,42 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const poolRow = rec.json.systemAccounts.find(
       (s: any) => s.id === "sys:cycle-pool" && s.tokenType === "credits",
     );
-    expect(poolRow?.issuedToDate).toBe(1000);
+
+    /*
+     * CREDITS COME FROM TWO PLACES NOW, so this asserts the COMPOSITION and
+     * never a magic total.
+     *
+     * It used to read `toBe(1000)`, the whole cycle pool and nothing else,
+     * because the cycle pool was the only thing that had ever issued a Village
+     * Credit. Since 0125 a confirmed quest pays 25 Village Credits alongside
+     * its Village Voice, so this suite's consents issue some too and the
+     * faucet's negative balance is larger by exactly that much.
+     *
+     * Bumping the number to 1050 would have been the wrong repair: 1050 is a
+     * figure nobody reading this file could check, and the next lane to change
+     * a payout would bump it again without ever learning what it was made of.
+     * The per-source feed tells the two apart, so the assertion below says
+     * where every credit came from and that nothing else issued any.
+     */
+    const econ = await api("GET", "/api/admin/economy", undefined, founderToken);
+    expect(econ.status).toBe(200);
+    const credits: Record<string, number> = Object.fromEntries(
+      econ.json.supply
+        .filter((s: any) => s.token === "credits")
+        .map((s: any) => [String(s.source), Number(s.issued)]),
+    );
+    // The cycle pool released the whole default pool at close, as asserted
+    // above in the settlement case.
+    expect(credits.gratitude_pool).toBe(1000);
+    // Two confirmed contributions past the economy epoch, at the seeded 25.
+    // If a rule change ever stops quests paying credits, this is what says so.
+    expect(credits.quest_consent).toBe(50);
+    // And nothing else issued a credit: the total over the faucet equals the
+    // two sources named, so a third channel appearing fails here.
+    expect(poolRow?.issuedToDate).toBe(
+      Object.values(credits).reduce((n, v) => n + v, 0),
+    );
+    expect(poolRow?.issuedToDate).toBe(1050);
   });
 
   it("S13: modules ship OFF, lifecycle guards hold, and preview never leaks", async () => {
