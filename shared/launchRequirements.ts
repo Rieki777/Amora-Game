@@ -74,6 +74,38 @@ export interface LaunchRequirement {
   runbookAnchor?: string;
 }
 
+/**
+ * WHETHER THE RECOGNITION TOKEN CARRIES THIS VILLAGE'S OWN WORD.
+ *
+ * The `brand-token-names` resolver, as a pure function, here rather than in
+ * server/index.ts for two reasons. It is testable without a pool, and that file
+ * is on a ratchet that only ever turns down.
+ *
+ * READS THE REGISTRY NAME, never `brand.currency.name`. `mergedConfig()`
+ * computes `pick(registryName, pick(brandName, configName))` for this name, so
+ * the registry beats the brand overlay every time. The old resolver read the
+ * overlay, which made it wrong in both directions at once: a founder who
+ * renamed correctly under Admin then Tokens left this item red forever, and a
+ * founder who typed into the Setup Wizard's "Recognition currency name" box
+ * turned it green while changing nothing anybody could read. Both of those
+ * boxes have been removed and the wizard links to Admin then Tokens instead.
+ *
+ * Compared against the platform default rather than against emptiness: the
+ * registry row always carries a name, so "is it named" was never the question.
+ * "Has this village chosen its own word" is.
+ */
+export function recognitionNameCheck(
+  registryName: string | undefined | null,
+  platformDefault: string,
+): { state: "ok" | "missing"; detail: string } {
+  const n = String(registryName ?? "").trim();
+  if (!n) return { state: "missing", detail: "The recognition token has no name in this village's registry" };
+  if (n.toLowerCase() === String(platformDefault).trim().toLowerCase()) {
+    return { state: "missing", detail: `Recognition still carries the platform's own word, “${n}”` };
+  }
+  return { state: "ok", detail: `Recognition is called “${n}” here` };
+}
+
 /** The platform's own requirements. Listings add theirs below, from the registry. */
 const PLATFORM_REQUIREMENTS: LaunchRequirement[] = [
   // ── Identity: the shared-password exit is the platform's oldest debt ──────
@@ -113,12 +145,19 @@ const PLATFORM_REQUIREMENTS: LaunchRequirement[] = [
   {
     id: "brand-token-names",
     group: "brand",
-    title: "Name your recognition currency",
-    why: "Members earn this every day; it should carry your village's own word, not the default.",
+    title: "Name your recognition token",
+    /*
+     * POINTS AT THE TOKEN REGISTRY, and it always should have. This row used
+     * to send a founder to the Setup Wizard's "Recognition currency name" box,
+     * which the registry overrode every time, so the one link on the checklist
+     * led to the one field that could not change the answer. Both the check
+     * (server/index.ts) and this link now name the same surface.
+     */
+    why: "Members earn this every day, so it carries whatever word your village uses for appreciation. Every token this village runs is named on the same page.",
     severity: "recommended",
     checkKey: "brand-token-names",
-    fixAt: "/admin?tab=setup",
-    fixLabel: "Open Project Settings",
+    fixAt: "/admin?tab=tokens",
+    fixLabel: "Open Tokens",
   },
 
   // ── Integrations: keys, each honest about what stops without it ──────────

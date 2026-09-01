@@ -62,7 +62,7 @@ export type SetupStepKey =
 
 /** A field of the brand record, named the way the wizard labels it. */
 export interface SetupField {
-  group: "project" | "currency" | "images";
+  group: "project" | "images";
   key: string;
   label: string;
 }
@@ -84,8 +84,19 @@ export const SETUP_STEPS: readonly SetupStep[] = [
       { group: "project", key: "memberName", label: "What a member is called" },
       { group: "project", key: "location", label: "Location" },
       { group: "project", key: "footerBlurb", label: "Footer introduction" },
-      { group: "currency", key: "name", label: "Recognition currency name" },
-      { group: "currency", key: "nameLower", label: "Currency, lowercase" },
+      /*
+       * THE TWO CURRENCY FIELDS ARE GONE FROM THIS COUNT because the boxes
+       * they measured are gone from the wizard, and those boxes were dead
+       * before they were removed: `mergedConfig()` takes the recognition
+       * currency's name from the token registry ahead of the brand document,
+       * so nothing a founder typed there was ever displayed anywhere.
+       *
+       * Leaving them counted here would have been the worse half of the bug:
+       * two fields nobody can fill, so Identity never finishes and the village
+       * reads as half set up forever. A token's name is set under Admin then
+       * Tokens, which is not part of the brand record and so is not this
+       * file's to measure.
+       */
     ],
   },
   {
@@ -113,9 +124,11 @@ export const SETUP_STEPS: readonly SetupStep[] = [
  *  because the wizard holds it as `any` and every field is optional. */
 export interface BrandLike {
   project?: Record<string, unknown> | null;
-  currency?: Record<string, unknown> | null;
   images?: Record<string, unknown> | null;
   setup?: Record<string, unknown> | null;
+  /* `currency` is still IN the stored document and is deliberately not here.
+     Nothing measures it any more, and a key on this interface is a key some
+     future step could start counting again. */
 }
 
 export interface SetupRow {

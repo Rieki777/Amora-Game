@@ -126,11 +126,13 @@ above the size of a gathering, not to the size of one person's usage.
   with `POST /api/admin/modules/:id/examples/clear`; prove inertness with
   `node scripts/check-examples.mjs`. See `docs/STANDING_EXAMPLES.md`.
 - `tokens` table rows (a fresh village seeds gratitude/equity/voice/credits,
-  and stay-credit, library-credit and village-voice arrive at first boot) — a
-  fork renames its recognition token here + in `shared/gameConfig.ts` + brand
-  overlay. Rename the NAME only: the slug is what every ledger row and balance
-  is written against, and 0124 closed that door for good. Admin, The Game,
-  Tokens is the surface; the API refuses a slug edit and says why.
+  and stay-credit, library-credit and village-voice arrive at first boot) - a
+  fork renames its recognition token HERE AND NOWHERE ELSE, through Admin,
+  The Game, Tokens. The registry is the single source of truth for a token's
+  display name (`mergedConfig()` reads `tokens`.`name` ahead of both the brand
+  overlay and `shared/gameConfig.ts`). Rename the NAME only: the slug is what
+  every ledger row and balance is written against, so the API refuses a slug
+  edit and says why.
 - `data/brand.json` via the admin Setup Wizard ("Make This Yours") — identity,
   images (uploaded, sharp-compressed), dues, personas.
 - Game variables: only CHANGED values are stored; platform defaults inherit.
@@ -147,8 +149,8 @@ two from the admin panel and almost never touches the first.
   Setup Wizard — "Make This Yours") is merged OVER `gameConfig.ts` by
   `mergedConfig()` and served at `/api/game/config`. A blank field inherits
   the platform default, so a fork overrides only what differs.
-- **Wizard order:** Identity (project + village name, tagline, currency
-  name, main-site / events URLs, footer introduction) → Pictures (uploaded,
+- **Wizard order:** Identity (project + village name, tagline, what a member
+  is called, main-site / events URLs, footer introduction) → Pictures (uploaded,
   sharp-compressed, never hotlinked — including the header logo, footer mark
   and browser tab icon, all live with no deploy) → Numbers (dues, budgets —
   these write game variables) → Content (page copy, FAQs) → Map & styling →
@@ -221,25 +223,49 @@ two from the admin panel and almost never touches the first.
 
 ## Token naming (Gate D)
 
-Three layers, all admin-owned:
+**ONE PAGE NAMES EVERY TOKEN: Admin → Tokens.** That is the whole surface.
+
+This section used to tell a founder to rename the recognition token in the
+`tokens` row, in `shared/gameConfig.ts` AND in the brand overlay. Only the
+first of those three was ever read. `mergedConfig()` (server/index.ts) computes
+`pick(registryName, pick(brandName, configName))`, so the registry beats the
+brand overlay, which beats the compiled default. The Setup Wizard's
+"Recognition currency name" and "Currency, lowercase" boxes wrote the middle
+layer and could never win; both boxes have been removed and the wizard now
+links here instead. The launch checklist read the same dead field, so a
+founder who renamed correctly stayed red forever and a founder who typed in the
+dead box went green while changing nothing. It reads the registry now.
+
+Three kinds of token, one naming surface:
 
 1. **The recognition token** (the village's own word for appreciation):
-   rename in the `tokens` table row, in `shared/gameConfig.ts`, and in the
-   brand overlay — all three, or the UI and the ledger disagree.
-   The recognition token is a SIGNAL with no financial value — the public
-   pages say so; keep any renamed copy honest about that.
-1b. **The value token** (whatever token `gratitude.pool_token` names —
-   `credits` by default): rename it once via Admin → Tokens → rename, and
-   every surface follows — wallet, exchange, and the public pages, which
-   read the name from `/api/game/config` (`currency.value`). This is the
-   token the cycle pool distributes across recognition, and the one the
-   "converts to cash or equity as the village matures" promise attaches to.
+   rename it in Admin → Tokens → rename. Every member-facing surface follows,
+   because they all read `/api/game/config`, which reads the registry. The
+   recognition token is a SIGNAL with no financial value; the public pages say
+   so, and any renamed copy has to stay honest about that.
+1b. **The value token** (whatever token `gratitude.pool_token` names,
+   `credits` by default): the same rename, on the same page. Wallet, exchange
+   and the public pages follow, reading the name from `/api/game/config`
+   (`currency.value`). This is the token the cycle pool distributes across
+   recognition, and the one the "converts to cash or equity as the village
+   matures" promise attaches to.
 2. **Per-module tokens, named at enable time (Gate D):** each funds-bearing
    module's token is created through Admin → Tokens with a name the village
    chooses (stay credits, library credits, whatever the village calls
    them). There is no shared platform credit token — one seller per token
    is boot-asserted, and the exchange refuses to list a token another
    module already sells.
+
+**A SLUG IS NEVER RENAMED.** `slug` is the primary key of `tokens` and every
+repeat-protection key in the ledger carries it, so a rename touches the display
+name column and nothing else. Admin → Tokens states this on each row. A
+renamed token cannot mint and cannot re-denominate history.
+
+**A module's token is listed while its module is on.** Switch the module off
+and its token leaves the Tokens page, and every balance stays exactly where it
+is. A token somebody already holds keeps its row on that page even with its
+module off, saying so, because a steward has to be able to answer for a
+balance.
 
 Verify after naming: the boot log prints `[ledger] invariants hold`; the
 cycle pool refuses to pay the recognition token (a fail-loud 400 if

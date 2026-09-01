@@ -1,5 +1,5 @@
 {
-  "totalLiterals": 1262,
+  "totalLiterals": 1261,
   "files": {
     "client/src/components/EventsAdminPanel.tsx": 64,
     "client/src/components/IdentityPackPanel.tsx": 9,
@@ -20,9 +20,10 @@
     "client/src/components/admin/ModuleConfigPanels.tsx": 32,
     "client/src/components/admin/RelationsEditor.tsx": 14,
     "client/src/components/admin/SetupSection.tsx": 3,
+    "client/src/components/admin/TokensTab.tsx": 24,
     "client/src/components/admin/VotingWeightsPanel.tsx": 35,
     "client/src/components/modules/GoLiveCard.tsx": 4,
-    "client/src/pages/Admin.tsx": 814,
+    "client/src/pages/Admin.tsx": 789,
     "client/src/pages/Characters.tsx": 12,
     "client/src/pages/Forum.tsx": 2,
     "client/src/pages/Library.tsx": 1,
