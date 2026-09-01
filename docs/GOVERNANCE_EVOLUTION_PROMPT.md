@@ -235,13 +235,31 @@ obviously right:
 - **Who inherits when there are several founders?** He wrote "founder(s)". Does each get a seat, and
   does approving need one of them or all?
 
-### What the veto needs, by his own principle
+### The veto carries a reason. Settled.
 
-He established the same day, about weight concentration, that **transparency is the protection**. A
-veto should therefore be RECORDED, VISIBLE, and carry a REASON, the way weight changes already are.
-He did not say this in these words; it is the direct consequence of the rule he did state, and the
-alternative is a proposal the village passed dying without anybody being told why. Confirm it, but
-build toward it.
+> "Yes a steward veto absolutely should carry a reason"
+
+So a refusal is a first-class act with a name, a reason, and a record, the way weight changes
+already are. Build it that way rather than as a proposal that quietly never executes. The
+alternative is a proposal the village passed dying without anybody being told why, which is the same
+family as every other defect this codebase has spent a week removing.
+
+**One consequence to put to him, because two of his rulings meet here.** Voter identity defaults to
+SECRET. A veto carries a reason and is visible. Is the vetoing steward NAMED? A secret veto with a
+public reason is a strange object, and the argument runs both ways: naming them is consistent with
+"transparency is the protection", and not naming them protects a steward from pressure for making
+exactly the unpopular call the role exists to make. This is question 4 in section 9.
+
+### Governance week already has a sibling in the codebase
+
+`shared/gameVariables.ts:202` describes a claims window that opens once each season, and its own copy
+says: *"Worth lining the window up so it CLOSES just before your governance actually meets: if it
+shuts six weeks before anyone votes, claims simply sit and wait."* That is the same shape as
+governance week and probably wants to be the same date. Read it before inventing a second season
+window, and consider whether one setting should drive both.
+
+Seasons carry explicit `startsOn` and `endsOn` dates (`shared/gameConfig.ts:192`) rather than a fixed
+length, so "the week before a season ends" is computable and does not need a new field.
 
 ---
 
@@ -476,13 +494,70 @@ is why that logic lives in one place. Do not add a second opinion about whether 
 
 ---
 
-## 9. What to do first
+## 9. Questions for the founder, collected
+
+Every open question in one place, so you can put them to him in one pass rather than one at a time
+across a week. Each carries the context and a recommendation, because a question with no
+recommendation makes him do your thinking. He is holding a lot; do not send him a quiz.
+
+**1. What executes when there is no steward?** A season closes, nobody was voted in, the seat is
+genuinely empty. Governance week makes this the exception rather than the rule, but it will happen.
+Three answers, in section 3: nothing executes (a village that passed a proposal cannot enact it),
+auto-execute takes over (forgetting to vote hands the Game full autonomy), or proposals pass and
+QUEUE until a steward exists (nothing lost, nothing auto-applied, but a stale backlog lands at once).
+**Recommendation: queue.** It fails toward "nothing happens without a human" which is the engine's
+existing posture, and the staleness problem it creates is the same one section 5 already has to
+solve for any pending changeset.
+
+**2. Do the granted POWERS reset with the seat, or only the seat?** R90 grants powers to a steward
+separately from seating them. A steward re-elected into a seat that silently retains last season's
+powers is a different thing from one whose powers are re-granted each time. **Recommendation: powers
+reset with the seat.** Anything else means a power granted once in season one still standing in
+season nine, held by somebody the village elected for different reasons.
+
+**3. Who inherits when there are several founders?** He wrote "founder(s)". Does each inherit a
+steward seat? Does approving a proposal need one of them, or all? **Recommendation: each inherits a
+seat, and any one steward can approve.** Requiring all makes a single absent founder a veto by
+accident, which is not what a veto is for.
+
+**4. Is a vetoing steward NAMED?** Voter identity defaults to secret; a veto carries a reason and is
+visible. Naming them is consistent with transparency being the protection. Not naming them protects
+a steward from pressure for making exactly the unpopular call the role exists to make. **No
+recommendation. This is a values question about what kind of village this is, and it is his.**
+
+**5. Does the self-grant ruling reach the admin mint?** He ruled that founders may allocate voice to
+themselves. `server/routes/governanceWeights.ts` already allows that. A separate route,
+`server/index.ts:19343`, refuses minting new supply into your own account. **Recommendation: leave
+the mint refusal in place.** Distributing weight among existing holders and creating new supply for
+yourself are different acts, and only the first is what he ruled on.
+
+**6. A launch can still carry on one yes and two abstentions.** Disclosed and never fixed. It takes
+three people choosing to answer, and changing it means editing `governanceEngine.ts`. **Ask whether
+he wants it changed now that he has ruled participation counts must be shown**, since the display
+may be the fix he actually wanted.
+
+**7. What can NEVER be changed by a changeset?** The un-votable list. Candidates: the governance
+mode (he has ruled it cannot switch back and forth), the thresholds for changing thresholds,
+anything that would retroactively alter a closed ballot, and anything touching a secret or
+credential. **Recommendation: start with that list and let villages add, never remove.**
+
+**8. What happens when a pending changeset's world has moved?** Apply blindly, refuse, or ask.
+**Recommendation: rebase where rebasing is honest and refuse where it is not**, following migration
+`0122`'s pattern, and show the member what changed underneath them either way.
+
+**9. Should governance week and the claims window share a date?** `gameVariables.ts:202` already
+advises lining the claims window up with when governance meets. **Recommendation: one setting drives
+both**, so a village that moves its governance rhythm does not have to remember a second place.
+
+---
+
+## 10. What to do first
 
 1. Read the seven files in section 2. Do not design anything until you have.
 2. Write down, in your own words, what the existing engine does and where a changeset attaches. If
    that description is wrong, everything after it is wrong.
-3. Put the open questions to the founder: the no-steward gap (section 3), whether powers reset with
-   the seat, how multiple founders inherit, and the veto's visibility.
+3. **Put section 9's nine questions to the founder in one pass**, with the recommendations. They
+   are collected there so he answers once rather than being interrupted nine times.
 4. **Build the real term expiry before anything else.** The whole steward model rests on it and it
    does not exist yet.
 5. **Ship the changeset subject type and staging UI before the executor.** The dispatcher's
