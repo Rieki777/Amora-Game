@@ -24,6 +24,45 @@ set of changes, and those changes become a single proposal the village decides o
 
 ---
 
+## THE DELIVERABLE: the sole source of truth for how village governance works
+
+The founder, naming it:
+
+> "Creat so that session will create the sole source of truth for governance of our villages and
+> how it works."
+
+And the principle that decides what kind of document that is:
+
+> "these sources of truth will be derived from the live code base and what's true rather than what
+> we want to be and we can continue to improve them from there"
+
+Read that twice. It is the whole specification for the document, and it rules out the thing most
+people would build.
+
+**Derived, not written.** A hand-written governance document is wrong within a month, and it is
+wrong in the most expensive direction: it describes the system somebody intended. Generate it from
+the schema, the subject-type list, the close dispatcher's routing table, the threshold defaults and
+the actual gates. Then add a check that FAILS when the document and the code disagree, so the
+document cannot quietly drift into fiction. That check is what makes it a source of truth rather
+than a nicely formatted opinion.
+
+The token and economics document is its sibling and is being built in parallel by another session.
+If `docs/TOKENS.md` and `scripts/check-token-doc.mjs` exist when you start, **read them first and
+follow their shape** rather than inventing a second convention. If they do not exist yet, build
+yours to be the one the next document copies, and say in it which parts are generated and which
+are prose.
+
+**It must describe what is TRUE, including what is broken.** A source of truth that documents only
+the happy path is not one. If a subject type has no executor, the document says so. If a threshold
+default is unreachable from any screen, the document says so. If a rule exists in two places that
+could disagree, the document names both. This codebase has spent a week finding checks that
+reported green while the thing they named was broken, and a document is a check like any other.
+
+Structure it so a machine can parse the per-subject facts and a founder who has never read the code
+can follow the prose. Both audiences, one file, and say which parts are which.
+
+---
+
 ## THE MOST IMPORTANT THING TO KNOW FIRST
 
 **Most of the governance engine already exists, and it is good.** Three lanes built it
@@ -200,6 +239,115 @@ binds.
 - **Writing rules** apply to comments, commit messages and any user-facing copy: no em-dashes, no
   "not X but Y" contrast framing, no rhetorical openers. `scripts/check-voice.mjs` enforces some of
   it.
+
+---
+
+## Everything the 2026-08-31 session learned that touches governance
+
+All measured that day. Where a claim is a reading rather than a measurement it says so.
+
+### The two constitutional exploits, and the one that is still open
+
+Both were reproduced end to end over HTTP against the built server BEFORE any fix, then refused
+afterwards with the exploit conditions unchanged. Read `SEASON2_FLEET_LEDGER.md` section 7j for the
+full account. **Read it before you widen what a vote can reach**, because widening is exactly what
+a changeset does.
+
+**Exploit 1, a founder carrying the launch vote alone.** The founder set `weight_mode=custom`,
+allocated weight 1 to themselves and nothing to the other two members. The launch route reported
+`onTheRoll: 3, tooFew: null`. The ballot opened with `unity_pct=100, quorum_pct=100,
+electorate_count=3, total_weight=1`, and one yes closed it as passed. The frozen document then told
+the village *"100% participation and 100% agreement"* and *"3 people hold a voice today"*. Both
+sentences were true of the weights and false of the village.
+
+**Exploit 2, the governance token bought with a card.** A voice-kind token was listed purchasable,
+priced, and stocked with 100 minted out of `sys:mint`. A member's buy reached the LAST gate before
+completing, meaning kind, governance, seller, price, stock and stage had all passed. The founder
+could then point `governance.weight_token` at it.
+
+**A third hole nobody had named:** equity was refused only via `governance === 'hypha'`, which held
+by ACCIDENT of the seed data. A platform-governed equity token traded freely.
+
+**STILL OPEN, disclosed rather than fixed:** a launch can carry on one yes and two abstentions.
+That is the engine's documented abstain rule, it takes three people choosing to answer, and
+changing it means editing `governanceEngine.ts`. If your changeset work touches thresholds, this is
+the decision waiting for you.
+
+### Voting weight is a token balance, and that has consequences
+
+`Village Voice` (slug `village-voice`, platform-governed, 3 decimals) **IS voting weight under
+token-weighted governance**. Two things follow that you must not undo:
+
+- The admin hand-grant route refuses a self-grant outright, at any amount. That refusal is load
+  bearing, not politeness.
+- It rides in thousandths so a rule of 0.1 does not round to zero. A chip showing 0.1 is 100 units
+  underneath. Any changeset that edits weights must respect the scale.
+
+There is also a SECOND voice token, slug `voice`, which is the read-only Hypha mirror on Base. Two
+rows, deliberately. Do not conflate them. `docs/TOKENS.md`, when it exists, is the authority.
+
+### Founder rulings about Voice, from that day
+
+- Voice is **optional**, for villages that choose not to run one-person-one-vote.
+- The founder sets the initial allocation, and it is **the only token that may be issued before the
+  game starts**.
+- That allocation **is a ledger entry and appears in history as a proposal every player can see**,
+  even though it predates launch. His words: *"it'll still show up as a proposal in the history and
+  showing what happened for all players to see."*
+- **Governance mode cannot be switched back and forth** between one-person-one-vote and
+  token-weighted.
+
+### The governance code moved on 2026-08-31, and one detail matters
+
+Ten routes were extracted from the monolith into `server/routes/governanceWeights.ts` (allocating
+power) and `server/routes/governanceWizard.ts` (reporting a member their own standing). Both
+`register()` calls sit downstream of `app.use("/api/governance", requireModule("governance"))`, so a
+village with the module off still 404s every path. **Keep that ordering if you add routes there.**
+
+`weightModeNow` was the only genuine `startServer`-closure dependency in the entire extraction
+queue, and it is passed through `deps` rather than copied. Twelve of its thirteen call sites remain
+in `server/index.ts`. The module's own header says why: copying it would have made **a second
+decider of a village's weight mode**, and two copies of one rule disagree eventually. Do not make a
+third.
+
+### Two things flagged and NOT fixed, both in your path
+
+**`GET /api/governance/ballots` at `server/index.ts:27617` reads as ungated.** It calls
+`authedUser` and passes `viewer?.id` optionally, so an anonymous read appears deliberate. The lane
+that found it did not verify intent and did not change it. **You are the session that should
+settle it**, because permission inversion is exactly the question of who may read what.
+
+**The launch-readiness check at `server/index.ts:14026` reads the village name only**, then reports
+success in a message naming the village, while other identity fields may still be another
+village's. Permission inversion hangs off launch state, so read this before you depend on it.
+Separately, `server/index.ts:13926`'s `brand-basics` check returns `state: "ok"` whenever a stale
+`setup.identity` tick exists, which the launch page, the admin banner and the assistant all read.
+
+### The governance test suite is currently unreliable, and it is being worked
+
+`server/governance.routes.e2e.test.ts`, the case *"...and closing it changes NOTHING, which is the
+whole promise"*, **passes alone and fails inside the full 245-file run**. Same tree, same commit.
+Order dependence or contention, not a code defect. A lane is diagnosing it. **Do not trust a green
+from that file until you have run it both ways yourself**, and do not "fix" it by weakening the
+assertion.
+
+### Patterns from that day worth copying
+
+**Derive status from the record, never from a flag somebody ticked.** The setup checklist read
+hand-ticked booleans, so a founder who ticked "images" and then lost every image kept a complete
+checklist on the one screen built to answer that question. It now reads the brand document.
+`client/src/components/admin/setupProgress.ts` is the worked example. **Your changeset status must
+read the changeset, not a flag.**
+
+**Never declare a component inside another component.** `SetupWizard` declared `Section` in its own
+body, so every keystroke made a new component type and React unmounted the whole subtree. Measured
+on a phone viewport: focus lost every keystroke, the keyboard dismissed every letter, and **45
+extra network requests per five keystrokes**. `client/src/components/admin/SetupSection.tsx` is the
+fix. You are about to build a large admin surface; do not reintroduce it.
+
+**A slug is history's identity.** Token slugs are frozen once set, because every ledger
+repeat-protection key carries the slug and never the display name. If a changeset can rename
+anything, check whether the renamed thing is used as a durable key first.
 
 ---
 
