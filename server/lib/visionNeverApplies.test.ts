@@ -14,17 +14,41 @@
  *   3. `fxRates.ts` (the other new automated writer this round) has no path
  *      to drafts at all: its file text never mentions publishDraft or
  *      orgDrafts, and its only writes hit fx_rates.
- *   4. `publishDraft` has EXACTLY ONE call site in server/index.ts, inside
- *      the admin publish route, and the client vision layer never fetches a
- *      publish URL: it links a human to Admin.
+ *   4. `publishDraft` has EXACTLY ONE call site across the server's route
+ *      files, inside the admin publish route, and the client vision layer
+ *      never fetches a publish URL: it links a human to Admin.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { setDraftVision, visionProgress, type VisionBlock } from "./orgDrafts";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
+
+/**
+ * Every file that mounts routes, not the one big file alone.
+ *
+ * Point 4 used to read `server/index.ts` by name. The admin publish route
+ * then moved to `server/routes/org.ts`, and the assertion went from "exactly
+ * one door" to "zero doors", which is the shape where a pin either goes red
+ * for the wrong reason or, with a `toBeGreaterThan(0)` instead of a length
+ * check, goes quiet and passes forever. Same fix as
+ * server/lib/capabilityRegistry.test.ts and scripts/check-auth-fetch.mjs: the
+ * source is a LIST, and a route module joins it by existing.
+ */
+function routeFiles(): string[] {
+  const out = ["server/index.ts"];
+  const walk = (rel: string) => {
+    for (const entry of readdirSync(path.join(ROOT, rel), { withFileTypes: true })) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(child);
+      else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) out.push(child);
+    }
+  };
+  walk("server/routes");
+  return out;
+}
 
 const allDone: VisionBlock = {
   objectives: [
@@ -71,11 +95,17 @@ describe("fxRates cannot reach the drafts", () => {
 });
 
 describe("publishDraft keeps exactly one door", () => {
-  it("is called once in server/index.ts, in the admin publish route", () => {
-    const src = read("server/index.ts");
-    const calls = src.match(/publishDraft\(/g) ?? [];
-    expect(calls, "publishDraft call sites in server/index.ts").toHaveLength(1);
-    const at = src.indexOf("publishDraft(");
+  it("is called once across the server's route files, in the admin publish route", () => {
+    const sites: { file: string; src: string; at: number }[] = [];
+    for (const file of routeFiles()) {
+      const src = read(file);
+      for (const m of src.matchAll(/publishDraft\(/g)) sites.push({ file, src, at: m.index });
+    }
+    expect(
+      sites.map((s) => s.file),
+      "publishDraft call sites across server/index.ts and server/routes/**",
+    ).toHaveLength(1);
+    const { src, at } = sites[0];
     const before = src.slice(Math.max(0, at - 400), at);
     expect(before).toContain('"/api/admin/org/drafts/:id/publish"');
   });

@@ -3,11 +3,16 @@
  * The server/index.ts ratchet: one file should not be the only place a
  * contributor can put a route.
  *
- * THE HARM THIS MEASURES. `server/index.ts` is 33,245 lines carrying 560
- * route registrations, zero `express.Router()` uses, and 248 direct
- * `.query()` call sites against tables other modules own. Nearly all of it is
- * the body of one `async function startServer()` that begins on line 5444 and
- * runs to EOF, so every route closes over a single 27,800-line scope instead
+ * THE HARM THIS MEASURES. `server/index.ts` was 33,245 lines carrying 560
+ * route registrations on the day this guard was written, with zero
+ * `express.Router()` uses and 248 direct `.query()` call sites against tables
+ * other modules own. `scripts/server-index-size-baseline.json` carries where
+ * the two ratcheted numbers stand today, and is the figure to quote: a
+ * hand-typed count in a comment goes stale on the next extraction, which is
+ * how four documents came to state three different route totals, none of them
+ * right. Nearly all of the file is the body of one `async function
+ * startServer()` (grep for it; line 5357 at the time of writing) that runs to
+ * EOF, so every route closes over one scope of roughly 27,500 lines instead
  * of receiving what it needs. A contributor who wants to change one domain's
  * routes has no smaller unit to read than the whole file, and
  * `docs/ARCHITECTURE.md`'s add-a-module recipe has been telling every new
@@ -93,7 +98,7 @@ const lineCount = (text) => (text.endsWith("\n") ? text.split("\n").length - 1 :
  * `"/org/*"`, and the last two characters inside those PATH STRINGS read as a
  * block-comment opener that never closes. Every route after them vanishes.
  * The first version of this guard did exactly that and cheerfully reported
- * 557 registrations where there are 560, which is the worst thing a ratchet
+ * 557 registrations where there were 560, which is the worst thing a ratchet
  * can do: report success while the number it protects goes up. Getting that
  * right means tracking strings, which means tracking all of them.
  *

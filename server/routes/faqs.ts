@@ -18,7 +18,10 @@
  *    the request on entry. See server/lib/appDeps.ts.
  *
  * WHY THIS DOMAIN WENT FIRST, and it was measured rather than guessed: of the
- * 560 route registrations in server/index.ts, these five are contiguous, carry
+ * several hundred route registrations still in server/index.ts (the live count
+ * is in scripts/server-index-size-baseline.json, and the figure typed here
+ * used to be 560, which stopped being true the first time anyone extracted
+ * anything), these five are contiguous, carry
  * ZERO inline SQL (every read and write goes through the faqs document repo),
  * and reach nothing outside the three names below. The largest domains are not
  * the place to learn whether the pattern holds.

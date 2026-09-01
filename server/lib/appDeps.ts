@@ -39,8 +39,14 @@
  */
 import type express from "express";
 import type { Pool } from "mysql2/promise";
-import type { Capability } from "../../shared/capabilities";
+import type { Capability, CapabilityCtx } from "../../shared/capabilities";
+import type { CrewsRepo } from "./crews";
+import type { WeightModeSnapshot } from "./governanceWeights";
+import type { NotifyInput, NotifyResult } from "./notify";
+import type { LapseContext } from "./orgChart";
+import type { ClaimsRepo, QuestsRepo } from "../repos/quests";
 import type { DbCollection, DbDocument, Row } from "../repos/store-db";
+import type { MemberRecord, UsersRepo } from "../repos/users";
 
 /**
  * The answer from the capability gate. Mirrors the interface in
@@ -95,6 +101,28 @@ export interface AppDeps {
   /** The read-side gate: may this actor still SEE a thing they cannot change. */
   mayStillSee(req: express.Request, cap: Capability): Promise<boolean>;
 
+  // ATTRIBUTION, WHICH IS NOT ONE OF THE GATES
+  // It answers nothing about permission. It reads the account a gate above
+  // attached to the request on its way past, so it is null until one of them
+  // has already run and passed on this same request. It exists so an audit
+  // line can name a person. Anything that calls it in place of a gate lets
+  // every request through.
+
+  /** The admin account a passing gate attached, for audit attribution. */
+  adminActor(req: express.Request): { id: string; name?: string } | null;
+
+  /**
+   * Build the capability context for a member, for the rare route that asks
+   * `hasCapability(cap, ctx)` about somebody rather than about the request.
+   *
+   * PREFER THE GATES ABOVE. This one never sees the request, so it cannot
+   * carry a break-glass and cannot write the record that makes a
+   * village-held power real. docs/ARCHITECTURE.md spells out which of the two
+   * a route wants. Following this line for a route that REFUSES is what once
+   * left seven powers unable to leave the admin panel.
+   */
+  capabilityCtx(user: any): Promise<CapabilityCtx>;
+
   // REPOSITORIES
   // One entry per document or collection an extracted route module reads.
 
@@ -106,6 +134,33 @@ export interface AppDeps {
 
   /** Roadmap milestones, ordered by their `order` field at read time. */
   milestonesRepo: DbCollection<Row>;
+
+  /**
+   * The people. MySQL-authoritative, `all()` answers in join order.
+   *
+   * A wide entry, so it earns a second look in review the way `getPool` does:
+   * a module holding this can read every member record in the village and
+   * write any of them. Take it only for a domain whose subject IS the roster.
+   */
+  members: UsersRepo;
+
+  /** Quest claims. `consentedCounts()` is one grouped read for a whole list. */
+  claimsRepo: ClaimsRepo;
+
+  /** The quest board. */
+  questsRepo: QuestsRepo;
+
+  /** Quest crews: forming, joining, leaving, and the invite codes. */
+  crewsRepo: CrewsRepo;
+
+  /**
+   * The founding team's own working tracker: checkboxes, kanban, decisions,
+   * copy, resource links. One document, read and written whole.
+   *
+   * Typed loosely because it is: the document has no schema beyond what its
+   * page writes into it, and server/index.ts declares it the same way.
+   */
+  journeyRepo: DbDocument<any>;
 
   // RAW DATABASE AND VOLUME ACCESS
   // Wider than a repository, so an entry here is a bigger claim than a repo
@@ -123,4 +178,121 @@ export interface AppDeps {
    * through server/lib/uploads.ts; this names WHERE, never HOW.
    */
   uploadsDir: string;
+
+  // DERIVED MEMBER STATE
+  // Where a person stands in the game. Each of these is declared at module
+  // scope in server/index.ts and reads across game variables, quest claims and
+  // the capability registry to answer. They are passed for the same reason the
+  // gates are: importing them would mean exporting them from the file this
+  // work exists to shrink, and would leave server/index.ts and the route
+  // module importing each other. Passing keeps the arrow pointing one way.
+
+  /** The stage a member has actually reached, given their consented quests. */
+  computeStage(user: MemberRecord, consentedQuests: number): string;
+
+  /** `computeStage` with the quest count looked up for you. One read. */
+  stageOf(user: MemberRecord): Promise<string>;
+
+  /** Whether this member holds village membership. */
+  hasMembership(user: MemberRecord): boolean;
+
+  /**
+   * Record a stage change, and tell the member what it opened.
+   *
+   * A write, not a read. It is a no-op when the move is sideways or backwards,
+   * so a caller may hand it any before/after pair without checking first.
+   */
+  recordStageEvent(user: MemberRecord, from: string, to: string, reason: string): Promise<void>;
+
+  // THE VILLAGE'S CLOCK AND ITS VOICE
+  // Small readers that every domain ends up wanting, and the one producer for
+  // telling a member something happened.
+
+  /** A person's first name, or "Someone". The one place that decides that. */
+  firstName(name: string): string;
+
+  /** Every role this village defines. Read live; the repo caches. */
+  loadRoles(): { id: string; name: string }[];
+
+  /** The ids of the roles one member holds. */
+  roleIdsFor(userId: string): string[];
+
+  /**
+   * Everyone who may consent to a quest claim: admins, plus anyone the gate
+   * grants `quest.consent`. A read across every member, so a caller should
+   * ask once per request and not once per row.
+   */
+  questConsentRecipients(): Promise<string[]>;
+
+  /** The season banner payload. Extracted routes read `current` from it. */
+  seasonState(): { current: any };
+
+  /** The pattern the running season names, or null. Most villages: null. */
+  currentPatternId(): string | null;
+
+  /** What every read uses to decide whether a seating's mandate has run out. */
+  lapseContext(): LapseContext;
+
+  /**
+   * The weight-mode snapshot the NEXT ballot would freeze.
+   *
+   * Six lines over two game variables, and the one place that decides what a
+   * village's weight mode is. A route module that rebuilt it locally would be
+   * the second place, which is how a seat reads "equal" on one screen and
+   * "token" on the next.
+   */
+  weightModeNow(): WeightModeSnapshot;
+
+  /**
+   * Tell one member one thing. Fire and forget by contract: the sender never
+   * throws, so a caller may `void` it without swallowing a failure it could
+   * have handled.
+   */
+  notify(input: NotifyInput): Promise<NotifyResult>;
+
+  // MAIL, AND THE ABUSE GUARDS AROUND IT
+  // For a domain that answers somebody who has no account, so the notify
+  // spine above has no member id to key on. A public form is also the surface
+  // a stranger can hit hardest, so the rate limiter and the client-IP reader
+  // sit here beside the sender rather than in a different section: a module
+  // taking one of these usually needs all four.
+
+  /**
+   * Send one email. Never throws; the result says what happened.
+   *
+   * Returns `sent: false` with a reason when the deployment has no API key,
+   * no sender, or no recipients, which are ordinary states on a fresh fork
+   * and must not read as an outage.
+   */
+  sendResendEmail(opts: {
+    to: string[];
+    subject: string;
+    html: string;
+    from?: string;
+    replyTo?: string;
+  }): Promise<{ sent: boolean; reason?: string }>;
+
+  /** Escape a string for HTML. Every value interpolated into an email body. */
+  escapeHtml(s: string): string;
+
+  /** The configured inboxes for one pathway, falling back to all of them. */
+  recipientsForType(type: string): string[];
+
+  /**
+   * True when this bucket has already had `max` hits inside `windowMs`.
+   *
+   * FAILS OPEN on a database outage, deliberately and like every other call
+   * site: a guard that takes a public form down during an outage costs the
+   * village real leads.
+   */
+  overLimit(bucket: string, max: number, windowMs: number): Promise<boolean>;
+
+  /** The caller's address, for keying a rate-limit bucket. */
+  clientIp(req: express.Request): string;
+
+  /** Where this deployment lives, for a link inside an email. */
+  deploymentOrigin(): string;
+
+  /** What this village calls itself, for an email subject line. */
+  projectName(): string;
 }
