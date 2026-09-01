@@ -2530,3 +2530,52 @@ stamp the epoch in setup, and assert on balances, never on rules.
 one of its five tests, with the server's own sentence, `expected 'confirmed
 before the economy epoch' to be undefined`. The other four still pass, which is
 correct — only one of them discriminates.
+
+## 26 · CI stopped checking almost everything, and said so in one line
+
+Red since `0c9127e` (2026-09-01 07:13), last green `dda29ce` at 04:53. The
+visible symptom was one guard's self-test failing two of twenty-four
+assertions. The actual state was that `ci.yml`'s failing step sits at line 185
+and nothing after a failed step runs, so **twenty-odd guards, `pnpm build`,
+`pnpm test` at line 569, the bundle budget and the dependency audit had not run
+on any commit since** — including three of mine.
+
+**Coordinator error 22: I verified the deploy and called it done.** After
+pushing `0c9127e` I checked that the release published and the live site
+answered, reported it verified, and never looked at CI. A green deploy and a
+green CI are different claims and I made one while sounding like both.
+
+**Two defects, and the second explains why nobody caught the first.**
+
+1. `run-self-tests.mjs` captured each child's whole stdout and stderr and kept
+   only the LAST non-empty line, on both paths. A passing guard ends with a
+   tidy summary, so the output looked deliberate, and the failing path was
+   silently throwing away every line naming which assertion failed. CI said
+   `check-migration-compat: 2 failure(s) of 24` and stopped. **A runner that
+   summarizes failures the same way it summarizes successes is a runner that
+   cannot be acted on.**
+
+2. The guard's own self-test built "run with no database" by copying
+   `process.env`, deleting `TEST_DATABASE_URL` from the copy, and passing the
+   copy to a helper that spreads an override OVER `process.env`. **Deleting a
+   key from a copy and spreading the copy back removes nothing.** So the
+   scenario ran the guard WITH the database whenever the variable was in the
+   environment.
+
+   It could only fail where it mattered. On a dev machine the variable lives in
+   `.env` and never reaches `process.env`, so it passed here every time; CI
+   sets it as a real variable, so it failed there every time. **Same commit,
+   green locally, red in CI, and the difference was not the code.**
+
+**Coordinator error 23: I published a cause I had not tested.** `0f1a7f2`'s
+message says this could not be reproduced locally because CI runs `mysql:8` and
+this machine runs MariaDB. That was a hypothesis and it was wrong; the engine is
+irrelevant. `export TEST_DATABASE_URL=...` reproduces it exactly. I had the
+reproduction available before I wrote the sentence and did not run it.
+
+**A push can skip CI entirely.** `bb87407` reached main through a concurrent
+session using a token that suppresses workflow runs, so the commit that fixes
+CI had no CI run of its own. Verified by pushing the same SHA to a throwaway
+branch: 43 steps, all success, zero skipped, including Build, Test, Bundle
+budget and Dependency audit. **`origin/main` having a commit is not evidence
+that anything checked it.**
