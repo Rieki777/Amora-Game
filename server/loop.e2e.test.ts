@@ -804,7 +804,13 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(ledger.json.currency).toBe("Gratitude");
 
     // The consent that released value is explained, not just totalled.
-    const consentEntry = ledger.json.entries.find((e: any) => e.source === "quest_consent");
+    // BY TOKEN, not just by source. A confirmed quest posts three
+    // quest_consent rows now (gratitude, credits, voice), so a bare `find`
+    // returned whichever the API listed first and compared 10000 ledger units
+    // of Village Voice against the Gratitude reward.
+    const consentEntry = ledger.json.entries.find(
+      (e: any) => e.source === "quest_consent" && e.tokenType === "gratitude",
+    );
     expect(consentEntry).toBeTruthy();
     expect(consentEntry.amount).toBe(questReward);
     expect(consentEntry.sourceRef).toBe(claimId);
@@ -1317,15 +1323,28 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // The cycle pool released the whole default pool at close, as asserted
     // above in the settlement case.
     expect(credits.gratitude_pool).toBe(1000);
-    // Two confirmed contributions past the economy epoch, at the seeded 25.
-    // If a rule change ever stops quests paying credits, this is what says so.
-    expect(credits.quest_consent).toBe(50);
+    // THREE confirmed contributions at the seeded 25, and it used to read 50.
+    //
+    // The missing 25 was not a rounding choice, it was the bug: this suite
+    // confirms three quests, and the first one in a village's life used to pay
+    // nothing but Gratitude, because `mintForConfirmedClaim` was the only
+    // caller of `economyEpoch` and `economyEpoch` STAMPED the epoch when it
+    // found none. The first claim wrote the epoch at `now`, then lost to it by
+    // the twenty milliseconds since it resolved.
+    //
+    // The old comment here said "two confirmed contributions past the economy
+    // epoch", which described the mechanism exactly and read as a policy. That
+    // is what makes this shape expensive: the number was not wrong about the
+    // engine, it was right about an engine that was wrong, so nothing in this
+    // file ever looked like it needed checking. Boot now starts the clock. See
+    // `startEconomyEpoch` and `server/lib/economyEpoch.test.ts`.
+    expect(credits.quest_consent).toBe(75);
     // And nothing else issued a credit: the total over the faucet equals the
     // two sources named, so a third channel appearing fails here.
     expect(poolRow?.issuedToDate).toBe(
       Object.values(credits).reduce((n, v) => n + v, 0),
     );
-    expect(poolRow?.issuedToDate).toBe(1050);
+    expect(poolRow?.issuedToDate).toBe(1075);
   });
 
   it("S13: modules ship OFF, lifecycle guards hold, and preview never leaks", async () => {
