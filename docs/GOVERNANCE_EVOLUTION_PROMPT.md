@@ -248,7 +248,7 @@ family as every other defect this codebase has spent a week removing.
 SECRET. A veto carries a reason and is visible. Is the vetoing steward NAMED? A secret veto with a
 public reason is a strange object, and the argument runs both ways: naming them is consistent with
 "transparency is the protection", and not naming them protects a steward from pressure for making
-exactly the unpopular call the role exists to make. This is question 4 in section 9.
+exactly the unpopular call the role exists to make. This is question 4 in section 10.
 
 ### Governance week already has a sibling in the codebase
 
@@ -263,7 +263,68 @@ length, so "the week before a season ends" is computable and does not need a new
 
 ---
 
-## 4. Exploit 1 is overruled: transparency over prohibition
+## 4. Vote delegation
+
+> "One more requirement we need to build in is to delegate your vote to another member (where it
+> just copies whatever they do as long as they have your delegation and you can remove and change a
+> vote on an open proposal at anytime. So full rights to the individual but for those who don't want
+> to vote can give their voice to someone they trust."
+
+The concept is already in the domain language and was never built: `shared/power.ts:100` carries a
+`delegated` power shape glossed *"You hand your voice to someone you choose."* Use that word.
+
+### The data shape fits, and one choice keeps it clean
+
+`ballot_votes` has PRIMARY KEY `(ballot_id, user_id)`: one row per member per ballot. So a delegated
+vote is **a row for the DELEGATOR carrying the delegate's choice**, with provenance recorded, rather
+than the delegate's weight going up.
+
+**Copy the choice, never move the weight.** This is the decision the whole feature turns on and it
+should not be revisited casually:
+
+- The participation arithmetic stays honest. "9 of 12 people voted" counts nine rows, whoever
+  decided them, which is what section 5's people-and-weight rule needs.
+- The frozen electorate keeps meaning what it says. Who may vote and how much each vote counts were
+  fixed at open; delegation changes only WHAT a vote says.
+- **It dissolves the apparent conflict with the freeze.** His "change at any time" and property 1's
+  "freezes at open" only collide if delegation moves weight. It does not: changing a delegation is
+  the same class of act as changing your own vote, which an open ballot already allows.
+
+### Four hazards, and the first one is not optional
+
+**Cycles.** A delegates to B, B to C, C to A. Detect and REFUSE at the moment a delegation is
+created, never at tally time. A cycle discovered while counting is an infinite loop in the one
+routine nobody wants to debug at a season boundary.
+
+**Chains.** If A delegates to B and B delegates to C, does A follow C? Classic liquid democracy says
+yes. **Recommendation: NOT transitive, at least to begin with.** His words are "copies whatever they
+do", and someone who delegated has not done anything to copy. Transitive chains also concentrate
+power invisibly, several hops from anybody who consented to it. Non-transitive is simpler, safer,
+and can be widened later; the reverse is a migration and a surprise.
+
+**What happens when the delegate does not vote?** The delegator's vote is **not cast**. It is not an
+abstain, because abstaining is a choice somebody made. That distinction decides quorum, and it is
+the same empty-versus-zero rule that has bitten this codebase repeatedly.
+
+**Concentration must be visible**, by his own principle. He ruled that a founder may hold most of
+the voice as long as everyone can see it. **Delegation is weight concentration by another route**
+and needs the same treatment: how many delegations a member holds, and what share of the electorate
+that is, visible to every player. A member holding twenty delegations quietly is exactly the state
+the transparency ruling exists to prevent.
+
+### Two interactions to settle
+
+**Secrecy.** Voter identity defaults to secret. But a delegator must be able to see what their
+delegate did, or "you can change it at any time" is a promise with nothing behind it. So delegation
+punctures secrecy for that pair at minimum. Whether it punctures further is question 11.
+
+**The steward.** A steward holding many delegations has concentrated votes AND a veto. That may be
+entirely fine, since both were given knowingly, but it should be visible in one place rather than
+two.
+
+---
+
+## 5. Exploit 1 is overruled: transparency over prohibition
 
 An earlier session closed a "constitutional exploit" where a founder carried a launch vote alone.
 The founder overruled the framing:
@@ -313,7 +374,7 @@ the default.
 
 ---
 
-## 5. The design questions nobody has answered
+## 6. The design questions nobody has answered
 
 ### What happens when the world moves under a pending changeset?
 
@@ -353,7 +414,7 @@ rather than inventing a second. A second copy of launch state is a second thing 
 
 ---
 
-## 6. Everything else the 2026-08-31 session learned that touches governance
+## 7. Everything else the 2026-08-31 session learned that touches governance
 
 ### The exploits that stand, and the one still open
 
@@ -450,7 +511,7 @@ payments once keyed on a value being renamed, where the rename would have re-pai
 
 ---
 
-## 7. Traps this codebase has paid for
+## 8. Traps this codebase has paid for
 
 **Express 4 async handlers HANG on a throw.** A rejected handler promise is an unhandled rejection,
 not a 500: `installCrashHandlers` reports it and the process survives, and the member's request gets
@@ -472,7 +533,7 @@ is why that logic lives in one place. Do not add a second opinion about whether 
 
 ---
 
-## 8. How to work in this repository
+## 9. How to work in this repository
 
 - **Your own worktree, always**: `git worktree add ../<name> -b <branch> main`. A lane checking out
   in a shared directory has cost this programme twice.
@@ -494,7 +555,7 @@ is why that logic lives in one place. Do not add a second opinion about whether 
 
 ---
 
-## 9. Questions for the founder, collected
+## 10. Questions for the founder, collected
 
 Every open question in one place, so you can put them to him in one pass rather than one at a time
 across a week. Each carries the context and a recommendation, because a question with no
@@ -545,18 +606,30 @@ credential. **Recommendation: start with that list and let villages add, never r
 **Recommendation: rebase where rebasing is honest and refuse where it is not**, following migration
 `0122`'s pattern, and show the member what changed underneath them either way.
 
+**10. Are delegations transitive?** A delegates to B, B delegates to C. Does A follow C?
+**Recommendation: no, at least at first.** His words are "copies whatever they do", and somebody who
+delegated has not done anything to copy. Transitive chains also concentrate power several hops from
+anyone who consented to it. Non-transitive can be widened later; the reverse is a migration and a
+surprise.
+
+**11. How far does delegation puncture the secret ballot?** A delegator must see what their delegate
+did, or "change it at any time" means nothing. Does anyone else see it? **Recommendation: the pair
+sees it, and the COUNTS are public (how many delegations a member holds, and what share of the
+electorate).** That satisfies his transparency rule about concentration without publishing every
+individual choice.
+
 **9. Should governance week and the claims window share a date?** `gameVariables.ts:202` already
 advises lining the claims window up with when governance meets. **Recommendation: one setting drives
 both**, so a village that moves its governance rhythm does not have to remember a second place.
 
 ---
 
-## 10. What to do first
+## 11. What to do first
 
 1. Read the seven files in section 2. Do not design anything until you have.
 2. Write down, in your own words, what the existing engine does and where a changeset attaches. If
    that description is wrong, everything after it is wrong.
-3. **Put section 9's nine questions to the founder in one pass**, with the recommendations. They
+3. **Put section 10's eleven questions to the founder in one pass**, with the recommendations. They
    are collected there so he answers once rather than being interrupted nine times.
 4. **Build the real term expiry before anything else.** The whole steward model rests on it and it
    does not exist yet.
