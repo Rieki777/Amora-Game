@@ -38,7 +38,7 @@ import os from "os";
 import path from "path";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -47,10 +47,10 @@ if (!DB_CONFIGURED) {
 
 const DIST = path.resolve(process.cwd(), "dist/index.js");
 /** Its own range, above every other suite's (the highest in use ends at 20100). */
-const PORT = 20200 + (process.pid % 400);
-const GOOGLE_PORT = 20700 + (process.pid % 400);
+const PORT = 7900 + (process.pid % 400);
+const GOOGLE_PORT = 8300 + (process.pid % 400);
 /** A second app, with no Google credentials at all, for the degrade case. */
-const BARE_PORT = 21200 + (process.pid % 400);
+const BARE_PORT = 8700 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const BARE_BASE = `http://localhost:${BARE_PORT}`;
 const ADMIN = "google-e2e-admin-password";
@@ -153,10 +153,23 @@ beforeAll(async () => {
     FOUNDER_EMAILS: "",
   };
 
+  // Refuse a port a stranger is already holding, and wait out the previous
+  // suite's server if it has not let go yet. The boot poll below breaks on ANY
+  // 200 on this port, so without this an orphan answers it and the whole
+  // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+  await waitForPortFree(PORT);
   child = spawn(process.execPath, [DIST], {
     env: {
       ...shared,
       PORT: String(PORT),
+      // No background scheduler. It arms `setTimeout(tick, 15s)` at boot, and on
+      // that first tick every job with no scheduled_jobs row is due, so 28 jobs run
+      // in series against the scratch schema this suite is asserting on. Every e2e
+      // file in the suite outlives 15 seconds of server uptime under load and none
+      // under it alone, which is an unrecorded wall-clock deadline on 40 suites.
+      // server/synthesisBatch.routes.e2e.test.ts leaves it armed, because the tick
+      // is its subject.
+      SCHEDULER_ENABLED: "0",
       DATA_DIR: dataDir,
       DATABASE_URL: testDb.url,
       FRONTEND_URL: BASE,
@@ -171,10 +184,24 @@ beforeAll(async () => {
 
   // The same image with NO Google variables. This is the state every one of
   // the thirteen villages boots in before its founder configures anything.
+
+  // Refuse a port a stranger is already holding, and wait out the previous
+  // suite's server if it has not let go yet. The boot poll below breaks on ANY
+  // 200 on this port, so without this an orphan answers it and the whole
+  // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+  await waitForPortFree(BARE_PORT);
   bareChild = spawn(process.execPath, [DIST], {
     env: {
       ...shared,
       PORT: String(BARE_PORT),
+      // No background scheduler. It arms `setTimeout(tick, 15s)` at boot, and on
+      // that first tick every job with no scheduled_jobs row is due, so 28 jobs run
+      // in series against the scratch schema this suite is asserting on. Every e2e
+      // file in the suite outlives 15 seconds of server uptime under load and none
+      // under it alone, which is an unrecorded wall-clock deadline on 40 suites.
+      // server/synthesisBatch.routes.e2e.test.ts leaves it armed, because the tick
+      // is its subject.
+      SCHEDULER_ENABLED: "0",
       DATA_DIR: bareDataDir,
       DATABASE_URL: bareDb.url,
       FRONTEND_URL: BARE_BASE,

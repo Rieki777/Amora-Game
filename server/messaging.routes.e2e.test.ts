@@ -30,7 +30,7 @@ import path from "path";
 import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -46,7 +46,7 @@ const DIST = path.resolve(process.cwd(), "dist/index.js");
  * which lands on examples.routes' port for about 7% of process ids: a flake
  * that would have shown up as an unrelated boot timeout a few runs from now.
  */
-const PORT = 7700 + (process.pid % 300);
+const PORT = 20802 + (process.pid % 300);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "messaging-routes-admin";
 
@@ -105,11 +105,24 @@ beforeAll(async () => {
   testDb = await provisionTestDb();
   pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 });
 
+  // Refuse a port a stranger is already holding, and wait out the previous
+  // suite's server if it has not let go yet. The boot poll below breaks on ANY
+  // 200 on this port, so without this an orphan answers it and the whole
+  // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+  await waitForPortFree(PORT);
   child = spawn(process.execPath, [DIST], {
     env: {
       ...process.env,
       NODE_ENV: "production",
       PORT: String(PORT),
+      // No background scheduler. It arms `setTimeout(tick, 15s)` at boot, and on
+      // that first tick every job with no scheduled_jobs row is due, so 28 jobs run
+      // in series against the scratch schema this suite is asserting on. Every e2e
+      // file in the suite outlives 15 seconds of server uptime under load and none
+      // under it alone, which is an unrecorded wall-clock deadline on 40 suites.
+      // server/synthesisBatch.routes.e2e.test.ts leaves it armed, because the tick
+      // is its subject.
+      SCHEDULER_ENABLED: "0",
       DATA_DIR: dataDir,
       DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,

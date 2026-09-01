@@ -35,7 +35,7 @@ import type { AddressInfo } from "net";
 import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -43,12 +43,10 @@ if (!DB_CONFIGURED) {
 }
 
 const DIST = path.resolve(process.cwd(), "dist/index.js");
-// 8800-9199, above every other suite's ceiling. The five existing route tests
-// already overlap each other (examples 6100-7599, quest-share 6800-7699,
-// messaging 7700-7999, map promise 7900-8799) and get away with it because
-// worker pids differ, but sitting ENTIRELY inside another suite's range is a
-// collision waiting for two unlucky pids and a CI run nobody can reproduce.
-const PORT = 8800 + (process.pid % 400);
+// Its window is checked by scripts/check-e2e-ports.mjs, not claimed here: the
+// hand-written claims this replaces had gone stale and were describing a tree
+// that had moved on.
+const PORT = 28002 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "synthesis-batch-admin";
 
@@ -134,6 +132,11 @@ describe.skipIf(!DB_CONFIGURED)("call synthesis: the batch job and the route it 
     await new Promise<void>((r) => stub!.listen(0, "127.0.0.1", r));
     const stubUrl = `http://127.0.0.1:${(stub!.address() as AddressInfo).port}`;
 
+    // Refuse a port a stranger is already holding, and wait out the previous
+    // suite's server if it has not let go yet. The boot poll below breaks on ANY
+    // 200 on this port, so without this an orphan answers it and the whole
+    // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+    await waitForPortFree(PORT);
     child = spawn(process.execPath, [DIST], {
       env: {
         ...process.env,

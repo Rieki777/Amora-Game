@@ -33,7 +33,7 @@ import path from "path";
 import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
 import { NO_VILLAGE_SECRETS_KEY_SENTENCE, VILLAGE_SECRETS_ENV } from "./lib/secrets";
 
 const DB_CONFIGURED = testDbConfigured();
@@ -43,8 +43,8 @@ if (!DB_CONFIGURED) {
 
 const DIST = path.resolve(process.cwd(), "dist/index.js");
 /** Its own range, clear of every port claimed by the suites listed in loop.e2e. */
-const PORT_A = 19700 + (process.pid % 400);
-const PORT_B = 20200 + (process.pid % 400);
+const PORT_A = 26402 + (process.pid % 400);
+const PORT_B = 26802 + (process.pid % 400);
 const BASE_A = `http://localhost:${PORT_A}`;
 const BASE_B = `http://localhost:${PORT_B}`;
 const ADMIN = "secrets-wiring-admin";
@@ -70,10 +70,24 @@ function envWithoutKey(extra: Record<string, string>): NodeJS.ProcessEnv {
 
 async function boot(port: number, dbUrl: string, tokenSecret: string): Promise<Server> {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-secrets-wiring-"));
+
+  // Refuse a port a stranger is already holding, and wait out the previous
+  // suite's server if it has not let go yet. The boot poll below breaks on ANY
+  // 200 on this port, so without this an orphan answers it and the whole
+  // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+  await waitForPortFree(port);
   const child = spawn(process.execPath, [DIST], {
     env: envWithoutKey({
       NODE_ENV: "production",
       PORT: String(port),
+      // No background scheduler. It arms `setTimeout(tick, 15s)` at boot, and on
+      // that first tick every job with no scheduled_jobs row is due, so 28 jobs run
+      // in series against the scratch schema this suite is asserting on. Every e2e
+      // file in the suite outlives 15 seconds of server uptime under load and none
+      // under it alone, which is an unrecorded wall-clock deadline on 40 suites.
+      // server/synthesisBatch.routes.e2e.test.ts leaves it armed, because the tick
+      // is its subject.
+      SCHEDULER_ENABLED: "0",
       DATA_DIR: dataDir,
       DATABASE_URL: dbUrl,
       ADMIN_PASSWORD: ADMIN,

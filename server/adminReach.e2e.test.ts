@@ -37,7 +37,7 @@ import os from "os";
 import path from "path";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
 import { DEFAULT_EXIT_POLICY } from "./lib/exitPolicy";
 
 const DB_CONFIGURED = testDbConfigured();
@@ -46,8 +46,10 @@ if (!DB_CONFIGURED) {
 }
 
 const DIST = path.resolve(process.cwd(), "dist/index.js");
-// Its own band: 11300-11800, clear of every other suite's.
-const PORT = 11300 + (process.pid % 500);
+// Its window is checked by scripts/check-e2e-ports.mjs, not claimed here: the
+// hand-written claims this replaces had gone stale and were describing a tree
+// that had moved on.
+const PORT = 6000 + (process.pid % 500);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "admin-reach-admin";
 
@@ -87,11 +89,24 @@ beforeAll(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "village-admin-reach-"));
   testDb = await provisionTestDb();
 
+  // Refuse a port a stranger is already holding, and wait out the previous
+  // suite's server if it has not let go yet. The boot poll below breaks on ANY
+  // 200 on this port, so without this an orphan answers it and the whole
+  // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+  await waitForPortFree(PORT);
   child = spawn(process.execPath, [DIST], {
     env: {
       ...process.env,
       NODE_ENV: "production",
       PORT: String(PORT),
+      // No background scheduler. It arms `setTimeout(tick, 15s)` at boot, and on
+      // that first tick every job with no scheduled_jobs row is due, so 28 jobs run
+      // in series against the scratch schema this suite is asserting on. Every e2e
+      // file in the suite outlives 15 seconds of server uptime under load and none
+      // under it alone, which is an unrecorded wall-clock deadline on 40 suites.
+      // server/synthesisBatch.routes.e2e.test.ts leaves it armed, because the tick
+      // is its subject.
+      SCHEDULER_ENABLED: "0",
       DATA_DIR: dataDir,
       DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,

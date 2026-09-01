@@ -55,7 +55,24 @@ export const MIGRATIONS_DIR = path.resolve(process.cwd(), "drizzle");
 export const MIGRATION_LOCK_TIMEOUT_SECONDS = 600;
 
 export function discoverMigrations(dir: string = MIGRATIONS_DIR): string[] {
-  if (!fs.existsSync(dir)) return [];
+  /*
+   * An empty list is not a safe answer here, it is a vacuous one. Two things
+   * downstream treat this list as a positive statement: `migrationsFingerprint`
+   * hashes it, so two different empty sets hash identically and a template
+   * built from nothing is indistinguishable from one built from the real set;
+   * and `templateIsReady` ends in `files.every(...)`, and `[].every(...)` is
+   * true, so an empty schema reports as ready and gets cloned into every
+   * database-backed suite. MIGRATIONS_DIR is resolved from process.cwd(), so
+   * "the directory is missing" means "you started this process somewhere
+   * unexpected", which is worth a sentence rather than a silent [].
+   */
+  if (!fs.existsSync(dir)) {
+    throw new Error(
+      `no migrations directory at ${dir} (resolved from cwd ${process.cwd()}). ` +
+        `An empty migration set is not a valid state: it fingerprints the same as ` +
+        `every other empty set and reports an empty schema as ready.`,
+    );
+  }
   return fs
     .readdirSync(dir)
     .filter((f) => /^\d{4}.*\.sql$/.test(f))

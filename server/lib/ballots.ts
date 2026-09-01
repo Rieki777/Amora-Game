@@ -709,8 +709,19 @@ export async function votesFor(pool: Pool, ballotId: string) {
 
 /** Everyone on the frozen roll. */
 export async function electorateOf(pool: Pool, ballotId: string): Promise<string[]> {
+  /*
+   * ORDER BY is not decoration. Without it MySQL returns primary-key order,
+   * (ballot_id, user_id), so the roll came back sorted by the SHAPE of the id
+   * string: registration mints `user-<epoch>-<rand>` and bootstrap mints
+   * `usr-<epoch>-<rand>`, and "user-" sorts before "usr-", so every ordinary
+   * member was notified before the founder in every village, by accident.
+   * Anything that walks this list sequentially (notifyRoll does) therefore had
+   * a first and a last member decided by a naming convention nobody chose.
+   * Stating the order does not make it meaningful; it makes it stable, which
+   * is what a reader of position 1 of 4 needs.
+   */
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT user_id FROM ballot_electorate WHERE ballot_id = ?",
+    "SELECT user_id FROM ballot_electorate WHERE ballot_id = ? ORDER BY user_id",
     [ballotId],
   );
   return rows.map((r) => String(r.user_id));

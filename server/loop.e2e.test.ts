@@ -27,7 +27,7 @@ import { spawn, type ChildProcess } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
 import { verifyDocument } from "./lib/villageExport";
 
 /**
@@ -39,7 +39,7 @@ import { verifyDocument } from "./lib/villageExport";
  * game variable reading 'hypha-mirror' in a schema where nothing had ever
  * set it. A shared fixed port is a shared mutable global with extra steps.
  */
-const PORT = 3781 + (process.pid % 2000);
+const PORT = 17900 + (process.pid % 2000);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "loop-test-admin";
 
@@ -133,6 +133,11 @@ beforeAll(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "amora-loop-"));
   testDb = await provisionTestDb();
 
+  // Refuse a port a stranger is already holding, and wait out the previous
+  // suite's server if it has not let go yet. The boot poll below breaks on ANY
+  // 200 on this port, so without this an orphan answers it and the whole
+  // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+  await waitForPortFree(PORT);
   child = spawn(process.execPath, [DIST], {
     env: {
       ...process.env,
@@ -473,7 +478,10 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(JSON.stringify(wall.json)).toContain("seedlings");
 
     const peerProfile = await api("GET", "/api/profile", undefined, peerToken);
-    expect(peerProfile.json.recognitionBalance).toBeGreaterThanOrEqual(5);
+    // Exactly 5, the amount just sent, to a peer registered three lines above
+    // with no other source of recognition. A floor here passes on a double
+    // credit, which is the one arithmetic error that matters on a balance.
+    expect(peerProfile.json.recognitionBalance, "exactly what was sent, once").toBe(5);
   });
 
   it("gates quests on stage and role, and an appointment unlocks the role gate", async () => {
@@ -777,8 +785,11 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(flows.json.byCycle.length).toBeGreaterThanOrEqual(0);
 
     const peerFlows = await api("GET", "/api/game/gratitude/flows", undefined, peerToken);
-    expect(peerFlows.json.totals.received).toBeGreaterThanOrEqual(5);
-    expect(peerFlows.json.totals.distinctAcknowledgers).toBeGreaterThanOrEqual(1);
+    // The sender's side is pinned exactly three lines above (`sent` is 13).
+    // The receiving side was a floor, so the two halves of the same ledger
+    // were held to different standards and a double credit passed.
+    expect(peerFlows.json.totals.received, "the other side of the same 13").toBe(13);
+    expect(peerFlows.json.totals.distinctAcknowledgers, "one sender, counted once").toBe(1);
   });
 
   it("records every movement in the ledger, and the balance is a derived cache", async () => {
@@ -2219,7 +2230,24 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect((await webhook(settleEvent, "t=123,v1=deadbeef")).status).toBe(400);
     expect((await webhook(settleEvent, sign(payload, SECRET, Math.floor(Date.now() / 1000) - 900))).status).toBe(400);
     // Nothing minted by either refusal.
-    expect((await api("GET", "/api/game/ledger", undefined, guestToken)).json.balances["stay-credit"]?.balance ?? 0).toBe(0);
+    /*
+     * NOTHING MINTED, asked of the LEDGER rather than of the balance map.
+     *
+     * This line used to read `balances["stay-credit"]?.balance ?? 0` and assert
+     * 0. Measured: the route OMITS a token the member has never held, so the
+     * `?? 0` was doing all the work and a route that returned 200 with an empty
+     * map, or a renamed slug, produced exactly the value the assertion
+     * demanded. The movement list cannot be satisfied that way: it is the
+     * append-only record, and "no stay-credit line at all" is the fact this
+     * case is actually about.
+     */
+    const guestLedger = await api("GET", "/api/game/ledger", undefined, guestToken);
+    expect(guestLedger.status, "the wallet must answer").toBe(200);
+    expect(Array.isArray(guestLedger.json.entries), "with its movement list").toBe(true);
+    expect(
+      guestLedger.json.entries.filter((e: any) => e.tokenType === "stay-credit"),
+      "a refused webhook mints nothing, so the ledger holds no stay-credit movement",
+    ).toEqual([]);
 
     // Properly signed: settles, mints, records the fiat charge.
     expect((await webhook(settleEvent)).status).toBe(200);
@@ -3148,7 +3176,21 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(sweep1.json.swept["library-credit"]).toBe(30);
     const sweep2 = await api("POST", `/api/admin/exits/${exitId}/settle-balances`, {}, founderToken);
     expect(sweep2.json.swept).toEqual({}); // nothing left; a replay moves nothing
-    expect((await api("GET", "/api/game/ledger", undefined, mToken)).json.balances["library-credit"]?.balance ?? 0).toBe(0);
+    /*
+     * The sweep took every library credit. Asked of the ledger, not the balance
+     * map, for the reason given at the stay-credit read above: this member DID
+     * hold library credits, so the sum of their movements is the honest zero,
+     * and it stays a real assertion even if the wallet stops listing a token at
+     * zero.
+     */
+    const exitLedger = await api("GET", "/api/game/ledger", undefined, mToken);
+    expect(exitLedger.status, "the wallet must answer").toBe(200);
+    const libraryMoves = exitLedger.json.entries.filter((e: any) => e.tokenType === "library-credit");
+    expect(libraryMoves.length, "they held library credits, so there are movements to sum").toBeGreaterThan(0);
+    expect(
+      libraryMoves.reduce((a: number, e: any) => a + Number(e.amount), 0),
+      "and the sweep left exactly none of them behind",
+    ).toBe(0);
 
     // Clean → resolve: the tombstone runs, sessions die, the agreement
     // POINTER (never content) sits on the record, and the economy conserves.

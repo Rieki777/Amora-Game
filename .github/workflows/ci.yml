@@ -23,6 +23,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# Every step runs under bash, on purpose.
+#
+# GitHub's default shell for `run:` on Linux is `bash -e {0}`, which does NOT
+# set pipefail: the exit status of `a | b` is b's. This workflow already has
+# three pipes in the bundle-budget step, safe today only because that step
+# tracks failures in a variable by hand. Reading a status through a pipe is
+# how this project produced four false greens on a red tree in one day, so the
+# shell is named here rather than inherited.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -170,8 +182,8 @@ jobs:
         # actual code, triggers, collation, and a village's own migrations.
         run: node scripts/check-migration-compat.mjs
 
-      - name: Guard regression test, brand refs
-        # THE GUARDS BELOW HAVE SELF-TESTS AND NOTHING HAS EVER RUN THEM.
+      - name: Guard self-tests, all of them
+        # THE GUARDS HAVE SELF-TESTS AND NOTHING RAN MOST OF THEM.
         #
         # Filed by the gates lane and wired here because ci.yml has one owner.
         # Verified independently before wiring: vitest.config.ts includes
@@ -187,16 +199,20 @@ jobs:
         # vacuous-pass shape the rest of this workflow exists to refuse, sitting
         # inside the guards' own test suite.
         #
-        # Plain node, no database, sub-second each. All three measured green at
-        # 2524da7 before wiring, so this starts from a known state rather than
+        # Plain node, no database, sub-second each. All nine measured green at
+        # a54d417 before wiring, so this starts from a known state rather than
         # from a hope.
-        run: node scripts/check-brand-refs.test.mjs
-
-      - name: Guard regression test, contribution scan
-        run: node scripts/contribution-scan.test.mjs
-
-      - name: Guard regression test, intake classifier
-        run: node scripts/intake-classify.test.mjs
+        #
+        # WHY A GLOB AND NOT THREE NAMES. This step used to name three files,
+        # and a fourth was added below. scripts/ held nine. The five nobody
+        # named ran nowhere at all, and two of them were the ones that matter
+        # most: check-voice (the house writing rules on all shipped copy) and
+        # check-migration-compat (a migration must leave the previous release
+        # able to run). Naming them is what left the gap and would leave it
+        # again for the tenth. scripts/run-self-tests.mjs globs, so a new
+        # self-test is wired the moment it is saved, and it fails rather than
+        # passing quietly if the glob ever matches nothing.
+        run: node scripts/run-self-tests.mjs
 
       - name: Brand guard
         # S56: platform code carries no village's brand (invariant 2.1 #2).
@@ -475,10 +491,34 @@ jobs:
         # absent is the failure this whole file exists to stop.
         run: node scripts/check-identity-keys.mjs
 
-      - name: Identity keys, self-test
-        # The guard's own fixture suite. A ratchet nobody has proven can refuse
-        # is a ratchet that reports green either way.
-        run: node scripts/check-identity-keys.test.mjs
+      # (check-identity-keys.test.mjs used to run here as its own step. It now
+      # runs in `Guard self-tests, all of them`, above, with the other eight.)
+
+      - name: E2E database isolation
+        # Every suite that spawns the built server must hand it its own scratch
+        # schema. All 41 do; nothing enforced it, and the 42nd that forgets the
+        # line does not fail, it passes against a real database and writes as it
+        # goes. The one convention here whose failure reaches a village.
+        run: node scripts/check-e2e-db-isolation.mjs
+
+      - name: E2E port windows
+        # Every e2e suite picks its own port as BASE + (process.pid % WIDTH) and
+        # nothing checked the arithmetic. One suite used a FIXED port, five bases
+        # were shared by eleven files, and the survey comments in the files' own
+        # headers had gone stale and were telling readers a false thing about the
+        # tree. This is that survey, executable. Sub-second, no database.
+        run: node scripts/check-e2e-ports.mjs
+
+      - name: File line ratchet
+        # Tracked files may only shrink. Written months ago and wired to
+        # nothing: not CI, not package.json, not another script. An unwired
+        # guard in the tree reads to the next contributor as coverage that
+        # exists. Green at a54d417 before wiring.
+        run: node scripts/check-file-lines.mjs
+
+      - name: Tailwind gray ratchet
+        # Same story, same fix: present in the tree, invoked by nothing.
+        run: node scripts/check-tailwind-gray.mjs
 
       - name: Server index size
         # The monolith ratchet: server/index.ts may only ever shrink, in lines
