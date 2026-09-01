@@ -296,11 +296,26 @@ should not be revisited casually:
 created, never at tally time. A cycle discovered while counting is an infinite loop in the one
 routine nobody wants to debug at a season boundary.
 
-**Chains.** If A delegates to B and B delegates to C, does A follow C? Classic liquid democracy says
-yes. **Recommendation: NOT transitive, at least to begin with.** His words are "copies whatever they
-do", and someone who delegated has not done anything to copy. Transitive chains also concentrate
-power invisibly, several hops from anybody who consented to it. Non-transitive is simpler, safer,
-and can be widened later; the reverse is a migration and a surprise.
+**Chains are TRANSITIVE. Settled by the founder:**
+
+> "I want transitive to start - that's okay but as you say concentration must be visible so we'll
+> just show what's going on"
+
+So A delegates to B, B delegates to C, and A follows C. I had recommended against it on the grounds
+that chains concentrate power several hops from anyone who consented, and his answer is the same one
+he has given all the way through: the protection is transparency, not prohibition. Show what is
+going on.
+
+**That makes three things load-bearing rather than nice to have:**
+
+- **Cycle detection is now mandatory, not merely wise.** Without transitivity a cycle is a curiosity.
+  With it, a cycle is an infinite loop in the tally. Refuse at creation.
+- **A delegator must be able to see WHO THEY ACTUALLY FOLLOWED**, not only who they delegated to.
+  If A delegated to B and the vote came from C four hops away, A following C is the whole mechanism
+  working, and A not being able to see that is the concentration becoming invisible again.
+- **Chain depth and effective concentration must both be shown.** How many delegations a member
+  holds DIRECTLY is not the interesting number once chains exist. The interesting number is how many
+  votes they effectively decide, counting everyone who reaches them through anybody.
 
 **What happens when the delegate does not vote?** The delegator's vote is **not cast**. It is not an
 abstain, because abstaining is a choice somebody made. That distinction decides quorum, and it is
@@ -314,9 +329,17 @@ the transparency ruling exists to prevent.
 
 ### Two interactions to settle
 
-**Secrecy.** Voter identity defaults to secret. But a delegator must be able to see what their
-delegate did, or "you can change it at any time" is a promise with nothing behind it. So delegation
-punctures secrecy for that pair at minimum. Whether it punctures further is question 11.
+**Secrecy resolves itself, and needs no new mechanism.** The founder:
+
+> "A delegate would puncture because you always see on a proposal a vote you made. So since your vote
+> was cast following another's you were able to see what that other member did because you can see
+> what you did."
+
+A member already sees their own vote on a proposal. A delegated vote IS their own vote, sitting in
+their own row, carrying the choice it followed. So the delegator learns what their delegate did by
+reading what they themselves voted, and no special disclosure rule is required. This is another
+reason the copy-the-choice shape above is the right one: it makes the secrecy question dissolve
+rather than need answering.
 
 **The steward.** A steward holding many delegations has concentrated votes AND a veto. That may be
 entirely fine, since both were given knowingly, but it should be visible in one place rather than
@@ -606,18 +629,6 @@ credential. **Recommendation: start with that list and let villages add, never r
 **Recommendation: rebase where rebasing is honest and refuse where it is not**, following migration
 `0122`'s pattern, and show the member what changed underneath them either way.
 
-**10. Are delegations transitive?** A delegates to B, B delegates to C. Does A follow C?
-**Recommendation: no, at least at first.** His words are "copies whatever they do", and somebody who
-delegated has not done anything to copy. Transitive chains also concentrate power several hops from
-anyone who consented to it. Non-transitive can be widened later; the reverse is a migration and a
-surprise.
-
-**11. How far does delegation puncture the secret ballot?** A delegator must see what their delegate
-did, or "change it at any time" means nothing. Does anyone else see it? **Recommendation: the pair
-sees it, and the COUNTS are public (how many delegations a member holds, and what share of the
-electorate).** That satisfies his transparency rule about concentration without publishing every
-individual choice.
-
 **9. Should governance week and the claims window share a date?** `gameVariables.ts:202` already
 advises lining the claims window up with when governance meets. **Recommendation: one setting drives
 both**, so a village that moves its governance rhythm does not have to remember a second place.
@@ -629,7 +640,7 @@ both**, so a village that moves its governance rhythm does not have to remember 
 1. Read the seven files in section 2. Do not design anything until you have.
 2. Write down, in your own words, what the existing engine does and where a changeset attaches. If
    that description is wrong, everything after it is wrong.
-3. **Put section 10's eleven questions to the founder in one pass**, with the recommendations. They
+3. **Put section 10's nine questions to the founder in one pass**, with the recommendations. They
    are collected there so he answers once rather than being interrupted nine times.
 4. **Build the real term expiry before anything else.** The whole steward model rests on it and it
    does not exist yet.
