@@ -224,7 +224,7 @@ export default function ResourcesAdminPanel({ password }: { password: string }) 
       <div className="max-w-2xl">
         <h1 className="font-display text-2xl font-bold text-foreground mb-2">How Resources Flow</h1>
         <p className="text-sm text-muted-foreground">
-          The resources module is off. Turn it on under Modules On/Off and this tab becomes the
+          The resources module is off. Turn it on under Module Library and this tab becomes the
           place to declare who may spend what, with whose approval, paid from where, and where the
           money comes from.
         </p>

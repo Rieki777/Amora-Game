@@ -4,3 +4,12 @@
 # the file on disk would no longer match the one the generator wrote or the one
 # the map lane checksums. `-text` means bytes in, same bytes out, everywhere.
 docs/prototypes/grounds-v0.html -text
+
+# docs/TOKENS.md is GENERATED (scripts/generate-token-doc.mjs) and a build step
+# compares the committed bytes with what the generator writes. `core.autocrlf`
+# is true on the Windows checkouts this repo is developed on, so without this
+# git would store LF, hand back CRLF, and the guard would fail on one machine
+# and pass in CI. `-text` means bytes in, same bytes out, everywhere. The guard
+# strips carriage returns as well, so a hand edit in an editor that writes CRLF
+# still reads as content rather than as a whole-file difference.
+docs/TOKENS.md -text
