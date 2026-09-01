@@ -114,6 +114,19 @@ function commitAll(repo, message) {
 function run(repo, args = [], envOverride = null) {
   const env = envOverride === undefined ? { ...process.env } : { ...process.env, ...(envOverride ?? {}) };
   if (envOverride === null && DB_URL) env.TEST_DATABASE_URL = DB_URL;
+  // A key set to null REMOVES it from the child's environment. Spreading alone
+  // cannot express that, and the scenario that needs it was silently broken for
+  // it: it built a copy of process.env, DELETED TEST_DATABASE_URL from the
+  // copy, and passed the copy here, where the spread underneath put the
+  // original straight back. So "run the guard with no database" ran it with
+  // the database, whenever the variable was in the environment at all.
+  //
+  // It could only fail where it mattered. On a dev machine TEST_DATABASE_URL
+  // lives in .env and never reaches process.env, so nothing leaked and the
+  // scenario passed. CI sets it as a real variable, so there it leaked every
+  // time, and CI was red on these two assertions while every local run was
+  // green.
+  for (const [k, v] of Object.entries(env)) if (v === null || v === undefined) delete env[k];
   const r = spawnSync("node", [path.join(repo, "scripts", "check-migration-compat.mjs"), ...args], {
     cwd: repo,
     encoding: "utf-8",
@@ -341,9 +354,9 @@ if (!DB_URL) {
       writeMigration(repo, "0001_a.sql", "CREATE TABLE t (id varchar(30) NOT NULL, PRIMARY KEY (id));\n");
       commitAll(repo, "base: 0001");
       writeMigration(repo, "0002_widen.sql", "ALTER TABLE t ADD COLUMN note varchar(80) NULL;\n");
-      const envNoDb = { ...process.env };
-      delete envNoDb.TEST_DATABASE_URL;
-      const r = run(repo, [], envNoDb);
+      // Explicit removal. Deleting the key from a copy of process.env and
+      // handing that copy over does not remove anything; see `run`.
+      const r = run(repo, [], { TEST_DATABASE_URL: null });
       checkTrue("no database with new migrations fails", r.status === 1, `status ${r.status}`);
       checkTrue("says the expand/contract check DID NOT RUN", /DID NOT RUN/.test(r.stderr), r.stderr.trim().slice(0, 200));
     } finally {
