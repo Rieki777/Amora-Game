@@ -2477,3 +2477,56 @@ is the most expensive kind: the founder described confusion, I heard a specifica
 spent hours changing a default that was already correct. His fourth message that day said "we need
 to be clear about the difference", which is a request for clarification. I should have answered it
 rather than acted on it.
+
+## 25 · The first payout of every village's life was lost (fixed 2026-09-01)
+
+Found by the s10 proof lane while verifying somebody else's work, which is the
+only reason it was found at all: the lane's brief was to confirm the payouts
+ruling, so it drove a quest to confirmation on a genuinely fresh village and
+read the ledger, instead of reading the rules table like the suite did.
+
+**The defect.** `mintForConfirmedClaim` was the only caller of `economyEpoch`,
+and `economyEpoch` stamped the epoch when it found none. First confirmed quest
+in a new village: asks for the epoch, none exists, writes `now`, then measures
+itself against the value it just wrote. It resolved 20ms earlier. It loses.
+
+    economyEpoch      2026-09-01T07:06:32.489Z
+    claim resolvedAt  2026-09-01T07:06:32.469Z
+
+Ledger, first quest: `gratitude 20`, and nothing else. Second quest, same
+village, same code: `gratitude 20`, `credits 25`, `village-voice 10000`.
+Identical on main, so it is not a regression: it is once per village, forever,
+on the first piece of work anybody there ever finishes.
+
+**The fix** (`5bb5ce1`): reading the clock and starting it are two functions
+now, because the bug was that they were one. Boot stamps it next to
+`seedEconomy`, which is what the comment's "the day the flag flips" always
+meant. The mint passes the claim in hand, so a claim that still finds no epoch
+starts the clock rather than losing to it. The backlog protection the epoch
+exists for is unchanged and still tested at 90 days.
+
+**Coordinator error 21: I reported this engine's behaviour to Rye from the
+rules table too.** My brief said "today a confirmed quest pays Gratitude plus
+10 Village Voice". That sentence was true of `mint_rules` and false of every
+village's first quest. I had read the same row the misleading test read.
+
+**The two things that hid it, both worth keeping:**
+
+1. A test named `pays a confirmed quest in voice and credits` that asserted on
+   four columns of the `mint_rules` ROW. It never confirmed a quest and never
+   read a balance. **A test named for an outcome that asserts on configuration
+   proves the intent and not the outcome** — this is the third time this
+   program has paid for that exact shape, and the first time it cost a real
+   payout rather than a false alarm.
+2. `beforeAll` calling `economyEpoch(pool)` to get a running engine. Entirely
+   reasonable, and precisely the state in which the bug cannot reproduce, so
+   every later test in two files ran on the far side of it. **Setup that puts
+   the system into a good state can be the thing that hides the bad one.**
+
+`economyEpoch.test.ts` is written under two rules stated in the file: never
+stamp the epoch in setup, and assert on balances, never on rules.
+
+**Positive control:** restoring the stamp-then-compare ordering fails exactly
+one of its five tests, with the server's own sentence, `expected 'confirmed
+before the economy epoch' to be undefined`. The other four still pass, which is
+correct — only one of them discriminates.
