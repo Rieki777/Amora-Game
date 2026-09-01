@@ -5935,7 +5935,7 @@ function ToolsAdminTab({ password }: { password: string }) {
         <h2 className="text-xl font-bold text-gray-900 mb-2">Tools</h2>
         <p className="text-sm text-gray-500">
           The Tools Hub module is off. Enable it (at least to Preview) in
-          Modules On/Off (top of The Game menu), then come back here to add tools.
+          Module Library (top of The Game menu), then come back here to add tools.
         </p>
       </div>
     );
@@ -7601,7 +7601,7 @@ function HealthAdminTab({ password }: { password: string }) {
         <p className="text-sm text-gray-500">
           The Village Health module is off. Snapshot collection runs anyway
           (every cycle close freezes its numbers); enable the module in
-          Modules On/Off (top of The Game menu) when there is enough history
+          Module Library (top of The Game menu) when there is enough history
           to show, and to record regeneration entries here.
         </p>
       </div>
