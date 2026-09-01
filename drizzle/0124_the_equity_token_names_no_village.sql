@@ -81,85 +81,110 @@
 -- anyway, because a table that "cannot" hold such a row is exactly the one
 -- that orphans a village's history when it turns out it did.
 
+-- token-doc: ignore
 UPDATE `token_ledger` SET `token_type` = 'equity'
  WHERE `token_type` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `token_balances` SET `token_type` = 'equity'
  WHERE `token_type` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `onchain_balances` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `hypha_token_bindings` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `hypha_village_reads` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `admin_mint_requests` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `mint_rules` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `voice_claims` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `currency_prices` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `token_exchange_settings` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `exchange_orders` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `exchange_orders` SET `pay_token_slug` = 'equity'
  WHERE `pay_token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `payment_products` SET `token_slug` = 'equity'
  WHERE `token_slug` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `accommodation_prices` SET `token_type` = 'equity'
  WHERE `token_type` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `event_seat_charges` SET `token_type` = 'equity'
  WHERE `token_type` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `events` SET `seat_token` = 'equity'
  WHERE `seat_token` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `stays` SET `rate_snapshot_token` = 'equity'
  WHERE `rate_snapshot_token` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `gratitude_distributions` SET `pool_token` = 'equity'
  WHERE `pool_token` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
+-- token-doc: ignore
 UPDATE `ballots` SET `weight_token` = 'equity'
  WHERE `weight_token` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
 -- The two settings that name a token by slug instead of holding a balance in it.
+-- token-doc: ignore
 UPDATE `game_variables` SET `value` = 'equity'
  WHERE `config_key` IN ('gratitude.pool_token', 'governance.weight_token')
    AND `value` = CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin;
 
 -- The four columns that store a unit as `token:<slug>` rather than a bare slug
 -- (TOKEN_UNIT, server/lib/resources.ts).
+-- token-doc: ignore
 UPDATE `circle_budgets` SET `unit` = 'token:equity'
  WHERE `unit` = CONCAT('token:', CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin);
 
+-- token-doc: ignore
 UPDATE `funding_sources` SET `unit` = 'token:equity'
  WHERE `unit` = CONCAT('token:', CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin);
 
+-- token-doc: ignore
 UPDATE `regen_entries` SET `unit` = 'token:equity'
  WHERE `unit` = CONCAT('token:', CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin);
 
+-- token-doc: ignore
 UPDATE `spending_rules` SET `unit` = 'token:equity'
  WHERE `unit` = CONCAT('token:', CONVERT((SELECT `slug` FROM `tokens` WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity') USING utf8mb4) COLLATE utf8mb4_bin);
 
 -- And LAST, the registry row itself. The name moves only where it is not
 -- already this village's own name; the slug moves always, and this is the
 -- final time it ever may.
+-- token-doc: as-if UPDATE `tokens` SET `name` = 'Village Equity', `slug` = 'equity' WHERE `governance` = 'hypha' AND `kind` = 'equity' AND `slug` <> 'equity'
 UPDATE `tokens`
    SET `name` = CASE
          WHEN LOWER(TRIM(`name`)) = CONVERT(LOWER(TRIM(COALESCE(
