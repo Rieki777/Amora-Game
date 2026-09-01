@@ -37,7 +37,7 @@ import path from "path";
 import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -47,17 +47,21 @@ if (!DB_CONFIGURED) {
 const DIST = path.resolve(process.cwd(), "dist/index.js");
 
 /**
- * A window PROVABLY clear of every other suite that boots a server.
+ * This suite's port window. It is checked, not asserted.
  *
- * RE-GREP BEFORE TRUSTING THIS. `grep -rn "process.pid %" server/` is the
- * survey; the table is only its result on the date named. Surveyed 2026-08-30:
- * the highest band any other suite can reach is 18599
- * (18200 + pid % 400, founderEnds.routes, added in the same commit as this
- * file), so a base at 18700 cannot collide with any of them for ANY process
- * id. 400 wide, ending at 19099, well below the ephemeral range Windows hands
- * out (49152+).
+ * A hand-written survey used to live here, ending with RE-GREP BEFORE
+ * TRUSTING THIS. Nobody re-grepped, the tree moved, and the paragraph went on
+ * claiming the window was clear when it had not been for over a week. Worse,
+ * every one of those surveys grepped for `process.pid %` and so never saw the
+ * stub ports (GOOGLE_PORT, BARE_PORT, STUB_PORT) or the fixed 8127 that
+ * actually caused a failure.
+ *
+ * `scripts/check-e2e-ports.mjs` is that survey, executable, run in CI. It
+ * refuses any two windows in different files that overlap at all, any fixed
+ * port, and anything reaching into Linux's ephemeral range. Change the number
+ * below and it will tell you.
  */
-const PORT = 18700 + (process.pid % 400);
+const PORT = 27602 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "steward-admin";
 const PASSWORD = "StewardTest123!";
@@ -178,11 +182,24 @@ beforeAll(async () => {
   testDb = await provisionTestDb();
   pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the suite's own pool onto the scratch schema it provisioned
 
+  // Refuse a port a stranger is already holding, and wait out the previous
+  // suite's server if it has not let go yet. The boot poll below breaks on ANY
+  // 200 on this port, so without this an orphan answers it and the whole
+  // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+  await waitForPortFree(PORT);
   child = spawn(process.execPath, [DIST], {
     env: {
       ...process.env,
       NODE_ENV: "production",
       PORT: String(PORT),
+      // No background scheduler. It arms `setTimeout(tick, 15s)` at boot, and on
+      // that first tick every job with no scheduled_jobs row is due, so 28 jobs run
+      // in series against the scratch schema this suite is asserting on. Every e2e
+      // file in the suite outlives 15 seconds of server uptime under load and none
+      // under it alone, which is an unrecorded wall-clock deadline on 40 suites.
+      // server/synthesisBatch.routes.e2e.test.ts leaves it armed, because the tick
+      // is its subject.
+      SCHEDULER_ENABLED: "0",
       DATA_DIR: dataDir,
       DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,

@@ -35,7 +35,7 @@ import path from "path";
 import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS } from "./db/testDb";
+import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -46,16 +46,21 @@ if (!DB_CONFIGURED) {
 const DIST = path.resolve(process.cwd(), "dist/index.js");
 
 /**
- * A window PROVABLY clear of every other suite that boots a server.
+ * This suite's port window. It is checked, not asserted.
  *
- * RE-GREP BEFORE TRUSTING THIS. `grep -rn "process.pid %" server/` is the
- * survey; the table is only its result on the date named. Surveyed 2026-08-22,
- * the highest port any other suite can reach is 12199 (11800 + pid % 400), so
- * a base at 12300 cannot collide with any of them for ANY process id. 400
- * wide, ending at 12699, well below the ephemeral range Windows hands out
- * (49152+).
+ * A hand-written survey used to live here, ending with RE-GREP BEFORE
+ * TRUSTING THIS. Nobody re-grepped, the tree moved, and the paragraph went on
+ * claiming the window was clear when it had not been for over a week. Worse,
+ * every one of those surveys grepped for `process.pid %` and so never saw the
+ * stub ports (GOOGLE_PORT, BARE_PORT, STUB_PORT) or the fixed 8127 that
+ * actually caused a failure.
+ *
+ * `scripts/check-e2e-ports.mjs` is that survey, executable, run in CI. It
+ * refuses any two windows in different files that overlap at all, any fixed
+ * port, and anything reaching into Linux's ephemeral range. Change the number
+ * below and it will tell you.
  */
-const PORT = 12300 + (process.pid % 400);
+const PORT = 14200 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "governance-admin";
 const PASSWORD = "Governance123!";
@@ -139,11 +144,24 @@ beforeAll(async () => {
   testDb = await provisionTestDb();
   pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the e2e harness against the scratch schema, as every e2e suite holds
 
+  // Refuse a port a stranger is already holding, and wait out the previous
+  // suite's server if it has not let go yet. The boot poll below breaks on ANY
+  // 200 on this port, so without this an orphan answers it and the whole
+  // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+  await waitForPortFree(PORT);
   child = spawn(process.execPath, [DIST], {
     env: {
       ...process.env,
       NODE_ENV: "production",
       PORT: String(PORT),
+      // No background scheduler. It arms `setTimeout(tick, 15s)` at boot, and on
+      // that first tick every job with no scheduled_jobs row is due, so 28 jobs run
+      // in series against the scratch schema this suite is asserting on. Every e2e
+      // file in the suite outlives 15 seconds of server uptime under load and none
+      // under it alone, which is an unrecorded wall-clock deadline on 40 suites.
+      // server/synthesisBatch.routes.e2e.test.ts leaves it armed, because the tick
+      // is its subject.
+      SCHEDULER_ENABLED: "0",
       DATA_DIR: dataDir,
       DATABASE_URL: testDb.url,
       ADMIN_PASSWORD: ADMIN,
@@ -430,10 +448,46 @@ describe.skipIf(!DB_CONFIGURED)("the governance engine, driven", () => {
     // by a vote that was never about it.
     expect(await proposalStatus(proposalId)).toBe("open");
 
-    // Nobody is told they carried anything.
-    const bell = await titlesInBell(voters[0].token);
-    expect(bell.some((t) => t.includes("The village would have said yes"))).toBe(true);
-    expect(bell.some((t) => t.startsWith("Carried:"))).toBe(false);
+    /*
+     * Nobody is told they carried anything.
+     *
+     * WITH A BOUNDED WAIT, and this is the whole reason this case was the one
+     * that failed in company and passed alone. The close fires its roll notice
+     * as `void notifyRoll(...)` and then answers 200, and notifyRoll walks the
+     * frozen roll SEQUENTIALLY at two database round trips per member. So the
+     * 200 does not mean the roll has been told; nothing in the close's contract
+     * says it does, and the product is deliberate about that (a trace must not
+     * hold up the deed it traces). Reading the bell once, immediately, asserted
+     * a promise the server never made, and the margin was about two round
+     * trips: sampled 16 times, 12 of them found the roll still being written.
+     * The same assertion asked of the LAST member of the roll rather than the
+     * first was false in 3 of 4 samples.
+     *
+     * server/loop.e2e.test.ts:5642 already reads these same un-awaited notices
+     * with a bounded wait and says why. This one is bounded by the CLOCK rather
+     * than by a read count, which is the difference between a wait and a hope:
+     * a fixed number of reads with no sleeps is only ever worth as much as the
+     * round trips happen to cost, and under load those are the moments the
+     * writer is slow too. Verified by making the writer slow on purpose (500ms
+     * per member of the roll, four members): the count-bounded form failed, this
+     * one passes, and both go red if the notice never lands at all.
+     *
+     * The NEGATIVE half is checked after the positive one arrives, on purpose.
+     * "No Carried: line" is true of an empty bell too, so asserting it before
+     * anything has landed would pass for the wrong reason.
+     */
+    const bellDeadline = Date.now() + 10_000;
+    let bell: string[] = [];
+    for (;;) {
+      bell = await titlesInBell(voters[0].token);
+      if (bell.some((t) => t.includes("The village would have said yes"))) break;
+      if (Date.now() > bellDeadline) break;
+      await settle(100);
+    }
+    expect(bell.some((t) => t.includes("The village would have said yes")), 
+      `the advisory close must tell the roll; the bell held: ${JSON.stringify(bell)}`).toBe(true);
+    expect(bell.some((t) => t.startsWith("Carried:")),
+      `an advisory vote carries nothing, so nothing may say so; the bell held: ${JSON.stringify(bell)}`).toBe(false);
   });
 
   it("the weight trail is append-only and member-readable, after all of that", async () => {

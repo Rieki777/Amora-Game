@@ -25,7 +25,7 @@ import os from "os";
 import path from "path";
 import { spawn, type ChildProcess } from "child_process";
 import mysql from "mysql2/promise";
-import { E2E_BOOT_DEADLINE_MS, provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
+import { E2E_BOOT_DEADLINE_MS, provisionTestDb, testDbConfigured, type TestDb, waitForPortFree } from "./db/testDb";
 import { sealCycle } from "./repos/moduleUsage";
 import { cycleIdFor } from "./lib/gratitude-cycles";
 import { verifyDocument } from "./lib/villageExport";
@@ -33,7 +33,7 @@ import { moduleUsageReportProblems, MODULE_USAGE_PROTOCOL } from "../shared/modu
 
 const DB_CONFIGURED = testDbConfigured();
 const DIST = path.resolve(__dirname, "../dist/index.js");
-const PORT = 8127;
+const PORT = 21902 + (process.pid % 400);
 const BASE = `http://127.0.0.1:${PORT}`;
 const ADMIN = "MeterDrive123!";
 const PASSWORD = "MeterMember123!";
@@ -81,6 +81,15 @@ async function register(name: string, slug: string): Promise<{ name: string; tok
 
 let founder = "";
 const members: Record<string, string> = {};
+/** The spawned server's own stdout and stderr, so a failure can quote it. */
+const logs: string[] = [];
+
+/** The tail of what the server said, for an assertion message that would otherwise name nothing. */
+function serverSaid(lines: string[]): string {
+  const text = lines.join("").trimEnd();
+  if (!text) return "(the spawned server said nothing at all)";
+  return `--- the spawned server said ---\n${text.slice(-2000)}`;
+}
 
 describe.skipIf(!DB_CONFIGURED)("the builders' pool, driven", () => {
   beforeAll(async () => {
@@ -91,11 +100,24 @@ describe.skipIf(!DB_CONFIGURED)("the builders' pool, driven", () => {
     testDb = await provisionTestDb();
     pool = mysql.createPool({ uri: testDb.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the e2e harness against the scratch schema, as every e2e suite holds
 
+    // Refuse a port a stranger is already holding, and wait out the previous
+    // suite's server if it has not let go yet. The boot poll below breaks on ANY
+    // 200 on this port, so without this an orphan answers it and the whole
+    // scenario runs against the wrong server. See waitForPortFree in ./db/testDb.
+    await waitForPortFree(PORT);
     child = spawn(process.execPath, [DIST], {
       env: {
         ...process.env,
         NODE_ENV: "production",
         PORT: String(PORT),
+        // No background scheduler. It arms `setTimeout(tick, 15s)` at boot, and on
+        // that first tick every job with no scheduled_jobs row is due, so 28 jobs run
+        // in series against the scratch schema this suite is asserting on. Every e2e
+        // file in the suite outlives 15 seconds of server uptime under load and none
+        // under it alone, which is an unrecorded wall-clock deadline on 40 suites.
+        // server/synthesisBatch.routes.e2e.test.ts leaves it armed, because the tick
+        // is its subject.
+        SCHEDULER_ENABLED: "0",
         DATA_DIR: dataDir,
         DATABASE_URL: testDb.url,
         ADMIN_PASSWORD: ADMIN,
@@ -105,9 +127,11 @@ describe.skipIf(!DB_CONFIGURED)("the builders' pool, driven", () => {
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    const logs: string[] = [];
     child.stdout?.on("data", (d) => logs.push(String(d)));
     child.stderr?.on("data", (d) => logs.push(String(d)));
+    // If the child dies (a bind conflict, a bad env), say so at once instead of
+    // letting the boot poll succeed against whatever else answers this port.
+    child.on("exit", (code) => logs.push(`\n[the spawned server exited with code ${code}]\n`));
 
     const deadline = Date.now() + E2E_BOOT_DEADLINE_MS;
     for (;;) {
@@ -118,13 +142,28 @@ describe.skipIf(!DB_CONFIGURED)("the builders' pool, driven", () => {
       await new Promise((r) => setTimeout(r, 400));
     }
 
+    /*
+     * ASSERT EACH STEP WHERE ITS VALUE IS PRODUCED.
+     *
+     * This chain used to assert nothing until the end, so when bootstrap
+     * answered with no claim link the regex yielded "", set-password was called
+     * with an empty token, and the first thing that spoke was
+     * `expected '' to be truthy` three calls downstream, naming neither the
+     * call that failed nor its status. That is the whole printed evidence of
+     * the intermittent this file was known for. The server's own account of it
+     * sat in `logs` and was thrown away, because 41 of the 42 e2e suites read
+     * that array in exactly one place: the boot-deadline message.
+     */
     const boot = await call("POST", "/api/admin/bootstrap", {
       password: ADMIN, email: `founder-${PORT}@example.test`, name: "Meter Founder",
     });
+    expect(boot.status, `bootstrap answered ${boot.status}: ${boot.text.slice(0, 300)}\n${serverSaid(logs)}`).toBe(200);
     const claim = decodeURIComponent(String(boot.json?.claimUrl ?? "").match(/token=([^&]+)/)?.[1] ?? "");
+    expect(claim, `bootstrap must return a claim link, got ${boot.text.slice(0, 300)}\n${serverSaid(logs)}`).toBeTruthy();
     const setPw = await call("POST", "/api/auth/set-password", { token: claim, password: ADMIN });
+    expect(setPw.status, `set-password answered ${setPw.status}: ${setPw.text.slice(0, 300)}\n${serverSaid(logs)}`).toBe(200);
     founder = String(setPw.json?.token ?? "");
-    expect(founder, "founder must hold a session").toBeTruthy();
+    expect(founder, `founder must hold a session\n${serverSaid(logs)}`).toBeTruthy();
 
     for (const [name, slug] of [["Ana", "ana"], ["Ben", "ben"], ["Cass", "cass"], ["Dev", "dev"]]) {
       members[name!] = (await register(name!, slug!)).token;
@@ -138,7 +177,19 @@ describe.skipIf(!DB_CONFIGURED)("the builders' pool, driven", () => {
   }, 180_000);
 
   afterAll(async () => {
-    child?.kill();
+    // Wait for the child to actually go. `fileParallelism: false` starts the
+    // next suite the moment this resolves, and on Linux the server's SIGTERM
+    // handler drains in-flight requests and closes its pool before the socket
+    // is released, so firing kill() and moving on hands the next file a port
+    // that is still bound.
+    if (child && child.exitCode === null) {
+      await new Promise<void>((resolve) => {
+        const done = () => resolve();
+        child?.once("exit", done);
+        setTimeout(done, 5_000);
+        child?.kill();
+      });
+    }
     await pool?.end();
     await testDb?.drop();
     if (dataDir) fs.rmSync(dataDir, { recursive: true, force: true });

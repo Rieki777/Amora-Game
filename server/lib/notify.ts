@@ -23,6 +23,7 @@
  *    Block 5 — the spine carries the alreadyNotified pattern's home, not a
  *    speculative implementation of surfaces that don't exist yet.
  */
+import crypto from "node:crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { numberVar } from "./variables";
 
@@ -220,7 +221,18 @@ export interface NotifyResult {
  * the producing mutation: a notification is a trace, not the deed.
  */
 export async function insertNotification(deps: NotifyDeps, input: NotifyInput): Promise<NotifyResult> {
-  const id = `ntf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  /*
+   * Four base36 characters of randomness inside one millisecond is about one
+   * collision in 1.7 million, and a collision here is invisible in the worst
+   * way: the insert fails with ER_DUP_ENTRY on the PRIMARY key, the catch
+   * below reads that as "already sent", and a real notification is dropped as
+   * a successful dedupe. notifyRoll sends one of these per member of an
+   * electorate in a tight loop, which is exactly the shape that generates
+   * same-millisecond ids. Twelve hex characters makes the id's own collision
+   * negligible beside the dedupe key, which is the thing that is supposed to
+   * decide.
+   */
+  const id = `ntf-${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
   try {
     await deps.pool.query(
       "INSERT INTO notifications (id, user_id, type, title, body, link, actor_user_id, dedupe_key) VALUES (?,?,?,?,?,?,?,?)",

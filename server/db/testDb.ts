@@ -150,6 +150,12 @@ async function templateIsReady(
     [schema],
   );
   if (dbs.length === 0) return false;
+  // `[].every(...)` is true, so an empty migration set would report a schema
+  // holding no tables at all as READY and clone it into every suite. The same
+  // shape as a pinned count written as "at least one": a floor of zero proves
+  // nothing. discoverMigrations now throws rather than returning [], and this
+  // is the second lock on the same door.
+  if (files.length === 0) return false;
   try {
     const [rows] = await admin.query<any[]>(
       `SELECT filename FROM \`${schema}\`.\`_migrations_applied\``,
@@ -633,3 +639,84 @@ export async function provisionTestDb(opts: ProvisionOptions = {}): Promise<Test
  * worktree keeps its previous value beside it as `.env.remote-backup`.
  */
 export const E2E_BOOT_DEADLINE_MS = 120_000;
+
+/**
+ * How long a port may still be held by whoever had it last.
+ *
+ * `fileParallelism: false` starts the next e2e file the moment the previous
+ * afterAll resolves, and 40 of the 41 afterAll hooks call `child?.kill()` and
+ * return without waiting for the child to exit. On Windows a SIGTERM
+ * terminates the target unconditionally so the socket frees at once; on Linux
+ * the server's own handler runs `gracefulShutdown`, draining in-flight
+ * requests and closing the pool while vitest has already moved on. Ten seconds
+ * is far longer than that drain and far shorter than the boot deadline.
+ */
+const PORT_RELEASE_DEADLINE_MS = 10_000;
+
+/**
+ * Refuse to boot onto a port somebody else is holding.
+ *
+ * WHY THIS EXISTS. Every e2e boot poll asks `GET /health` and breaks on any
+ * 200. It asks whether SOMETHING is listening, never whether that something is
+ * the child it just spawned. So a child that dies on a bind conflict while a
+ * stranger answers on that port reads as a successful boot, and the suite runs
+ * its whole scenario against the wrong server and the wrong schema. The
+ * downstream symptom is the empty-string-token family: bootstrap returns
+ * nothing usable and the first assertion three calls later says
+ * `expected '' to be truthy`. That was reproduced exactly, on this machine, by
+ * standing an ordinary server on the port `modulePool.e2e.test.ts` used to
+ * hardcode.
+ *
+ * Two things produce the stranger, and this handles both: an ORPHAN from an
+ * interrupted run (killing a runner does not kill the servers it spawned, and
+ * they bind 0.0.0.0), and the PREVIOUS suite in this same run whose server has
+ * not finished letting go. The first is a failure and says so by name; the
+ * second is a wait.
+ *
+ * What it does NOT do is verify identity mid-run: a stranger that appears
+ * AFTER this returns is still invisible. Disjoint windows (scripts/check-e2e-
+ * ports.mjs) make that vanishingly unlikely; a nonce echoed by /health would
+ * close it completely and is the next step, not this one.
+ */
+export async function waitForPortFree(port: number, host = "127.0.0.1"): Promise<void> {
+  const net = await import("node:net");
+  const accepting = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      const sock = net.connect({ port, host });
+      const done = (answer: boolean) => {
+        sock.removeAllListeners();
+        sock.destroy();
+        resolve(answer);
+      };
+      sock.setTimeout(1_000);
+      sock.once("connect", () => done(true));
+      sock.once("timeout", () => done(false));
+      sock.once("error", () => done(false));
+    });
+
+  const deadline = Date.now() + PORT_RELEASE_DEADLINE_MS;
+  for (;;) {
+    if (!(await accepting())) return;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `port ${port} is already held by another process after ` +
+          `${PORT_RELEASE_DEADLINE_MS / 1000}s of waiting, so this suite cannot boot its own ` +
+          `server there. Without this check the boot poll would have accepted the stranger's ` +
+          `200 and run the whole scenario against it, failing later with something like ` +
+          `"expected '' to be truthy". Usual causes: an orphaned server from an interrupted ` +
+          `run (they are not killed with their runner and they bind 0.0.0.0), or another ` +
+          `worktree running the same suite. Find it with ` +
+          `\`Get-NetTCPConnection -LocalPort ${port} -State Listen\` or \`lsof -i :${port}\`.`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+/*
+ * Re-exported here for the same reason E2E_BOOT_DEADLINE_MS lives here: the
+ * e2e harness should have ONE place it imports its shared facts from. The
+ * implementation is in ./distFreshness so vitest's globalSetup can call it
+ * without pulling mysql2 into the main process.
+ */
+export { assertFreshDist, distFreshnessProblem } from "./distFreshness";

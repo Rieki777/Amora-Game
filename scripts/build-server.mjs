@@ -15,6 +15,9 @@
  * wrong answer about which code is running.
  */
 import { execSync } from "child_process";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { build } from "esbuild";
 
 function gitSha() {
@@ -36,13 +39,18 @@ function gitSha() {
 
 const sha = gitSha();
 
-await build({
+const result = await build({
   entryPoints: ["server/index.ts"],
   platform: "node",
   packages: "external",
   bundle: true,
   format: "esm",
   outdir: "dist",
+  // The exact list of source files that went into the bundle. It is written
+  // to dist/.build-inputs.json below and read by `assertFreshDist()` in
+  // server/db/testDb.ts, which is how 41 e2e suites stopped reporting on the
+  // PREVIOUS build. See the block comment there.
+  metafile: true,
   define: {
     // JSON.stringify, not a bare quote: an empty SHA must compile to a
     // valid empty string literal, and the server treats "" as "dev".
@@ -50,4 +58,97 @@ await build({
   },
 });
 
-console.log(`  dist/index.js built${sha ? ` @ ${sha}` : " (no git context — marker will read 'dev')"}`);
+/* ---------------------------------------------------------------------------
+ * THE RECEIPT THAT SAYS WHAT THIS BUNDLE WAS BUILT FROM.
+ *
+ * Every e2e suite in this tree checks that dist/index.js EXISTS and stops
+ * there. None of them checked that it was CURRENT, so editing server source
+ * and running the suite without rebuilding returned a verdict on yesterday's
+ * bytes: green on code that is not the code in the tree. Reproduced in four
+ * minutes, both directions, 2026-08-31.
+ *
+ * The check cannot be "dist newer than everything in the repo": a README edit,
+ * a test file, or a branch switch would all trip it, and a check that cries
+ * wolf gets deleted. So the bundle is compared only against its OWN inputs,
+ * taken from esbuild's own graph rather than from a guess, plus the lockfile
+ * (the build is `packages: "external"`, so a `pnpm install` after a build
+ * changes the code that runs while leaving every bundle input untouched).
+ *
+ * The CLIENT half is written separately, by scripts/build-client-manifest.mjs,
+ * right after vite builds. It has to be: this script is routinely run on its
+ * own during an inner loop, and if it also stamped the client inputs it would
+ * be certifying a bundle it had not rebuilt.
+ *
+ * mtime is recorded as a fast pre-filter; the hash is the verdict, because
+ * `git checkout` and `git worktree add` rewrite mtimes on files whose bytes
+ * end up identical to what the bundle was built from.
+ * ------------------------------------------------------------------------ */
+const ROOT = path.resolve(import.meta.dirname, "..");
+
+function sha256(file) {
+  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex").slice(0, 16);
+}
+
+function rel(p) {
+  return path.relative(ROOT, path.resolve(ROOT, p)).split(path.sep).join("/");
+}
+
+const SKIP_DIR = new Set(["node_modules", "dist", "__snapshots__"]);
+const IS_TEST = /\.test\.[cm]?[jt]sx?$/;
+
+function walk(dir, out) {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    if (e.name.startsWith(".") || SKIP_DIR.has(e.name)) continue;
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      walk(full, out);
+      continue;
+    }
+    if (IS_TEST.test(e.name)) continue;
+    out.push(full);
+  }
+  return out;
+}
+
+const serverInputs = Object.keys(result.metafile.inputs)
+  .filter((p) => !p.includes("node_modules"))
+  .map(rel);
+
+
+function digestOf(files) {
+  const out = {};
+  for (const f of files) {
+    const abs = path.join(ROOT, f);
+    try {
+      out[f] = sha256(abs);
+    } catch {
+      /* a file that vanished between the build and this walk is not a manifest entry */
+    }
+  }
+  return out;
+}
+
+const manifest = {
+  sha,
+  builtAt: Date.now(),
+  server: digestOf([...new Set(serverInputs)].sort()),
+  lockfile: fs.existsSync(path.join(ROOT, "pnpm-lock.yaml"))
+    ? sha256(path.join(ROOT, "pnpm-lock.yaml"))
+    : null,
+};
+
+fs.writeFileSync(
+  path.join(ROOT, "dist", ".build-inputs.json"),
+  `${JSON.stringify(manifest, null, 0)}\n`,
+);
+
+console.log(
+  `  dist/index.js built${sha ? ` @ ${sha}` : " (no git context — marker will read 'dev')"}` +
+    ` from ${Object.keys(manifest.server).length} server inputs`,
+);

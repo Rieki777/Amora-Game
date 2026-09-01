@@ -25,7 +25,8 @@ in `.claude/skills/`.
 ```
 pnpm check                             # tsc --noEmit
 pnpm build                             # vite client + esbuild server -> dist/
-pnpm test                              # vitest run — see loop-test rules first
+pnpm test:full                         # vitest run, and REFUSES to pass without a database
+node scripts/check-e2e-ports.mjs       # no two e2e suites can pick the same port
 node scripts/check-brand-refs.mjs      # brand ratchet (read $?, its last line is blank on failure)
 node scripts/check-voice.mjs           # house writing rules on shipped copy
 node scripts/check-hyphen-dash.mjs     # no em or en dashes anywhere (hyphens are fine)
@@ -47,6 +48,23 @@ node scripts/check-dist-budget.mjs     # main JS and total dist/public, measured
 
 `node scripts/module-facts.mjs` prints the gate list above straight from `.github/workflows/ci.yml`,
 so it is right on the day you run it. Prefer it to this block when the two disagree.
+
+### Running the suite honestly
+
+- **`pnpm test:full`, not `pnpm test`, before any "green" claim.** A bare `pnpm test`
+  with no `TEST_DATABASE_URL` skips 87 files (about a third of the tests, the ledger and
+  every route among them) and still exits 0. `test:full` turns that skip into a failure.
+  Either way the run now prints what it did not do, after the summary.
+- **Build first.** The 41 e2e suites boot `dist/index.js`. A run whose bundle is older than
+  the source it was built from is now refused by name (`server/db/distFreshness.ts`), so a
+  green result cannot be about yesterday's code.
+- **Never read an exit code through a pipe.** `cmd | tail` reports tail's status, and tail
+  always succeeds; this has produced a false green on a red tree four times. Redirect to a
+  file and read `$?` on the very next line, or `set -o pipefail` first.
+- **`pnpm test:unit`** excludes the e2e files. It is about a quarter of the wall clock and
+  proves correspondingly less; it is an inner loop, not a gate.
+- **What it costs:** roughly 35 to 50 minutes locally depending on how many lanes share the
+  database, against about 7 in CI. The 41 e2e files are two thirds of it.
 
 Two CI budgets cap the client: main JS **700 KB** and total `dist/public` **6600 KB**, both
 measured after `pnpm build`. Read the numbers off `MAX_MAIN_JS_KB` and `MAX_TOTAL_DIST_KB` in
