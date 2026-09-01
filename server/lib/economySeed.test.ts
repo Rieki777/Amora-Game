@@ -102,7 +102,14 @@ describe.skipIf(!configured)("the rules a village is seeded with", () => {
     await db?.drop();
   });
 
-  it("pays a confirmed quest in voice and credits", async () => {
+  /**
+   * Renamed. This asserts on the RULE ROW, not on a payout, and under its old
+   * name ("pays a confirmed quest in voice and credits") it read as proof that
+   * a quest pays. It was green for the whole life of a bug that made every
+   * village's first confirmed quest pay nothing but Gratitude. The payout
+   * itself is proven in `economyEpoch.test.ts`, against balances.
+   */
+  it("seeds an enabled quest.completed rule for voice and credits, at 10 and 25", async () => {
     const rs = await rules();
     const voice = find(rs, "quest.completed", VILLAGE_VOICE);
     const credits = find(rs, "quest.completed", CREDITS);

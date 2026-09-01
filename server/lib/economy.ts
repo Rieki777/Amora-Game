@@ -260,7 +260,33 @@ export function cycleWindow(at: Date = new Date()): { startsAt: Date; endsAt: Da
  */
 let epochCache: Date | null = null;
 
-export async function economyEpoch(pool: Pool): Promise<Date> {
+/**
+ * Start the engine's clock, once, and return where it stands.
+ *
+ * Kept separate from reading it because for one release the SAME call did
+ * both, and the only caller was the mint. A brand new village therefore
+ * confirmed its first quest, the mint asked for the epoch, the epoch did not
+ * exist yet, so the mint stamped it at `now` and then measured the claim
+ * against it. The claim had resolved twenty milliseconds earlier. It lost.
+ *
+ * That is once per village, forever, deterministically, on the FIRST piece of
+ * work anybody in that village ever completes: the moment a founder is
+ * watching hardest, the ledger showed Gratitude and no Village Credits and no
+ * Village Voice, and the server said "confirmed before the economy epoch",
+ * which is true and reads like a policy rather than the bug it was. Every
+ * later quest paid correctly, so it never looked like a defect in the engine.
+ *
+ * `at` is the moment the clock should start FROM when it has not been started.
+ * The mint passes the claim in hand, because a claim that finds no epoch is by
+ * construction the first economic act this engine has seen, and the first act
+ * starts the clock rather than being ruled out by it. Boot passes nothing and
+ * gets `now`, which is what "the engine came up" means and is why in
+ * production the mint never reaches its own fallback.
+ *
+ * Already stamped is the normal case and never moves. The stamp is the one
+ * value in this module that must be write-once.
+ */
+export async function startEconomyEpoch(pool: Pool, at?: Date): Promise<Date> {
   if (epochCache) return epochCache;
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT `value` FROM `app_config` WHERE `config_key` = 'economy-state' LIMIT 1",
@@ -285,15 +311,31 @@ export async function economyEpoch(pool: Pool): Promise<Date> {
     epochCache = new Date(doc.economyEpoch);
     return epochCache;
   }
+  // Never later than now: a caller handing us a future `confirmedAt` from a
+  // skewed clock must not push the epoch forward and rule out real work
+  // between now and then.
   const now = new Date();
-  doc.economyEpoch = now.toISOString();
+  const start = at && at < now ? at : now;
+  doc.economyEpoch = start.toISOString();
   await pool.query(
     "INSERT INTO `app_config` (`config_key`, `value`) VALUES ('economy-state', ?) " +
       "ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
     [JSON.stringify(doc)],
   );
-  epochCache = now;
-  return now;
+  epochCache = start;
+  return start;
+}
+
+/**
+ * Where the clock stands, starting it at `now` if it has never been started.
+ *
+ * The historical name and the historical behaviour, kept because callers that
+ * only want to READ an already-running engine are correct to use it. Anything
+ * that also decides whether a specific piece of work counts must call
+ * `startEconomyEpoch` with that work's moment instead. See above.
+ */
+export async function economyEpoch(pool: Pool): Promise<Date> {
+  return startEconomyEpoch(pool);
 }
 
 /** Tests and the admin backfill reset the cache after writing the document. */
@@ -1073,8 +1115,13 @@ export async function mintForConfirmedClaim(
   const ready = await economyReady(pool);
   if (!ready.ready) return { minted: [], unpayable: [], skipped: ready.reason };
 
-  const epoch = await economyEpoch(pool);
+  // The claim's own moment, not `now`. If this is the first confirmed work
+  // this engine has ever seen, it STARTS the clock rather than losing to it by
+  // the milliseconds between resolving and being read. In production the boot
+  // has already stamped the epoch, so this argument is ignored and a genuinely
+  // old re-consented claim is still correctly history.
   const at = claim.confirmedAt ? new Date(claim.confirmedAt) : new Date();
+  const epoch = await startEconomyEpoch(pool, at);
   if (at < epoch) {
     // History, not backlog. Honouring pre-epoch work is an explicit, audited,
     // keyed admin backfill and never a side effect of reading a table.
