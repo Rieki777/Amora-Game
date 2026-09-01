@@ -361,7 +361,28 @@ function applyStatement(table, sql, where_src) {
     const match = whereMatcher(m[2], where_src ?? sql);
     for (const row of table.rows.values()) {
       if (!match(row)) continue;
-      for (const [c, v] of sets) row[c] = v;
+      for (const [c, v] of sets) {
+        /*
+         * THE POINTER FOLLOWS THE IDENTITY, NOT THE INSERT.
+         *
+         * `arrivesIn` becomes the document's "Arrives from" cell, which exists
+         * so a founder can open one file and check what their token is really
+         * called. It used to name the migration that first INSERTed the row and
+         * never moved again.
+         *
+         * For the equity mirror that was `0006_token_registry.sql`, where the
+         * row still reads ('amora', 'Amora', ...) — one village's name, sitting
+         * in the one file the document sent every other village to open. The
+         * slug and the name they actually hold come from 0124. The cell was
+         * true about the INSERT and wrong about the question being asked.
+         *
+         * Only `slug` and `name` move it. A later migration that flips
+         * `active` or widens `decimals` has not changed what the token IS, and
+         * pointing a founder at it would be a different kind of wrong.
+         */
+        if ((c === "slug" || c === "name") && row[c] !== v) row.__file = table.currentFile;
+        row[c] = v;
+      }
     }
     return;
   }

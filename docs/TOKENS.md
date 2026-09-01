@@ -30,7 +30,7 @@ There is no timestamp and no author line, on purpose. Both would change on every
 | Library Credits | `library-credit` | credit | this village | 0 | no | `server/lib/library.ts` at boot |
 | Stay Credits | `stay-credit` | credit | this village | 0 | no | `server/lib/stays.ts` at boot |
 | Village Voice | `village-voice` | voice | this village | 3 | no | `server/lib/economy.ts` at boot |
-| Village Equity | `equity` | equity | Hypha, on Base | 0 | no | `drizzle/0006_token_registry.sql` |
+| Village Equity | `equity` | equity | Hypha, on Base | 0 | no | `drizzle/0124_the_equity_token_names_no_village.sql` |
 | Voice | `voice` | voice | Hypha, on Base | 0 | no | `drizzle/0006_token_registry.sql` |
 
 7 tokens. The order is the order a village acquires them: the ones a migration seeds, then the ones the server registers the first time it starts, then the mirrors of what lives on Base.
@@ -150,7 +150,7 @@ The village's equity, issued and governed on Base under Hypha. This platform sho
 | Kind | equity |
 | Who governs it | Hypha, on Base. Read here, never written |
 | Decimals | 0 |
-| Arrives from | `drizzle/0006_token_registry.sql`, when the database is migrated |
+| Arrives from | `drizzle/0124_the_equity_token_names_no_village.sql`, when the database is migrated |
 | Issued out of | nothing here issues it |
 | A mint rule can pay it | no, it is a Base mirror |
 | Members may send it | no, because it is governed on Base |
@@ -475,7 +475,7 @@ The same facts, for anything that would rather parse than read. Regenerated with
       "ruleEngineCanPay": false,
       "spendSink": null,
       "arrivesFrom": "migration",
-      "arrivesIn": "drizzle/0006_token_registry.sql",
+      "arrivesIn": "drizzle/0124_the_equity_token_names_no_village.sql",
       "isCyclePoolDefault": false,
       "isVoteWeightDefault": false,
       "seededRules": [],
