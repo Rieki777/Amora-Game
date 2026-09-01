@@ -146,7 +146,70 @@ the gradient he describes without inventing a second decision path. **Build it a
 switch.** His words are "more and more power", and a village may reasonably auto-execute quest
 payouts while still wanting a steward on mechanics changes.
 
-### THE CONFLICT. Do not build until the founder settles this.
+### THE CONFLICT IS RESOLVED, and the resolution needs a mechanism that does not exist yet
+
+The founder settled it on 2026-08-31:
+
+> "I want to override the optionally vote in that role to where the founders automatically inherit
+> it, but just like every role resets every season - this role too needs to be voted back in to be
+> maintained."
+
+**Take this ruling. It supersedes R90's "optionally vote in".** Founders inherit the steward role
+at launch, and it must be voted back in each season to continue.
+
+It is a better design than either side of the conflict it settles, for a reason worth writing down
+because it should shape how you build it: **it makes relinquishment automatic rather than an act of
+virtue.** The founder never has to decide they are ready to give up power. They have to be
+re-granted it. Every model that waits for a founder to judge their own readiness fails the same
+way, and this one does not depend on that judgment at all.
+
+**BUT THE MECHANISM IT NAMES DOES NOT DO WHAT ITS NAME SUGGESTS, AND THIS IS THE FIRST THING TO
+BUILD.** Measured 2026-08-31:
+
+- `expires_each_season` is a **per-role column** on the org chart (`server/lib/orgChart.ts:143`),
+  nullable, opt-in. Roles do not universally reset. The founder's "just like every role" is not
+  true of the code today.
+- **A term ending takes nothing away.** The `term-watch` job (`server/index.ts:5754`) runs daily
+  and NOTIFIES. Its own copy, sent to the holder: *"You are still holding the seat and nothing has
+  been taken away. What has run out is the agreement to keep holding it unasked"*, and *"Nothing
+  happens automatically when it does."*
+
+That behaviour is deliberate and right for a water steward or a kitchen rota, where yanking a seat
+on a date would be worse than a conversation. **It is wrong for a role that holds a veto over every
+proposal the village passes.** Used as-is, the founder keeps steward power indefinitely while the
+system tells them their term ended, which is the same shape as every other defect this codebase
+spent a week removing: a status that reports one thing while the power says another.
+
+So: **build a real lapse for this role**, and keep the gentle behaviour for the roles it suits. Do
+not change `term-watch` for everyone.
+
+### The gap, which is the question his ruling does not answer
+
+A season ends. The vote to renew has not happened yet, or it happened and failed. There is now no
+steward. What executes?
+
+Both obvious answers are bad. **Auto-execute taking over by default** hands the village more power
+at exactly the moment it failed to organise a vote, which is backwards. **Nothing executing** leaves
+a village that passed a proposal unable to enact it, with no way back, which is the failure R90's
+comments already warn about for the admin panel.
+
+The recommended shape, and it should be argued rather than assumed: **the previous steward
+continues in a clearly-labelled caretaker capacity, and the label is visible to every player.**
+That is not the same as today's behaviour even though it looks similar. Today the holding is
+indefinite and unmarked. Caretaker means the power continues, the expiry is stated on the screen
+that uses it, and nobody can mistake "still holding" for "still elected". Honest about the state,
+and it fails toward continuity rather than toward either extreme.
+
+Two more things his ruling leaves open, both for him:
+
+- **Do the granted POWERS reset with the role, or only the seat?** R90 grants powers to the steward
+  separately ("give various powers to this steward to immediately act"). A steward re-elected into
+  a seat that silently retains last season's powers is a different thing from one whose powers are
+  re-granted.
+- **Who inherits, when there are several founders?** The instruction says "founder(s)". Does each
+  inherit a steward seat, and does approving a proposal need one of them or all?
+
+### The original conflict, kept for the record
 
 His instruction today says founders are granted a steward role **by default** after launch. A
 recorded ruling of his own, **R90**, says the opposite, and the code implements R90 today. From
