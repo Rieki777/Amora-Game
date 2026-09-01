@@ -1163,7 +1163,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const list = await api("GET", "/api/admin/tokens", undefined, founderToken);
     expect(list.status).toBe(200);
     expect(list.json.tokens.map((t: any) => t.slug)).toEqual(
-      expect.arrayContaining(["gratitude", "amora", "voice", "credits"]),
+      expect.arrayContaining(["gratitude", "equity", "voice", "credits"]),
     );
     // Recognition issuance is visible per faucet channel.
     const gratitude = list.json.tokens.find((t: any) => t.slug === "gratitude");
@@ -1195,7 +1195,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // Guards, in order: hypha refusal, missing reason, then the cap as an
     // AGGREGATE — two mints that individually fit but jointly exceed it are
     // refused on the second call.
-    const hypha = await api("POST", "/api/admin/tokens/amora/mint", { toUserId: peerId, amount: 5, reason: "nope" }, founderToken);
+    const hypha = await api("POST", "/api/admin/tokens/equity/mint", { toUserId: peerId, amount: 5, reason: "nope" }, founderToken);
     expect(hypha.status).toBe(400);
     const noReason = await api("POST", "/api/admin/tokens/stay-credits/mint", { toUserId: peerId, amount: 5 }, founderToken);
     expect(noReason.status).toBe(400);
@@ -2495,7 +2495,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const recRefused = await api("PUT", "/api/admin/exchange/tokens/gratitude", { purchasable: true }, founderToken);
     expect(recRefused.status).toBe(409);
     expect(String(recRefused.json.error)).toContain("recognition");
-    const hyphaRefused = await api("PUT", "/api/admin/exchange/tokens/amora", { purchasable: true }, founderToken);
+    const hyphaRefused = await api("PUT", "/api/admin/exchange/tokens/equity", { purchasable: true }, founderToken);
     expect(hyphaRefused.status).toBe(409);
     expect(String(hyphaRefused.json.error)).toContain("Hypha");
     const secondSeller = await api("PUT", "/api/admin/exchange/tokens/stay-credit", { purchasable: true }, founderToken);
@@ -2931,10 +2931,10 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
       // FIXED POINT: 5e17 raw at decimals()=18 renders "0.5" — never 0.
       const fresh = await api("GET", "/api/wallet", undefined, peerToken);
-      expect(fresh.json.onchain.amora.formatted).toBe("0.5");
-      expect(fresh.json.onchain.amora.raw).toBe("500000000000000000");
-      expect(fresh.json.onchain.amora.decimals).toBe(18);
-      expect(fresh.json.onchain.amora.stale).toBe(false);
+      expect(fresh.json.onchain.equity.formatted).toBe("0.5");
+      expect(fresh.json.onchain.equity.raw).toBe("500000000000000000");
+      expect(fresh.json.onchain.equity.decimals).toBe(18);
+      expect(fresh.json.onchain.equity.stale).toBe(false);
       expect(fresh.json.onchain.voice).toBeNull(); // no voice address posted
       expect(rpcCalls).toBeGreaterThan(0);
 
@@ -2943,15 +2943,15 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       // when it was true — never zero, and nothing new is written.
       rpcDown = true;
       await testDb.conn.query(
-        "UPDATE onchain_balances SET fetched_at = (NOW() - INTERVAL 10 MINUTE) WHERE user_id = ? AND token_slug = 'amora'",
+        "UPDATE onchain_balances SET fetched_at = (NOW() - INTERVAL 10 MINUTE) WHERE user_id = ? AND token_slug = 'equity'",
         [peerId],
       );
       const staleRead = await api("GET", "/api/wallet", undefined, peerToken);
-      expect(staleRead.json.onchain.amora.formatted).toBe("0.5");
-      expect(staleRead.json.onchain.amora.stale).toBe(true);
-      expect(new Date(staleRead.json.onchain.amora.fetchedAt).getTime()).toBeLessThan(Date.now() - 5 * 60 * 1000);
+      expect(staleRead.json.onchain.equity.formatted).toBe("0.5");
+      expect(staleRead.json.onchain.equity.stale).toBe(true);
+      expect(new Date(staleRead.json.onchain.equity.fetchedAt).getTime()).toBeLessThan(Date.now() - 5 * 60 * 1000);
       const [[cacheRow]] = await testDb.conn.query<any[]>(
-        "SELECT raw_balance FROM onchain_balances WHERE user_id = ? AND token_slug = 'amora'", [peerId],
+        "SELECT raw_balance FROM onchain_balances WHERE user_id = ? AND token_slug = 'equity'", [peerId],
       );
       expect(String(cacheRow.raw_balance)).toBe("500000000000000000"); // no zero was ever written
 

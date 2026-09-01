@@ -55,7 +55,7 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
 
   it("loads the registry from the tokens table (0006/0007 seeds)", () => {
     expect(tokenDef("gratitude")?.governance).toBe("platform");
-    expect(tokenDef("amora")?.governance).toBe("hypha");
+    expect(tokenDef("equity")?.governance).toBe("hypha");
     expect(tokenDef("voice")?.governance).toBe("hypha");
     expect(tokenDef("credits")?.name).toBe("Village Credits");
     expect(tokenDef("nope")).toBeUndefined();
@@ -152,7 +152,7 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
     const r = await postTransfer(pool, {
       from: RECOGNITION_FAUCET,
       to: memberAccount("usr-1"),
-      tokenType: "amora",
+      tokenType: "equity",
       amount: 5,
       source: "test",
       idempotencyKey: "hypha-attempt-1",
@@ -428,7 +428,7 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
     ]);
     await pool.query(
       "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, idempotency_key) VALUES " +
-        "('led-tamper-1', 'sys:treasury', ?, 'amora', 5, 'tamper', 'tamper-hypha-1')",
+        "('led-tamper-1', 'sys:treasury', ?, 'equity', 5, 'tamper', 'tamper-hypha-1')",
       [memberAccount("usr-1")],
     );
     const report = await checkLedgerInvariants(pool);
