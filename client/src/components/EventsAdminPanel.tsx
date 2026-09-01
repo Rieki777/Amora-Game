@@ -398,7 +398,7 @@ export default function EventsAdminPanel({ password }: { password: string }) {
       {moduleOff && (
         <p className="mb-5 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
           The Events module is off, so the calendar is not being served. Turn it on under
-          Modules On/Off and this page starts working.
+          Module Library and this page starts working.
         </p>
       )}
 
