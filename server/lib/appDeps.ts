@@ -153,6 +153,15 @@ export interface AppDeps {
   /** Quest crews: forming, joining, leaving, and the invite codes. */
   crewsRepo: CrewsRepo;
 
+  /**
+   * The founding team's own working tracker: checkboxes, kanban, decisions,
+   * copy, resource links. One document, read and written whole.
+   *
+   * Typed loosely because it is: the document has no schema beyond what its
+   * page writes into it, and server/index.ts declares it the same way.
+   */
+  journeyRepo: DbDocument<any>;
+
   // RAW DATABASE AND VOLUME ACCESS
   // Wider than a repository, so an entry here is a bigger claim than a repo
   // entry and is worth a second look in review. A domain whose table is read
