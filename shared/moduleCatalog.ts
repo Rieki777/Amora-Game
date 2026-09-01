@@ -410,7 +410,7 @@ export const MODULE_CATALOG: Record<string, ModuleCatalogEntry> = {
  * fork's own origin would send a builder somewhere their work cannot be
  * reviewed or shipped from. The one URL is correct in every village.
  */
-export const BUILDER_GUIDE_URL = "https://github.com/Rieki777/Amora-Game/blob/main/docs/modules/START_HERE.md"; // brand-ok: the upstream platform repository's own address, never a village's brand
+export const BUILDER_GUIDE_URL = "https://github.com/Rieki777/village-os/blob/main/docs/modules/START_HERE.md"; // brand-ok: the upstream platform repository's own address, never a village's brand
 
 /**
  * The module-building walkthrough, beside the guide above. Derived from

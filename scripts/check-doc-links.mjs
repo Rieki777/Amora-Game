@@ -81,7 +81,7 @@ const IS_GENERATED = /^(dist|node_modules|coverage|build)\//;
 /**
  * The repository's own top-level entries, read from disk.
  *
- * A slash does not make something a path: `Rieki777/Amora-Game` is a GitHub
+ * A slash does not make something a path: `Rieki777/village-os` is a GitHub
  * repository slug and `provider/model` is a name. So a slashed token is only
  * resolved when its FIRST SEGMENT is really a top-level entry here, or when it
  * carries a file extension. Reading the roots from disk instead of listing them

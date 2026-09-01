@@ -11,12 +11,12 @@ sessions use, so it is the path that gets exercised daily.
 
 ## 1. Fork the repository
 
-Fork `Rieki777/Amora-Game` on GitHub, then clone your fork.
+Fork `Rieki777/village-os` on GitHub, then clone your fork.
 
 ```
-git clone https://github.com/<your-username>/Amora-Game.git
-cd Amora-Game
-git remote add upstream https://github.com/Rieki777/Amora-Game.git
+git clone https://github.com/<your-username>/village-os.git
+cd village-os
+git remote add upstream https://github.com/Rieki777/village-os.git
 ```
 
 The `upstream` remote matters later: modules ship by pull request to upstream and by no other route, so
@@ -49,7 +49,7 @@ npm install -g @anthropic-ai/claude-code
 Then open your fork and start a session in it:
 
 ```
-cd Amora-Game
+cd village-os
 claude
 ```
 
