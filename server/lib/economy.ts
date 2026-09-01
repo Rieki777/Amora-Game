@@ -61,6 +61,7 @@ import {
   postTransfer,
   registerToken,
   tokenDef,
+  CYCLE_POOL_FAUCET,
   MINT_FAUCET,
   RECOGNITION_FAUCET,
   type TransferResult,
@@ -77,6 +78,14 @@ export const LIBRARY_MINT = "sys:library-mint";
 export const HEARTS = "gratitude";
 /** The village's own voice token. Accrues here, settles on Hypha. */
 export const VILLAGE_VOICE = "village-voice";
+/**
+ * The village's spendable value token, seeded by 0007 and the default the
+ * cycle pool pays out. Named here for the same reason HEARTS is: a slug typed
+ * as a bare string in four files is a slug that gets misspelled in a fifth,
+ * and the ledger's repeat protection carries the SLUG, so a misspelling does
+ * not fail loudly, it mints a token nobody has heard of.
+ */
+export const CREDITS = "credits";
 
 /** Faucets. A faucet's negative balance is that token's issued supply. */
 export const VOICE_MINT = "sys:voice-mint";
@@ -936,6 +945,25 @@ export async function give(
  * negative balance IS that token's issued supply, so issuing stay credits out
  * of the recognition faucet would misreport two supplies at once and the boot
  * invariant would still pass, because conservation holds either way.
+ *
+ * CREDITS ISSUE FROM THE CYCLE POOL, and that is the whole reason a quest can
+ * pay them at all. Until this line existed the switch returned null for
+ * `credits`, both mint paths did `if (!faucet) continue`, and a village that
+ * enabled a credits rule watched `publicRules` publish it as "25 Village
+ * Credits when a steward confirms finished work" while it paid nobody, with no
+ * error in any log and no refusal on any surface. The rule looked live because
+ * every surface reads the rules table and no surface asked whether the engine
+ * could honour it. `dryRun` was the single exception and said so correctly,
+ * which is why this was findable in a simulated moon and invisible in a real
+ * one.
+ *
+ * `sys:cycle-pool` and not `sys:mint`, because the doctrine on that account is
+ * already written and already true: its negative balance means CREDITS
+ * RELEASED TO DATE (see the header of ledger.ts, and the reason
+ * `spendSinkFor("credits")` retires spends into the treasury instead of back
+ * here). A quest releasing credits is a release, so it belongs on the same
+ * counter as a cycle-close release. Splitting issuance across two faucets
+ * would mean no single number answered "how many credits exist".
  */
 export function faucetFor(tokenSlug: string): string | null {
   switch (tokenSlug) {
@@ -943,12 +971,62 @@ export function faucetFor(tokenSlug: string): string | null {
       return RECOGNITION_FAUCET;
     case VILLAGE_VOICE:
       return VOICE_MINT;
+    case CREDITS:
+      return CYCLE_POOL_FAUCET;
     case "stay-credit":
       return MINT_FAUCET;
     case "library-credit":
       return LIBRARY_MINT;
     default:
       return null;
+  }
+}
+
+/**
+ * Why this rule cannot pay, or null when it can.
+ *
+ * ONE PLACE ANSWERS IT, because the question is asked in four: the two mint
+ * paths that would otherwise skip in silence, the settlement preview that
+ * would otherwise promise a payout that is not coming, and the admin rules
+ * list. Before this, each of those decided for itself, and three of them
+ * decided wrong: the preview multiplied an unpayable rule by the seat count
+ * and printed the total.
+ *
+ * The reasons are the engine's real refusals, in the order the engine hits
+ * them, phrased for the founder reading the Mint panel rather than for the
+ * log.
+ */
+export function ruleCannotPay(tokenSlug: string): string | null {
+  const def = tokenDef(tokenSlug);
+  if (!def) return `there is no token called "${tokenSlug}" in this village's registry`;
+  if (def.governance !== "platform") {
+    return `${def.name} is governed on Hypha and only mirrored here, so this village cannot issue it`;
+  }
+  if (!def.active) return `${def.name} has been retired from the registry`;
+  if (!faucetFor(tokenSlug)) {
+    return `${def.name} has no faucet, so the engine has nowhere to issue it from`;
+  }
+  return null;
+}
+
+/**
+ * Say it out loud, from the engine rather than from the caller.
+ *
+ * The reporting lives HERE and not in the consent route on purpose. Every
+ * caller of a mint path would otherwise have to remember to log this, and the
+ * one that forgot would be indistinguishable from a village whose rules all
+ * work. `server/index.ts` is also under a size ratchet that only turns down,
+ * so pushing this into the route would have cost seven lines of the one file
+ * the architecture is trying to shrink, to duplicate a sentence the engine
+ * already knows.
+ *
+ * `console.error` and not `.log`, because an enabled rule that pays nobody is
+ * a promise the village is making and the engine is not keeping. It is the
+ * kind of thing somebody should find while grepping for what went wrong.
+ */
+function reportUnpayable(context: string, unpayable: Array<{ token: string; reason: string }>): void {
+  for (const u of unpayable) {
+    console.error(`[economy] ${context}: the rule on "${u.token}" paid nobody: ${u.reason}`);
   }
 }
 
@@ -979,31 +1057,77 @@ export function faucetFor(tokenSlug: string): string | null {
 export async function mintForConfirmedClaim(
   pool: Pool,
   claim: { id: string; questId: string; userId: string; confirmedAt?: Date | string | null },
-): Promise<{ minted: Array<{ token: string; amount: number }>; skipped?: string }> {
+): Promise<{
+  minted: Array<{ token: string; amount: number }>;
+  skipped?: string;
+  /**
+   * Rules that were enabled, in force, and could not pay. An empty array is
+   * the normal case; a non-empty one is a village promising something its
+   * engine cannot deliver. Already logged by `reportUnpayable` before this
+   * returns, so a caller that ignores the field still cannot make the failure
+   * silent. Returned as well so tests can assert on it and a route can act.
+   * See `ruleCannotPay`.
+   */
+  unpayable: Array<{ token: string; reason: string }>;
+}> {
   const ready = await economyReady(pool);
-  if (!ready.ready) return { minted: [], skipped: ready.reason };
+  if (!ready.ready) return { minted: [], unpayable: [], skipped: ready.reason };
 
   const epoch = await economyEpoch(pool);
   const at = claim.confirmedAt ? new Date(claim.confirmedAt) : new Date();
   if (at < epoch) {
     // History, not backlog. Honouring pre-epoch work is an explicit, audited,
     // keyed admin backfill and never a side effect of reading a table.
-    return { minted: [], skipped: "confirmed before the economy epoch" };
+    return { minted: [], unpayable: [], skipped: "confirmed before the economy epoch" };
   }
 
   const rules = await rulesFor(pool, "quest.completed");
   const minted: Array<{ token: string; amount: number }> = [];
+  const unpayable: Array<{ token: string; reason: string }> = [];
   for (const r of rules) {
     // Recognition is the consent route's job. See above.
     if (r.tokenSlug === HEARTS) continue;
-    const human = r.amount ?? 0;
+    if (r.amount === null) {
+      // "Read the amount from whatever posted the work" has nothing to read
+      // here. The only amount a quest posts is its Gratitude range, which the
+      // consent route already spends, and reading it for a second token would
+      // pay a credit figure somebody wrote meaning recognition. So a
+      // from_source rule on any other token can never pay, on any quest, ever.
+      // An admin can set one (`queueRuleChange` accepts a null amount), so it
+      // has to be answerable rather than merely impossible.
+      unpayable.push({
+        token: r.tokenSlug,
+        reason: "this rule reads its amount from the work, and a quest posts no amount in this token",
+      });
+      continue;
+    }
+    const human = r.amount;
+    // Zero is a decision and stays quiet. A village that sets a rule to 0 has
+    // said "not this one, not now", and shouting about it every consent would
+    // bury the rules that are genuinely broken.
     if (human <= 0) continue;
+    // A rule the engine cannot honour is REPORTED, not skipped. This used to
+    // be `if (!faucet) continue`, which is how a village could enable a
+    // credits rule, watch the Mint panel say it pays, and find out a moon
+    // later that nobody had ever been paid by it.
+    const problem = ruleCannotPay(r.tokenSlug);
+    if (problem) {
+      unpayable.push({ token: r.tokenSlug, reason: problem });
+      continue;
+    }
     // The ledger takes integers. A rule of 0.1 voice posts 100 thousandths,
     // because posting 0.1 posts nothing at all.
     const amount = toLedgerUnits(r.tokenSlug, human);
-    if (amount <= 0) continue;
-    const faucet = faucetFor(r.tokenSlug);
-    if (!faucet) continue;
+    if (amount <= 0) {
+      // Below the token's own resolution. Also a promise that cannot be kept,
+      // and the founder can only fix it if somebody says so.
+      unpayable.push({
+        token: r.tokenSlug,
+        reason: `${human} is smaller than the smallest amount this token can hold`,
+      });
+      continue;
+    }
+    const faucet = faucetFor(r.tokenSlug)!;
     const res = await mint(pool, {
       toUserId: claim.userId,
       tokenSlug: r.tokenSlug,
@@ -1019,8 +1143,13 @@ export async function mintForConfirmedClaim(
       idempotencyKey: `${keys.questCompleted(villageId(), claim.questId, claim.id, claim.userId)}:${r.tokenSlug}`,
     });
     if (res.ok && !res.duplicate) minted.push({ token: r.tokenSlug, amount: human });
+    // A refusal from the ledger itself is the same class of news as a rule the
+    // engine cannot honour, and it was equally silent before: the ledger's own
+    // sentence went into a variable nobody read.
+    if (!res.ok) unpayable.push({ token: r.tokenSlug, reason: res.error });
   }
-  return { minted };
+  reportUnpayable(`claim ${claim.id}`, unpayable);
+  return { minted, unpayable };
 }
 
 /**
@@ -1077,6 +1206,12 @@ export interface SettlementResult {
   stewardsThanked: number;
   minted: Array<{ token: string; units: number }>;
   alreadyRun: boolean;
+  /**
+   * Enabled `role.cycle` rules the engine could not honour, once each rather
+   * than once per seat. A settlement that quietly paid two of three promised
+   * tokens used to be indistinguishable from one that paid all three.
+   */
+  unpayable: Array<{ token: string; reason: string }>;
 }
 
 /**
@@ -1096,7 +1231,7 @@ export interface SettlementResult {
  */
 export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<SettlementResult> {
   const { key: cycleKey } = cycleWindow(at);
-  const out: SettlementResult = { cycleKey, stewardsThanked: 0, minted: [], alreadyRun: false };
+  const out: SettlementResult = { cycleKey, stewardsThanked: 0, minted: [], alreadyRun: false, unpayable: [] };
 
   const ready = await economyReady(pool);
   if (!ready.ready) return out;
@@ -1110,6 +1245,31 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
   const rules = await rulesFor(pool, "role.cycle", cycleBoundsFor(at).cycleNumber);
   if (!rules.length) return out;
 
+  // Asked ONCE, before the seat loop, and not once per seat: an unpayable rule
+  // is a fact about the rule, and reporting it per seat would turn one
+  // misconfiguration into forty identical lines. Payable rules go on to the
+  // loop; the rest are named here and never reach a mint call.
+  const payable = rules.filter((r) => {
+    const problem = ruleCannotPay(r.tokenSlug);
+    if (problem) {
+      out.unpayable.push({ token: r.tokenSlug, reason: problem });
+      return false;
+    }
+    // An amount that rounds to nothing in this token's minor units is the
+    // other way a rule pays nobody while looking alive. Same class, same
+    // report: a rule of 0.1 on a whole-unit token posts zero.
+    const human = r.amount ?? 0;
+    if (human > 0 && toLedgerUnits(r.tokenSlug, human) <= 0) {
+      out.unpayable.push({
+        token: r.tokenSlug,
+        reason: `${human} is smaller than the smallest amount this token can hold`,
+      });
+      return false;
+    }
+    return true;
+  });
+  reportUnpayable(`settlement ${cycleKey}`, out.unpayable);
+
   // Live seatings held by real accounts. `active_holder_key` is NULL once a
   // seating ends, and examples are not people.
   const [seats] = await pool.query<RowDataPacket[]>(
@@ -1122,12 +1282,12 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
   for (const seat of seats) {
     const userId = String(seat.user_id);
     const seatId = String(seat.id);
-    for (const r of rules) {
+    for (const r of payable) {
       const human = r.amount ?? 0;
       if (human <= 0) continue;
       const units = toLedgerUnits(r.tokenSlug, human);
-      const faucet = faucetFor(r.tokenSlug);
-      if (units <= 0 || !faucet) continue;
+      const faucet = faucetFor(r.tokenSlug)!;
+      if (units <= 0) continue;
       const res = await mint(pool, {
         toUserId: userId,
         tokenSlug: r.tokenSlug,
@@ -1148,7 +1308,12 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
   out.stewardsThanked = paid.size;
   // Nothing new to pay means this cycle was already settled, which is the only
   // honest way to know: the ledger is the record, not a flag beside it.
-  out.alreadyRun = out.minted.length === 0;
+  //
+  // Unless nothing COULD be paid. A run where every rule was unpayable also
+  // mints nothing, and calling that "already settled" would report a
+  // misconfiguration as a completed moon, which is the reading that stops
+  // anybody looking.
+  out.alreadyRun = out.minted.length === 0 && payable.length > 0;
   return out;
 }
 
@@ -1288,7 +1453,12 @@ export async function publicSupply(
   pool: Pool,
 ): Promise<{ cycleKey: string; tokens: Array<{ token: string; issued: number; decimals: number }> }> {
   const { key } = cycleWindow();
-  const faucets = [RECOGNITION_FAUCET, VOICE_MINT, MINT_FAUCET, LIBRARY_MINT];
+  // `sys:cycle-pool` belongs here and was missing. It is the faucet every
+  // village credit has ever come out of, so leaving it off meant the public
+  // supply feed reported four tokens and silently omitted the one members
+  // actually spend. That was already wrong for cycle-close distributions; a
+  // quest that pays credits would have made it wrong on a daily basis.
+  const faucets = [RECOGNITION_FAUCET, VOICE_MINT, MINT_FAUCET, LIBRARY_MINT, CYCLE_POOL_FAUCET];
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT b.`token_type` AS slug, t.`name`, t.`decimals`, SUM(-b.`balance`) AS issued " +
       `FROM \`token_balances\` b JOIN \`tokens\` t ON t.\`slug\` = b.\`token_type\` ` +
@@ -1517,6 +1687,20 @@ export interface MintView {
     ceiling: number;
     recipient: string;
     enabled: boolean;
+    /**
+     * Null when the engine can honour this rule, and the founder's sentence
+     * when it cannot. An enabled rule with a `problem` is the village
+     * promising something nobody will ever receive.
+     *
+     * SERVED BUT NOT YET RENDERED. `client/src/pages/Mint.tsx` declares its
+     * own `Rule` interface and does not carry this field, so the panel still
+     * shows an unpayable rule with the same green "Paying" badge as a working
+     * one. The engine refuses it, `console.error` records it and this feed
+     * reports it; the last surface is a client change and is written up rather
+     * than done here. Adding `problem: string | null` to that interface and
+     * branching the badge on it is the whole of it.
+     */
+    problem: string | null;
     pending: null | { amount: number | null; ceiling: number; enabled: boolean; fromCycle: number };
   }>;
   /** Per token per SOURCE. Admin only: the public feed is totals-only. */
@@ -1537,8 +1721,11 @@ export async function mintView(pool: Pool): Promise<MintView> {
   // N a public per-source series deanonymises individual holdings.
   const [supply] = await pool.query<RowDataPacket[]>(
     "SELECT `token_type` AS token, `source`, SUM(`amount`) AS issued FROM `token_ledger` " +
-      "WHERE `from_account` IN (?,?,?,?) GROUP BY `token_type`, `source` ORDER BY `token_type`, `source`",
-    [RECOGNITION_FAUCET, VOICE_MINT, MINT_FAUCET, LIBRARY_MINT],
+      "WHERE `from_account` IN (?,?,?,?,?) GROUP BY `token_type`, `source` ORDER BY `token_type`, `source`",
+    // The cycle pool, for the same reason `publicSupply` now names it: without
+    // it the admin's own per-source breakdown could not see a single credit
+    // this village has ever issued.
+    [RECOGNITION_FAUCET, VOICE_MINT, MINT_FAUCET, LIBRARY_MINT, CYCLE_POOL_FAUCET],
   );
 
   const [seats] = await pool.query<RowDataPacket[]>(
@@ -1559,6 +1746,7 @@ export async function mintView(pool: Pool): Promise<MintView> {
       ceiling: Number(r.ceiling ?? 0),
       recipient: String(r.recipient ?? "claimant"),
       enabled: !!r.enabled,
+      problem: ruleCannotPay(String(r.token_slug)),
       pending:
         r.pending_from_cycle === null || r.pending_from_cycle === undefined
           ? null
@@ -1577,10 +1765,16 @@ export async function mintView(pool: Pool): Promise<MintView> {
     // What the next settlement WOULD pay, from the rules in force now. A
     // preview computed from pending numbers would show a moon that is not the
     // one about to close.
+    //
+    // And only what it CAN pay. This used to multiply every enabled rule by
+    // the seat count, unpayable ones included, so a village with a credits
+    // rule the engine could not honour read a confident "600 Village Credits
+    // next moon" off a preview that had never asked whether a single one of
+    // them would move. A forecast that cannot fail is not a forecast.
     settlementPreview: {
       seats: seatCount,
       mints: cycleRules
-        .filter((r) => (r.amount ?? 0) > 0)
+        .filter((r) => (r.amount ?? 0) > 0 && !ruleCannotPay(r.tokenSlug))
         .map((r) => ({ token: r.tokenSlug, units: toLedgerUnits(r.tokenSlug, (r.amount ?? 0) * seatCount) })),
     },
   };

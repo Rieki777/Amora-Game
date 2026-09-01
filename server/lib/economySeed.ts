@@ -15,7 +15,7 @@
  * nobody anything: value only ever enters through the engine.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { ensureVoiceToken, HEARTS, VILLAGE_VOICE } from "./economy";
+import { CREDITS, ensureVoiceToken, HEARTS, VILLAGE_VOICE } from "./economy";
 
 /**
  * The five archetypal contributions, as classes.
@@ -93,11 +93,41 @@ const ARCHETYPES = [
 ];
 
 /**
- * The starting rules.
+ * The starting rules: VILLAGE VOICE AND VILLAGE CREDITS, and not Gratitude.
  *
- * Hearts on quest.completed are deliberately ABSENT: the consent route has
- * minted recognition since S7 with its own range, cap and multiplier, and a
- * rule here would pay a second time for the same work.
+ * Rye, 2026-08-30: "Quests, roles, and contributions of any type should be
+ * able to pay any combination of any tokens (the defaults being village voice
+ * and village credits)", and "if they want to connect quests and roles to the
+ * gratitude system they can have this be one of the tokens issued but that is
+ * a change they can add not the defaults we're going to ship with."
+ *
+ * A CHANGE THEY CAN ADD IS WHY THE GRATITUDE RULE IS STILL HERE, DISABLED,
+ * rather than deleted. There is no route in this build that CREATES a mint
+ * rule: `PATCH /api/admin/economy/rules/:id` edits amount, ceiling and
+ * enabled on a row that already exists, and the governed path after launch
+ * (`shared/mintRuleKeys.ts`) offers the same three fields on the same rows.
+ * Deleting the row would therefore take the payout away permanently, with no
+ * way for any village to get it back. The ruling asked for a default that
+ * omits Gratitude, and this is what that costs. Seeded at `enabled: 0`, the
+ * row pays nobody until a village decides otherwise, and turning it on is one
+ * PATCH before launch or one vote after.
+ *
+ * Hearts on quest.completed are deliberately ABSENT ENTIRELY, and this is the
+ * one place the disabled-row trick would be actively dangerous. The consent
+ * route has minted recognition for a confirmed quest since S7, with its own
+ * range, cap and standing multiplier. A quest.completed gratitude rule sitting
+ * here disabled would look like the obvious thing to switch on, and switching
+ * it on would pay twice for one piece of work. A trap with a toggle on it is
+ * worse than an absence.
+ *
+ * WHICH ALSO MEANS A QUEST STILL PAYS GRATITUDE, and no change to this table
+ * can stop it. The consent route mints it from the range the quest advertises
+ * in `quests.gratitude`, and on the shipped defaults it REFUSES a consent
+ * below 1 (`quest.allow_zero_consent` off) and refuses any quest whose range it
+ * cannot read (`quest.consent_cap_mode` = 'posted'). Gratitude for a quest is
+ * the consent transaction itself, so "quests stop paying gratitude" is a change
+ * to that route and to what the board advertises. This file changes the seat
+ * payout, where Gratitude genuinely was a default.
  *
  * Every ceiling is a real number. A from_source rule with no ceiling is an open
  * faucet with a form in front of it.
@@ -107,9 +137,32 @@ const RULES = [
   // against a claim threshold of 100 means ten quests, or two seasons holding a
   // seat, or a mix. Whole numbers read better on a chip than 0.1 does and they
   // make the threshold arithmetic something a member can do in their head.
-  { trigger: "quest.completed", token: VILLAGE_VOICE, amount: 10, ceiling: 100, recipient: "claimant" },
-  { trigger: "role.cycle", token: HEARTS, amount: 20, ceiling: 100, recipient: "holder" },
-  { trigger: "role.cycle", token: VILLAGE_VOICE, amount: 50, ceiling: 200, recipient: "holder" },
+  { trigger: "quest.completed", token: VILLAGE_VOICE, amount: 10, ceiling: 100, recipient: "claimant", enabled: true },
+  // ── The credit amounts, and why both are 25 (RYE TO CONFIRM) ────────────
+  //
+  // Sized against the one credit number a village already has:
+  // `gratitude.pool_per_cycle` releases 1000 credits at each cycle close, split
+  // by the recognition people received. That pool is meant to be the main way
+  // value follows appreciation, so a direct payout wants to stay the smaller
+  // channel. 25 a quest and 25 a seat-moon does that: ten seats issue 250 a
+  // moon against a pool of 1000.
+  //
+  // THE VOICE RATIO IS DELIBERATELY NOT CARRIED OVER, and this is the number
+  // to look at first. Voice pays 50 for a seat-moon and 10 for a quest, five to
+  // one, because a seat is a season of holding something and a quest is one
+  // piece of work. Applying five to one here would make a seat-moon 125
+  // credits, and ten seats would then issue 1250 a moon, more than the entire
+  // cycle pool. That is a real change to what credits are worth and nobody has
+  // decided it, so this ships the conservative number and names the question.
+  //
+  // Both figures are a founder's call. They are not derived from anything, and
+  // erring low is the cheaper mistake: raising a payout later costs one PATCH,
+  // while credits already issued at the wrong rate are in people's hands.
+  { trigger: "quest.completed", token: CREDITS, amount: 25, ceiling: 250, recipient: "claimant", enabled: true },
+  { trigger: "role.cycle", token: VILLAGE_VOICE, amount: 50, ceiling: 200, recipient: "holder", enabled: true },
+  { trigger: "role.cycle", token: CREDITS, amount: 25, ceiling: 250, recipient: "holder", enabled: true },
+  // Off, not gone. See the block comment above.
+  { trigger: "role.cycle", token: HEARTS, amount: 20, ceiling: 100, recipient: "holder", enabled: false },
 ];
 
 export interface SeedReport {
@@ -169,7 +222,7 @@ export async function seedEconomy(
     const [res]: any = await pool.query(
       "INSERT IGNORE INTO `mint_rules` " +
         "(`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
-        "VALUES (?,?,?,?,?,?,?,1)",
+        "VALUES (?,?,?,?,?,?,?,?)",
       [
         `rule-${r.trigger}-${r.token}`,
         villageId,
@@ -178,6 +231,11 @@ export async function seedEconomy(
         r.amount,
         r.ceiling,
         r.recipient,
+        // Was hardcoded to 1. A seeded-off rule is how a default omits a token
+        // without removing the village's ability to pay it, and INSERT IGNORE
+        // still means a village that has already turned this row on keeps it
+        // on through every redeploy.
+        r.enabled ? 1 : 0,
       ],
     );
     if (Number(res?.affectedRows ?? 0) > 0) report.rulesAdded += 1;
