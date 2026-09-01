@@ -246,6 +246,50 @@ binds.
 
 All measured that day. Where a claim is a reading rather than a measurement it says so.
 
+### THE FOUNDER HAS RULED ON EXPLOIT 1. Read this before the account below it.
+
+On 2026-08-31, after reading the account that follows, the founder overruled its framing:
+
+> "The first exploit isn't a concern because proposals should also say how many people voted on
+> it! We can have a settings where it would be public who's voting or secret (defaulted to
+> secret)."
+
+> "Founders can self-grant themselves voice. Their ability to do this is fine, our protection is in
+> the transparency of it, showing what % of total voice every player is holding."
+
+**The design principle is transparency over prohibition.** A founder concentrating voice in
+themselves is a legitimate act of founding a village. What must not happen is anyone being unable
+to SEE that it happened. That is a different system from the one the earlier fix reached for, and
+it is his call.
+
+**What that means concretely, and it is less demolition than it sounds:**
+
+1. **Nothing needs removing from the weights route.** `server/routes/governanceWeights.ts` already
+   permits a founder to allocate weight to themselves. Line 151's `actorId === target.id` check
+   only skips the NOTIFICATION (there is no point telling you what you just did), and the change
+   itself proceeds. There is already an append-only audit trail. Verified by reading, not assumed.
+2. **The `self_grant_refused` at `server/index.ts:19343` is a DIFFERENT route and should stay.**
+   That is the admin mint, which creates token SUPPLY out of `sys:mint`. Allocating weight among
+   existing holders and minting new supply into your own account are different acts, and his ruling
+   is about the first. Do not conflate them. If you think it should also change, ask him rather
+   than assuming the ruling reaches it.
+3. **Three things to BUILD**, which is where the work actually is:
+   - A proposal shows **how many people voted**, not only the weighted result.
+   - A setting for whether **voter identity is public or secret**, defaulting to secret.
+   - A display of **what percentage of total voice every player holds**, visible to players.
+
+**One nuance to get right, because counts alone do not close it.** The harm in exploit 1 was not
+only that the concentration was invisible. It was that the frozen document ASSERTED *"100%
+participation and 100% agreement"* and *"3 people hold a voice today"*. Both sentences were true of
+the weights and false of the village, and a participation count printed somewhere else on the page
+does not unsay them. **So the rule is that any generated sentence about a vote states people AND
+weight together, never one alone.** "1 of 3 people voted, holding 100% of the weight" is honest.
+"100% participation" is not, whatever appears beside it.
+
+Secret ballots interact with this: with voter identity hidden by default, the weight-share display
+is doing most of the transparency work. That is a reason to make it prominent rather than a reason
+to change the default.
+
 ### The two constitutional exploits, and the one that is still open
 
 Both were reproduced end to end over HTTP against the built server BEFORE any fix, then refused
@@ -253,7 +297,9 @@ afterwards with the exploit conditions unchanged. Read `SEASON2_FLEET_LEDGER.md`
 full account. **Read it before you widen what a vote can reach**, because widening is exactly what
 a changeset does.
 
-**Exploit 1, a founder carrying the launch vote alone.** The founder set `weight_mode=custom`,
+**Exploit 1, a founder carrying the launch vote alone.** OVERRULED, see the section above. Kept
+here because the mechanics are still worth understanding and because the launch route's refusal
+may now be too strict. The founder set `weight_mode=custom`,
 allocated weight 1 to themselves and nothing to the other two members. The launch route reported
 `onTheRoll: 3, tooFew: null`. The ballot opened with `unity_pct=100, quorum_pct=100,
 electorate_count=3, total_weight=1`, and one yes closed it as passed. The frozen document then told
