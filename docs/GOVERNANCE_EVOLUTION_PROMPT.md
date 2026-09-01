@@ -511,6 +511,221 @@ payments once keyed on a value being renamed, where the rename would have re-pai
 
 ---
 
+## 7A. The hub side, from the coordinator session of 2026-08-30
+
+Everything above is the village looking at itself. This section is the other end of the wire, written
+by the session that held `regen-civics` (the hub) the same weekend. **Governance crosses a bridge, and
+nobody has ever proven the crossing works.** Measure anything here before you build on it.
+
+### The governance hub relay has never been proven, and the village already claims it works
+
+`shared/gameVariables.ts:437-443` defaults the hub base URL to `https://regencivics.earth` and
+describes registering a proposal's on-chain id with it, signed with a shared governance secret, so the
+verified outcome can find its way home. The hub implements the receiving half at
+`server/lib/hypha-bridge/fork-relay.ts`: `x-governance-hub-secret`, 401 on a missing header, signed
+deliveries.
+
+**`server/index.ts:25247` in this repo already tells a member:** *"registered with the governance hub.
+The verified outcome will find this proposal by itself."*
+
+That sentence is a claim about a system in another repository, and it is only true if the round trip
+completes. **I could not prove it and did not guess.** Proving it needs the shared secret, which should
+not travel between sessions in a message. The honest verdict today is NOT PROVEN, and a sentence shown
+to a member is a worse place to be wrong than a log line.
+
+**If you touch it, prove it end to end, and fix the sentence if it is not true.**
+
+### The exact mistake this relay is about to repeat, with the fix already written next door
+
+The feedback relay had the identical shape and was fixed in this repo on 2026-08-29 in `aef5ded`,
+"stop the platform guessing somebody else's address". Its comment is the argument, verbatim:
+
+> *"the setting that turns the relay on ships ON, so a hardcoded destination made every fork post its
+> members' words to one specific organisation without ever choosing to."*
+
+`feedbackHubUrl()` now returns `process.env.FEEDBACK_HUB_URL ?? ""`, and empty means nowhere.
+
+**The governance relay still hardcodes `https://regencivics.earth` as its default.** Same shape, not
+yet fixed. A fork that installs this platform and configures nothing currently registers its
+governance outcomes with one specific organisation it has never heard of. For a feature about who
+decides, that is worse than it was for feedback.
+
+And the destination that was hardcoded for feedback, `hub.regencivics.earth`, **has no DNS record at
+all**: `Non-existent domain`, against an apex control that resolves and returns 200. It was never a
+404. It was never a host. If any governance constant points at a `hub.` subdomain, it fails at
+resolution and the error will not look like a routing problem.
+
+### Anonymous reads: section 7 flags one route, production has three
+
+Section 7 says `GET /api/governance/ballots` at `server/index.ts:27617` reads as ungated with intent
+unverified. Probed on production, it is broader than that:
+
+- **`GET /api/governance/ballots`** answers an anonymous caller with 200
+- **`GET /api/game/mechanics/proposals`** answers an anonymous caller with 200
+- **`GET /api/governance/ballots/:id`** serves **the named voting record with per-person weight, plus
+  the names of everyone who has not voted yet**
+
+Both list endpoints return an empty array today, so **nothing leaks yet, because no ballot has ever
+run.** The first ballot changes that in one step, with no code change and no warning.
+
+**What a village publishes about its own votes is a founder decision, not a default**, and right now
+the default is everything, to anyone, including who has not voted. You are the session that should
+settle it. Put it to him with the third route named, because the per-person weight and the non-voter
+list are the parts he will have an opinion about.
+
+### The snapshot law, and how to prove you did not break it
+
+**A vote is counted against the day it opened, with method, dials, roll and weights frozen at open.**
+`ballots.test.ts` pins it.
+
+Every governance lane in this programme is required to run that file **unmodified and green, and to
+prove the file is byte-identical to the base** rather than merely passing. A changeset feature that
+can edit weights or thresholds is precisely the kind of change that breaks this by accident, because
+the whole point of a changeset is that settings move.
+
+### The capability keys, which are the prerequisite nobody has done
+
+The red team's largest single gap: **roughly 95 village-governance routes carry no capability key.**
+It is a prerequisite for R90's steward powers and for any real handover, and it was deliberately
+sequenced after ROLL and STEWARD because all three touch `server/index.ts`.
+
+**One key was named and never added: something like `member.role`**, gating who may change an
+account's tier. `PUT /api/admin/users/:id/role` is **the last standing scaffolding power over people**
+after launch, and R90 says the village decides it eventually through the steward. If your changeset
+can move powers, this is the power it must be able to move.
+
+### check-admin-reach has a blind spot exactly where you are building
+
+**Three steward routes have no browser surface.** A village can declare and seat a role by API today
+and cannot do it from a page. They pass `check-admin-reach` **by living under `/api/governance`, which
+is that gate's blind spot rather than a clean bill.**
+
+You are about to build a large admin surface. A green from that gate does not mean your routes are
+reachable by a human. Verify reach by loading the page.
+
+### Four vote types collect real votes and then do nothing
+
+Applying for a seat, writing an agreement, granting a badge, paying out a quest. **The working
+`power_grant` executor is about a hundred lines and is the template for all four.** A vote that binds
+nothing is a worse promise than a vote that was never offered, and this is the closest existing work
+to a changeset executor.
+
+### Module enablement is already a governance surface, and the founder edits it by hand
+
+`shared/modules.ts` states it plainly: enablement lives in `module_settings`, read through
+`server/lib/modules.ts`, and NOWHERE else. Around eighteen modules, each with a lifecycle of
+`off | preview | members | public`.
+
+That is a governance-shaped control that R91 says becomes member-visible and proposal-gated. **Today
+it is a direct database write.** On 2026-08-30 four modules were switched off at 00:39 by the
+founder's account, and I restored three of them on his instruction with a single UPDATE. No proposal,
+no record a member could read, no way for anyone to see who changed what or why.
+
+**Module lifecycle belongs in your changeset enumeration.** It is a worked example of the exact
+problem: a founder acting alone on a control a launched village would vote on.
+
+### A hardcoded threshold silently stalled a live pipeline for 34 days
+
+Not governance code, but the same shape as a quorum or a majority rule, which is why section 5's
+still-open abstain rule matters more than it looks.
+
+The hub's content pipeline paused because a backpressure limit of 15 met a backlog of 22. **The cron
+fired about 816 times over 34 days, drafted nothing, and reported success every time.** A downstream
+weekly job then found no material and correctly reported zero, which made it look broken too while
+being a victim. One hardcoded number, one month, and a deploy required to change it.
+
+Fixed on 2026-08-30 by moving the numbers into `game_variables`, read per run, with 0 meaning no
+brake.
+
+**The lesson: any governance number a village might need to change must be changeable without a
+deploy.** A quorum that needs an engineer contradicts R91's premise that the village decides. Section
+5 notes that changing the abstain rule means editing `governanceEngine.ts`. That is the same defect,
+in the code where it matters most.
+
+### A pattern for claims a village makes about itself
+
+The hub shipped one on 2026-08-30 that transfers directly. The fund's story lived in twenty-one places
+and none of them agreed; two contradictory target figures had both been live for about two years.
+
+The fix: **one exported source of truth** (`shared/fund.ts`), **fourteen surfaces reading from it**,
+and **a CI gate** (`scripts/check-fund-claims.mjs`, wired as gate 1d) that fails the build when a
+retired claim reappears or a named surface stops importing from the source. Deliberate exceptions use
+`fund-claims-allow: <reason>` and must carry a reason.
+
+**Two things learned building it, both of which will bite you:**
+
+1. **The suppression marker must be on the same line, or the line IMMEDIATELY above.** Two lines up is
+   not read. I lost a gate cycle to exactly that.
+2. **The gate caught its own author twice**, once on a code comment and once on a test asserting those
+   strings are absent. That is the gate working, and it is the argument for a real gate over a
+   convention.
+
+If a changeset can alter what a village publishes about its own governance, that content wants this
+shape: one source, many readers, a gate that fails on a retired claim.
+
+### Three more silent-zeros, and the sharper tell
+
+Section 8 names the class. Three fresh instances landed in one day, in three files, from three
+different sessions, which is why it deserves a rule rather than a warning:
+
+- `describe.skipIf(cond)` **skips the tests and still evaluates the describe body.** A `readFileSync`
+  on an undefined path inside it threw at collection, and a failed collection is a failed SUITE rather
+  than a skipped one. One untracked file absent on a CI runner, whole build red.
+- A contrast checker printed `NAVIGATION FAILED` per route **and never counted it**, so a run where
+  every navigation failed printed `0 contrast failure(s)` and exited 0.
+- `harvest_runs` rows are written **only on the productive path**, so a table meaning "the job
+  produced" was read by everything as "the job ran". A monitor built to make silence visible would
+  have shown a healthy weekly job as late, in the one component built to be trusted about alarms.
+
+**The rule, in one sentence: a guard that prevents an ACTION does not prevent EVALUATION.**
+
+**And the tell is the summary line, not the guard.** For every count your governance code reports, ask
+what value it takes when the check did not run. If that equals the success value, the check has no
+failure mode. Section 8 already says an empty state and a real zero are different facts and that this
+class is severe in a voting system. This is the same rule pointed at your own instrumentation: **a
+changeset that applied 0 changes and a changeset that could not tell must not print the same line.**
+
+### Verify against the deployed thing, not the diff
+
+Twice on 2026-08-30 a change was correct, gated green, fully tested, and still wrong in production,
+and neither was visible in the diff:
+
+- A host-aware fix made every subpage of a subdomain correct while `/` stayed wrong, because a
+  **dedicated `app.get("/")` handler earlier in the chain** never reached the code that changed. The
+  diff was faultless; the bug lived in a file it did not touch.
+- A title template shipped a name twice, on the most-read string of the newest surface.
+
+Both were found by fetching the deployed URL. **For a governance surface this matters more, because
+the reader who cannot tell is a member deciding how to vote.**
+
+### Numbers to re-measure rather than trust
+
+Coordinator numbers went stale in both directions the same weekend, so treat these as timestamped:
+
+- **The hub's next free migration was recorded as 0231 and was actually 0230**, because a number had
+  been allocated and returned unused. Three were then taken on 2026-08-30 and 31, so **next free is
+  0233.**
+- **Village next free is 0121.** 0115 to 0118 were allocated and returned unused. **0120 is applied**,
+  verified in `_migrations_applied` rather than inferred from a merge.
+- Reaching the village database from a laptop: `DATABASE_URL` on the app service points at
+  `mysql.railway.internal` and is unreachable from outside. Use `railway run -s "MySQL" node <script>`
+  and read `MYSQL_PUBLIC_URL` inside the subprocess, so the credential never enters a transcript. The
+  village is its own Railway project, **"Amora Game"**, not a service inside the hub's project.
+
+### The enumeration this session was asked for, and never started
+
+`PROMPT_3_AMORA_ADMIN_AND_LAUNCH.md` makes its FIRST deliverable, ahead of any fix, an enumeration of
+**what a founder may do alone before launch versus what becomes a community vote after**, because two
+of the founder's own notes, the cycle settlement and minting by hand, turned out to be the same
+missing model. His words: *"we need to audit all instances of this."* That prompt tells its session to
+stop and show him the enumeration before building anything.
+
+**That enumeration is your mission's foundation and it does not exist yet.** Module lifecycle above is
+one entry. The roughly 95 unkeyed routes are most of the rest. Start there, and put it in front of him
+before you build the tray.
+
+---
+
 ## 8. Traps this codebase has paid for
 
 **Express 4 async handlers HANG on a throw.** A rejected handler promise is an unhandled rejection,
@@ -621,6 +836,18 @@ individual choice.
 **9. Should governance week and the claims window share a date?** `gameVariables.ts:202` already
 advises lining the claims window up with when governance meets. **Recommendation: one setting drives
 both**, so a village that moves its governance rhythm does not have to remember a second place.
+
+**12. What does a village publish about its own votes?** Three endpoints answer an anonymous caller
+on production today: `GET /api/governance/ballots`, `GET /api/game/mechanics/proposals`, and
+`GET /api/governance/ballots/:id`, which serves the named voting record with per-person weight plus
+the names of everyone who has not voted yet. The lists are empty because no ballot has ever run, so
+nothing has leaked and there is time to choose. **The first ballot makes this real with no code
+change and no warning.** Section 5 settles that transparency beats prohibition for the exploit
+question, and this is the same principle pointed at members rather than at attackers, which is not
+automatically the same answer. **Recommendation: keep the tallies and the proposal list public, and
+put the per-person record and the non-voter list behind membership.** A published list of who has not
+voted yet is a pressure instrument, and a village that wants it should turn it on deliberately rather
+than inherit it.
 
 ---
 
