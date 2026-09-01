@@ -45,12 +45,74 @@ describe.skipIf(!configured)("the test-database harness", () => {
   it("seeds the token registry the ledger code mirrors", async () => {
     const [rows] = await db.conn.query<any[]>("SELECT slug, kind, governance FROM tokens ORDER BY sort_order");
     const slugs = rows.map((r) => r.slug);
-    expect(slugs).toEqual(["gratitude", "amora", "voice", "credits"]);
+    expect(slugs).toEqual(["gratitude", "equity", "voice", "credits"]);
     const byslug: Record<string, any> = Object.fromEntries(rows.map((r) => [r.slug, r]));
     expect(byslug.gratitude.governance).toBe("platform");
-    expect(byslug.amora.governance).toBe("hypha");
+    expect(byslug.equity.governance).toBe("hypha");
     expect(byslug.credits.kind).toBe("credit");
   });
+
+  /**
+   * NO FRESH VILLAGE BOOTS WITH ANOTHER VILLAGE'S NAME ON ITS EQUITY TOKEN.
+   *
+   * 0006 seeded the equity mirror with the founding village's own word in both
+   * the slug and the display name, so all thirteen founder instances inherited
+   * it. 0124 moved both. This is the assertion that keeps it moved: a seed is
+   * data, and data is exactly the kind of thing that comes back when somebody
+   * adds a row to make their own instance read right.
+   */
+  it("names the seeded equity token after no village at all", async () => {
+    const [rows] = await db.conn.query<any[]>(
+      "SELECT slug, name, kind, governance, decimals, transferable FROM tokens WHERE kind = 'equity'",
+    );
+    expect(rows.length, "exactly one seeded equity token").toBe(1);
+    expect(rows[0].slug).toBe("equity");
+    expect(rows[0].name).toBe("Village Equity");
+    // Unchanged by 0124, and named here so a future edit to the seed has to
+    // face them: the mirror is read-only and moves nothing on this side.
+    expect(rows[0].governance).toBe("hypha");
+    expect(Number(rows[0].transferable)).toBe(0);
+  });
+
+  /**
+   * THE PROOF 0124 RESTED ON, KEPT AS A STANDING GATE.
+   *
+   * Before the rename was written, every string column in a freshly migrated
+   * schema was scanned for the retired slug: of 969 columns, exactly two held
+   * it, and both were in `tokens` itself. That is what made a re-key safe, and
+   * it is the same question worth asking of any future seed. A brand name that
+   * reaches a DATA row is not caught by scripts/check-brand-refs.mjs, which
+   * reads source files.
+   *
+   * Discovered from information_schema rather than a hand-written list of
+   * tables, because a hand-written list is what misses the table somebody
+   * added last week.
+   */
+  it("seeds no village's name into any row of a fresh schema", async () => {
+    const [[{ s: schema }]] = await db.conn.query<any[]>("SELECT DATABASE() AS s");
+    const [cols] = await db.conn.query<any[]>(
+      "SELECT table_name AS t, column_name AS c, data_type AS dt FROM information_schema.columns " +
+        "WHERE table_schema = ? AND data_type IN " +
+        "('varchar','char','text','mediumtext','longtext','tinytext','json','enum') " +
+        "ORDER BY table_name, column_name",
+      [schema],
+    );
+    expect(cols.length, "the scan found columns to scan").toBeGreaterThan(500);
+    // The same list scripts/check-brand-refs.mjs bans in source. Kept here as
+    // a literal so this file states what it is looking for.
+    const banned = ["amora", "dominicalito", "regencivics", "amoracita"]; // brand-ok: the needle this test hunts for
+    const hits: string[] = [];
+    for (const { t, c, dt } of cols as Array<{ t: string; c: string; dt: string }>) {
+      const col = dt === "json" ? `CAST(\`${c}\` AS CHAR)` : `\`${c}\``;
+      const where = banned.map(() => `${col} LIKE ?`).join(" OR ");
+      const [[row]] = await db.conn.query<any[]>(
+        `SELECT COUNT(*) AS n FROM \`${t}\` WHERE ${where}`,
+        banned.map((b) => `%${b}%`),
+      );
+      if (Number(row.n) > 0) hits.push(`${t}.${c}: ${row.n} row(s)`);
+    }
+    expect(hits, `a village's name is seeded into: ${hits.join(", ")}`).toEqual([]);
+  }, 120_000);
 
   it("shipped the registry column shape, not the enum", async () => {
     const [cols] = await db.conn.query<any[]>("SHOW COLUMNS FROM token_ledger LIKE 'token_type'");

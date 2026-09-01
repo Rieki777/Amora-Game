@@ -284,7 +284,7 @@ import { isMintRuleKey, parseMintRuleKey } from "../shared/mintRuleKeys";
 import { describeRange, parseRewardRange } from "../shared/questRewards";
 import {
   allTokens,
-  tokenNameClash,
+  tokenNameClash, slugFreezeRefusal,
   RECOGNITION_FAUCET,
   balanceOf,
   balancesFor,
@@ -17228,7 +17228,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     let onchain: Record<string, any> | null = null;
     if (economicsEnabled && user.walletVerifiedAt && user.walletAddress) {
       const contracts = [
-        { slug: "amora", address: stringVar("tokens.equity_address").trim() },
+        { slug: "equity", address: stringVar("tokens.equity_address").trim() },
         { slug: "voice", address: stringVar("tokens.voice_address").trim() },
       ];
       onchain = {};
@@ -19231,9 +19231,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const slug = String(req.params.slug);
     const def = tokenDef(slug);
     if (!def) return res.status(404).json({ error: `unknown token "${slug}"` });
-    if (def.governance !== "platform") {
-      return res.status(400).json({ error: `${slug} is a read-only Hypha mirror. Its name is a fact about Base, not a setting` });
-    }
+    const frozen = slugFreezeRefusal(req.body?.slug, slug);
+    if (frozen) return res.status(409).json({ error: frozen });
+    if (def.governance !== "platform") return res.status(400).json({ error: `${slug} is a read-only Hypha mirror. Its name is a fact about Base, not a setting` });
     // Renaming an example keeps its flag, so the admin's own word for the
     // token would be deleted by the first real one they create.
     if (def.isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);

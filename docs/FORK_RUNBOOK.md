@@ -125,8 +125,12 @@ above the size of a gathering, not to the size of one person's usage.
   the real seeds above, so it never displaces your starter content. Clear early
   with `POST /api/admin/modules/:id/examples/clear`; prove inertness with
   `node scripts/check-examples.mjs`. See `docs/STANDING_EXAMPLES.md`.
-- `tokens` table rows (0006 seeds gratitude/amora/voice) — a fork renames its
-  recognition token here + in `shared/gameConfig.ts` + brand overlay.
+- `tokens` table rows (a fresh village seeds gratitude/equity/voice/credits,
+  and stay-credit, library-credit and village-voice arrive at first boot) — a
+  fork renames its recognition token here + in `shared/gameConfig.ts` + brand
+  overlay. Rename the NAME only: the slug is what every ledger row and balance
+  is written against, and 0124 closed that door for good. Admin, The Game,
+  Tokens is the surface; the API refuses a slug edit and says why.
 - `data/brand.json` via the admin Setup Wizard ("Make This Yours") — identity,
   images (uploaded, sharp-compressed), dues, personas.
 - Game variables: only CHANGED values are stored; platform defaults inherit.
