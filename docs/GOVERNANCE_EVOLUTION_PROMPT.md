@@ -126,6 +126,78 @@ already handles the messages a proposer receives.
 
 ---
 
+## STEWARDS, AUTO-EXECUTE, AND A CONFLICT WITH R90 THAT NEEDS SETTLING FIRST
+
+On 2026-08-31 the founder described a graduated trust model, and it is the shape of the whole
+feature:
+
+> "having it default that the steward (by default the founder(s) are granted a steward role after
+> Game launch) needs to approve a proposal to change the game before it actually goes through is a
+> great addition, but also there's another stage of maturity where the founder gives up this power
+> and then auto-execute takes over. Stewards have the power to approve anything in the Game that
+> needs approval - they're the 'training wheels' for the Game until it matures enough that they can
+> give more and more power to the Game to auto-execute decisions."
+
+**This fits the existing engine almost exactly**, which is the good news. "CLOSING IS A HUMAN ACT.
+Nothing auto-executes at expiry" is already the training-wheels state, and the close dispatcher's
+fail-safe absence is already the mechanism: a subject type not in the routing table decides and
+executes nothing. Adding a per-subject "does this auto-execute" flag, defaulting to off, gives you
+the gradient he describes without inventing a second decision path. **Build it as a gradient, not a
+switch.** His words are "more and more power", and a village may reasonably auto-execute quest
+payouts while still wanting a steward on mechanics changes.
+
+### THE CONFLICT. Do not build until the founder settles this.
+
+His instruction today says founders are granted a steward role **by default** after launch. A
+recorded ruling of his own, **R90**, says the opposite, and the code implements R90 today. From
+`server/lib/gameStart.ts:160`, quoting him:
+
+> "The founder role disappears once the game starts and a minimum of 3 people vote the game to
+> start. After that they can optionally vote in a steward role and give various powers to this
+> steward to immediately act."
+
+The difference is where power comes from at launch:
+
+| | R90, implemented today | The 2026-08-31 instruction |
+|---|---|---|
+| Steward exists at launch | only if the village votes one in | yes, automatically |
+| Founder after launch | an administrator and nothing more | holds steward approval by default |
+| Power flows from | the village granting it | founding, then relinquished |
+
+Both are coherent villages. They are not the same village, and thirteen of them are about to be
+built on whichever one you implement. **Ask him which, quoting both, before writing any code.**
+
+Read the whole of `server/lib/gameStart.ts` before you do. R90 is implemented carefully and its
+comments explain what deliberately does NOT end at launch: the admin panel survives because "a
+village may choose never to vote in a steward and must still work completely", and eighteen
+branches read `role === "admin" || role === "founder"` meaning only "is this person an
+administrator". Ending those at launch would leave a village unable to administer itself with no
+way back. Whatever is decided must keep that property.
+
+Note also that R90 already anticipated the gradient: "give various powers to this steward **to
+immediately act**" is the same axis as auto-execute.
+
+### Three questions his model raises that nobody has answered
+
+1. **What happens when a proposal PASSES and the steward refuses to approve it?** That is a veto,
+   and an unbounded silent veto makes "the village decided" false. At minimum the refusal should be
+   recorded, visible, and carry a reason, the same way weight changes already do. Whether it can be
+   overridden, and by what, is his call.
+
+2. **Is giving up the power reversible?** If a founder can take the training wheels back on, they
+   never came off. The strongest shape, and the one that matches his ruling that governance mode
+   cannot switch back and forth: **the founder can relinquish unilaterally, and only a village vote
+   can grant it back.** That keeps the giving-up real while leaving the village a remedy if
+   auto-execute goes wrong. Propose it; do not assume it.
+
+3. **What does auto-execute mean for a changeset specifically?** A mechanics change applies to one
+   variable. A changeset is a batch, and a batch can half-apply. If auto-execute is on and item
+   four of seven fails, what happened? Answer this before auto-execute reaches changesets, and note
+   that the store layer's version-guard pattern (migration `0122`) exists because a half-applied
+   write already bit this codebase once.
+
+---
+
 ## The four hard questions nobody has answered yet
 
 These are the design, and getting them right matters more than shipping fast.
