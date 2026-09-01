@@ -399,11 +399,11 @@ export function seededRegistry(root = ROOT) {
       const code = codeOf(stmt.sql);
       if (!TOKENS_MENTION.test(code)) continue;
       const directive = stmt.directives.find((d) => /^(ignore|as-if)\b/i.test(d));
-      if (directive && /^ignore\b/i.test(directive)) { touched.push(`${rel} (ignored by directive)`); continue; }
+      if (directive && /^ignore\b/i.test(directive)) { touched.push(`${rel} (read through a token-doc directive)`); continue; }
       if (directive) {
         const asIf = directive.replace(/^as-if\s*/i, "");
         applyStatement(table, asIf, `${asIf}\n  (as-if directive at ${rel}:${stmt.line})`);
-        touched.push(`${rel} (as-if directive)`);
+        touched.push(`${rel} (read through a token-doc directive)`);
         continue;
       }
       if (!TOKENS_TARGET.test(code)) {
@@ -958,7 +958,12 @@ export function collectFacts(root = ROOT) {
     t.sendable = t.sendBlockedBy === null;
     t.seededRules = rules
       .filter((r) => r.token === t.slug)
-      .map((r) => ({ trigger: r.trigger, amount: r.amount, ceiling: r.ceiling, recipient: r.recipient }));
+      // `enabled` rides along because a seeded rule can be seeded OFF. The
+      // first one was the recognition rule for a seat, switched off rather
+      // than deleted so a village can vote it back on. Dropping the flag
+      // here, which this projection used to do, made the document announce a
+      // payout that never happens.
+      .map((r) => ({ trigger: r.trigger, amount: r.amount, ceiling: r.ceiling, recipient: r.recipient, enabled: r.enabled !== false }));
   }
 
   const order = { migration: 0, boot: 1 };
@@ -1050,12 +1055,14 @@ function tokenSection(t, f) {
   lines.push(table(["Fact", "Value"], rows));
   lines.push("");
 
-  const paid = t.seededRules.length
-    ? t.seededRules
+  const live = t.seededRules.filter((r) => r.enabled);
+  const off = t.seededRules.filter((r) => !r.enabled);
+  const paid = live.length
+    ? live
         .map((r) => `${r.amount} on \`${r.trigger}\` to the ${r.recipient}, up to ${r.ceiling} a moon`)
         .join("; ")
     : null;
-  lines.push(`**Who can issue it, and how.** ${issuance(t, f, paid)}`);
+  lines.push(`**Who can issue it, and how.** ${issuance(t, f, paid, off)}`);
   lines.push("");
   lines.push(`**What happens at cycle close.** ${cycleClose(t, f)}`);
   if (t.governance === "platform" && t.kind === "voice") {
@@ -1074,7 +1081,7 @@ function tokenSection(t, f) {
   return lines.join("\n");
 }
 
-function issuance(t, f, paid) {
+function issuance(t, f, paid, off = []) {
   if (t.governance !== "platform") {
     return (
       "Nobody, here. It is issued on Base under Hypha, and this platform holds a read-only mirror of what a " +
@@ -1092,6 +1099,21 @@ function issuance(t, f, paid) {
         ? `A mint rule can pay it, and a fresh village is seeded to pay ${paid}.`
         : "A mint rule can pay it, and a fresh village is seeded with no rule that does.",
     );
+    // A rule seeded OFF is a rule the village can vote back on, which is why it
+    // is shipped switched off rather than deleted: no route creates a mint
+    // rule, so deleting the row would remove the ability for good. It is named
+    // here because a payout that does not happen is the one thing a founder
+    // must not read as a payout that does.
+    if (off.length) {
+      bits.push(
+        `One rule ships switched OFF and pays nobody until the village turns it on: ` +
+          off
+            .map((r) => `${r.amount} on \`${r.trigger}\` to the ${r.recipient}`)
+            .join("; ") +
+          ". It is seeded off rather than left out because no route creates a mint rule, so a village that " +
+          "wanted it back would have no way to add it.",
+      );
+    }
   } else {
     bits.push(
       "No mint rule can pay it. `faucetFor()` in `server/lib/economy.ts` has no account for this token, so a rule " +
@@ -1120,7 +1142,7 @@ function cycleClose(t, f) {
         "recognition each received that moon. Shares round down, and the remainder stays in the pool.",
     );
   }
-  const cycleRules = t.seededRules.filter((r) => r.trigger === "role.cycle");
+  const cycleRules = t.seededRules.filter((r) => r.trigger === "role.cycle" && r.enabled);
   if (cycleRules.length) {
     bits.push(
       `Settlement pays everyone holding a seat ${cycleRules.map((r) => `${r.amount} of it`).join(" and ")}. A re-run pays ` +
@@ -1446,13 +1468,14 @@ export function render(f) {
   p();
   p(
     table(
-      ["Trigger", "Token", "Amount", "Ceiling a moon", "Paid to"],
+      ["Trigger", "Token", "Amount", "Ceiling a moon", "Paid to", "On today"],
       f.seededRules.map((r) => [
         `\`${r.trigger}\``,
         `\`${r.token}\``,
         String(r.amount),
         String(r.ceiling),
         String(r.recipient),
+        r.enabled === false ? "no, seeded off" : "yes",
       ]),
     ),
   );

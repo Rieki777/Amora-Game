@@ -53,9 +53,9 @@ Recognition. One member thanks another for something that actually happened, and
 | Members may send it | no, because recognition is never handed between members |
 | Can carry a price | no, a price is posted in credit tokens |
 
-**Who can issue it, and how.** Every unit comes out of `sys:gratitude-pool`, and that account's negative balance is this token's issued supply. A mint rule can pay it, and a fresh village is seeded to pay 20 on `role.cycle` to the holder, up to 100 a moon. No token at all can be issued before the village's launch vote carries. The gate sits on the ledger account's `faucet` column, so it covers every faucet including one added later (`server/lib/gameStart.ts`).
+**Who can issue it, and how.** Every unit comes out of `sys:gratitude-pool`, and that account's negative balance is this token's issued supply. A mint rule can pay it, and a fresh village is seeded with no rule that does. One rule ships switched OFF and pays nobody until the village turns it on: 20 on `role.cycle` to the holder. It is seeded off rather than left out because no route creates a mint rule, so a village that wanted it back would have no way to add it. No token at all can be issued before the village's launch vote carries. The gate sits on the ledger account's `faucet` column, so it covers every faucet including one added later (`server/lib/gameStart.ts`).
 
-**What happens at cycle close.** Settlement pays everyone holding a seat 20 of it. A re-run pays nothing twice: each mint is keyed on the moon, the seat and the holder. The balance itself is untouched. What a member received during the moon decides their share of the pool, and then the balance stays where it is. Ruling 1 below would expire an unspent balance here, and it is not built.
+**What happens at cycle close.** The balance itself is untouched. What a member received during the moon decides their share of the pool, and then the balance stays where it is. Ruling 1 below would expire an unspent balance here, and it is not built.
 
 ### Village Credits
 
@@ -288,13 +288,13 @@ Built: the shape. A mint rule names one token, one trigger and one amount, and s
 
 What a fresh village is actually seeded to pay today, read from `server/lib/economySeed.ts`:
 
-| Trigger | Token | Amount | Ceiling a moon | Paid to |
-| --- | --- | --- | --- | --- |
-| `quest.completed` | `village-voice` | 10 | 100 | claimant |
-| `quest.completed` | `credits` | 25 | 250 | claimant |
-| `role.cycle` | `village-voice` | 50 | 200 | holder |
-| `role.cycle` | `credits` | 25 | 250 | holder |
-| `role.cycle` | `gratitude` | 20 | 100 | holder |
+| Trigger | Token | Amount | Ceiling a moon | Paid to | On today |
+| --- | --- | --- | --- | --- | --- |
+| `quest.completed` | `village-voice` | 10 | 100 | claimant | yes |
+| `quest.completed` | `credits` | 25 | 250 | claimant | yes |
+| `role.cycle` | `village-voice` | 50 | 200 | holder | yes |
+| `role.cycle` | `credits` | 25 | 250 | holder | yes |
+| `role.cycle` | `gratitude` | 20 | 100 | holder | no, seeded off |
 
 A confirmed quest also mints recognition from the consent route itself, with its own range and cap, which is not a mint rule and does not appear in that table. A contribution pays nothing at all: `POST /api/profile/contribution` is a journal entry, and it is one deliberately, after a version of it that added a caller-supplied amount straight onto a member's balance was removed.
 
@@ -345,7 +345,8 @@ The same facts, for anything that would rather parse than read. Regenerated with
           "trigger": "role.cycle",
           "amount": 20,
           "ceiling": 100,
-          "recipient": "holder"
+          "recipient": "holder",
+          "enabled": false
         }
       ],
       "description": "Recognition. One member thanks another for something that actually happened, and this token is the record of it. It is a signal, never a price."
@@ -372,13 +373,15 @@ The same facts, for anything that would rather parse than read. Regenerated with
           "trigger": "quest.completed",
           "amount": 25,
           "ceiling": 250,
-          "recipient": "claimant"
+          "recipient": "claimant",
+          "enabled": true
         },
         {
           "trigger": "role.cycle",
           "amount": 25,
           "ceiling": 250,
-          "recipient": "holder"
+          "recipient": "holder",
+          "enabled": true
         }
       ],
       "description": "The village's own money. It is what the cycle pool shares out when a moon closes, and what a member spends on a night, a seat or a shelf."
@@ -445,13 +448,15 @@ The same facts, for anything that would rather parse than read. Regenerated with
           "trigger": "quest.completed",
           "amount": 10,
           "ceiling": 100,
-          "recipient": "claimant"
+          "recipient": "claimant",
+          "enabled": true
         },
         {
           "trigger": "role.cycle",
           "amount": 50,
           "ceiling": 200,
-          "recipient": "holder"
+          "recipient": "holder",
+          "enabled": true
         }
       ],
       "description": "Earned say. It accrues here as work is confirmed and seats are held, and a member claims it across to Base once they hold enough."
@@ -578,6 +583,6 @@ The generator reads these and fails loudly if any of them moves:
 
 It also walks every `.ts` file under `server/` looking for a token registered at first start. Each one has to sit inside a function named `ensure…Token`, and a call anywhere else stops the build asking which kind it is. That is what stops a new module registering a token the document never mentions.
 
-The seeded rows are produced by applying every token statement in `drizzle/` in migration order, rather than by reading the INSERTs alone. Two later migrations sweep the `transferable` column, and reading only the INSERTs would report recognition as sendable, which it has not been since `0092_token_sinks.sql`. The migrations that write the registry today: `drizzle/0006_token_registry.sql`, `drizzle/0007_village_credits_token.sql`, `drizzle/0047_example_market.sql`, `drizzle/0071_economy_core.sql`, `drizzle/0092_token_sinks.sql`, `drizzle/0124_the_equity_token_names_no_village.sql (ignored by directive)`, `drizzle/0124_the_equity_token_names_no_village.sql (as-if directive)`.
+The seeded rows are produced by applying every token statement in `drizzle/` in migration order, rather than by reading the INSERTs alone. Two later migrations sweep the `transferable` column, and reading only the INSERTs would report recognition as sendable, which it has not been since `0092_token_sinks.sql`. The migrations that write the registry today: `drizzle/0006_token_registry.sql`, `drizzle/0007_village_credits_token.sql`, `drizzle/0047_example_market.sql`, `drizzle/0071_economy_core.sql`, `drizzle/0092_token_sinks.sql`, `drizzle/0124_the_equity_token_names_no_village.sql (read through a token-doc directive)`.
 
 `server/db/tokenDoc.test.ts` runs every migration against a real MySQL and asserts the rows this generator computed are the rows the database actually holds, and that the faucet, sink and sending answers here match what the server's own functions return. The generator being wrong is a red test, not a quiet paragraph.
