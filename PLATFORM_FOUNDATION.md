@@ -30,8 +30,12 @@ overlay (`data/brand.json`) that `/api/game/config` merges over the
 `gameConfig.ts` defaults, so blank fields keep Amora's values as suggestions
 until a project changes them. The wizard covers, in order:
 
-1. **Identity** — project name, tagline, member name, location, currency name.
-   Instantly reflected across the game layer (profile, gratitude, season, pulse).
+1. **Identity**: project name, tagline, member name, location, the links and
+   the footer line. Instantly reflected across the game layer (profile,
+   gratitude, season, pulse). Token names are NOT here: they live in the token
+   registry (Admin → Tokens), which `mergedConfig()` reads ahead of this
+   overlay, so a name typed here could never win and the two boxes that tried
+   have been removed.
 2. **Pictures** — the six hero images (homepage + 4 journeys + master plan), each
    with Amora's current image as the default and a live thumbnail.
 3. **Numbers** — village dues and other figures (Settings tab).
@@ -47,7 +51,7 @@ Use the wizard first; drop to the files below only for deeper structural changes
 
 | Layer | File(s) | What lives there |
 |---|---|---|
-| **Setup Wizard (live)** | `data/brand.json` overlay, edited in `/admin` → Make This Yours | Project name, tagline, member name, location, currency name, the six hero images, wizard progress. Live-editable, no deploy. Merged over gameConfig by `/api/game/config`. |
+| **Setup Wizard (live)** | `data/brand.json` overlay, edited in `/admin` → Make This Yours | Project name, tagline, member name, location, the six hero images, wizard progress. Live-editable, no deploy. Merged over gameConfig by `/api/game/config`. Token names are the token registry's, never this overlay's. |
 | **Game config (defaults)** | `shared/gameConfig.ts` | The default identity + images the overlay falls back to, plus the structural bits the wizard doesn't touch: personas/paths, the stage ladder + earning rules, gratitude budget rules, next-best-action rules, default season. |
 | Theme | `client/src/index.css` | Color tokens, fonts |
 | Content seeds | `server/seeds/content-seed.json`, `server/seeds/quests-seed.json`, `DEFAULT_*` constants in `server/index.ts` | Page copy, starter quests, FAQs, milestones, training modules, visit config, village dues, brand defaults. (All also editable at runtime in admin.) |

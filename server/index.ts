@@ -11,6 +11,7 @@ import crypto from "crypto";
 import multer from "multer";
 import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
+import { recognitionNameCheck } from "../shared/launchRequirements";
 import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { sceneStopsFor } from "../shared/questScenes";
 import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
@@ -13929,12 +13930,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           ? { state: "ok" as const, detail: `This village introduces itself as “${mergedConfig().project.name}”` }
           : { state: "missing" as const, detail: "The project name, tagline and location still come from the template" };
       },
-      "brand-token-names": () => {
-        const b = getBrand();
-        return b.currency?.name
-          ? { state: "ok" as const, detail: `Recognition is called “${b.currency.name}” here` }
-          : { state: "missing" as const, detail: "Recognition still carries the template's default name" };
-      },
+      // THE REGISTRY, never `brand.currency.name`: mergedConfig() prefers `tokens`.`name` over the brand overlay, so the old read here was red after a correct rename and green after the wizard's dead box. Rule, reasons and test: shared/launchRequirements.ts.
+      "brand-token-names": () => recognitionNameCheck(tokenDef(HEARTS)?.name, GAME_CONFIG.currency.name),
       "resend-key": () => {
         const s = allSecretStatuses().find((x) => x.key === "resend_api_key")!;
         if (!s.configured) return { state: "missing" as const, detail: "No Resend key, no email leaves this deployment" };
