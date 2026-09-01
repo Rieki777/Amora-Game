@@ -43,12 +43,25 @@ for (const f of files) {
   const r = spawnSync(process.execPath, [path.join(DIR, f)], { encoding: "utf8" });
   const ok = r.status === 0;
   if (!ok) failed += 1;
-  const first = `${r.stdout ?? ""}${r.stderr ?? ""}`
+  const all = `${r.stdout ?? ""}${r.stderr ?? ""}`
     .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .pop();
-  console.log(`${ok ? "ok  " : "FAIL"}  ${f}  ${first ?? ""}`);
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim());
+  console.log(`${ok ? "ok  " : "FAIL"}  ${f}  ${all[all.length - 1]?.trim() ?? ""}`);
+  // On failure, print what the child actually said.
+  //
+  // This kept ONLY that last line on BOTH paths. A passing guard ends with its
+  // own summary, so the output looked deliberate, and nobody noticed that the
+  // failing path was discarding every line naming WHICH assertion failed and
+  // why. CI then said `check-migration-compat: 2 failure(s) of 24` and stopped:
+  // a red build carrying no way to act on it. The failure that exposed this
+  // could not be reproduced locally either, because CI runs mysql:8 and this
+  // machine's test database is MariaDB, so the single place the reason existed
+  // was the log that was throwing it away.
+  if (!ok) {
+    for (const l of all) console.log(`        ${l}`);
+    if (r.status === null) console.log(`        (killed by signal ${r.signal})`);
+  }
 }
 
 console.log(`\n${files.length} guard self-test(s) run, ${failed} failed.`);
