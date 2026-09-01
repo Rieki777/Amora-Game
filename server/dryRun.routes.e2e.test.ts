@@ -240,6 +240,22 @@ beforeAll(async () => {
   );
 
   /*
+   * The seat rule this suite defers a change on is the GRATITUDE one, and a
+   * village is no longer seeded paying it: since 0125 the defaults are Village
+   * Voice and Village Credits and the gratitude seat rule ships disabled, which
+   * a village switches on if it wants it (`server/lib/economySeed.ts`).
+   *
+   * So the fixture switches it on, explicitly, and that is the honest shape:
+   * this suite is about DEFERRAL, a queued change landing at the next moon and
+   * not this one, and it needs a live rule to defer a change on. Deferring a
+   * change on a disabled rule would have measured nothing while still going
+   * green, which is the failure this whole suite exists to catch.
+   */
+  await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    "UPDATE mint_rules SET enabled = 1 WHERE id = 'rule-role.cycle-gratitude'",
+  );
+
+  /*
    * A queued change on the seat rule, stamped for a moon inside every run this
    * suite makes. Written the way `queueRuleChange` writes it, because the
    * route that queues one is the Mint panel and this suite is about the run.
@@ -291,10 +307,21 @@ describe.skipIf(!DB_CONFIGURED)("the test run before launch", () => {
     const landings = r.json.turns.filter((t: any) => t.findings.some((f: any) => f.area === "rules"));
     expect(landings, "the queued rule change lands in one moon").toHaveLength(1);
     expect(JSON.stringify(landings[0].findings)).toContain("20 becomes 45");
-    const amountIn = (i: number) =>
-      r.json.turns[i].findings.find((f: any) => f.area === "settlement" && f.outcome === "issued")?.sentence ?? "";
-    expect(amountIn(0)).toContain("20 Gratitude");
-    expect(amountIn(1)).toContain("45 Gratitude");
+    // Named by TOKEN, not by position. A village now pays a seat holder in
+    // more than one token, so a turn carries several settlement findings and
+    // `.find()` on the area alone returns whichever the rules query happened
+    // to order first. That is undefined, and a test that reads it is a test
+    // that passes or fails on row order.
+    const amountIn = (i: number, token: string) =>
+      r.json.turns[i].findings.find(
+        (f: any) => f.area === "settlement" && f.outcome === "issued" && String(f.sentence).includes(token),
+      )?.sentence ?? "";
+    expect(amountIn(0, "Gratitude")).toContain("20 Gratitude");
+    expect(amountIn(1, "Gratitude")).toContain("45 Gratitude");
+    // The defaults a village is actually born with settle alongside it, and
+    // the deferred change does not disturb them.
+    expect(amountIn(0, "Village Voice")).toContain("50 Village Voice");
+    expect(amountIn(0, "Village Credits")).toContain("25 Village Credits");
   });
 
   it("refuses a stranger", async () => {
