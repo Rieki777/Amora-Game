@@ -2393,3 +2393,87 @@ here: the Google e2e suite skips itself without `TEST_DATABASE_URL`, and a fresh
 `.env`, so an earlier run reported 26 tests "passing" that had not run. Copying `.env` in was
 what made the 26 real, and the suite then refused loudly for a missing `dist/` rather than
 skipping quietly. That refusal is good design and worth copying.
+
+## 23 - Founder rulings on tokens and economics, 2026-08-31 evening
+
+Recorded because the code will be built from them and because two of them corrected me. Governance
+rulings from the same conversation live in `docs/GOVERNANCE_EVOLUTION_PROMPT.md`, which is the
+handover to the session building that, and are not duplicated here.
+
+**The token model, in his words, and it corrected mine.** Gratitude is the lunar-cycle allowance
+every member gives away to recognise others, and it IS the platform default. A lane had changed
+`currency.name` to "Recognition" on a brief I wrote, and the brief was wrong: he had reported that
+the Setup Wizard confused him about WHICH token he was renaming, and I turned a symptom report into
+a rename task. Reverted. The quest-earned token paid from the gratitude pool defaults to Village
+Credits, and he has since said "Village currency and village credits can be interchangeable".
+
+**Slugs freeze once set; names stay editable forever.** He agreed with the split. A slug is
+history's identity: every ledger repeat-protection key carries it. Nothing has been issued yet,
+which is why the `amora` to `equity` rename is possible at all.
+
+**Decimals to 4 across the board.** NOT YET DONE and it needs care: Village Voice rides in
+thousandths on purpose so a rule of 0.1 does not round to zero. Moving it is a data migration on
+live balances, not a config change. Flagged to him as worth doing in the same release as the equity
+rename while ledgers are empty, or not at all.
+
+**Quests, roles and contributions should pay any combination of any tokens**, defaulting to Village
+Voice and Village Credits, with gratitude removed from the shipped default. Villages may add it
+back. **Village Credits minting must work**, which is his answer to a hazard the audit found: the
+rule engine reportedly cannot mint Village Credits, so a rule pointed at it would show as enabled
+and pay nobody. That was briefed to the payouts lane with an escape hatch; his ruling closes it.
+
+**Other rulings, recorded as specification and mostly not yet built:** unspent gratitude expires at
+cycle close; balances may go negative with a floor defaulting to zero; a module switched off makes
+its balances go dark with the rows surviving so it can resume; a village redeeming tokens for cash
+or equity should check local law.
+
+**The bridge, in three stages he named:** stage 1 a one-way bridge, today; stage 2 full Hypha
+integration where the two feel almost as one application; stage 3, several years out, the game mints
+directly to Base and stops using Hypha. One-way was agreed against my recommendation that a two-way
+burn invites double-spend across the seam.
+
+## 24 - What I got wrong tonight, continued
+
+Error 12 is above. These are after it, and the first three are one mistake wearing three hats.
+
+**Error 13, the exit code after a pipe. FOUR times.** `pnpm test | tail` reports the status of
+`tail`. It gave me a green on a genuinely red tree, and I nearly pushed on it. Every run since has
+captured the code with no pipe, and the fix is that simple, which is what makes doing it four times
+worse rather than better.
+
+**Error 14, a suite that skipped 1,151 tests and exited 0.** A fresh worktree has no `.env`, so
+`TEST_DATABASE_URL` is absent, so the 74 database-backed files skip. 171 passed, 74 skipped, exit 0.
+Those 74 are the ones that exercise the ledger. This is the same mechanism that earlier reported 26
+Google auth e2e tests passing when they had never run. Caught the second time only because the
+number looked wrong.
+
+**Error 15, a deploy watcher that matched a previous run.** I asked for the latest COMPLETED release
+run and got the old failure, then nearly reported it as the current result. Re-keyed on the commit
+SHA.
+
+Those three are one shape: **a probe that cannot distinguish the thing it is waiting for from
+something that merely looks like it.** I have been briefing lanes about that class all week.
+
+**Error 16, a hand-picked subset of guards.** After adding the `/claim` route I ran seven guards
+chosen by intuition and they passed. `check-map-routes` was not among them, and it was red on main
+because the Living Map's derived route list had 63 entries against the router's 64. **CI sat red and
+I did not know.** A subset chosen by intuition is not a gate.
+
+**Error 17, an exemption that swallowed more than it should.** Fixing the ratchet deadlock I wrote
+`/^\s*register[A-Z]\w*\s*\(/` to exempt route registrations, and it also exempted every
+`registerJob("stay-nightly", ...)` line: 60 lines where 30 were real. Caught only because the number
+was twice what 15 modules could explain. The names are now derived from the actual `register as`
+bindings. A guard that over-exempts hides the growth it exists to catch.
+
+**Error 18, regex surgery on import statements.** Removing dead imports I used inline substitution
+on multi-name lines and corrupted three of them. Restored from a copy taken first, then narrowed to
+the whole-line case that cannot be got wrong. 37 lines instead of 46, and correct.
+
+**Error 19, two workflow scripts that failed to parse on a stray backtick.** Twice, the same cause,
+inside a `String.raw` template. Cost a minute each and both were avoidable by reading what I wrote.
+
+**Error 20, a brief built on a symptom report.** Recorded in section 23 and repeated here because it
+is the most expensive kind: the founder described confusion, I heard a specification, and a lane
+spent hours changing a default that was already correct. His fourth message that day said "we need
+to be clear about the difference", which is a request for clarification. I should have answered it
+rather than acted on it.
