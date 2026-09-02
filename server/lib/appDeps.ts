@@ -42,7 +42,7 @@ import type { Pool } from "mysql2/promise";
 import type { Capability, CapabilityCtx } from "../../shared/capabilities";
 import type { CrewsRepo } from "./crews";
 import type { WeightModeSnapshot } from "./governanceWeights";
-import type { NotifyInput, NotifyResult } from "./notify";
+import type { NotifyDeps, NotifyInput, NotifyResult } from "./notify";
 import type { LapseContext } from "./orgChart";
 import type { ClaimsRepo, QuestsRepo } from "../repos/quests";
 import type { DbCollection, DbDocument, Row } from "../repos/store-db";
@@ -261,6 +261,25 @@ export interface AppDeps {
    * have handled.
    */
   notify(input: NotifyInput): Promise<NotifyResult>;
+
+  /**
+   * The notification spine's own dependencies, as one bundle.
+   *
+   * WIDER THAN `notify`, and taken only by a domain that calls a producer
+   * inside server/lib/ which takes the spine itself (messaging's
+   * `onMessageSent` is the case this was added for). Prefer `notify` for
+   * telling one member one thing; this carries the pool and the member
+   * lookup with it.
+   */
+  notifyDeps: NotifyDeps;
+
+  /**
+   * One alert to EVERY admin and founder, deduped per recipient.
+   *
+   * The suffix on the dedupe key is what keeps "each admin hears it once" and
+   * "the event fires once" separate concerns.
+   */
+  notifyAdmins(type: string, title: string, dedupeKey: string, link?: string): Promise<void>;
 
   /**
    * Tell whoever raised a report that a steward has read it and closed it.
