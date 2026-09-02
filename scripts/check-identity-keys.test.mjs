@@ -260,7 +260,13 @@ function configSource({ project = {}, dropFavicon = false } = {}) {
     tagline: "healing the land and ourselves, together",
     memberName: "Village member",
     location: "Somewhere the founder has not moved yet",
-    country: "ZZ",
+    // Was "ZZ", a stand-in for a key still on KNOWN_PENDING, for the same
+    // reason tagline above was once a stand-in. project.country graduated on
+    // 2026-09-02 (nothing reads it, so blanking it changed no village's
+    // screen), so a CLEAN fixture now has to carry the empty value or the
+    // guard is right to refuse it. A test that wants country to violate passes
+    // its own string.
+    country: "",
     fiatCurrency: "ZZZ",
     adminPath: "/admin",
     siteUrl: "",

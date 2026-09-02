@@ -167,11 +167,13 @@ export const KNOWN_PENDING = [
     since: "2026-08-31",
     why: "same, and it is the one pending value the brand guard can also see",
   },
-  {
-    key: "project.country",
-    since: "2026-08-31",
-    why: "an ISO code, so it carries no name, and it still says which country the live village is in",
-  },
+  // project.country was here from 2026-08-31 and GRADUATED on 2026-09-02.
+  // The reason it could go first, ahead of the other three, is that it was the
+  // only one of the four with no reader: `defaultDisplayCurrency` takes it as
+  // an argument and never looks at it, and nothing else in server/, shared/ or
+  // client/src/ touches it. Blanking a key nothing renders cannot repeat the
+  // outage, because there is no fallback anybody is standing on. The other
+  // three all render somewhere, so they still wait on the founder.
   {
     key: "project.fiatCurrency",
     since: "2026-08-31",
@@ -185,14 +187,15 @@ export const KNOWN_PENDING = [
 ];
 
 /**
- * 2026-08-31: five. THIS NUMBER ONLY EVER FALLS.
+ * 2026-08-31: five. 2026-09-02: three, when project.country graduated.
+ * THIS NUMBER ONLY EVER FALLS.
  *
  * It has to equal KNOWN_PENDING.length, so adding an entry means editing a
  * number a line under the sentence forbidding it. That is the point: the list
  * cannot grow by accident, only by a deliberate edit that shows up in a diff
  * next to this comment.
  */
-export const PENDING_CEILING = 4;
+export const PENDING_CEILING = 3;
 
 // ── Reading the config ──────────────────────────────────────────────────────
 
