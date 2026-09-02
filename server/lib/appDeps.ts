@@ -250,6 +250,17 @@ export interface AppDeps {
    */
   notify(input: NotifyInput): Promise<NotifyResult>;
 
+  /**
+   * Tell whoever raised a report that a steward has read it and closed it.
+   *
+   * Three domains raise reports (forum, messages, place photographs) and all
+   * three say the same sentence, deliberately: "resolved" and "dismissed"
+   * read alike so a reporter is never handed a verdict about another member.
+   * Passed rather than imported for the same reason `notify` is, and so the
+   * one wording stays in one place while those three domains move out.
+   */
+  notifyReportReviewed(reporterId: string, reportId: string, where: "forum" | "message" | "place"): Promise<NotifyResult>;
+
   // MAIL, AND THE ABUSE GUARDS AROUND IT
   // For a domain that answers somebody who has no account, so the notify
   // spine above has no member id to key on. A public form is also the surface
