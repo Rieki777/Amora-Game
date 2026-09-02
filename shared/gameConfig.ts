@@ -232,7 +232,12 @@ export const GAME_CONFIG: GameConfig = {
     // case, as he wrote it.
     tagline: "healing the land and ourselves, together",
     memberName: "Village member",
-    location: "Dominicalito, Costa Rica",
+    // Empty on purpose: there is no neutral location. A village sets its own
+    // in Admin, Make This Yours. Graduated out of the identity guard's pending
+    // list on 2026-09-03, AFTER confirming the live village stores its own
+    // ("Dominicalito, Costa Rica", read from app_config.brand), which is the
+    // ordering the 2026-08-31 outage exists to enforce.
+    location: "",
     country: "CR",
     fiatCurrency: "CRC",
     adminPath: "/admin",
@@ -250,7 +255,11 @@ export const GAME_CONFIG: GameConfig = {
     siteUrl: "",
     eventsUrl: "",
     contactEmail: "",
-    footerBlurb: "A regenerative village in Costa Rica where all beings belong and thrive.",
+    // Was "A regenerative village in Costa Rica where all beings belong and
+    // thrive." Every village that never edited its footer told visitors it was
+    // in Costa Rica. Same graduation and same precondition as `location`: the
+    // live village holds its own copy, so neutralising this cannot blank it.
+    footerBlurb: "A regenerative village where all beings belong and thrive.",
   },
 
   currency: {

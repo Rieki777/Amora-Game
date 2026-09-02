@@ -148,6 +148,14 @@ export const NEUTRAL = {
   // neutral platform sentence. Doing it the other way round is what caused the
   // outage this guard exists because of.
   "project.tagline": ["healing the land and ourselves, together"],
+  // Retired 2026-09-03, same ordering, same reason. The old default was
+  // "A regenerative village in Costa Rica where all beings belong and
+  // thrive.", so every village that never edited its footer told visitors it
+  // was in Costa Rica. Confirmed first that the live village stores its own
+  // footerBlurb in app_config.brand, so clearing the default here cannot
+  // empty a rendered footer. `project.location` went the same day and needed
+  // no entry: there is no neutral location, so its default is empty.
+  "project.footerBlurb": ["A regenerative village where all beings belong and thrive."],
   "currency.name": ["Gratitude"],
   "currency.nameLower": ["gratitude"],
   "currency.equity.symbol": ["EQUITY"],
@@ -163,11 +171,6 @@ export const NEUTRAL = {
  */
 export const KNOWN_PENDING = [
   {
-    key: "project.location",
-    since: "2026-08-31",
-    why: "same, and it is the one pending value the brand guard can also see",
-  },
-  {
     key: "project.country",
     since: "2026-08-31",
     why: "an ISO code, so it carries no name, and it still says which country the live village is in",
@@ -176,11 +179,6 @@ export const KNOWN_PENDING = [
     key: "project.fiatCurrency",
     since: "2026-08-31",
     why: "prices render against it, so clearing it before the founder sets one changes displayed money",
-  },
-  {
-    key: "project.footerBlurb",
-    since: "2026-08-31",
-    why: "the live footer renders it and holds no copy of it; the founder enters it in Admin first",
   },
 ];
 
@@ -192,7 +190,7 @@ export const KNOWN_PENDING = [
  * cannot grow by accident, only by a deliberate edit that shows up in a diff
  * next to this comment.
  */
-export const PENDING_CEILING = 4;
+export const PENDING_CEILING = 2;
 
 // ── Reading the config ──────────────────────────────────────────────────────
 

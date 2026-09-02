@@ -157,13 +157,14 @@ check("REFUSES a populated key outside the pending list", () => {
 });
 
 check("REFUSES a pending entry whose key has gone clean", () => {
-  // Was project.tagline until 2026-08-31. It graduated: the founder entered
-  // Amora's own tagline in the live Admin, the default became a neutral
-  // platform sentence, and the key moved from KNOWN_PENDING into NEUTRAL.
-  // Repointed at a key that is still pending rather than deleted, because the
-  // rule it covers is still live for the four that remain.
-  const r = auditIdentity(cleanValues({ "project.location": "" }));
-  assert.deepStrictEqual(r.stale, ["project.location"]);
+  // Was project.tagline until 2026-08-31, then project.location until
+  // 2026-09-03. Both graduated the same way: the founder entered the village's
+  // own value in the live Admin first, so the village holds its own copy, and
+  // only then did the platform default go neutral or empty. Repointed each
+  // time at a key that is still pending rather than deleted, because the rule
+  // it covers stays live while any remain. Two do.
+  const r = auditIdentity(cleanValues({ "project.fiatCurrency": "" }));
+  assert.deepStrictEqual(r.stale, ["project.fiatCurrency"]);
 });
 
 check("REFUSES emptying the tagline now that it carries a neutral default", () => {
@@ -259,14 +260,20 @@ function configSource({ project = {}, dropFavicon = false } = {}) {
     // refuse it. A test that wants tagline to violate passes its own string.
     tagline: "healing the land and ourselves, together",
     memberName: "Village member",
-    location: "Somewhere the founder has not moved yet",
+    // Was "Somewhere the founder has not moved yet". project.location graduated
+    // on 2026-09-03 and its platform default is EMPTY, because there is no
+    // neutral location, so a clean fixture is empty here for the same reason
+    // the tagline above carries a sentence.
+    location: "",
     country: "ZZ",
     fiatCurrency: "ZZZ",
     adminPath: "/admin",
     siteUrl: "",
     eventsUrl: "",
     contactEmail: "",
-    footerBlurb: "A sentence the founder has not moved yet",
+    // Was "A sentence the founder has not moved yet". Graduated the same day
+    // into NEUTRAL, so a clean fixture carries the neutral sentence.
+    footerBlurb: "A regenerative village where all beings belong and thrive.",
     ...project,
   };
   const images = ["hero", "investorHero", "residentHero", "stewardHero", "prosperityHero", "masterPlanHero", "logo", "heartLogo", "favicon"]
