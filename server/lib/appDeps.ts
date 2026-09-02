@@ -44,6 +44,7 @@ import type { CrewsRepo } from "./crews";
 import type { WeightModeSnapshot } from "./governanceWeights";
 import type { NotifyDeps, NotifyInput, NotifyResult } from "./notify";
 import type { LapseContext } from "./orgChart";
+import type { StayRow } from "./stays";
 import type { ClaimsRepo, QuestsRepo } from "../repos/quests";
 import type { DbCollection, DbDocument, Row } from "../repos/store-db";
 import type { MemberRecord, UsersRepo } from "../repos/users";
@@ -261,6 +262,20 @@ export interface AppDeps {
    * have handled.
    */
   notify(input: NotifyInput): Promise<NotifyResult>;
+
+  /**
+   * What the nightly stay posting says to humans, as the two callbacks
+   * `runNightlyPosting` takes.
+   *
+   * Passed rather than imported so the scheduler job and the admin catch-up
+   * button keep speaking with one voice: both build their hooks from this,
+   * and the dedupe keys carry the date, so one warning per stay per day
+   * survives however many times either fires.
+   */
+  stayPostingHooks(): {
+    onLowBalance: (stay: StayRow, nightsLeft: number) => Promise<void>;
+    onStopped: (stay: StayRow, balance: number) => Promise<void>;
+  };
 
   /**
    * The notification spine's own dependencies, as one bundle.
