@@ -154,6 +154,18 @@ export interface AppDeps {
   crewsRepo: CrewsRepo;
 
   /**
+   * The map's own words: what this village calls a circle, a seat, a quest.
+   * Its own document, because the scene importer replaces it wholesale.
+   */
+  mapVocabRepo: DbDocument<any>;
+
+  /**
+   * The Welcome Walk, per language. An EMPTY document means the map artifact
+   * runs its own seed, which is what an untouched fork should get.
+   */
+  mapWalkRepo: DbDocument<any>;
+
+  /**
    * The founding team's own working tracker: checkboxes, kanban, decisions,
    * copy, resource links. One document, read and written whole.
    *
