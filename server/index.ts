@@ -807,7 +807,23 @@ const BCRYPT_SALT_ROUNDS = 10;
  * prefix. A build with no git context falls back to "dev".
  */
 declare const __BUILD_SHA__: string | undefined;
-const BUILD_LABEL = "2026-07-28-wave1";
+declare const __BUILD_DATE__: string | undefined;
+
+/*
+ * BOTH HALVES ARE STAMPED NOW, and the reason is that the other arrangement
+ * failed exactly as this comment's first paragraph warned it could.
+ *
+ * The date used to be hand-written here as "2026-07-28-wave1". The SHA beside
+ * it was derived at build time and stayed true; the date did not. On
+ * 2026-09-02 a deployment built from a 2026-09-01 commit was still announcing
+ * `2026-07-28-wave1-6f6a55e`, and a reader checking what was live concluded
+ * the village had not deployed in five weeks. It had deployed that morning.
+ *
+ * A marker half a human maintains is a marker that is eventually half wrong,
+ * and the wrong half is the readable one. So the date comes from the commit
+ * too. Same "dev" fallback as the SHA when there is no git context.
+ */
+const BUILD_LABEL = typeof __BUILD_DATE__ === "string" && __BUILD_DATE__ ? __BUILD_DATE__ : "dev";
 const BUILD_MARKER = `${BUILD_LABEL}-${typeof __BUILD_SHA__ === "string" && __BUILD_SHA__ ? __BUILD_SHA__ : "dev"}`;
 
 /**
