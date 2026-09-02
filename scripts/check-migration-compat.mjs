@@ -152,6 +152,7 @@ const report = {
   newMigrations: [],
   edited: [],
   deleted: [],
+  unreadable: [],
   destructive: [],
   seeded: { tables: 0, rows: 0, refused: [] },
   applyError: null,
@@ -292,7 +293,7 @@ function migrationsAt(sha) {
 
 function bytesAt(sha, file) {
   const r = git(["show", `${sha}:drizzle/${file}`]);
-  return r.ok ? r.out : null;
+  return r.ok ? { ok: true, out: r.out } : { ok: false, err: r.err };
 }
 
 /* ==================================================================== *
@@ -688,9 +689,46 @@ for (const f of baseFiles) {
   // Line endings are normalised: git may hand back LF where the checkout has
   // CRLF, and that difference never reaches the database.
   const norm = (b) => b.toString("utf-8").replace(/\r\n/g, "\n");
-  if (was === null || norm(was) !== norm(now)) report.edited.push(f);
+  /*
+   * NOT BEING ABLE TO READ THE OLD VERSION IS NOT THE SAME FACT AS THE FILE
+   * HAVING CHANGED, and this line used to say it was: a null fell straight
+   * into `edited`, so any failure of `git show` printed "96 shipped migration
+   * file(s) were edited", the most alarming sentence this script can produce,
+   * about nothing at all.
+   *
+   * Measured on Windows in a worktree about 200 characters deep:
+   *   fatal: failed to stat wrongsha:drizzle/0002_roles_and_cycles.sql:
+   *   Filename too long
+   * because `git show` resolves the rev/path ambiguity by stat-ing its
+   * argument first, so cwd plus that argument has to fit in MAX_PATH. Only
+   * the 16 shortest filenames survived, which made one environment failing
+   * look like real, partial tampering.
+   *
+   * This script already argues the general form in scenario 9 of its own
+   * regression test: an unrun check and a clean check must never print the
+   * same thing. It holds for an unrun check and a failing one too.
+   */
+  if (!was.ok) {
+    report.unreadable.push({ file: f, why: was.err || "git show failed with no message" });
+    continue;
+  }
+  if (norm(was.out) !== norm(now)) report.edited.push(f);
 }
 report.newMigrations = headFiles.filter((f) => !baseSet.has(f));
+
+if (report.unreadable.length) {
+  failed = true;
+  console.error("");
+  console.error(
+    `::error::the immutability check DID NOT RUN for ${report.unreadable.length} file(s): their version at ` +
+      `${report.base} could not be read. This is not a finding about those files, it is this check failing.`,
+  );
+  for (const u of report.unreadable.slice(0, 5)) console.error(`    ${u.file}: ${u.why}`);
+  if (report.unreadable.length > 5) console.error(`    ... and ${report.unreadable.length - 5} more, same shape`);
+  console.error(`  If that says "Filename too long", the checkout is too deep for Windows: git show resolves`);
+  console.error(`  <rev>:<path> by stat-ing it first, so cwd plus the argument must fit in MAX_PATH. Move the`);
+  console.error(`  working copy nearer the drive root and run it again.`);
+}
 
 if (report.edited.length || report.deleted.length) {
   failed = true;
@@ -769,8 +807,8 @@ if (report.newMigrations.length === 0) {
     // The base ref's migrations, written out byte for byte.
     for (const f of baseFiles) {
       const b = bytesAt(base.sha, f);
-      if (b === null) die(`could not read drizzle/${f} at ${base.sha}`);
-      fs.writeFileSync(path.join(tmp, f), b);
+      if (!b.ok) die(`could not read drizzle/${f} at ${base.sha}: ${b.err}`);
+      fs.writeFileSync(path.join(tmp, f), b.out);
     }
 
     admin = await mysql.createConnection(connBase);

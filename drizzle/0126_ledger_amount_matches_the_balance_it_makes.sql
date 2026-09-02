@@ -1,0 +1,60 @@
+-- 0126: a single ledger posting can be as large as the balance it produces.
+--
+-- `token_balances.balance` has been `bigint` since 0009. `token_ledger.amount`
+-- has been `int` since 0005. A balance is the SUM of postings, so the store of
+-- the total has been four billion times wider than the store of any one part
+-- of it. Nothing has hit that yet: on the only live village both tables are
+-- empty (measured 2026-09-02 against production: `token_ledger` 0 entries,
+-- `token_balances` 0 rows), and at the shipped `decimals` of 0 the int ceiling
+-- is 2,147,483,647 WHOLE tokens, which no village is going to reach.
+--
+-- It matters because of what it blocks. A token's `decimals` is a registry
+-- column, and the ledger stores MINOR units, so at 4 decimals that same int
+-- ceiling becomes 214,748.3647 of the token a member actually holds. Any
+-- village wanting fractional tokens would find the limit not in a policy but
+-- in a column type chosen before the registry had a decimals column at all.
+--
+-- Rye, 2026-09-01: "Decimals can be 4 across the board." This file does NOT
+-- do that (see below); it removes the reason that ruling would have been
+-- expensive to carry out, while it is still free to remove.
+--
+-- ── WHAT THIS FILE DOES NOT DO, SAID FIRST ────────────────────────────────
+--
+-- IT DOES NOT CHANGE ANY TOKEN'S `decimals`, and it must not, because that is
+-- not a migration. It is a sweep of the code that posts to this table.
+--
+-- `postTransfer` in `server/lib/ledger.ts` takes MINOR units, correctly: it is
+-- the ledger primitive. Of its 44 callers, 5 convert with `toLedgerUnits` and
+-- the rest pass a human number straight through. Those 39 are not wrong today
+-- and never have been, because six of the seven tokens sit at `decimals = 0`,
+-- where a human number and a minor unit are the same number. `give()` at
+-- `server/lib/economy.ts:916` is the plainest case: it posts `amount` as
+-- `tokenType: HEARTS, amount`, and 20 Gratitude is 20 units only while
+-- Gratitude has no decimals. Set it to 4 without touching that line and every
+-- give posts 0.0020.
+--
+-- And the fix is not "convert inside `postTransfer`" either, which is the
+-- first thing anyone would reach for. `sweepBalances` in `server/lib/exit.ts`
+-- reads `balancesFor(...)`, which returns MINOR UNITS, and posts them
+-- unchanged; converting underneath it would multiply a departing member's
+-- settled balance by ten thousand. The distinction is per-caller and has to be
+-- decided per-caller.
+--
+-- So the decimals ruling needs its own pass, with the units question answered
+-- at each of those sites and a test per path. This file makes that pass a code
+-- change with no schema risk left in it.
+--
+-- ── WHY THIS IS SAFE TO ROLL BACK OVER ────────────────────────────────────
+--
+-- Widening only. Every value an `int` column could hold, a `bigint` holds
+-- unchanged, so the release before this one reads every existing row exactly
+-- as it did. That is the expand/never-contract rule the release process
+-- depends on, and `scripts/check-migration-compat.mjs` enforces it: the
+-- previous image has to keep working over a database this file has already
+-- touched, because putting the previous image back is the only lever anyone
+-- has when a deploy goes wrong.
+--
+-- The column keeps NOT NULL. It has no DEFAULT today and gains none, so an
+-- INSERT that omits it still fails exactly as loudly as before.
+
+ALTER TABLE `token_ledger` MODIFY COLUMN `amount` bigint NOT NULL;
