@@ -1976,6 +1976,64 @@ itself is the hub session's work (the prompt at the end).
   available from day one and the 144 line is shown as guidance; and that "lands at the next cycle"
   now describes the auto-execute path only, with steward approval executing at once.
 
+### 19C. Rulings of 2026-09-03, early: the steward is a veto window, and other beings from day one
+
+> "Yes whenever a decision is approved it passes and executes (if it's sending tokens) if it's
+> changing the Game then it starts at the next new moon or automatically if a steward doesn't
+> block it, a steward is given 3 days minimum (so if the vote only gets enough quorum and total
+> votes by the very last day of the lunar cycle then a steward will get 3 days to veto, if it's
+> past longer than 3 days out of the end of the cycle then a steward has until the cycle ends to
+> veto otherwise it goes into effect."
+
+> "2. yes voice for other beings at day 1"
+
+**What the first ruling changes, and it replaces the approval gate of sections 19 and 19B.**
+
+Two kinds of decision, two clocks:
+
+1. **A decision that sends tokens** (a payout, a distribution, a founding allocation) executes the
+   moment it passes. No steward step.
+2. **A decision that changes the Game** (a setting, a threshold, a role, a module, the vote mode,
+   a structural change of any kind) takes effect **at the next new moon, automatically**, unless a
+   steward **blocks** it inside the veto window.
+
+**The veto window.** A steward always has at least three days. The window closes at whichever is
+LATER: the end of the current lunar cycle, or three days after the vote carried. So:
+
+- a vote that carries with more than three days left in the cycle: the steward may veto until the
+  new moon; at the new moon it takes effect;
+- a vote that carries with three days or fewer left, including on the last day: the steward may
+  veto until three days after it carried; it takes effect when that window closes, which is a few
+  days into the new cycle.
+
+**Consequences for the build.**
+
+- The steward does not APPROVE. There is no "waiting for a steward" hold, no approve route as a
+  precondition of effect, and no queue when the seat is empty: a passed Game change lands at the
+  window's close whether or not anybody holds the seat. A steward may still record an explicit
+  "no objection" early; it is a courtesy that closes nothing sooner than the new moon.
+- A veto is a first-class act with a name, a reason, and a record (section 3). It returns the
+  proposal to its proposer with the reason and keeps its backers.
+- `lands_at` is a TIMESTAMP on the passed row, `max(nextNewMoonAfter(passedAt), passedAt + 3 days)`,
+  shown on the page from the moment the vote carries; the veto window closes at the same instant.
+  `applyDueGovernance` applies rows whose `lands_at` has passed and that carry no veto, called from
+  the hourly settlement job and from the human cycle close.
+- The three days is a setting with a floor of three (a village may give its stewards longer, never
+  shorter).
+- The auto-execute gradient of section 3 is now the natural end state with no code of its own:
+  a village that seats no steward simply has nobody who can veto. The per-subject map keeps one
+  meaning: which subject kinds a steward MAY veto (default: every Game change), and which execute at
+  pass (default: token sends).
+- Section 19B's Q7 reading ("approval executes at once") is withdrawn. Section 20.2's dispatcher
+  row and section 20.7 are read through this section.
+
+**Open for him, flagged:** whether a token-sending decision is ALSO inside the veto window (his
+sentence puts only Game changes there; the coordinator builds token sends as immediate at pass and
+asks).
+
+**What the second ruling settles.** Non-human governance roles, with a human or AI representative,
+are declarable from the first day of a village. The 144-player line is guidance on the screen.
+
 ### The mandate that follows
 
 > "your role now is to respond to my ideas for improvement with a final execution plan. Then you're
