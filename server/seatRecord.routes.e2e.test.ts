@@ -414,13 +414,30 @@ describe.skipIf(!DB_CONFIGURED)("what a decision changed, read cold by somebody 
 
   it("CARRIES, and the ledger keeps what it changed after the session that closed it is gone", async () => {
     expect((await call("POST", `/api/governance/ballots/${firstBallot}/vote`, { body: { choice: "yes" } })).status).toBe(200);
+    /*
+     * THE CLOCK CLOSES A BALLOT, AND THE WINDOW LANDS IT. Two rules arrived
+     * on 2026-09-03 and this case meets both. A ballot passes when its window
+     * ends and never before, so the fixture runs the voting window out rather
+     * than closing early. A change to the Game is then stamped with a landing
+     * instant instead of being written at the close, so the fixture runs that
+     * window out too and calls the landing path, which is what the
+     * five-minute job does on its own in a running village.
+     */
+    await pool.query("UPDATE ballots SET closes_at = DATE_SUB(NOW(), INTERVAL 1 HOUR) WHERE id = ?", [firstBallot]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     const closed = await call("POST", `/api/governance/ballots/${firstBallot}/close`, {
       body: { outcomeNote: "The village gave itself a fortnight to answer." },
     });
     expect(closed.status, JSON.stringify(closed.json)).toBe(200);
     expect(closed.json?.outcome).toBe("passed");
-    // The close's own answer, which is what the card used to depend on.
-    expect(closed.json?.applied).toContain("governance.vote_days");
+    // The close stamps and writes nothing. What it says is when it lands.
+    expect(closed.json?.applied).toEqual([]);
+    expect(String(closed.json?.held)).toContain("lands at");
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "UPDATE ballots SET lands_at = DATE_SUB(NOW(), INTERVAL 1 HOUR), veto_closes_at = DATE_SUB(NOW(), INTERVAL 1 HOUR) " +
+        "WHERE id = ? AND lands_at IS NOT NULL",
+      [firstBallot],
+    );
+    expect((await call("POST", "/api/admin/cycles/close", { body: {} })).status).toBe(200);
 
     // THE COLD READ. A different token, a fresh request, nothing carried over
     // from the session that closed it. This is where the card used to have

@@ -622,7 +622,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Governance",
     label: "How long a ballot stays open",
     description:
-      "Days between a ballot opening and its votes locking. Votes can be changed freely until then. After the period ends the ballot waits for a human to close it and record the outcome; nothing executes on a timer.",
+      "Days between a ballot opening and its votes locking. Votes can be changed freely until then. The clock closes the ballot when the window ends and the village's own engine reads the result, so nobody chooses the moment. A change to the Game then waits again, for the window a steward can stop it in.",
     type: "integer",
     default: "7",
     min: 1,
