@@ -156,8 +156,8 @@ two from the admin panel and almost never touches the first.
   a lane a day of looking for a file no code reads. The path is written here
   without backticks on purpose, so that scripts/check-doc-links.mjs never has
   to resolve a path this sentence exists to say is gone. The live read path is
-  `dbDocument(getPool(), "brand", DEFAULT_BRAND)` in `server/index.ts`
-  (around line 1360), defined in `server/repos/store-db.ts`.
+  `dbDocument(getPool(), "brand", DEFAULT_BRAND)` at `server/index.ts:1361`,
+  defined in `server/repos/store-db.ts`.
 
   **That document is cached in the process, and only boot fills the cache.**
   `dbDocument.get()` is synchronous and answers from memory; `put()` writes

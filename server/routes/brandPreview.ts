@@ -4,11 +4,11 @@
  * ── THE OBSTACLE THIS MODULE EXISTS FOR ──────────────────────────────────
  *
  * The brand overlay is the `brand` row of `app_config`, held in the running
- * process by `dbDocument(getPool(), "brand", DEFAULT_BRAND)` in
- * server/index.ts. `dbDocument.get()` is SYNCHRONOUS and answers from a
+ * process by `dbDocument(getPool(), "brand", DEFAULT_BRAND)` at
+ * server/index.ts:1361. `dbDocument.get()` is SYNCHRONOUS and answers from a
  * process-local `cache` that `load()` fills. Every `load()` call site for a
  * document is inside `startServer`'s boot block (server/index.ts, the
- * `Promise.all` around line 1485). Nothing reloads a document after boot.
+ * `Promise.all` at lines 1487 to 1511). Nothing reloads a document after boot.
  *
  * `put()` is write-through: it writes the row and then sets `cache = doc`, so
  * a save made through `PUT /api/admin/brand` is visible to the process that

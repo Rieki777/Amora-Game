@@ -32,8 +32,8 @@ fields keep the platform's values as suggestions until a project changes
 them.
 
 The overlay is a DATABASE ROW and there is no file. It is read through
-`dbDocument(getPool(), "brand", DEFAULT_BRAND)` in `server/index.ts` (around
-line 1360), defined in `server/repos/store-db.ts`. That read is cached in the
+`dbDocument(getPool(), "brand", DEFAULT_BRAND)` at `server/index.ts:1361`,
+defined in `server/repos/store-db.ts`. That read is cached in the
 process and only boot fills the cache, so a change written to the row by SQL
 or by a script does not reach a running server. `GET /api/admin/brand/preview`
 reads the row directly and says when the two disagree.
