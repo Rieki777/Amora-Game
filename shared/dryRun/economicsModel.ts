@@ -216,6 +216,27 @@ export function ceilingOutcome(rule: CeilingRuleLike, posted: number, tokenName?
 }
 
 /**
+ * THE CEILING AS THE VILLAGE WROTE IT, with the rounded number as a fallback.
+ *
+ * `ceilingRaw` is the `decimal(18,4)` column's own text and the only unrounded
+ * copy of the cap in the simulation. A snapshot reader that left it empty gets
+ * the old reading off `ceiling`, which is the safest answer available with no
+ * text to read: a cap that rounded to nothing is then treated as a cap of
+ * nothing, which stops a payout rather than letting one through.
+ */
+export function writtenCeiling(rule: MintRuleSpec, decimals: number): WrittenAmount {
+  const fromText = writtenAmount(rule.ceilingRaw, decimals);
+  if (fromText) return fromText;
+  const minor = rule.ceiling ?? BigInt(0);
+  return {
+    raw: humanUnits(minor, decimals),
+    exact: true,
+    rounded: minor,
+    positive: minor > BigInt(0),
+  };
+}
+
+/**
  * The same decision in MINOR UNITS, which is what a `MintRuleSpec` carries.
  *
  * Clamping in minor units and clamping in human units answer the same number,
@@ -224,16 +245,25 @@ export function ceilingOutcome(rule: CeilingRuleLike, posted: number, tokenName?
  * So the model may clamp on the bigints it already holds and still be the
  * engine's answer.
  *
- * WHAT IT CANNOT SEE, said out loud: `MintRuleSpec` carries `amountRaw` and no
- * `ceilingRaw`, so a ceiling written BELOW the token's own resolution (0.0004
- * on a whole-unit token) reaches this model as zero minor units and is read as
- * the engine's refusal case, where the engine would read 0.0004 and clamp. The
- * column is `NOT NULL DEFAULT 0` and every seeded ceiling is a whole number, so
- * that shape needs a village to type it. It is reported to the governance
- * session as the one field this mirror is missing.
+ * THE REFUSAL IS DECIDED ON `ceilingRaw`, NOT ON THE ROUNDED NUMBER, and that
+ * is the whole reason the contract carries the text. Two different villages
+ * arrive here holding `ceiling: BigInt(0)`:
  *
- * `ceiling: null` on the spec means NO CAP, which is a shape the engine cannot
- * produce (the column is NOT NULL), so it clamps nothing and refuses nothing.
+ *   ceilingRaw "0.0000"  a cap of nothing. `ceilingOutcome` refuses, out loud,
+ *                        and the rule pays nobody on purpose.
+ *   ceilingRaw "0.0004"  a cap a village typed below the token's own
+ *                        resolution. The ENGINE reads 0.0004, finds it above
+ *                        zero, and CLAMPS: `min(amount, 0.0004)` is 0.0004,
+ *                        which `toLedgerUnits` then rounds to nothing and the
+ *                        engine reports as smaller than the token can hold.
+ *
+ * Reading the second as the first would turn a fat-fingered cap into a total
+ * stop and report a village nobody voted for. So the refusal asks the text.
+ *
+ * `ceiling: null` with an empty `ceilingRaw` means NO CAP, a shape the engine
+ * cannot produce (the column is NOT NULL), so it clamps nothing and refuses
+ * nothing. A snapshot that filled no text at all falls back to the rounded
+ * number, which is the old reading and the safest one available without it.
  */
 export function ceilingOutcomeMinor(
   rule: MintRuleSpec,
@@ -242,15 +272,18 @@ export function ceilingOutcomeMinor(
 ): { paid: bigint; refusal: string | null } {
   const asked = rule.amount !== null ? rule.amount : postedMinor;
   if (rule.ceiling === null) return { paid: asked > BigInt(0) ? asked : BigInt(0), refusal: null };
-  if (rule.ceiling <= BigInt(0)) {
-    // The engine quotes the column's own human figure. `humanUnits` gives the
-    // scaled text and `Number` drops the trailing zeros a whole number would
-    // otherwise carry, so "0.000" reads as the "0" the engine prints.
-    const written = String(Number(humanUnits(rule.ceiling, decimals)));
+  const written = writtenCeiling(rule, decimals);
+  // Above zero as the village WROTE it means the engine clamps, whatever the
+  // rounded number says. Below or at zero as written means the engine refuses.
+  if (!written.positive) {
+    // The engine quotes the column's own human figure, and `Number` drops the
+    // trailing zeros a whole number carries, so "0.0000" reads as the "0" the
+    // engine prints.
+    const quoted = String(Number(written.raw));
     return {
       paid: BigInt(0),
       refusal:
-        `this rule's ceiling is ${written}, so it can pay no ${rule.tokenSlug} at all. ` +
+        `this rule's ceiling is ${quoted}, so it can pay no ${rule.tokenSlug} at all. ` +
         "Raise the ceiling or pause the rule",
     };
   }
@@ -891,13 +924,24 @@ function stepCycle(
       // `mintForConfirmedClaim` binds it (server/lib/economy.ts:1365). A
       // ceiling of zero refuses into the same `unpayable` list, and every
       // other ceiling clamps.
-      const capped = ceilingOutcomeMinor(rule, rule.amount, decimalsOf(tokens, rule.tokenSlug));
+      const ruleDecimals = decimalsOf(tokens, rule.tokenSlug);
+      const capped = ceilingOutcomeMinor(rule, rule.amount, ruleDecimals);
       if (capped.refusal) {
         noteUnpayable(unpayable, rule, capped.refusal);
         continue;
       }
       if (capped.paid < rule.amount) activity.clampedAway += rule.amount - capped.paid;
-      if (capped.paid <= BigInt(0)) continue;
+      if (capped.paid <= BigInt(0)) {
+        // The cap was written above zero and still clamps to nothing, which is
+        // a cap below the token's own resolution. The engine reports exactly
+        // this, in these words (server/lib/economy.ts:1377).
+        noteUnpayable(
+          unpayable,
+          rule,
+          `${writtenCeiling(rule, ruleDecimals).raw} is smaller than the smallest amount this token can hold`,
+        );
+        continue;
+      }
       const faucet = tokenBySlug(tokens, rule.tokenSlug)!.faucet!;
       if (post(book, faucet, member.accountId, rule.tokenSlug, capped.paid, "quest_consent")) {
         activity.minted += capped.paid;
@@ -1410,19 +1454,43 @@ function flagsOf(state: SimState, cycle: number, fallback: EconomicsAssumptions)
     if (!rule.enabled) continue;
     if (ruleCannotPay(tokens, rule.tokenSlug)) continue;
     const decimals = decimalsOf(tokens, rule.tokenSlug);
-    // A ceiling of zero pays nobody, and the engine says so in a sentence that
-    // lands in the same `unpayable` list `ruleCannotPay` feeds. Quoted here so
-    // the founder reads the same words in the preview and in the panel.
-    if (rule.ceiling !== null && rule.ceiling <= BigInt(0)) {
-      const refusal = ceilingOutcomeMinor(rule, rule.amount ?? BigInt(0), decimals).refusal;
-      out.push({
-        code: "econ_rule_ceiling_zero",
-        severity: "warning",
-        cycle,
-        sentence: `The rule on ${rule.trigger} is enabled and pays nobody: ${refusal}.`,
-        actionable: `Raise the ceiling on this rule above zero, or turn the rule off. A ceiling of zero means zero, and the engine refuses every occurrence of it.`,
-      });
-      continue;
+    /*
+     * TWO DIFFERENT VILLAGES ARRIVE HERE HOLDING `ceiling: BigInt(0)`, and
+     * telling them apart is what `ceilingRaw` is for.
+     *
+     * A cap WRITTEN as zero is a decision, and the engine refuses every
+     * occurrence of it in words this flag quotes verbatim, so the founder reads
+     * the same sentence in the preview and in the Mint panel.
+     *
+     * A cap written BELOW THE TOKEN'S RESOLUTION is a typo. The engine reads
+     * 0.0004, finds it above zero, clamps to it, and then reports the clamped
+     * figure as smaller than the token can hold. Calling that a cap of nothing
+     * would turn a fat-fingered number into a policy the village never voted
+     * for, so it gets its own sentence and its own code.
+     */
+    if (rule.ceiling !== null) {
+      const cap = writtenCeiling(rule, decimals);
+      if (!cap.positive) {
+        const refusal = ceilingOutcomeMinor(rule, rule.amount ?? BigInt(0), decimals).refusal;
+        out.push({
+          code: "econ_rule_ceiling_zero",
+          severity: "warning",
+          cycle,
+          sentence: `The rule on ${rule.trigger} is enabled and pays nobody: ${refusal}.`,
+          actionable: "Raise the ceiling on this rule above zero, or turn the rule off. A ceiling of zero means zero, and the engine refuses every occurrence of it.",
+        });
+        continue;
+      }
+      if (cap.rounded <= BigInt(0)) {
+        out.push({
+          code: "econ_ceiling_rounds_away",
+          severity: "warning",
+          cycle,
+          sentence: `The rule on ${rule.trigger} caps one occurrence at ${cap.raw} ${rule.tokenSlug}, and ${rule.tokenSlug} holds ${decimals} decimal place(s), so the cap arrives as nothing and the rule pays nobody.`,
+          actionable: `Write a ceiling of at least ${humanUnits(BigInt(1), decimals)}, which is the smallest amount ${rule.tokenSlug} can hold. The column keeps four decimal places and the token keeps ${decimals}, so a cap below that is a number the ledger cannot carry.`,
+        });
+        continue;
+      }
     }
     // The row says it pays one number and caps at a smaller one, so every
     // occurrence pays the cap. That is the shape a ballot leaves behind when it
