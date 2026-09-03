@@ -59,6 +59,7 @@ import { numberVar } from "./variables";
 import {
   memberAccount,
   postTransfer,
+  postTransferOn,
   registerToken,
   tokenDef,
   CYCLE_POOL_FAUCET,
@@ -938,9 +939,58 @@ export type GratitudeRowGuard = (
   alreadyToThisPerson: number,
 ) => Promise<{ ok: true } | { ok: false; error: string; status?: number }>;
 
+/**
+ * THE DELIVERY, run INSIDE the note's own transaction.
+ *
+ * A gratitude note is the CHARGE — the allowance is a SUM over
+ * `gratitude_log`, so writing the row spends the budget — and the ledger
+ * posting is the DELIVERY. Handing this in makes the two one commit: both, or
+ * neither, and no window between them for anything to fail in. Return a
+ * refusal and the note is rolled back with it, so a member is never charged
+ * for a gift that did not arrive.
+ *
+ * Optional, because the acknowledgement door (`sendGratitude`) still posts
+ * after this returns. Its window is documented at its own call site.
+ */
+export type GratitudeRowPost = (
+  conn: PoolConnection,
+  noteId: string,
+) => Promise<{ ok: true; duplicate?: boolean; balance?: number } | { ok: false; error: string; status?: number }>;
+
 export type GratitudeRowResult =
-  | { ok: true; noteId: string; allowance: Allowance }
+  | {
+      ok: true;
+      noteId: string;
+      allowance: Allowance;
+      /** What `post` reported, when one was supplied. */
+      posted?: { duplicate: boolean; balance: number };
+    }
   | { ok: false; error: string; duplicate?: boolean; allowance?: Allowance; status?: number };
+
+/**
+ * What a member is told when the driver speaks instead of the engine.
+ *
+ * Before this, `writeGratitudeRow`'s catch returned `String(err.message)`
+ * straight to the route, and the route returned it to the browser. Two members
+ * pressing "thank" at the same moment were handed "Deadlock found when trying
+ * to get lock; try restarting transaction" as a 400 — the storage engine's
+ * words, in a village, about a gift. Anything the engine did not decide gets
+ * one written sentence, and the real error goes to the log where it is useful.
+ */
+function unwritableGratitude(err: unknown): string {
+  const code = String((err as any)?.code ?? "");
+  console.error("[gratitude] the write failed:", err);
+  if (code === "ER_LOCK_DEADLOCK" || code === "ER_LOCK_WAIT_TIMEOUT") {
+    return "The village was busy for a moment, so your thanks did not go through. Nothing was charged. Send it again.";
+  }
+  return "Your thanks could not be recorded, and nothing was charged. Try again in a moment.";
+}
+
+/** Deadlocks and lock-wait timeouts: the two an identical retry can heal. */
+function isLockContention(err: unknown): boolean {
+  const code = String((err as any)?.code ?? "");
+  return code === "ER_LOCK_DEADLOCK" || code === "ER_LOCK_WAIT_TIMEOUT";
+}
 
 /**
  * THE ONE LOCK. Both gratitude doors write through here now: `give()` below
@@ -971,10 +1021,65 @@ export async function writeGratitudeRow(
   input: GratitudeRowInput,
   stageMultiplier: number,
   guard: GratitudeRowGuard,
+  post?: GratitudeRowPost,
+): Promise<GratitudeRowResult> {
+  /*
+   * THE RETRY. A rolled-back transaction wrote nothing at all — no note, no
+   * ledger row, no nonce — so running it again is the same act arriving a
+   * moment later, not a second gift. Three attempts, because a case that
+   * needs a fourth is a real problem and should be seen rather than absorbed
+   * as latency. Same shape and same reason as `postTransferPair`'s.
+   */
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await writeGratitudeRowOnce(pool, input, stageMultiplier, guard, post);
+    } catch (err) {
+      if (!isLockContention(err) || attempt >= 3) {
+        return { ok: false, error: unwritableGratitude(err) };
+      }
+      await new Promise((r) => setTimeout(r, 25 * attempt + Math.floor(Math.random() * 25)));
+    }
+  }
+}
+
+async function writeGratitudeRowOnce(
+  pool: Pool,
+  input: GratitudeRowInput,
+  stageMultiplier: number,
+  guard: GratitudeRowGuard,
+  post?: GratitudeRowPost,
 ): Promise<GratitudeRowResult> {
   const conn = await pool.getConnection();
   try {
-    await conn.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+    /*
+     * REPEATABLE READ, AND THE `FOR UPDATE` BELOW IS WHAT MAKES IT SAFE.
+     *
+     * This ran at SERIALIZABLE, which is not a stronger version of the lock
+     * on the next line — it is a different mechanism with a different reach.
+     * SERIALIZABLE turns every plain SELECT into a locking read, so the two
+     * SUMs below took gap locks across a RANGE of `gratitude_log`, and the
+     * range every giver in the village reads overlaps. Two members thanking
+     * somebody at the same moment each held a range the other needed to
+     * insert into, and InnoDB killed one of them. Measured: at 12 concurrent
+     * givers, 10 failed, and the member was shown the driver's own words.
+     *
+     * The lock that actually matters is the row lock on the GIVER, taken
+     * immediately below. Every write that can move this giver's spending goes
+     * through this function and must hold that row first, so a giver is still
+     * perfectly serialised against themselves and the allowance is still
+     * exactly enforced. What SERIALIZABLE added on top of that was not
+     * safety, it was every OTHER member's gift.
+     *
+     * The read view is established by the first consistent read AFTER the
+     * `FOR UPDATE` returns, so the SUMs see every gift committed before this
+     * transaction got the giver's row — which is every gift that could
+     * possibly count against it.
+     *
+     * `server/economy.test.ts` holds both halves: 12 different members all
+     * land, and one member firing 40 gives against a 100 allowance spends
+     * exactly 100.
+     */
+    await conn.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
     await conn.beginTransaction();
 
     // The lock. Everything after this reads a world nobody else can move.
@@ -1042,15 +1147,44 @@ export async function writeGratitudeRow(
       throw err;
     }
 
+    /*
+     * THE DELIVERY, BEFORE THE COMMIT.
+     *
+     * The row above is the charge. If the credit that pays for it is posted
+     * after this transaction commits — which is what `give()` used to do — a
+     * failure there leaves the allowance spent and nothing delivered, and no
+     * surface in the product can see it, because nothing was written out of
+     * balance. Nothing was written at all.
+     *
+     * Running it here makes charge and delivery one commit. A refusal rolls
+     * back the note with it: the member keeps their budget and is told why,
+     * which is a worse minute and a better outcome than a gift that silently
+     * never lands.
+     */
+    let posted: { duplicate: boolean; balance: number } | undefined;
+    if (post) {
+      const delivered = await post(conn, noteId);
+      if (!delivered.ok) {
+        await conn.rollback();
+        return { ok: false, error: delivered.error, allowance, status: delivered.status };
+      }
+      posted = { duplicate: !!delivered.duplicate, balance: Number(delivered.balance ?? 0) };
+    }
+
     await conn.commit();
-    return { ok: true, noteId, allowance };
+    return { ok: true, noteId, allowance, posted };
   } catch (err: any) {
     try {
       await conn.rollback();
     } catch {
       /* the transaction is already gone */
     }
-    return { ok: false, error: String(err?.message ?? err) };
+    // Lock contention is the retry wrapper's to decide about, so it is
+    // rethrown rather than turned into a refusal here. Everything else has
+    // already failed for good, and the member gets a sentence rather than
+    // whatever the driver happened to say.
+    if (isLockContention(err)) throw err;
+    return { ok: false, error: unwritableGratitude(err) };
   } finally {
     conn.release();
   }
@@ -1145,6 +1279,40 @@ export async function give(
     // amount/self-gratitude/allowance/share checks it has always run, just
     // run under the shared lock instead of this function's own copy of it.
     async (_conn, allowance, alreadyToThisPerson) => checkGive(input, allowance, alreadyToThisPerson),
+    /*
+     * INSIDE THE LOCK, keyed on the note, on the note's own connection. This
+     * used to run after the commit above returned, in a transaction of its
+     * own, and the header of this function used to argue that the order was
+     * the conservative one: a crash between the two spends an allowance and
+     * mints nothing, which is visible and keyed.
+     *
+     * It was not visible. Nothing keyed it, nothing swept it, and no surface
+     * could see it, because a charge with no delivery leaves the books
+     * perfectly balanced — there is no row to be out of balance with. It was
+     * also not a crash window. Under ordinary contention the post deadlocked
+     * and THREW: 18 of 40 gives from one member, 36 units of a 100-unit
+     * allowance, gone in one measured run, with one of them a 500 rather than
+     * a refusal.
+     *
+     * Both, or neither. `postTransferOn` does everything `postTransfer` does
+     * except own the transaction, so the note and its credit commit together
+     * and a ledger refusal takes the note down with it. The member keeps
+     * their budget and hears the ledger's own reason.
+     */
+    async (conn, noteId) => {
+      const res = await postTransferOn(conn, {
+        from: RECOGNITION_FAUCET,
+        to: memberAccount(input.toUserId),
+        tokenType: HEARTS,
+        amount,
+        source: "gratitude_received",
+        sourceRef: noteId,
+        description: input.note,
+        idempotencyKey: keys.gratitudeGiven(villageId(), noteId),
+      });
+      if (!res.ok) return { ok: false, error: res.error ?? "the ledger refused the credit" };
+      return { ok: true, duplicate: res.duplicate, balance: res.toBalance };
+    },
   );
 
   if (!result.ok) {
@@ -1152,23 +1320,13 @@ export async function give(
     if (result.duplicate) return { ok: false, error: "That thanks is already sent" };
     return { ok: false, error: result.error };
   }
-  const noteId = result.noteId;
 
-  // Outside the lock: keyed on the note, so a retry credits once.
-  const res = await postTransfer(pool, {
-    from: RECOGNITION_FAUCET,
-    to: memberAccount(input.toUserId),
-    tokenType: HEARTS,
-    amount,
-    source: "gratitude_received",
-    sourceRef: noteId,
-    description: input.note,
-    idempotencyKey: keys.gratitudeGiven(villageId(), noteId),
-  });
-  if (!res.ok && !res.duplicate) {
-    return { ok: false, error: res.error ?? "the ledger refused the credit" };
-  }
-  return { ok: true, duplicate: res.duplicate, balance: res.toBalance, noteId };
+  return {
+    ok: true,
+    duplicate: !!result.posted?.duplicate,
+    balance: result.posted?.balance ?? 0,
+    noteId: result.noteId,
+  };
 }
 
 // ── Sources: what a confirmed claim mints ───────────────────────────────────

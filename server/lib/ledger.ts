@@ -374,8 +374,31 @@ export async function ledgerEntryExists(pool: Pool, idempotencyKey: string): Pro
  */
 export type TransferGuard = (conn: PoolConnection) => Promise<string | null>;
 
-export async function postTransfer(
-  pool: Pool,
+/**
+ * ONE TRANSFER, ON A TRANSACTION SOMEBODY ELSE OPENED.
+ *
+ * Everything `postTransfer` does between `beginTransaction` and `commit`,
+ * with no begin, no commit, no rollback and no release: the caller owns all
+ * four. A refusal comes back as `{ ok: false }` for the caller to roll back,
+ * and only a genuinely unexpected driver error throws.
+ *
+ * WHY IT EXISTS. A gratitude note is the CHARGE — the sending allowance is a
+ * SUM over `gratitude_log`, so the row that records the gift is the row that
+ * spends the budget — and the ledger posting is the DELIVERY. `give()` used
+ * to commit the charge inside its lock and post the delivery afterwards in a
+ * transaction of its own. Under real contention that second transaction
+ * deadlocked and threw, which left the budget spent and nothing in the
+ * recipient's hands: 18 of 40 gives, 36 units of a 100-unit allowance, on the
+ * measured run that found it. Nothing was created out of balance, so
+ * `checkLedgerInvariants` reported a clean economy over a real loss, and no
+ * surface in the product could see it.
+ *
+ * Handing the caller's own connection to the posting makes charge and
+ * delivery one commit. Both or neither, which is the same discipline
+ * `postTransferPair` already applies to a swap's two legs.
+ */
+export async function postTransferOn(
+  conn: PoolConnection,
   input: TransferInput,
   guard?: TransferGuard,
 ): Promise<TransferResult> {
@@ -383,115 +406,184 @@ export async function postTransfer(
   if ("error" in checked) return { ok: false, duplicate: false, toBalance: 0, error: checked.error };
   const { tokenType, amount } = checked;
 
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    // Accounts: members materialize on first touch, system ids must exist.
-    for (const acct of [input.from, input.to]) {
-      if (acct.startsWith("mem:")) {
-        await conn.query(
-          "INSERT IGNORE INTO ledger_accounts (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
-          [acct, "member", acct.slice(4), acct.slice(4)],
-        );
-      }
-    }
-    const [acctRows] = await conn.query<RowDataPacket[]>(
-      "SELECT id, faucet FROM ledger_accounts WHERE id IN (?, ?) FOR UPDATE",
-      [input.from, input.to],
+  /*
+   * Accounts: members materialize on first touch, system ids must exist.
+   *
+   * THE LOCK COMES FIRST AND THE `INSERT IGNORE` ONLY RUNS IF SOMETHING IS
+   * GENUINELY MISSING, which is the opposite of how this was written.
+   *
+   * `INSERT IGNORE` on a row that already exists is not free: InnoDB takes a
+   * SHARED lock on the row it collided with. Concurrent credits to one
+   * recipient therefore all held S on that member's account row and then all
+   * asked to upgrade it to X on the `FOR UPDATE` below, which is a deadlock by
+   * construction — each is waiting for the others to release a lock none of
+   * them will let go of before its own upgrade. The accounts almost always
+   * exist, so almost all of that S-locking bought nothing.
+   *
+   * Measured on `server/economy.test.ts`, with the isolation level already
+   * fixed and the retry already in place: twelve members thanking one person
+   * at the same moment still lost three of the twelve to this alone, after
+   * three retries each. Reverting just this line brings the failures back.
+   *
+   * Taking the exclusive lock first and creating only what is genuinely absent
+   * keeps the behaviour identical and removes the upgrade. `ORDER BY id` for
+   * the same reason the recompute below sorts: one lock order for everybody.
+   *
+   * `postTransferPairOnce` has done exactly this since S57, with a comment
+   * saying why. The single-leg poster twenty lines above it never learned it,
+   * and the single-leg poster is the one every recognition credit in the
+   * village goes through.
+   */
+  const lockAccounts = async () => {
+    const [rows] = await conn.query<RowDataPacket[]>(
+      "SELECT id, faucet FROM ledger_accounts WHERE id IN (?, ?) ORDER BY id FOR UPDATE",
+      [input.from, input.to].sort(),
     );
-    const accounts = new Map(acctRows.map((r) => [String(r.id), { faucet: !!r.faucet }]));
-    const fromAcct = accounts.get(input.from);
-    if (!fromAcct || !accounts.get(input.to)) {
-      await conn.rollback();
-      const missing = !fromAcct ? input.from : input.to;
-      return { ok: false, duplicate: false, toBalance: 0, error: `account "${missing}" does not exist` };
-    }
-
-    /*
-     * ISSUANCE WAITS FOR THE VILLAGE (R67, lane GAMESTART).
-     *
-     * A posting out of a faucet creates tokens; every other posting moves
-     * tokens that already exist. That distinction is this table's `faucet`
-     * column, read one statement above for the overdraft rule, so the gate
-     * costs nothing extra and sees every faucet there is instead of the one
-     * the admin mint cap knows about.
-     *
-     * Before the launch ballot carries, a village may build its whole Game and
-     * issue nothing. Spending, swapping and member-to-member sending are
-     * untouched here on purpose: a village that has not started has nothing to
-     * spend, so this takes nothing away from anybody.
-     */
-    if (fromAcct.faucet) {
-      const closed = await issuanceRefusal(conn);
-      if (closed) {
-        await conn.rollback();
-        return { ok: false, duplicate: false, toBalance: 0, error: closed };
-      }
-    }
-
-    // The veto, under the lock the accounts are already holding.
-    if (guard) {
-      const refusal = await guard(conn);
-      if (refusal) {
-        await conn.rollback();
-        return { ok: false, duplicate: false, toBalance: 0, error: refusal };
-      }
-    }
-
-    try {
+    return new Map(rows.map((r) => [String(r.id), { faucet: !!r.faucet }]));
+  };
+  let accounts = await lockAccounts();
+  const absent = [input.from, input.to].filter((a) => a.startsWith("mem:") && !accounts.has(a));
+  if (absent.length) {
+    for (const acct of absent) {
       await conn.query(
-        "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, source_ref, description, idempotency_key) " +
-          "VALUES (?,?,?,?,?,?,?,?,?)",
-        [
-          `led-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          input.from,
-          input.to,
-          tokenType,
-          amount,
-          input.source,
-          input.sourceRef ?? null,
-          input.description ?? null,
-          input.idempotencyKey,
-        ],
+        "INSERT IGNORE INTO ledger_accounts (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
+        [acct, "member", acct.slice(4), acct.slice(4)],
       );
-    } catch (e: any) {
-      await conn.rollback();
-      if (e?.code === "ER_DUP_ENTRY") {
-        // Replay: the money already moved exactly once. Report the current state.
-        const [b] = await pool.query<RowDataPacket[]>(
-          "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ?",
-          [input.to, tokenType],
-        );
-        return { ok: true, duplicate: true, toBalance: Number(b[0]?.balance ?? 0) };
-      }
-      throw e;
     }
+    accounts = await lockAccounts();
+  }
+  const fromAcct = accounts.get(input.from);
+  if (!fromAcct || !accounts.get(input.to)) {
+    const missing = !fromAcct ? input.from : input.to;
+    return { ok: false, duplicate: false, toBalance: 0, error: `account "${missing}" does not exist` };
+  }
 
-    // Recompute both caches in a stable order (avoids lock-order deadlocks).
-    const ordered = [input.from, input.to].sort();
-    const balances = new Map<string, number>();
-    for (const acct of ordered) balances.set(acct, await recomputeBalance(conn, acct, tokenType));
+  /*
+   * ISSUANCE WAITS FOR THE VILLAGE (R67, lane GAMESTART).
+   *
+   * A posting out of a faucet creates tokens; every other posting moves
+   * tokens that already exist. That distinction is this table's `faucet`
+   * column, read one statement above for the overdraft rule, so the gate
+   * costs nothing extra and sees every faucet there is instead of the one
+   * the admin mint cap knows about.
+   *
+   * Before the launch ballot carries, a village may build its whole Game and
+   * issue nothing. Spending, swapping and member-to-member sending are
+   * untouched here on purpose: a village that has not started has nothing to
+   * spend, so this takes nothing away from anybody.
+   */
+  if (fromAcct.faucet) {
+    const closed = await issuanceRefusal(conn);
+    if (closed) return { ok: false, duplicate: false, toBalance: 0, error: closed };
+  }
 
-    const fromBalance = balances.get(input.from)!;
-    const negativeAllowed = !!input.allowNegative && ALLOW_NEGATIVE_SOURCES.has(input.source);
-    if (!fromAcct.faucet && fromBalance < 0 && !negativeAllowed) {
-      await conn.rollback();
-      return {
-        ok: false,
-        duplicate: false,
-        toBalance: 0,
-        error: `insufficient ${tokenType}: "${input.from}" holds ${fromBalance + amount} and cannot overdraft`,
-      };
+  // The veto, under the lock the accounts are already holding.
+  if (guard) {
+    const refusal = await guard(conn);
+    if (refusal) return { ok: false, duplicate: false, toBalance: 0, error: refusal };
+  }
+
+  try {
+    await conn.query(
+      "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, source_ref, description, idempotency_key) " +
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+      [
+        `led-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        input.from,
+        input.to,
+        tokenType,
+        amount,
+        input.source,
+        input.sourceRef ?? null,
+        input.description ?? null,
+        input.idempotencyKey,
+      ],
+    );
+  } catch (e: any) {
+    if (e?.code === "ER_DUP_ENTRY") {
+      /*
+       * Replay: the money already moved exactly once. A duplicate key rolls
+       * back the STATEMENT and leaves the transaction open, so the current
+       * state is readable on this same connection.
+       *
+       * `FOR UPDATE` because a plain SELECT is a consistent read, and a
+       * consistent read answers from the snapshot taken at this TRANSACTION's
+       * first plain read — which, when the caller owns the transaction, can
+       * be many statements ago. A locking read returns the latest committed
+       * row instead. It takes no lock order this function does not already
+       * hold: both accounts are exclusively locked above, and the recompute
+       * below touches the same `token_balances` rows in the same order.
+       */
+      const [b] = await conn.query<RowDataPacket[]>(
+        "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ? FOR UPDATE",
+        [input.to, tokenType],
+      );
+      return { ok: true, duplicate: true, toBalance: Number(b[0]?.balance ?? 0) };
     }
-
-    await conn.commit();
-    return { ok: true, duplicate: false, toBalance: balances.get(input.to)! };
-  } catch (e) {
-    try { await conn.rollback(); } catch { /* already rolled back */ }
     throw e;
-  } finally {
-    conn.release();
+  }
+
+  // Recompute both caches in a stable order (avoids lock-order deadlocks).
+  const ordered = [input.from, input.to].sort();
+  const balances = new Map<string, number>();
+  for (const acct of ordered) balances.set(acct, await recomputeBalance(conn, acct, tokenType));
+
+  const fromBalance = balances.get(input.from)!;
+  const negativeAllowed = !!input.allowNegative && ALLOW_NEGATIVE_SOURCES.has(input.source);
+  if (!fromAcct.faucet && fromBalance < 0 && !negativeAllowed) {
+    return {
+      ok: false,
+      duplicate: false,
+      toBalance: 0,
+      error: `insufficient ${tokenType}: "${input.from}" holds ${fromBalance + amount} and cannot overdraft`,
+    };
+  }
+
+  return { ok: true, duplicate: false, toBalance: balances.get(input.to)! };
+}
+
+/**
+ * One transfer, in a transaction of its own.
+ *
+ * THE RETRY IS NOT OPTIONAL AND USED TO BE MISSING. `postTransferPair` has
+ * carried a three-attempt deadlock retry since S57 for the reason written
+ * over it: InnoDB picks a victim under real contention even with perfect lock
+ * ordering, because the balance recompute reads rows a neighbour is writing.
+ * A single post is under exactly the same pressure — every recognition credit
+ * in the village locks the same faucet account row — and had nothing. Twelve
+ * members thanking somebody at the same moment produced ten deadlocks, and a
+ * deadlocked post is what leaves a gratitude note charged and undelivered.
+ *
+ * A rolled-back transaction moved nothing, so retrying is safe and honest;
+ * giving up after three keeps a pathological case from hiding as latency.
+ */
+export async function postTransfer(
+  pool: Pool,
+  input: TransferInput,
+  guard?: TransferGuard,
+): Promise<TransferResult> {
+  const checked = validateLeg(input);
+  if ("error" in checked) return { ok: false, duplicate: false, toBalance: 0, error: checked.error };
+
+  for (let attempt = 1; ; attempt++) {
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const result = await postTransferOn(conn, input, guard);
+      if (!result.ok) {
+        await conn.rollback();
+        return result;
+      }
+      await conn.commit();
+      return result;
+    } catch (e: any) {
+      try { await conn.rollback(); } catch { /* already rolled back */ }
+      const retryable = e?.code === "ER_LOCK_DEADLOCK" || e?.code === "ER_LOCK_WAIT_TIMEOUT";
+      if (!retryable || attempt >= 3) throw e;
+      await new Promise((r) => setTimeout(r, 25 * attempt + Math.floor(Math.random() * 25)));
+    } finally {
+      conn.release();
+    }
   }
 }
 
@@ -820,6 +912,29 @@ export async function questCreditsFor(pool: Pool, userId: string): Promise<Map<s
 export interface InvariantReport {
   ok: boolean;
   problems: string[];
+  /**
+   * GIFTS CHARGED AND NEVER DELIVERED, which no other check in this file can
+   * see.
+   *
+   * A gratitude note IS the charge: the sending allowance is a SUM over
+   * `gratitude_log`, so the row that records the gift is the row that spends
+   * the budget. The `token_ledger` row is the delivery. When the two were two
+   * transactions, a deadlock on the second left the first committed, and the
+   * result was a member charged for a gift that never arrived. Conservation
+   * still held, the cache still agreed, no balance was negative: nothing was
+   * created out of balance because nothing was created at all, and every
+   * surface including the founder's reconciliation panel reported a clean
+   * economy over a real loss.
+   *
+   * SEPARATE FROM `problems`, AND NOT PART OF `ok`, on purpose. The entries
+   * above are corruptions — a village whose books do not add up must not
+   * serve — and this is a LOSS: real, worth a founder's attention, and no
+   * reason to take the village offline. `gratitude_log` also legitimately
+   * carries rows this platform never minted for (backdated imports, seeded
+   * history, a cycle restated by hand), so a missing credit is a finding for
+   * a person to read rather than a fact that can only mean damage.
+   */
+  uncredited: string[];
 }
 
 /**
@@ -843,9 +958,15 @@ export interface InvariantReport {
  *     so a flag nobody could see became a flag that hands recognition around.
  *     0092 corrects the data; this refuses to serve if it ever comes back,
  *     whether from a seed, a restore, or an admin route that forgets to ask.
+ *
+ * And one FINDING, reported separately in `uncredited` and deliberately not
+ * part of `ok`: gratitude notes that charged a member's allowance and never
+ * delivered a credit. See the field's own note for why it is not a boot
+ * refusal.
  */
 export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport> {
   const problems: string[] = [];
+  const uncredited: string[] = [];
 
   const [sendable] = await pool.query<RowDataPacket[]>(
     "SELECT slug, kind FROM tokens WHERE transferable = 1 AND kind <> 'credit'",
@@ -893,5 +1014,39 @@ export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport
   );
   for (const r of negatives) problems.push(`non-faucet account ${r.account_id} is negative: ${r.balance} ${r.token_type}`);
 
-  return { ok: problems.length === 0, problems };
+  /*
+   * The one the panel could not see. A gratitude row's id is the ledger
+   * posting's `source_ref` on both doors — `give()` writes source
+   * 'gratitude_received', the acknowledgement and heart flow writes
+   * 'gratitude_received' or 'heart_received' — so the absence of the match is
+   * the whole finding. Reported as a total and a sample rather than one line
+   * per row, because a founder needs the size of the hole before its
+   * inventory.
+   *
+   * IT JOINS ON `to_account` AS WELL, which is redundant to the answer and is
+   * what makes the query cheap. `token_ledger` has no index on `source_ref`,
+   * so matching on that column alone leaves the planner a choice between a
+   * hash join and a scan of every 'gratitude_received' row per gratitude row.
+   * It does have `token_ledger_to_idx (to_account, token_type)`, and the
+   * recipient's account id is `mem:` + the note's `to_id` by construction
+   * (`memberAccount`), so adding it turns each probe into that one member's
+   * handful of rows. This check runs at every boot and on every load of the
+   * founder's reconciliation panel; it has to stay cheap as the log grows.
+   */
+  const [lost] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS n, COALESCE(SUM(g.amount), 0) AS units, MIN(g.id) AS first_id, MAX(g.at) AS last_at " +
+      "FROM gratitude_log g LEFT JOIN token_ledger t " +
+      "ON t.to_account = CONCAT('mem:', g.to_id) AND t.source_ref = g.id " +
+      "AND t.source IN ('gratitude_received', 'heart_received') " +
+      "WHERE t.id IS NULL AND g.amount > 0",
+  );
+  const lostCount = Number(lost[0]?.n ?? 0);
+  if (lostCount > 0) {
+    uncredited.push(
+      `${lostCount} gratitude note(s) charged ${Number(lost[0].units)} and delivered nothing ` +
+        `(earliest ${lost[0].first_id}, latest ${new Date(lost[0].last_at).toISOString()})`,
+    );
+  }
+
+  return { ok: problems.length === 0, problems, uncredited };
 }

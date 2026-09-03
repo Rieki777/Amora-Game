@@ -46,6 +46,7 @@ import {
   VILLAGE_VOICE,
   VOICE_MINT,
   villageId,
+  writeGratitudeRow,
   type MintRule,
 } from "./lib/economy";
 import { balanceOf, checkLedgerInvariants, CYCLE_POOL_FAUCET, loadTokenRegistry, memberAccount, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
@@ -293,6 +294,223 @@ describe.skipIf(!configured)("the village economy engine", () => {
     const accepted = results.filter((r) => r.ok).length;
     expect(accepted * each).toBeLessThanOrEqual(before.total);
     expect(accepted).toBeGreaterThan(0);
+  });
+
+  /*
+   * THE VILLAGE AGAINST ITSELF, not one member against themselves.
+   *
+   * The test above fires five gives from ONE member, so the only lock it
+   * exercises is the one that holds a giver against their own second tap. It
+   * passed for months while the village was broken against ITSELF.
+   *
+   * `writeGratitudeRow` ran at SERIALIZABLE, which turns its two SUM reads
+   * over `gratitude_log` into range locks, and the range every giver reads
+   * overlaps every other giver's. Two members thanking somebody at the same
+   * moment deadlocked, and the one InnoDB killed was handed the storage
+   * engine's own words — "Deadlock found when trying to get lock; try
+   * restarting transaction" — as a 400. Measured on this test before the fix:
+   * at twelve concurrent givers, ten failed.
+   *
+   * Different givers, one gift each: nothing here is over any budget, over
+   * any share, or racing itself. Every one of them MUST land, and each must
+   * leave a ledger row, because the note is what spends the allowance and the
+   * ledger row is the only thing that puts anything in the recipient's hands.
+   */
+  it("lets twenty-four different members thank the same person at once", async () => {
+    const to = await makeMember("econ-crowd-to");
+    const givers = await Promise.all(
+      Array.from({ length: 24 }, (_, n) => makeMember(`econ-crowd-from-${n}`)),
+    );
+
+    const before = await balanceOf(pool, memberAccount(to), HEARTS);
+    const results = await Promise.all(
+      givers.map((from) => give(pool, { fromUserId: from, toUserId: to, amount: 1 }, AT_GUEST)),
+    );
+
+    const failures = results.filter((r) => !r.ok).map((r) => (r as any).error);
+    expect(failures).toEqual([]);
+    expect(results.filter((r) => r.ok).length).toBe(24);
+
+    // The note spent the allowance; the ledger row is the delivery. One of
+    // each, or a member was charged for a gift that never arrived.
+    const noteIds = results.map((r) => r.noteId).filter(Boolean) as string[];
+    expect(noteIds.length).toBe(24);
+    const [led] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM token_ledger WHERE source = 'gratitude_received' AND source_ref IN (?)",
+      [noteIds],
+    );
+    expect(Number(led[0].n)).toBe(24);
+    expect(await balanceOf(pool, memberAccount(to), HEARTS)).toBe(before + 24);
+  });
+
+  /*
+   * NO NOTE WITHOUT ITS CREDIT, under the contention that used to break the
+   * pair apart.
+   *
+   * The note row IS the charge (the allowance is a SUM over `gratitude_log`)
+   * and the ledger row is the credit. They used to be two transactions with
+   * the commit of the first outside the lock of the second, so a deadlock on
+   * the ledger post left the allowance spent and nothing delivered: 20, 20
+   * and 30 units of 100 lost across three measured runs, invisible to every
+   * surface because nothing had been created out of balance — nothing had
+   * been created at all.
+   *
+   * This asserts the pairing directly, over every note these members write.
+   */
+  it("never charges a member for a credit it did not deliver", async () => {
+    const from = await makeMember("econ-pair-from");
+    const recipients = await Promise.all(
+      Array.from({ length: 8 }, (_, n) => makeMember(`econ-pair-to-${n}`)),
+    );
+
+    // ONE giver, on purpose. Their notes serialise on their own row and every
+    // one of them commits, which is exactly the condition that leaves the
+    // ledger posts to race each other on the recognition faucet's account
+    // row afterwards, with the budget already spent. 40 gives of 2 is 80
+    // against an allowance of 100, and 10 to any one recipient against a
+    // share of 25, so nothing here may be refused for any lawful reason:
+    // every attempt must land AND carry its credit.
+    const attempts = recipients.flatMap((to) => [to, to, to, to, to]);
+    const results = await Promise.all(
+      attempts.map((to) =>
+        // Caught, because an uncaught throw is the loss rather than the report
+        // of it, and the LEFT JOIN below is what has to see it.
+        give(pool, { fromUserId: from, toUserId: to, amount: 2 }, AT_GUEST).catch(
+          (e) => ({ ok: false as const, error: String(e?.message ?? e) }),
+        ),
+      ),
+    );
+    // The loss is asserted FIRST, because it is the worse failure: a give that
+    // is refused costs a member a retry, and a give that is charged and never
+    // delivered costs them the gift and tells nobody.
+    const [orphans] = await pool.query<any[]>(
+      "SELECT g.id, g.amount FROM gratitude_log g " +
+        "LEFT JOIN token_ledger t ON t.source_ref = g.id AND t.source IN ('gratitude_received','heart_received') " +
+        "WHERE g.from_id = ? AND t.id IS NULL",
+      [from],
+    );
+    expect(orphans.map((r: any) => `${r.id} charged ${r.amount} and delivered nothing`)).toEqual([]);
+
+    expect(results.filter((r) => !r.ok).map((r: any) => r.error)).toEqual([]);
+
+    // And the recipients hold every heart the notes charged for.
+    const delivered = await Promise.all(
+      recipients.map((to) => balanceOf(pool, memberAccount(to), HEARTS)),
+    );
+    expect(delivered.reduce((a, b) => a + b, 0)).toBe(80);
+  });
+
+  /*
+   * BOTH, OR NEITHER, proven on the mechanism rather than on the weather.
+   *
+   * The test above shows the note and its credit arriving together under
+   * contention. This shows what happens when the credit genuinely cannot be
+   * made: the note goes with it. A ledger refusal has real causes that no
+   * retry heals — a village that has not launched, an account that does not
+   * exist, an overdraft — and every one of them used to arrive AFTER the note
+   * had committed and spent the budget.
+   *
+   * A member being told "no" and keeping their allowance is the correct
+   * outcome. A member being told "no" and paying for it is the bug.
+   */
+  it("rolls the note back when the ledger refuses its credit", async () => {
+    const from = await makeMember("econ-atomic-from");
+    const to = await makeMember("econ-atomic-to");
+    const before = await allowanceFor(pool, from, 1);
+
+    const res = await writeGratitudeRow(
+      pool,
+      { fromUserId: from, toUserId: to, amount: 4 },
+      1,
+      async () => ({ ok: true }),
+      async () => ({ ok: false, error: "the ledger refused the credit" }),
+    );
+
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.error).toBe("the ledger refused the credit");
+    // No note, so no charge: the row IS the charge.
+    const [rows] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM gratitude_log WHERE from_id = ?",
+      [from],
+    );
+    expect(Number(rows[0].n)).toBe(0);
+    const after = await allowanceFor(pool, from, 1);
+    expect(after.spent).toBe(before.spent);
+    expect(after.remaining).toBe(before.remaining);
+  });
+
+  /*
+   * AND WHEN ONE HAPPENS ANYWAY, SOMEBODY CAN SEE IT.
+   *
+   * `give()` cannot leave a note uncredited any more, but this is not the
+   * only way a row lands in `gratitude_log`: the acknowledgement door still
+   * posts its credit after the note commits, an import can backdate a cycle,
+   * and a future caller can be written carelessly. A charge with no delivery
+   * leaves the books perfectly balanced — conservation holds, the cache
+   * agrees, nothing is negative — so every check in `checkLedgerInvariants`
+   * passed over the loss and the founder's reconciliation panel said the
+   * economy was clean.
+   *
+   * It is reported in `uncredited` and NOT in `problems`, so the founder sees
+   * it and the village keeps serving. A loss is worth a person's attention;
+   * it is not a reason to take the village offline, and `gratitude_log`
+   * legitimately carries rows this platform never minted for.
+   */
+  it("shows a founder a gift that was charged and never delivered", async () => {
+    const from = await makeMember("econ-seen-from");
+    const to = await makeMember("econ-seen-to");
+    const clean = await checkLedgerInvariants(pool);
+    expect(clean.uncredited).toEqual([]);
+
+    // The shape the bug used to leave behind: the charge, and nothing else.
+    await pool.query(
+      "INSERT INTO gratitude_log (id, village_id, kind, from_id, to_id, amount, message, cycle_id, cycle_number) " +
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+      ["grat-orphan-seen", villageId(), "gratitude", from, to, 6, "", "lunar-000900", 900],
+    );
+
+    const seen = await checkLedgerInvariants(pool);
+    expect(seen.uncredited.length).toBe(1);
+    expect(seen.uncredited[0]).toContain("charged 6 and delivered nothing");
+    // Still servable: this is a finding, not a corruption.
+    expect(seen.ok).toBe(true);
+    expect(seen.problems).toEqual([]);
+
+    await pool.query("DELETE FROM gratitude_log WHERE id = ?", ["grat-orphan-seen"]);
+  });
+
+  /*
+   * The allowance is still EXACTLY enforced after the isolation level came
+   * down. This is the half of the fix that could have been broken silently:
+   * SERIALIZABLE was doing two jobs, and only one of them was the deadlock.
+   *
+   * 40 gives of 5 from one member against an allowance of 100 has one right
+   * answer and it is not "at most 20". Spread over 8 recipients so the
+   * per-recipient share (25) never binds before the allowance does.
+   */
+  it("spends the allowance to the unit and not one heart further", async () => {
+    const from = await makeMember("econ-exact-from");
+    const recipients = await Promise.all(
+      Array.from({ length: 8 }, (_, n) => makeMember(`econ-exact-to-${n}`)),
+    );
+    const before = await allowanceFor(pool, from, 1);
+    expect(before.spent).toBe(0);
+    const each = 5;
+    const fits = Math.floor(before.total / each);
+    // Five attempts per recipient: 5 * 5 = 25, which is exactly the share
+    // cap, so the share can refuse nothing the allowance would have allowed.
+    const attempts = recipients.flatMap((to) => [to, to, to, to, to]);
+    expect(attempts.length).toBeGreaterThan(fits);
+
+    const results = await Promise.all(
+      attempts.map((to) => give(pool, { fromUserId: from, toUserId: to, amount: each }, AT_GUEST)),
+    );
+
+    const accepted = results.filter((r) => r.ok).length;
+    expect(accepted).toBe(fits);
+    const after = await allowanceFor(pool, from, 1);
+    expect(after.spent).toBe(fits * each);
+    expect(after.remaining).toBe(before.total - fits * each);
   });
 
   it("computes the allowance from the ledger rather than a counter", async () => {
