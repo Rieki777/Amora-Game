@@ -24,6 +24,7 @@ import {
   ArrowRight,
   CheckCircle2,
 } from "lucide-react";
+import { useTokenName } from "@/hooks/useTokenNames";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 
@@ -59,6 +60,7 @@ const PATH_INFO: Record<
 
 export default function Profile() {
   const [, navigate] = useLocation();
+  const tokenName = useTokenName("Recognition");
   const { user, logout, loading, updateProfile } = useAuth();
   const [editingBio, setEditingBio] = useState(false);
   const [bioText, setBioText] = useState(user?.bio || "");
@@ -495,7 +497,7 @@ export default function Profile() {
                   <div className="flex items-center justify-between mb-4">
                     <Heart className="w-8 h-8" />
                     <span className="text-xs font-semibold uppercase tracking-widest opacity-75">
-                      Gratitude Balance
+                      {tokenName} Balance
                     </span>
                   </div>
                   <div className="text-5xl font-display font-bold mb-2">{user.recognitionBalance}</div>

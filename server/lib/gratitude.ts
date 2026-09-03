@@ -16,7 +16,7 @@ import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { isExampleUser } from "./examples";
 import { issuanceRefusal } from "./gameStart";
 import { memberAccount, postTransfer, RECOGNITION_FAUCET } from "./ledger";
-import { writeGratitudeRow, shareCapFor } from "./economy";
+import { writeGratitudeRow, shareCapFor, recognitionName } from "./economy";
 import type { GratitudeLogRepo, GratitudeEntry } from "../repos/gratitude";
 import type { UsersRepo } from "../repos/users";
 
@@ -98,7 +98,7 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     ? await deps.members.byId(input.toId)
     : await deps.members.byEmail(String(input.toEmail));
   if (!recipient) return { ok: false, status: 404, error: "No member found with that email" };
-  if (recipient.id === user.id) return { ok: false, status: 400, error: "Gratitude flows to others" };
+  if (recipient.id === user.id) return { ok: false, status: 400, error: `Send ${recognitionName()} to others` };
   // The example identities have fixed, public @examples.invalid addresses, so
   // without this any member can send to one: the sender's real budget is spent
   // and recognition is issued from the faucet into an account belonging to
@@ -274,7 +274,7 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     amount: amt,
     source: kind === "heart" ? "heart_received" : "gratitude_received",
     sourceRef: entry.id,
-    description: `Gratitude from ${String(user.name ?? "").split(" ")[0]}`,
+    description: `${recognitionName()} from ${String(user.name ?? "").split(" ")[0]}`,
     idempotencyKey: `gratitude_received:${entry.id}`,
   });
   if (!credit.ok) {

@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { authToken } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -50,6 +51,7 @@ const heading = "text-2xl font-display font-bold text-teal-deep mb-6";
 
 export default function ProfileSheet() {
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const tokenName = useTokenName("Recognition");
 
   useEffect(() => {
     fetch("/api/me/profile", { headers: headers() })
@@ -89,14 +91,14 @@ export default function ProfileSheet() {
             ))}
           </ul>
           <p className="mt-4 text-sm text-gray-600">
-            Gratitude is held, never spent. It says what the village noticed.
+            {tokenName}: held, never spent. A record of what the village noticed.
           </p>
         </motion.div>
       ) : null}
 
       {g ? (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={card}>
-          <h2 className={heading}>Gratitude</h2>
+          <h2 className={heading}>{tokenName}</h2>
           <p className="text-gray-800">
             {g.receivedThisSeason === 0
               ? "No thanks yet this season."
@@ -110,7 +112,7 @@ export default function ProfileSheet() {
               ? "You have not thanked anyone yet this season."
               : `You thanked ${g.givenThisSeason} members in return.`}
           </p>
-          <p className="mt-3 text-sm text-gray-500">{g.lifetime} Gratitude held in all.</p>
+          <p className="mt-3 text-sm text-gray-500">{g.lifetime} {tokenName} held in all.</p>
         </motion.div>
       ) : null}
 
@@ -120,7 +122,7 @@ export default function ProfileSheet() {
           <p className="text-gray-800">
             {a.remaining === 0
               ? "You have given everything you had to give this moon."
-              : `You can still give ${a.remaining} Gratitude this moon.`}
+              : `You can still give ${a.remaining} ${tokenName} this moon.`}
           </p>
           <div
             className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100"

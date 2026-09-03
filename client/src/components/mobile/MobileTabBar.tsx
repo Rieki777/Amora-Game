@@ -18,6 +18,7 @@
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "wouter";
 import { BARE_ROUTES, TAB_SLOTS } from "@/config/mobileNav";
+import { useTokenName } from "@/hooks/useTokenNames";
 
 /** The current route with query and trailing slash removed. */
 export function normalisePath(location: string): string {
@@ -32,6 +33,8 @@ export function isBareRoute(location: string): boolean {
 export default function MobileTabBar() {
   const [location] = useLocation();
   const currentPath = normalisePath(location);
+  // The token slot reads the village's word for its token; `path` never moves.
+  const tokenName = useTokenName("Recognition");
 
   // Sign-in and the other focused, signed-out screens render no bar at all.
   // See BARE_ROUTES for why bottom padding could not close this.
@@ -49,7 +52,8 @@ export default function MobileTabBar() {
         style={{ background: "linear-gradient(to right, transparent, var(--tone-brand-soft, #7fb8ac), transparent)" }}
       />
       <div className="grid grid-cols-[repeat(5,minmax(0,1fr))] h-16 items-stretch max-w-2xl mx-auto min-w-0">
-        {TAB_SLOTS.map((slot) => {
+        {TAB_SLOTS.map((s) => {
+          const slot = s.token ? { ...s, label: tokenName } : s;
           const active =
             !!slot.path &&
             (slot.path === "/"
