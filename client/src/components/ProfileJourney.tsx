@@ -6,6 +6,7 @@ import Celebration from "@/components/natural/Celebration";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import { useMomentWindow } from "@/components/natural/moments";
 import { capabilityLabel } from "@shared/capabilities";
+import { villageMoonLabel } from "@shared/villageMoon";
 import { claimMoment } from "@/lib/celebrated";
 import { playMoment } from "@/lib/sound";
 
@@ -266,11 +267,22 @@ export default function ProfileJourney() {
           </div>
           {(flows.byCycle ?? []).length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">By lunar cycle</p>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">By moon</p>
               <div className="space-y-1.5">
+                {/*
+                  The row is keyed by the stored cycle id and LABELLED by the
+                  village's own moon. A key is machinery and a label is a
+                  sentence to a member; this row used to print the key.
+                */}
                 {flows.byCycle.slice(0, 6).map((c: any) => (
-                  <div key={c.cycleId} className="flex items-center justify-between text-sm border border-gray-100 rounded-lg px-3 py-2">
-                    <span className="text-gray-500 font-mono text-xs">{c.cycleId}</span>
+                  <div key={c.cycleId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm border border-gray-100 rounded-lg px-3 py-2">
+                    {/*
+                      A row whose stored id this build cannot place gets no
+                      moon, and the honest thing to print there is that it has
+                      none. The old id in its place would be a leak, and a
+                      blank span would read as a rendering fault.
+                    */}
+                    <span className="text-gray-500 text-xs">{villageMoonLabel(c.moon) || "Moon not known"}</span>
                     <span className="text-gray-700">
                       {c.received} received · {c.distinctSenders} sender{c.distinctSenders === 1 ? "" : "s"}
                     </span>

@@ -796,6 +796,7 @@ import {
   type CycleRecord,
   type DistributionRecord,
 } from "./lib/gratitude-cycles";
+import { memberMoonFlows, moonOneCycle, withVillageMoons } from "./lib/villageMoon";
 
 const BCRYPT_SALT_ROUNDS = 10;
 
@@ -13172,7 +13173,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         jobs: registeredJobs(),
         modulesOff: MODULES.filter((m) => effectiveLifecycle(m.id) === "off").map((m) => ({ id: m.id, name: m.name })),
       },
-      { moons: asked },
+      { moons: asked, moonOneCycle: await moonOneCycle(getPool()) },
     );
     res.json(report);
   });
@@ -18186,7 +18187,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     );
 
     res.json({
-      settlement,
+      settlement: await withVillageMoons(getPool(), settlement),
       modules,
       pendingConsents,
       staleMilestones,
@@ -21674,7 +21675,6 @@ ${inner}
     if (!user) return res.status(401).json({ error: "auth_required" });
     const log = await gratitudeRepo.all();
     const dists: DistributionRecord[] = await distributionsRepo.all();
-    const mine = dists.filter((d) => d.userId === user.id);
     res.json({
       balance: user.recognitionBalance ?? 0,
       budget: await gratitudeBudget(user),
@@ -21683,9 +21683,7 @@ ${inner}
         sent: log.filter((g) => g.fromId === user.id).reduce((n, g) => n + (Number(g.amount) || 0), 0),
         distinctAcknowledgers: new Set(log.filter((g) => g.toId === user.id).map((g) => g.fromId)).size,
       },
-      byCycle: mine
-        .sort((a, b) => String(b.cycleId).localeCompare(String(a.cycleId)))
-        .map((d) => ({ cycleId: d.cycleId, received: d.received, distinctSenders: d.distinctSenders })),
+      byCycle: await memberMoonFlows(getPool(), dists, user.id),
     });
   });
 

@@ -1596,6 +1596,33 @@ setting the key keeps working on its existing plaintext values. The follow-up
 release stops accepting them, and any entry not converted by then reads as
 absent with the environment variable taking over. Set the key before that
 follow-up.
+## Your village's own moon count (no migration)
+
+Your moons are numbered from **your** first moon, so your village reads "Moon 7"
+where another village reading the same sky reads "Moon 41". The number is worked
+out every time a screen is drawn (`shared/villageMoon.ts` and
+`server/lib/villageMoon.ts`) and is never stored: the database still files every
+row under the absolute lunation id (`lunar-000336`), which is the one key
+settlement matches on and the one key support can trace.
+
+- **Moon 1 by default** is the moon your village launched under, taken from
+  `launchedAt` in the `launch-state` document (`server/lib/launch.ts`). Nothing
+  to set up.
+- **New game variable, no migration:** `village.first_moon_at` (default blank,
+  founder-held, category "Village"). A plain date such as `2026-03-19` moves
+  Moon 1 to the moon containing that date. Blank goes back to the launch moon.
+  It is deliberately outside the Village Calendar module's `variableKeys`,
+  because every village counts moons whether or not it runs a calendar, and it
+  is a different number from that module's `calendar.year_anchor`, which counts
+  Moon 1 to 12 or 13 inside a lunar YEAR and resets each year.
+- **Before your first moon**, screens show a moon's dates with no number on
+  them. That covers a village that has not launched, rows older than the anchor,
+  and a first-moon date set in the future. No screen shows "Moon 0" and none
+  shows a negative moon.
+- **Moving the date renames, and moves nothing.** Moon numbers people saw last
+  week will read differently after the change; every settled total, credited
+  amount and stored cycle id is untouched, because the number was never in them.
+
 ## Writing your own migration (2026-08-30, safety lane)
 
 Your village may add SQL migrations of its own. Number them **9000 and above**.
