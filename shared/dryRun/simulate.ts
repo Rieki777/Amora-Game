@@ -53,8 +53,28 @@
  * in, and the violation carries that cycle. A run that carried on past a
  * broken invariant would be reporting numbers derived from a state the build
  * has already said cannot exist.
+ *
+ * ── THE ENGINE OWNS THE CLOCK ──────────────────────────────────────────────
+ *
+ * `state.atIso` is stamped by `runPass` at the top of every cycle and stamped
+ * again once every model has stepped, so a recorded cycle's instant is always
+ * that cycle's START and a model cannot advance the run. Two models each
+ * advancing the clock would advance it twice, and the fallback that computes
+ * the instant after the LAST cycle takes the cycle's own start as an argument
+ * and never reads it back off the state, so it cannot compound a write
+ * either. The clock belongs to the engine and to nothing else.
+ *
+ * ── ASSUMPTIONS PASS THROUGH, AND THE ENGINE READS NONE OF THEM ────────────
+ *
+ * `input.assumptions` is the one place an assumption about activity lives
+ * (see the header of `types.ts`). This file carries it onto every state so a
+ * model's `step` and `flags` can reach it, and echoes it on the result beside
+ * the seed. It never reads a key, never copies the object and never invents a
+ * default: both passes are handed the same object the caller wrote, so the
+ * baseline and the proposed run under identical assumptions and the only
+ * difference between them is still the decision.
  */
-import { clockFor } from "../cycleClock";
+import { clockFor, type ClockMode } from "../cycleClock";
 import { makeRng } from "./rng";
 import type {
   CycleResult,
@@ -88,6 +108,14 @@ interface Landing {
   path: string;
   /** What stood there before, `undefined` when nothing stood there at all. */
   previous: unknown;
+  /**
+   * The mint amount's text as it stood before, for a `mintRules/<id>/amount`
+   * landing and undefined for every other path. A reversion that restored the
+   * rounded bigint alone would hand back a rule whose text had lost the four
+   * places the column keeps, so the term would silently edit the rule it was
+   * supposed to put back.
+   */
+  previousRaw?: string;
   /** What this change wrote, already coerced to the shape the path holds. */
   wrote: unknown;
   /** 0 for `at_acceptance`, 1 for `next_moon`. */
@@ -136,11 +164,15 @@ export function simulate(input: SimInput, models: DomainModel[]): SimResult {
         },
       ],
       seed,
+      // Echoed even here. A result that cannot say what it assumed is not a
+      // result somebody can check, and a refusal is still an answer.
+      assumptions: input.assumptions,
     };
   }
 
-  const baseline = runPass(input.snapshot, [], cycles, starts, order, seed);
-  const proposed = runPass(input.snapshot, input.changes ?? [], cycles, starts, order, seed);
+  const assumptions = input.assumptions;
+  const baseline = runPass(input.snapshot, [], cycles, starts, order, seed, assumptions);
+  const proposed = runPass(input.snapshot, input.changes ?? [], cycles, starts, order, seed, assumptions);
   return {
     baseline: baseline.results,
     proposed: proposed.results,
@@ -148,6 +180,7 @@ export function simulate(input: SimInput, models: DomainModel[]): SimResult {
     flags: proposed.flags,
     violations: proposed.violations,
     seed,
+    assumptions,
   };
 }
 
@@ -184,13 +217,14 @@ function runPass(
   starts: readonly string[],
   order: readonly DomainModel[],
   seed: number,
+  assumptions: Readonly<Record<string, unknown>> | undefined,
 ): PassOutcome {
   const rng = makeRng(seed);
   const flags: Flag[] = [];
   const violations: Violation[] = [];
   const results: CycleResult[] = [];
   const landings: Landing[] = [];
-  let state = initialState(snapshot);
+  let state = initialState(snapshot, assumptions);
 
   const land = (change: ProposedChange, cycle: number): void => {
     const path = pathOf(change);
@@ -216,11 +250,13 @@ function runPass(
       return;
     }
     const previous = readPath(state, path);
-    state = writePath(state, path, wrote);
+    const previousRaw = rawBefore(state, path);
+    state = writePath(state, path, wrote, rawTextOf(path, change.to));
     const term = termOf(change.expiresAfterCycles);
     landings.push({
       path: spell(path),
       previous,
+      previousRaw,
       wrote,
       landedAtCycle: cycle,
       // The term counts from the first cycle the change is in force, which is
@@ -263,7 +299,7 @@ function runPass(
         });
         continue;
       }
-      state = writePath(state, path, landing.previous);
+      state = writePath(state, path, landing.previous, landing.previousRaw);
       state = {
         ...state,
         governance: { ...state.governance, revertedPaths: state.governance.revertedPaths.concat(landing.path) },
@@ -279,6 +315,13 @@ function runPass(
 
     for (const model of order) state = model.step(state, cycle, rng);
 
+    // THE ENGINE OWNS THE CLOCK. A model may return any state it likes, and
+    // one that advanced `atIso` itself would advance the run twice: once here
+    // and once at the bottom of the loop. So the cycle's own start is stamped
+    // back on before anything is recorded, and a model's write is discarded
+    // and never compounded. `cycle` is re-stamped for the same reason.
+    state = { ...state, cycle, atIso };
+
     const cycleFlags: Flag[] = [];
     for (const model of order) {
       for (const flag of model.flags(state, cycle) ?? []) cycleFlags.push({ ...flag, cycle });
@@ -293,18 +336,53 @@ function runPass(
     results.push({ cycle, atIso, state: cloneState(state), flags: cycleFlags, violations: cycleViolations });
     if (cycleViolations.length > 0) break;
 
-    state = { ...state, atIso: nextStart(starts, cycle, state) };
+    state = { ...state, atIso: nextStart(starts, cycle, atIso, state.clock ? state.clock.mode : "lunar") };
   }
 
   return { results, flags, violations, final: state };
 }
 
-/** Where cycle `cycle + 1` begins, falling back to this cycle's own clock. */
-function nextStart(starts: readonly string[], cycle: number, state: SimState): string {
+/**
+ * Where cycle `cycle + 1` begins.
+ *
+ * The last cycle has no entry in `starts`, so its successor is computed from
+ * the clock. It is computed from `thisCycleStart`, which the caller holds,
+ * and NOT from `state.atIso`: a model that wrote `atIso` would otherwise be
+ * advancing the run a second time through this fallback, and the final state
+ * would sit one whole cycle past where the run ended. The re-stamp above
+ * already discards such a write; taking the instant as an argument means this
+ * function cannot be wrong even if that re-stamp is ever moved.
+ */
+function nextStart(starts: readonly string[], cycle: number, thisCycleStart: string, mode: ClockMode): string {
   const known = starts[cycle];
   if (known) return known;
-  const clock = clockFor(state.clock ? state.clock.mode : "lunar");
-  return clock.nextBoundaryAfter(new Date(state.atIso)).toISOString();
+  const clock = clockFor(mode);
+  return clock.nextBoundaryAfter(new Date(thisCycleStart)).toISOString();
+}
+
+/**
+ * The mint amount's text as it stands right now, for a landing to hand back
+ * when its term runs out. Undefined for every path that is not a mint amount,
+ * which is how `writePath` knows to leave `amountRaw` alone.
+ */
+function rawBefore(state: SimState, path: ParsedPath): string | undefined {
+  if (path.root !== "mintRules" || path.b !== "amount") return undefined;
+  const rule = state.mintRules.find((r) => r.id === path.a);
+  return rule ? rule.amountRaw : undefined;
+}
+
+/**
+ * A change's `to` as the text `mint_rules.amount` would hold, unrounded.
+ *
+ * This is the one place the four decimal places survive. `coerce` truncates
+ * to minor units because that is what a balance is, and the truncation is why
+ * the text has to be kept beside the number instead of derived back from it.
+ */
+function rawTextOf(path: ParsedPath, to: unknown): string | undefined {
+  if (path.root !== "mintRules" || path.b !== "amount") return undefined;
+  if (to === undefined || to === null) return "";
+  const text = String(to).trim();
+  return text === "from-source" ? "" : text;
 }
 
 /** The whole positive term a change asks for, or null when it asks for none. */
@@ -315,11 +393,28 @@ function termOf(raw: unknown): number | null {
 
 // ── State ───────────────────────────────────────────────────────────────────
 
-/** The snapshot as a state, deep copied, so the caller's data is never moved. */
-export function initialState(snapshot: VillageSnapshot): SimState {
+/**
+ * The snapshot as a state, deep copied, so the caller's data is never moved.
+ *
+ * `assumptions` is the one thing NOT copied. It is carried by reference, on
+ * purpose: what a model reads and what the result echoes have to be the same
+ * object, or the echo is a claim about a copy and a reader checking the
+ * answer against it is checking the wrong thing.
+ */
+export function initialState(
+  snapshot: VillageSnapshot,
+  assumptions?: Readonly<Record<string, unknown>>,
+): SimState {
+  const quests = snapshot.quests;
   return {
     atIso: String(snapshot.atIso),
     cycle: 0,
+    launched: snapshot.launched === true,
+    quests: {
+      open: Number(quests ? quests.open : 0) || 0,
+      confirmedPerCycle: Number(quests ? quests.confirmedPerCycle : 0) || 0,
+      gratitudePerConfirmation: quests && typeof quests.gratitudePerConfirmation === "bigint" ? quests.gratitudePerConfirmation : BigInt(0),
+    },
     clock: { mode: snapshot.clock ? snapshot.clock.mode : "lunar", timezone: snapshot.clock ? snapshot.clock.timezone : "UTC" },
     tokens: (snapshot.tokens ?? []).map((t) => ({ ...t, sinks: (t.sinks ?? []).slice() })),
     balances: cloneBalances(snapshot.balances ?? {}),
@@ -328,6 +423,8 @@ export function initialState(snapshot: VillageSnapshot): SimState {
     members: (snapshot.members ?? []).map((m) => ({ ...m, seats: (m.seats ?? []).slice() })),
     modules: { ...(snapshot.modules ?? {}) },
     governance: { cyclesElapsed: 0, landedPaths: [], revertedPaths: [] },
+    models: {},
+    assumptions,
   };
 }
 
@@ -336,6 +433,8 @@ export function cloneState(state: SimState): SimState {
   return {
     atIso: state.atIso,
     cycle: state.cycle,
+    launched: state.launched,
+    quests: { ...state.quests },
     clock: { ...state.clock },
     tokens: state.tokens.map((t) => ({ ...t, sinks: t.sinks.slice() })),
     balances: cloneBalances(state.balances),
@@ -348,6 +447,13 @@ export function cloneState(state: SimState): SimState {
       landedPaths: state.governance.landedPaths.slice(),
       revertedPaths: state.governance.revertedPaths.slice(),
     },
+    // Shallow, because the values are `unknown` and cannot be copied without
+    // knowing their shape. The bag itself IS copied, so a key a later cycle
+    // adds cannot appear in a cycle already recorded.
+    models: { ...state.models },
+    // Carried, not copied, for the reason `initialState` gives: every
+    // recorded cycle holds the same assumptions object the caller wrote.
+    assumptions: state.assumptions,
   };
 }
 
@@ -425,7 +531,14 @@ function readPath(state: SimState, path: ParsedPath): unknown {
   }
 }
 
-function writePath(state: SimState, path: ParsedPath, value: unknown): SimState {
+/**
+ * Write one path, returning a new state.
+ *
+ * `raw` is the change's own text for the value, carried only for the mint
+ * amount, which the ledger stores as `decimal(18,4)` and the simulation holds
+ * twice. See the `mintRules` case below.
+ */
+function writePath(state: SimState, path: ParsedPath, value: unknown, raw?: string): SimState {
   const next: SimState = { ...state };
   switch (path.root) {
     case "variables": {
@@ -441,9 +554,17 @@ function writePath(state: SimState, path: ParsedPath, value: unknown): SimState 
       return next;
     }
     case "mintRules": {
-      next.mintRules = state.mintRules.map((r) =>
-        r.id === path.a ? ({ ...r, [path.b]: value } as MintRuleSpec) : r,
-      );
+      // `amount` and `amountRaw` are two spellings of one fact and they move
+      // TOGETHER or the rounds-away flag lies: a rule retuned to 0.0004 would
+      // otherwise keep the snapshot's old text beside a fresh 0, and a model
+      // comparing them would report a rounding that belongs to a value nobody
+      // proposed. The caller hands the text; where it hands none, the written
+      // amount is its own text.
+      const pair: Partial<MintRuleSpec> =
+        path.b === "amount"
+          ? { amount: value as bigint | null, amountRaw: raw ?? (value === undefined ? "" : String(value)) }
+          : ({ [path.b]: value } as Partial<MintRuleSpec>);
+      next.mintRules = state.mintRules.map((r) => (r.id === path.a ? ({ ...r, ...pair } as MintRuleSpec) : r));
       return next;
     }
     case "members": {
