@@ -267,7 +267,7 @@ export const VARIABLES: VariableDef[] = [
     category: "The Mint",
     label: "Which Voice wanes",
     description:
-      "Which of a member's Voice the waning rate is measured against. One answer is offered today and it is the only honest one: all of it. A member's balance already IS the Voice they have never spent, because the one way Voice leaves a member here is a claim toward Hypha, and a claim takes it out of the balance the moment it is made. So there is no second pot of unspent Voice for the books to point at, and an option promising one would measure the same number twice and call it a choice. The dial is here so that a village which later gains another way to spend Voice can be given a real second setting without renaming the one it already holds.",
+      "Which of a member's Voice the waning rate is measured against. One answer is offered today and it is the only honest one: all of it. A member's balance already IS the Voice they have never spent, because the two ways Voice leaves a member here are a claim toward Hypha and the settlement of an exit, and each of those takes it out of the balance the moment it happens. So there is no second pot of unspent Voice for the books to point at, and an option promising one would measure the same number twice and call it a choice. The dial is here so that a village which later gains another way to spend Voice can be given a real second setting without renaming the one it already holds.",
     type: "choice",
     default: "all",
     choices: [
