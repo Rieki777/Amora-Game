@@ -47,10 +47,12 @@
  */
 import {
   CRITICALITIES,
+  DEFAULT_QUORUM_POLICY,
   dialsForMethod,
   highestCriticality,
   peopleAndWeightFor,
   raiseDials,
+  reachableQuorumWarning,
   stalemateWarning,
   thresholdSentence,
   TIER_FLOORS,
@@ -60,6 +62,7 @@ import {
   type Criticality,
   type MethodDials,
   type PeopleAndWeight,
+  type QuorumPolicy,
   type VoteChoice,
   type WeighedSeat,
 } from "./governanceEngine";
@@ -824,6 +827,79 @@ export const SELF_PRICED_THRESHOLD_KEYS: readonly string[] = [
 ];
 
 /**
+ * ── THE DIALS THAT PRICE EVERY OTHER DECISION (audit 2, risk 1) ─────────────
+ *
+ * Section 21.2 lets a village TRY a setting for one moon at one tier below its
+ * natural bar. The exclusion list it shipped with named the Birthing rule, the
+ * highest tier, the veto hours, the council setting, the veto map and anything
+ * already routine. It left out quorum, unity and every tier dial, which are
+ * the settings that decide what everything else costs.
+ *
+ * The attack the second audit wrote out: one cheap proposal trials
+ * `governance.quorum_pct` down to 5 for a moon, permanent changes are bought
+ * at a bar the village never agreed to, and the trial's own reversion then
+ * tidies away the only evidence that the bar moved. It also contradicts 19B in
+ * the founder's own words, which is that a threshold moves at its own current
+ * bar.
+ *
+ * So there is a class, and its rule is one word: never. A META_SETTING is any
+ * dial that decides how a decision is priced, who counts toward the count, how
+ * long a steward has, what a steward may reach, or when a proposal may open.
+ *
+ * ── HOW THE LIST STAYS RIGHT AS LANES ADD DIALS ────────────────────────────
+ *
+ * By PREFIX as well as by name. The windows lane has not landed its per-kind
+ * window settings yet, and a list of exact keys written today would silently
+ * miss them. `governance.window_` catches every one of them the moment it
+ * exists, and a lane that has to think about whether its new key is meta is a
+ * lane that will sometimes decide wrong. The fail-safe direction here is to
+ * refuse a trial that might have been allowed, because the cost of that is one
+ * proposal at its ordinary bar.
+ */
+export const META_SETTING_KEYS: readonly string[] = [
+  ...SELF_PRICED_THRESHOLD_KEYS,
+  // The veto map and the steward's own limits (20.11, constitutional).
+  "governance.steward_subjects",
+  "governance.auto_execute_subjects",
+  "governance.veto_hours",
+  "governance.steward_council",
+  // The trial guard itself. A trial that could cheapen its own cooldown is a
+  // trial with no cooldown.
+  "governance.trial_cooldown_cycles",
+  // Who counts toward the count (19G). These move a denominator, which is the
+  // same power as moving the bar.
+  "governance.nonhuman_in_quorum",
+  "governance.absent_cycles",
+];
+
+/** Any key under one of these is a META_SETTING, whichever lane adds it. */
+export const META_SETTING_PREFIXES: readonly string[] = ["governance.window_", "governance.tier_"];
+
+/** Whether this setting prices, gates or counts other decisions. */
+export function isMetaSetting(key: string): boolean {
+  const k = String(key ?? "");
+  if (META_SETTING_KEYS.includes(k)) return true;
+  return META_SETTING_PREFIXES.some((p) => k.startsWith(p));
+}
+
+/**
+ * The refusal a trial of a pricing dial reads, or null when the setting may be
+ * trialled. Phase 2's trial path calls this and prints the sentence; it is
+ * here so the wizard that offers "try it for one moon" and the route that
+ * refuses one say the same words.
+ */
+export function metaSettingTrialRefusal(keys: string | readonly string[]): string | null {
+  const list = typeof keys === "string" ? [keys] : keys;
+  const blocked = list.map(String).filter(isMetaSetting);
+  if (blocked.length === 0) return null;
+  const named = blocked.length === 1 ? blocked[0] : blocked.join(", ");
+  return (
+    `${named} decides what every other decision in this village costs, so it is never tried for a moon at a lower bar. ` +
+    "Move it at its own current bar, which is the rule a threshold has always followed here."
+  );
+}
+
+/**
  * ── A TIER, READ IN PEOPLE (19F) ────────────────────────────────────────────
  *
  * What the control beside a criticality tier says before anybody proposes:
@@ -843,20 +919,28 @@ export interface TierReading extends PeopleAndWeight {
   rollWarning: string | null;
   /** Fired when the bar is above the number the founder recommends. */
   ceilingWarning: string | null;
+  /**
+   * Fired when the weight that can vote cannot add up to the bar (19G). It is
+   * computed against this roll and never against a static number, which is the
+   * failure the second audit found in the two warnings above.
+   */
+  reachWarning: string | null;
 }
 
 export function tierInPeople(
   criticality: Criticality,
   roll: readonly WeighedSeat[],
   settings?: ThresholdSettings,
+  policy: QuorumPolicy = DEFAULT_QUORUM_POLICY,
 ): TierReading {
   const dials = floorForCriticality(criticality, settings);
   return {
-    ...peopleAndWeightFor(dials, roll),
+    ...peopleAndWeightFor(dials, roll, policy),
     criticality,
-    sentence: thresholdSentence(dials, roll),
-    rollWarning: wholeRollWarning(dials, roll),
+    sentence: thresholdSentence(dials, roll, policy),
+    rollWarning: wholeRollWarning(dials, roll, policy),
     ceilingWarning: stalemateWarning(Math.max(dials.unityPct, dials.quorumPct)),
+    reachWarning: reachableQuorumWarning(dials, roll, policy),
   };
 }
 
@@ -866,12 +950,14 @@ export interface SubjectReading extends PeopleAndWeight {
   sentence: string;
   rollWarning: string | null;
   ceilingWarning: string | null;
+  reachWarning: string | null;
 }
 
 export function subjectInPeople(
   subjectType: string,
   roll: readonly WeighedSeat[],
   settings?: ThresholdSettings,
+  policy: QuorumPolicy = DEFAULT_QUORUM_POLICY,
 ): SubjectReading {
   const dials = floorForSubject(subjectType, settings);
   /*
@@ -881,11 +967,12 @@ export function subjectInPeople(
    */
   const exempt = subjectType === VILLAGE_LAUNCH;
   return {
-    ...peopleAndWeightFor(dials, roll),
+    ...peopleAndWeightFor(dials, roll, policy),
     subjectType,
-    sentence: thresholdSentence(dials, roll),
-    rollWarning: exempt ? null : wholeRollWarning(dials, roll),
+    sentence: thresholdSentence(dials, roll, policy),
+    rollWarning: exempt ? null : wholeRollWarning(dials, roll, policy),
     ceilingWarning: exempt ? null : stalemateWarning(Math.max(dials.unityPct, dials.quorumPct)),
+    reachWarning: exempt ? null : reachableQuorumWarning(dials, roll, policy),
   };
 }
 
@@ -921,6 +1008,143 @@ export function delegationRefusalSentence(): string {
     "This vote asks every member who takes a side to agree in person, so a choice cast by someone you follow " +
     "does not count on it. Cast your own vote to be counted here."
   );
+}
+
+/**
+ * ── THREE CYCLES WITHOUT QUORUM, WITH A COUNTER AND A DOOR (19F, 20.11) ─────
+ *
+ * The founder's words of 2026-09-03: "No if there is 3 cycles without quorum
+ * it just doesn't pass." 19F withdrew the tier fallback the audit had adopted,
+ * and left the sentence with nothing behind it: no counter, no warning, no
+ * terminal state and no copy, so a proposer who missed quorum nine times read
+ * the same page she read after the first miss.
+ *
+ * The mechanism is three lines of arithmetic and one door.
+ *
+ *  1. A per-subject counter of CONSECUTIVE no-quorum closes. Consecutive, so a
+ *     decision that reaches quorum once starts from zero again: the counter
+ *     measures a bar nobody can reach, and one that was reached is reachable.
+ *  2. The SECOND miss warns, names the tier as the obstacle, and says the next
+ *     one ends it. The obstacle is named because the proposer's own instinct
+ *     is to rewrite the proposal, and the proposal is fine: the bar is what it
+ *     keeps missing.
+ *  3. The THIRD closes it in a named terminal state with exactly one door,
+ *     withdraw and rewrite, carrying every backer forward so the village does
+ *     not pay again for support it already gave.
+ *
+ * THE TERMINAL STATE IS DERIVED AND NAMED, never a fourth value on the ballot
+ * status column. The three closes are already on the record as `no_quorum`
+ * rows, so the state is a reading of them and nothing has to be written for it
+ * to be true. Any surface that wants the word reads `NO_QUORUM_ENDED` here.
+ *
+ * THE BIRTHING IS EXEMPT for the reason `rerunOffer` already gives: it is
+ * asked again on a fresh roll whenever it misses, so a terminal state on it
+ * would end a village that had not started.
+ */
+export const QUORUM_MISS_LIMIT = 3;
+
+/** The named terminal state, so every surface says one word for it. */
+export const NO_QUORUM_ENDED = "no_quorum_ended";
+
+export type QuorumMissState = "clear" | "warned" | "ended";
+
+export interface QuorumMissInput {
+  subjectType: string;
+  /** Consecutive no-quorum closes on this subject, this one included. */
+  misses: number;
+  /** The quorum bar the ballots froze, for naming the obstacle. */
+  quorumPct: number;
+  /** The tier that set the bar, when the caller knows it. */
+  criticality?: Criticality;
+  /** How many backers carry into a rewrite. */
+  backers?: number;
+}
+
+export interface QuorumMissReading {
+  state: QuorumMissState;
+  /** The consecutive count this reading was made from. */
+  misses: number;
+  /** Misses left before the subject ends, 0 once it has. */
+  remaining: number;
+  /** The name to show and to store beside the closed row, or null. */
+  terminalState: string | null;
+  /** The sentence a member reads, or null while there is nothing to say. */
+  sentence: string | null;
+  /** The one door out of the terminal state, or null before it. */
+  door: string | null;
+}
+
+export function quorumMissReading(input: QuorumMissInput): QuorumMissReading {
+  const misses = Math.max(0, Math.trunc(Number(input.misses) || 0));
+  const clear: QuorumMissReading = {
+    state: "clear",
+    misses,
+    remaining: Math.max(0, QUORUM_MISS_LIMIT - misses),
+    terminalState: null,
+    sentence: null,
+    door: null,
+  };
+  if (input.subjectType === VILLAGE_LAUNCH) return clear;
+  const bar = `${Math.round((Number(input.quorumPct) || 0) * 100) / 100}% of the weight`;
+  const tier = input.criticality
+    ? `the ${input.criticality} tier, which asks for ${bar}`
+    : `a bar of ${bar}`;
+  if (misses === QUORUM_MISS_LIMIT - 1) {
+    return {
+      ...clear,
+      state: "warned",
+      sentence:
+        `This has now closed twice in a row without enough of the village showing up. The obstacle is ${tier}, ` +
+        "and the votes cast said nothing about the question. A third close without quorum ends this one for good.",
+    };
+  }
+  if (misses >= QUORUM_MISS_LIMIT) {
+    /*
+     * The backer count is OPTIONAL, and the sentence stays true without it.
+     * The close path knows a ballot and not a proposal's backers, and a door
+     * that guessed a number would be the surface promising something the
+     * proposal plane never said.
+     */
+    const backers = input.backers === undefined ? null : Math.max(0, Math.trunc(Number(input.backers) || 0));
+    const carried =
+      backers === null
+        ? "Everyone backing it comes with it"
+        : backers === 0
+          ? "Nobody is backing it today, so a rewrite starts fresh"
+          : backers === 1
+            ? "Its one backer comes with it"
+            : `All ${backers} of its backers come with it`;
+    return {
+      ...clear,
+      state: "ended",
+      remaining: 0,
+      terminalState: NO_QUORUM_ENDED,
+      sentence:
+        `This closed three times in a row without enough of the village showing up, so it ends here. The obstacle was ${tier}. ` +
+        "Nothing was decided against it: it was never counted.",
+      door: `Withdraw it and write it again. ${carried}.`,
+    };
+  }
+  return clear;
+}
+
+/**
+ * The consecutive no-quorum count, from closed rows NEWEST FIRST.
+ *
+ * It stops at the first close that was not a missed quorum, which is what
+ * makes the count consecutive. An open row is skipped, because a vote still
+ * running has said nothing yet, and skipping is the honest treatment: it is
+ * neither a miss nor a reset.
+ */
+export function consecutiveNoQuorum(closes: readonly { status: string }[]): number {
+  let n = 0;
+  for (const row of closes) {
+    const status = String(row.status ?? "");
+    if (status === "open") continue;
+    if (status !== "no_quorum") break;
+    n += 1;
+  }
+  return n;
 }
 
 /**
@@ -966,16 +1190,44 @@ export interface DepartedSeat {
   choice?: VoteChoice | null;
 }
 
+/**
+ * A seat on the frozen roll whose weight provably cannot answer, and which
+ * nobody has left (audit 2, risks 11 and 90).
+ *
+ * The re-run was written for one cause, a member who left the village, and the
+ * second audit found the likelier one: a seat speaking for a being whose
+ * representative seat is empty, or who has answered nothing for
+ * `governance.absent_cycles` cycles. Twenty-five percent of the Voice across
+ * four such seats puts every constitutional decision out of reach, and until
+ * this field the offer could not see it, because nobody had left.
+ */
+export interface UnvotableSeat {
+  userId: string;
+  /** The seat's frozen weight: the weight that cannot answer. */
+  weight: number;
+  /** Why, in one machine word, for a caller that branches. */
+  reason: "no_representative" | "silent";
+  /** What this seat voted before it went quiet, if anything. */
+  choice?: VoteChoice | null;
+}
+
 export interface RerunInput {
   subjectType: string;
   /** The ballot's status right now. Anything but `open` refuses. */
   status: string;
   /** The quorum bar frozen at open. */
   quorumPct: number;
-  /** The weight frozen at open. */
+  /**
+   * The weight this ballot's quorum is judged against: the frozen total on an
+   * ordinary ballot, and the quorum BASE on one where part of the roll is
+   * outside the count (19G). A seat already outside that base must not also
+   * appear in `unvotable`, or its weight is subtracted twice.
+   */
   totalWeight: number;
   /** Seats frozen at open that have left the village. */
   departed: readonly DepartedSeat[];
+  /** Seats still on the roll whose weight cannot answer (19G). */
+  unvotable?: readonly UnvotableSeat[];
   /** Members on the frozen roll who have already voted, for the carry list. */
   votedUserIds?: readonly string[];
 }
@@ -1007,16 +1259,22 @@ export function rerunOffer(input: RerunInput): RerunOffer {
     return no("closed", "This vote has closed. A closed decision is never re-run.");
   }
   const proven = input.departed.filter((seat) => String(seat.ledgerRef ?? "").trim() !== "");
-  if (proven.length === 0) {
+  const unvotable = (input.unvotable ?? []).filter((seat) => String(seat.userId ?? "").trim() !== "");
+  if (proven.length === 0 && unvotable.length === 0) {
     return no(
       "nobody_left",
-      "Nothing on the membership record shows that a seat on this roll has left the village, so there is no re-run to offer.",
+      "Nothing on the membership record shows that a seat on this roll has left the village, and every seat on it can still answer, so there is no re-run to offer.",
     );
   }
-  if (proven.some((seat) => seat.choice === "no")) {
+  /*
+   * The same abuse guard, over both causes. A seat that already voted against
+   * this is weight that answered, and dropping it from the roll would turn a
+   * departure or a silence into a way of deleting an objection.
+   */
+  if (proven.some((seat) => seat.choice === "no") || unvotable.some((seat) => seat.choice === "no")) {
     return no(
       "departed_voted_against",
-      "A seat that has left already voted against this. A re-run would erase that vote, so it is not offered here.",
+      "A seat that can no longer answer already voted against this. A re-run would erase that vote, so it is not offered here.",
     );
   }
   const total = Math.max(0, Number(input.totalWeight) || 0);
@@ -1031,9 +1289,11 @@ export function rerunOffer(input: RerunInput): RerunOffer {
    * froze. A seat that left AFTER voting is not stranded weight: its answer
    * is already on the record and already counts toward quorum.
    */
-  const stranded = proven
-    .filter((seat) => !seat.choice)
-    .reduce((sum, seat) => sum + Math.max(0, Number(seat.weight) || 0), 0);
+  const weightOf = (seats: readonly { weight: number; choice?: VoteChoice | null }[]): number =>
+    seats
+      .filter((seat) => !seat.choice)
+      .reduce((sum, seat) => sum + Math.max(0, Number(seat.weight) || 0), 0);
+  const stranded = weightOf(proven) + weightOf(unvotable);
   const reachablePct = ((total - stranded) / total) * 100;
   if (reachablePct >= Number(input.quorumPct)) {
     return no(
@@ -1041,10 +1301,19 @@ export function rerunOffer(input: RerunInput): RerunOffer {
       "This vote can still reach quorum with the members who are here, so it runs on.",
     );
   }
+  const goneIds = new Set([
+    ...proven.map((seat) => String(seat.userId)),
+    ...unvotable.map((seat) => String(seat.userId)),
+  ]);
   const carryForward = Array.from(new Set((input.votedUserIds ?? []).map(String))).filter(
-    (id) => !proven.some((seat) => String(seat.userId) === id),
+    (id) => !goneIds.has(id),
   );
-  const who = proven.length === 1 ? "One member" : `${proven.length} members`;
+  const left = proven.length === 0 ? "" : `${proven.length === 1 ? "One member" : `${proven.length} members`} on this roll has left the village`;
+  const silent =
+    unvotable.length === 0
+      ? ""
+      : `${unvotable.length === 1 ? "One seat" : `${unvotable.length} seats`} on this roll holds weight that cannot answer`;
+  const who = [left, silent].filter(Boolean).join(", and ");
   const carried =
     carryForward.length === 0
       ? "No vote has been cast yet, so the new ballot starts empty"
@@ -1055,7 +1324,7 @@ export function rerunOffer(input: RerunInput): RerunOffer {
     offered: true,
     carryForward,
     sentence:
-      `${who} on this roll has left the village, and the weight left behind can no longer reach the quorum this ` +
+      `${who}, and the weight left behind can no longer reach the quorum this ` +
       `vote froze. Asking it again on today's roll is offered while the vote is still open. ${carried}.`,
   };
 }

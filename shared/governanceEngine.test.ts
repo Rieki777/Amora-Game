@@ -22,6 +22,9 @@ import {
   villageBallotMethod,
   wholeRollWarning,
   quorumPctOf,
+  quorumBaseOf,
+  excludedWeightClause,
+  reachableQuorumWarning,
   unityPctOf,
   CRITICALITIES,
   RECOMMENDED_CEILING_PCT,
@@ -410,7 +413,13 @@ describe("people beside weight", () => {
   it("fires the stalemate warning whenever a tier rounds to the whole roll, and stays quiet otherwise", () => {
     const dials = { unityPct: 97, quorumPct: 97 };
     const warning = wholeRollWarning(dials, equalNine);
-    expect(warning).toContain("every one of the 9 people on the roll");
+    /*
+     * THRESHOLDS-FIX, 19G. The count in this sentence was "on the roll" and is
+     * now "this count reaches", because a roll can carry seats whose weight is
+     * outside the quorum arithmetic. On a roll of nine ordinary members the
+     * two are the same nine, which is what this line pins.
+     */
+    expect(warning).toContain("every one of the 9 people this count reaches");
     expect(wholeRollWarning(dials, concentrated)).toBeNull();
   });
 
@@ -438,5 +447,133 @@ describe("people beside weight", () => {
     expect(thresholdSentence({ unityPct: 80, quorumPct: 20 }, [{ weight: 0 }])).toContain(
       "cannot say how many people that is",
     );
+  });
+});
+
+/**
+ * ── VOICE FOR OTHER BEINGS, AND THE QUORUM (19G) ────────────────────────────
+ *
+ * Red before the arithmetic existed: a village that seats a river holding a
+ * quarter of the Voice put that quarter in every quorum denominator, and four
+ * such seats froze the top tier with nothing anywhere saying why.
+ */
+describe("whose weight the quorum counts", () => {
+  const river = { weight: 25, nonHuman: true };
+  const roll = [{ weight: 25 }, { weight: 25 }, { weight: 25 }, river];
+
+  it("leaves a seat speaking for a being out of both sides of the fraction, by default", () => {
+    const base = quorumBaseOf(roll);
+    expect(base.totalWeight).toBe(100);
+    expect(base.baseWeight).toBe(75);
+    expect(base.excludedWeight).toBe(25);
+    expect(base.excludedPeople).toBe(1);
+    expect(base.speaksForABeing).toBe(1);
+    expect(base.votablePeople).toBe(3);
+  });
+
+  it("counts it like any member's when the village says so", () => {
+    const base = quorumBaseOf(roll, { nonHumanInQuorum: true });
+    expect(base.baseWeight).toBe(100);
+    expect(base.excludedWeight).toBe(0);
+  });
+
+  it("drops weight that provably cannot answer, once such seats are counted", () => {
+    const silent = [{ weight: 25 }, { weight: 25 }, { weight: 25 }, { ...river, canVote: false }];
+    const base = quorumBaseOf(silent, { nonHumanInQuorum: true });
+    expect(base.baseWeight).toBe(75);
+    expect(base.cannotVote).toBe(1);
+    expect(base.speaksForABeing).toBe(0);
+  });
+
+  it("treats an unasked seat as able to answer, so 'we did not look' never reads as 'it cannot'", () => {
+    expect(quorumBaseOf([{ weight: 10 }]).baseWeight).toBe(10);
+  });
+
+  it("decides an outcome on the reduced base when one is handed in", () => {
+    // 75 of 100 answered. Against the whole roll that is 75% and misses a 90%
+    // bar; against the base the river is out of, it is everything there is.
+    const shared = {
+      method: "custom" as const,
+      unityPct: 80,
+      quorumPct: 90,
+      totalWeight: 100,
+      tallies: { yesW: 75, noW: 0, abstainW: 0 },
+    };
+    expect(evaluateBallot(shared)).toBe("no_quorum");
+    expect(evaluateBallot({ ...shared, quorum: { answeredWeight: 75, baseWeight: 75 } })).toBe("passed");
+  });
+
+  it("reads no quorum when every seat that could carry it is outside the count", () => {
+    expect(
+      evaluateBallot({
+        method: "custom",
+        unityPct: 80,
+        quorumPct: 20,
+        totalWeight: 100,
+        tallies: { yesW: 100, noW: 0, abstainW: 0 },
+        quorum: { answeredWeight: 0, baseWeight: 0 },
+      }),
+    ).toBe("no_quorum");
+  });
+
+  it("counts the fewest people against the seats the bar can actually reach", () => {
+    // Three equal members and a river. 100% of the count is the three of them.
+    const r = peopleAndWeightFor({ unityPct: 80, quorumPct: 100 }, roll);
+    expect(r.people).toBe(4);
+    expect(r.fewestForQuorum).toBe(3);
+    expect(r.needsEveryone).toBe(true);
+    expect(r.quorumBase.excludedWeight).toBe(25);
+  });
+
+  it("says the excluded weight beside the people count, on a bar and on a ballot", () => {
+    const sentence = thresholdSentence({ unityPct: 80, quorumPct: 50 }, roll);
+    expect(sentence).toContain("of 4 people");
+    expect(sentence).toContain("speaks for a being that is not a person");
+    expect(sentence).toContain("25% of the weight, and that weight is outside this count");
+    const state = participationSentence({
+      peopleVoted: 2,
+      people: 4,
+      weightVoted: 50,
+      totalWeight: 75,
+      excluded: quorumBaseOf(roll),
+    });
+    expect(state).toContain("2 of 4 people voted");
+    expect(state).toContain("outside this count");
+  });
+
+  it("says nothing extra when every seat's weight is in the count", () => {
+    expect(thresholdSentence({ unityPct: 80, quorumPct: 50 }, [{ weight: 1 }, { weight: 1 }])).not.toContain(
+      "outside this count",
+    );
+    expect(excludedWeightClause(quorumBaseOf([{ weight: 1 }]))).toBe("");
+  });
+
+  it("warns when the weight that votes cannot add up to the bar, computed and never tested against 97", () => {
+    // Four beings holding a quarter, a bar of 90, and every dial inside the
+    // range the founder recommends. `stalemateWarning` cannot see this.
+    const stranded = [
+      { weight: 75 },
+      { weight: 10, nonHuman: true },
+      { weight: 15, nonHuman: true },
+    ];
+    const dials = { unityPct: 80, quorumPct: 90 };
+    expect(stalemateWarning(dials.quorumPct)).toBeNull();
+    const warning = reachableQuorumWarning(dials, stranded);
+    expect(warning).toContain("75% of the weight");
+    expect(warning).toContain("asks for 90%");
+    expect(warning).toContain("2 seats hold");
+  });
+
+  it("stays quiet when the weight that votes can still reach the bar", () => {
+    expect(reachableQuorumWarning({ unityPct: 80, quorumPct: 50 }, [
+      { weight: 75 },
+      { weight: 25, nonHuman: true },
+    ])).toBeNull();
+    expect(reachableQuorumWarning({ unityPct: 80, quorumPct: 100 }, [{ weight: 3 }])).toBeNull();
+  });
+
+  it("names the seats the whole-roll warning actually asks for", () => {
+    const warning = wholeRollWarning({ unityPct: 80, quorumPct: 100 }, roll);
+    expect(warning).toContain("every one of the 3 people this count reaches");
   });
 });

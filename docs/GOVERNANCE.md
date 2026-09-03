@@ -143,12 +143,14 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.highest_tier` | The tier a veto override is passed at | `open` | `constitutional` | `routine`, `structural`, `constitutional` | when it is written |
 | `governance.subject_mint_rule_quorum_pct` | Minting rule changes: quorum floor | `open` | `50` | 50 to 100 % | when it is written |
 | `governance.subject_mint_rule_unity_pct` | Minting rule changes: unity floor | `open` | `0` | 0 to 100 % | when it is written |
+| `governance.nonhuman_in_quorum` | Seats speaking for other beings count toward quorum | `open` | `false` | boolean | when it is written |
+| `governance.absent_cycles` | Cycles of silence before a seat leaves the count | `open` | `3` | 1 to 24 cycles | when it is written |
 | `membership.vouch_threshold` | Vouches to admit a member | `open` | `0` | 0 to 20 vouches | when it is written |
 
 <!-- written by a person: dialsStorage -->
 Only CHANGED values are stored. An absent row means the platform default in the table above, so a fresh village starts with every one of these and no rows at all.
 
-11 settings across the whole registry wait for a cycle close instead of applying when they are written: `cycle.mode`, `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 28 settings above is one of them, so every governance dial takes effect the moment it is written.
+11 settings across the whole registry wait for a cycle close instead of applying when they are written: `cycle.mode`, `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 30 settings above is one of them, so every governance dial takes effect the moment it is written.
 
 ## What each kind of decision asks
 
@@ -1072,6 +1074,28 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "default": "0",
       "min": 0,
       "max": 100,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.nonhuman_in_quorum",
+      "label": "Seats speaking for other beings count toward quorum",
+      "ring": "open",
+      "type": "boolean",
+      "default": "false",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.absent_cycles",
+      "label": "Cycles of silence before a seat leaves the count",
+      "ring": "open",
+      "type": "integer",
+      "default": "3",
+      "min": 1,
+      "max": 24,
       "choices": null,
       "applyTiming": "instant"
     },

@@ -22,7 +22,7 @@ import {
   VARIABLES_BY_KEY,
 } from "./gameVariables";
 import { GAME_CONFIG } from "./gameConfig";
-import { HIGHEST_TIER_KEY } from "./ballotSubjects";
+import { HIGHEST_TIER_KEY, isMetaSetting } from "./ballotSubjects";
 import { CRITICALITIES } from "./governanceEngine";
 import { hasCapability, STAGE_UNLOCKS, type Capability } from "./capabilities";
 
@@ -303,5 +303,38 @@ describe("the structural tier says its numbers are a starting point", () => {
     expect(unity.default).toBe("80");
     expect(quorum.description).toContain("your village may raise it");
     expect(unity.description).toContain("your village may raise");
+  });
+});
+
+/**
+ * -- WHOSE WEIGHT THE QUORUM COUNTS (19G, thresholds-fix) -------------------
+ *
+ * Red before these two dials existed: 19C brought voice for other beings from
+ * day one and 19F made quorum pure token weight, and nothing anywhere said
+ * whether a river's share of the Voice was part of the count.
+ */
+describe("the two dials that decide who counts toward quorum", () => {
+  it("ships with beings outside the count, which is the safe reading of a bar", () => {
+    const def = VARIABLES_BY_KEY["governance.nonhuman_in_quorum"];
+    expect(def).toBeTruthy();
+    expect(def.type).toBe("boolean");
+    expect(def.default).toBe("false");
+    expect(def.criticality).toBe("constitutional");
+    expect(ringOf(def)).toBe("open");
+  });
+
+  it("counts silence in cycles, defaults to three, and never allows zero", () => {
+    const def = VARIABLES_BY_KEY["governance.absent_cycles"];
+    expect(def).toBeTruthy();
+    expect(def.type).toBe("integer");
+    expect(def.default).toBe("3");
+    expect(def.min).toBe(1);
+    expect(def.criticality).toBe("constitutional");
+    expect(validateVariable(def, "0")).toBeTruthy();
+  });
+
+  it("is priced as a meta setting, so no trial can move a denominator cheaply", () => {
+    expect(isMetaSetting("governance.nonhuman_in_quorum")).toBe(true);
+    expect(isMetaSetting("governance.absent_cycles")).toBe(true);
   });
 });

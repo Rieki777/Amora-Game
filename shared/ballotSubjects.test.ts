@@ -14,6 +14,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  consecutiveNoQuorum,
   criticalityOfItems,
   delegatedRowsCountOn,
   delegationRefusalSentence,
@@ -24,9 +25,12 @@ import {
   floorForSubject,
   highestTier,
   highestTierFrom,
+  isMetaSetting,
+  metaSettingTrialRefusal,
   methodForSubject,
   methodForSubjects,
   overrideDials,
+  quorumMissReading,
   rerunOffer,
   rollProblem,
   stalemateWarningFor,
@@ -39,6 +43,7 @@ import {
   weightFloorProblem,
   CHANGE_ITEM_KINDS,
   HIGHEST_TIER_KEY,
+  NO_QUORUM_ENDED,
   SELF_PRICED_THRESHOLD_KEYS,
   CRITICALITY_FOR_ITEM_KIND,
   GOVERNANCE_MODE,
@@ -645,7 +650,9 @@ describe("a tier read in people", () => {
     expect(reading.fewestForQuorum).toBe(9);
     expect(reading.needsEveryone).toBe(true);
     expect(reading.sentence).toContain("at least 9 of 9 people");
-    expect(reading.rollWarning).toContain("every one of the 9 people on the roll");
+    // THRESHOLDS-FIX, 19G: the count in this sentence is now the seats the
+    // quorum reaches, which on a roll of nine ordinary members is the nine.
+    expect(reading.rollWarning).toContain("every one of the 9 people this count reaches");
   });
 
   it("warns above 97 without refusing, which is his ruling and not the audit's", () => {
@@ -748,5 +755,213 @@ describe("the stalemate re-run", () => {
   it("says it could not tell on a weightless roll, and never calls that a stalemate", () => {
     const offer = rerunOffer({ ...base, totalWeight: 0 });
     expect(offer).toMatchObject({ offered: false, reason: "no_weight" });
+  });
+});
+
+/**
+ * -- THE DIALS A TRIAL MAY NEVER TOUCH (audit 2, risk 1) ---------------------
+ *
+ * Red before the class existed: 21.2's exclusion list left out quorum, unity
+ * and every tier dial, so one cheap proposal could open a moon in which
+ * permanent changes were priced at a bar nobody agreed to.
+ */
+describe("meta settings", () => {
+  it("names quorum, unity and every tier dial", () => {
+    expect(isMetaSetting("governance.quorum_pct")).toBe(true);
+    expect(isMetaSetting("governance.unity_pct")).toBe(true);
+    for (const c of CRITICALITIES) {
+      expect(isMetaSetting(TIER_SETTING_KEYS[c].unity), c).toBe(true);
+      expect(isMetaSetting(TIER_SETTING_KEYS[c].quorum), c).toBe(true);
+    }
+    for (const key of THRESHOLD_PERCENT_KEYS) expect(isMetaSetting(key), key).toBe(true);
+  });
+
+  it("names the veto map, the window, the cooldown and the two counting dials", () => {
+    for (const key of [
+      "governance.steward_subjects",
+      "governance.auto_execute_subjects",
+      "governance.veto_hours",
+      "governance.steward_council",
+      "governance.highest_tier",
+      "governance.trial_cooldown_cycles",
+      "governance.nonhuman_in_quorum",
+      "governance.absent_cycles",
+    ]) {
+      expect(isMetaSetting(key), key).toBe(true);
+    }
+  });
+
+  it("catches a window setting the windows lane has not written yet, by prefix", () => {
+    expect(isMetaSetting("governance.window_mechanics")).toBe(true);
+    expect(isMetaSetting("governance.window_grace_days")).toBe(true);
+  });
+
+  it("leaves an ordinary dial alone", () => {
+    expect(isMetaSetting("governance.vote_days")).toBe(false);
+    expect(isMetaSetting("gratitude.pool")).toBe(false);
+  });
+
+  it("refuses a trial of a pricing dial, naming it and the rule", () => {
+    const refusal = metaSettingTrialRefusal("governance.quorum_pct");
+    expect(refusal).toContain("governance.quorum_pct");
+    expect(refusal).toContain("at its own current bar");
+    expect(metaSettingTrialRefusal(TIER_SETTING_KEYS.constitutional.quorum)).toContain(
+      TIER_SETTING_KEYS.constitutional.quorum,
+    );
+  });
+
+  it("refuses a bundle that hides one pricing dial among ordinary ones", () => {
+    expect(
+      metaSettingTrialRefusal(["governance.vote_days", "governance.unity_pct", "governance.sensing_days"]),
+    ).toContain("governance.unity_pct");
+  });
+
+  it("allows a trial of a dial that prices nothing", () => {
+    expect(metaSettingTrialRefusal(["governance.vote_days"])).toBeNull();
+    expect(metaSettingTrialRefusal([])).toBeNull();
+  });
+});
+
+/**
+ * -- THREE CYCLES WITHOUT QUORUM (19F, 20.11) -------------------------------
+ *
+ * Red before the counter existed: the founder's "3 cycles without quorum it
+ * just doesn't pass" had no count, no warning and no terminal state, so a
+ * proposer read the same page after the ninth miss as after the first.
+ */
+describe("three cycles without quorum", () => {
+  it("counts consecutive misses and stops at the first decided close", () => {
+    expect(consecutiveNoQuorum([])).toBe(0);
+    expect(consecutiveNoQuorum([{ status: "no_quorum" }, { status: "no_quorum" }])).toBe(2);
+    expect(
+      consecutiveNoQuorum([{ status: "no_quorum" }, { status: "failed" }, { status: "no_quorum" }]),
+    ).toBe(1);
+    expect(consecutiveNoQuorum([{ status: "passed" }])).toBe(0);
+  });
+
+  it("skips a ballot still running, which has said nothing either way", () => {
+    expect(consecutiveNoQuorum([{ status: "open" }, { status: "no_quorum" }])).toBe(1);
+  });
+
+  it("says nothing on the first miss", () => {
+    const r = quorumMissReading({ subjectType: "mechanics", misses: 1, quorumPct: 97 });
+    expect(r.state).toBe("clear");
+    expect(r.sentence).toBeNull();
+    expect(r.remaining).toBe(2);
+  });
+
+  it("warns on the second, names the tier as the obstacle, and says the next one ends it", () => {
+    const r = quorumMissReading({
+      subjectType: "mechanics",
+      misses: 2,
+      quorumPct: 97,
+      criticality: "constitutional",
+    });
+    expect(r.state).toBe("warned");
+    expect(r.sentence).toContain("the constitutional tier, which asks for 97% of the weight");
+    expect(r.sentence).toContain("ends this one for good");
+    expect(r.remaining).toBe(1);
+  });
+
+  it("ends it on the third, names the state, and leaves one door", () => {
+    const r = quorumMissReading({
+      subjectType: "mechanics",
+      misses: 3,
+      quorumPct: 97,
+      criticality: "constitutional",
+      backers: 4,
+    });
+    expect(r.state).toBe("ended");
+    expect(r.terminalState).toBe(NO_QUORUM_ENDED);
+    expect(r.remaining).toBe(0);
+    expect(r.sentence).toContain("three times in a row");
+    expect(r.sentence).toContain("it was never counted");
+    expect(r.door).toContain("Withdraw it and write it again");
+    expect(r.door).toContain("All 4 of its backers come with it");
+  });
+
+  it("keeps the door true when nobody handed it a backer count", () => {
+    const r = quorumMissReading({ subjectType: "mechanics", misses: 3, quorumPct: 20 });
+    expect(r.door).toContain("Everyone backing it comes with it");
+  });
+
+  it("exempts the Birthing, which is asked again on a fresh roll every time", () => {
+    const r = quorumMissReading({ subjectType: VILLAGE_LAUNCH, misses: 9, quorumPct: 100 });
+    expect(r.state).toBe("clear");
+    expect(r.terminalState).toBeNull();
+  });
+});
+
+/**
+ * -- THE RE-RUN, FOR A BLOC THAT CANNOT VOTE (audit 2, risks 11 and 90) ------
+ *
+ * Red before this: the offer only saw a member who had left, and the likelier
+ * stalemate arrives from seats that are still on the roll and answer nothing.
+ */
+describe("a re-run for weight that cannot answer", () => {
+  const base = {
+    subjectType: "mechanics",
+    status: "open",
+    quorumPct: 90,
+    totalWeight: 100,
+    departed: [],
+    votedUserIds: ["u-a"],
+  };
+
+  it("is offered when an unvotable bloc puts quorum out of reach, with nobody departed", () => {
+    const offer = rerunOffer({
+      ...base,
+      unvotable: [
+        { userId: "u-river", weight: 15, reason: "silent" as const },
+        { userId: "u-hill", weight: 10, reason: "no_representative" as const },
+      ],
+    });
+    expect(offer.offered).toBe(true);
+    if (offer.offered) {
+      expect(offer.sentence).toContain("2 seats on this roll holds weight that cannot answer");
+      expect(offer.carryForward).toEqual(["u-a"]);
+    }
+  });
+
+  it("still refuses when the silent seat already voted against", () => {
+    const offer = rerunOffer({
+      ...base,
+      unvotable: [{ userId: "u-river", weight: 40, reason: "silent" as const, choice: "no" as const }],
+    });
+    expect(offer).toMatchObject({ offered: false, reason: "departed_voted_against" });
+  });
+
+  it("says so when every seat can still answer", () => {
+    expect(rerunOffer({ ...base, unvotable: [] })).toMatchObject({ offered: false, reason: "nobody_left" });
+  });
+
+  it("still refuses while the votable weight can reach the bar", () => {
+    const offer = rerunOffer({
+      ...base,
+      quorumPct: 50,
+      unvotable: [{ userId: "u-river", weight: 15, reason: "silent" as const }],
+    });
+    expect(offer).toMatchObject({ offered: false, reason: "quorum_still_reachable" });
+  });
+});
+
+describe("a tier read against the weight that votes", () => {
+  const roll = [{ weight: 75 }, { weight: 10, nonHuman: true }, { weight: 15, nonHuman: true }];
+
+  it("warns that the bar cannot be reached, without any dial being above 97", () => {
+    const reading = tierInPeople("constitutional", roll);
+    expect(reading.ceilingWarning).toBeNull();
+    expect(reading.reachWarning).toContain("asks for 97%");
+    expect(reading.quorumBase.excludedWeight).toBe(25);
+    expect(reading.sentence).toContain("outside this count");
+  });
+
+  it("stays quiet on a roll every seat of which is in the count", () => {
+    const reading = tierInPeople("structural", [{ weight: 1 }, { weight: 1 }]);
+    expect(reading.reachWarning).toBeNull();
+  });
+
+  it("exempts the Birthing from the reach warning as it does from the other two", () => {
+    expect(subjectInPeople(VILLAGE_LAUNCH, roll).reachWarning).toBeNull();
   });
 });

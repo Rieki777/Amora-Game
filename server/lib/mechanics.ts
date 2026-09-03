@@ -37,6 +37,7 @@ import {
   criticalityOfItems,
   dialsForSubject,
   floorForCriticality,
+  metaSettingTrialRefusal,
   methodForSubjects,
   thresholdChangePrice,
   thresholdsForSubject,
@@ -182,6 +183,66 @@ export function pricingOf(item: ChangeItem): { subject: string; criticality: Cri
   const named = thresholdsForSubject(subject);
   if (named) return { subject, criticality: named.criticality ?? "routine" };
   return { subject, criticality: CRITICALITY_FOR_ITEM_KIND[item.kind] };
+}
+
+/**
+ * ── THE NATURAL TIER, AND WHY A TRIAL CANNOT DISCOUNT IT ────────────────────
+ *
+ * Section 21.2 lets a village try a setting for one moon at one tier below its
+ * own. The second audit's first risk is what happens when the setting being
+ * tried is one of the dials that price everything else: a cheap proposal opens
+ * a moon in which permanent changes are bought at a bar nobody agreed to, and
+ * the trial's own reversion tidies away the evidence.
+ *
+ * Two functions close it, and they are here because pricing lives here.
+ *
+ *  - `metaSettingTrialRefusal` (shared/ballotSubjects.ts) refuses the trial
+ *    outright for every dial in the META_SETTING class.
+ *  - `naturalTierFor` answers "what does this setting cost with no discount",
+ *    so any pricing done while a trial is in force can be forced back to it.
+ *    Phase 2's trial path calls it for the story requirement of 21.1 as well,
+ *    which is priced at the natural tier even when the ballot is priced one
+ *    step down.
+ *
+ * A key the registry does not know answers `routine`, which is what
+ * `pricingOf` already answers for an unknown dial. The trial path refuses an
+ * unknown key on its own grounds before pricing it.
+ */
+export function naturalTierFor(key: string): Criticality {
+  const def = VARIABLES_BY_KEY[String(key)];
+  return def ? criticalityOf(def) : "routine";
+}
+
+/**
+ * The bar this setting costs to move with no discount: its own tier's floor,
+ * raised by the thresholds-for-thresholds rule (19B) when the setting IS a
+ * bar. One function, because a trial that priced the tier correctly and
+ * skipped the self-price would still hand a village a cheap constitutional
+ * dial.
+ */
+export function naturalPriceFor(key: string, settings?: ThresholdSettings): MethodDials {
+  const floor = floorForCriticality(naturalTierFor(key), settings);
+  const own = thresholdChangePrice(key, settings);
+  return own ? raiseDials(floor, own) : floor;
+}
+
+/**
+ * The refusal a proposal marked `trial = true` reads when any element of it
+ * moves a dial that prices, gates or counts other decisions, or null when
+ * every element may be tried.
+ *
+ * It answers on the WHOLE set, because a bundle is one proposal and a set
+ * holding one meta setting beside four ordinary dials is a discount on the
+ * meta setting. The other trial guards of 21.2 (the cooldown, a trial of a
+ * token send, a setting already at routine) belong to the lane that builds
+ * trials; this one is the class that can never be trialled at all.
+ */
+export function trialProblem(changes: readonly ChangeInput[]): string | null {
+  const keys = changes
+    .map(asChangeItem)
+    .filter((item): item is DialItem => item.kind === "dial")
+    .map((item) => item.key);
+  return metaSettingTrialRefusal(keys);
 }
 
 /**

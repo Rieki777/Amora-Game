@@ -7,10 +7,13 @@
 import { describe, expect, it } from "vitest";
 import {
   asChangeItem,
+  naturalPriceFor,
+  naturalTierFor,
   parseHyphaProposalId,
   priceChangeSet,
   pricingOf,
   proposerStanding,
+  trialProblem,
   validateChangeSet,
   proposalMarkdown,
   displayChangeValue,
@@ -677,5 +680,65 @@ describe("a change to a threshold is priced at that threshold's current bar", ()
   it("leaves an ordinary dial exactly where it was, so this rule reaches nothing else", () => {
     const priced = priceChangeSet([{ key: "gratitude.base_budget", to: "150" }], "custom", village, registry);
     expect(priced.dials).toEqual(village);
+  });
+});
+
+/**
+ * -- THE NATURAL TIER, AND THE TRIAL THAT CANNOT DISCOUNT IT ----------------
+ *
+ * Red before these: 21.2 priced a trial one tier below a setting's own and its
+ * exclusion list omitted quorum, unity and every tier dial, so a trial of
+ * governance.quorum_pct was expressible and nothing refused it.
+ */
+describe("trials and the natural tier", () => {
+  const registry = thresholdSettingsFrom(() => 0);
+
+  it("answers a setting's own tier with no discount", () => {
+    expect(naturalTierFor("governance.weight_mode")).toBe("constitutional");
+    expect(naturalTierFor(TIER_SETTING_KEYS.structural.quorum)).toBe("constitutional");
+    expect(naturalTierFor("governance.vote_days")).toBe("routine");
+  });
+
+  it("answers routine for a key the registry has never heard of, the way pricing already does", () => {
+    expect(naturalTierFor("nothing.at.all")).toBe("routine");
+  });
+
+  it("keeps the thresholds-for-thresholds bar inside the natural price", () => {
+    // The constitutional tier's floor and this dial's own current bar are the
+    // same numbers on the registry, and a village that raised its structural
+    // tier above them proves the raise is real.
+    expect(naturalPriceFor(TIER_SETTING_KEYS.constitutional.unity, registry)).toEqual(
+      TIER_FLOORS.constitutional,
+    );
+    const raised = thresholdSettingsFrom((k) =>
+      k === TIER_SETTING_KEYS.structural.unity || k === TIER_SETTING_KEYS.structural.quorum ? 99 : 0,
+    );
+    expect(naturalPriceFor(TIER_SETTING_KEYS.structural.quorum, raised)).toEqual({
+      unityPct: 99,
+      quorumPct: 99,
+    });
+  });
+
+  it("refuses a trial of governance.quorum_pct and of any tier dial", () => {
+    expect(trialProblem([{ kind: "dial", key: "governance.quorum_pct", to: "5" }])).toContain(
+      "governance.quorum_pct",
+    );
+    expect(
+      trialProblem([{ kind: "dial", key: TIER_SETTING_KEYS.constitutional.quorum, to: "10" }]),
+    ).toContain(TIER_SETTING_KEYS.constitutional.quorum);
+  });
+
+  it("refuses a bundle carrying one pricing dial among ordinary ones", () => {
+    expect(
+      trialProblem([
+        { kind: "dial", key: "governance.vote_days", to: "9" },
+        { kind: "dial", key: HIGHEST_TIER_KEY, to: "routine" },
+      ]),
+    ).toContain(HIGHEST_TIER_KEY);
+  });
+
+  it("allows a trial of a dial that prices nothing", () => {
+    expect(trialProblem([{ kind: "dial", key: "governance.vote_days", to: "9" }])).toBeNull();
+    expect(trialProblem([])).toBeNull();
   });
 });

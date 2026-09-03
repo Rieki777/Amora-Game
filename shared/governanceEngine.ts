@@ -72,6 +72,33 @@ export function quorumPctOf(
   return (answered / totalWeight) * 100;
 }
 
+/**
+ * QUORUM COUNTED OVER LESS THAN THE WHOLE ROLL (19G).
+ *
+ * Some of a village's frozen weight sits on seats that are out of the quorum
+ * arithmetic: a seat speaking for a being that is not a person, when the
+ * village has said such a seat's weight is not part of the count. Both halves
+ * of the fraction move together, which is the only shape that keeps the
+ * percentage honest: taking weight out of the denominator alone would let a
+ * ballot report more than 100% turnout, and taking it out of the numerator
+ * alone would ask the votable seats to carry weight nobody could cast.
+ *
+ * The pair is handed in already worked out, because the seat facts live on the
+ * server and the arithmetic lives here.
+ */
+export interface QuorumArithmetic {
+  /** The weight that answered, counting only seats inside the quorum. */
+  answeredWeight: number;
+  /** The weight the answer is measured against. */
+  baseWeight: number;
+}
+
+/** The same percentage as `quorumPctOf`, over a base that is not the whole roll. */
+export function quorumPctOn(q: QuorumArithmetic): number {
+  if (!(q.baseWeight > 0)) return 0;
+  return (Math.max(0, q.answeredWeight) / q.baseWeight) * 100;
+}
+
 export interface EvaluateInput {
   method: BallotMethod;
   /** Snapshot dials from the ballot row, as percentages 0-100. */
@@ -92,6 +119,12 @@ export interface EvaluateInput {
   minYesHeads?: number | "all";
   /** The head counts, required whenever `minYesHeads` is set. */
   heads?: HeadCounts;
+  /**
+   * The quorum fraction when part of the frozen weight is out of the count
+   * (19G). Absent means the whole frozen roll is the base, which is every
+   * ballot in a village that has seated nobody for a non-human being.
+   */
+  quorum?: QuorumArithmetic;
 }
 
 /** Heads on a frozen roll: how many answered which way, and how many seats. */
@@ -135,7 +168,15 @@ export function requiredYesHeads(
  */
 export function evaluateBallot(input: EvaluateInput): BallotOutcome {
   const abstain = input.abstainPolicy ?? "counts_toward_quorum";
-  const quorum = quorumPctOf(input.tallies, input.totalWeight, abstain);
+  /*
+   * The quorum fraction, from the caller's own pair when part of the frozen
+   * weight sits outside the count (19G), and from the whole roll otherwise.
+   * A base of zero reads as no quorum, which is the fail-closed answer: every
+   * seat that could have carried this one is out of the arithmetic.
+   */
+  const quorum = input.quorum
+    ? quorumPctOn(input.quorum)
+    : quorumPctOf(input.tallies, input.totalWeight, abstain);
   if (quorum < input.quorumPct) return "no_quorum";
   /*
    * THE HEAD FLOOR, CHECKED IN THE ENGINE AND NOWHERE ELSE.
@@ -367,11 +408,123 @@ export function stalemateWarning(pct: number): string | null {
 /** One seat on a roll, as the people-and-weight arithmetic needs it. */
 export interface WeighedSeat {
   weight: number;
+  /**
+   * This seat speaks for a being that is not a person (19G): a mountain, a
+   * river, the wolves. Its vote is cast by the member or bot that holds the
+   * seat. Absent means an ordinary member's seat, which is the safe reading
+   * for any caller that has not resolved the roles plane.
+   */
+  nonHuman?: boolean;
+  /**
+   * Whether this seat can actually answer. `false` means the weight is
+   * provably stranded: a seat speaking for a being with nobody holding it, or
+   * one that has cast nothing for `governance.absent_cycles` cycles. Absent
+   * means it can, because "we did not look" must never read as "it cannot".
+   */
+  canVote?: boolean;
 }
 
 /** The roll's whole weight, negatives floored at zero the way `openBallot` does. */
 export function totalWeightOf(roll: readonly WeighedSeat[]): number {
   return roll.reduce((sum, seat) => sum + Math.max(0, Number(seat.weight) || 0), 0);
+}
+
+/**
+ * ── WHOSE WEIGHT IS IN THE QUORUM, AND WHOSE IS NOT (19G) ───────────────────
+ *
+ * The founder brought voice for other beings from day one, and 19F made quorum
+ * pure token weight. Put together with no third rule, a river holding a share
+ * of the Voice adds its weight to every quorum denominator whether or not
+ * anybody ever speaks for it, and four quiet seats holding a quarter of the
+ * Voice put the constitutional tier permanently out of reach.
+ *
+ * `governance.nonhuman_in_quorum` decides which way a village reads it, and it
+ * ships OFF, which excludes those seats:
+ *
+ *   excluded (the default)  a non-human seat's weight is out of the quorum
+ *                           numerator AND denominator. Its cast vote still
+ *                           counts toward unity, because unity asks what the
+ *                           village that spoke decided, and the being spoke.
+ *   included                the seat counts like any member's, and only weight
+ *                           that provably cannot vote leaves the denominator:
+ *                           a seat nobody holds, or one that has answered
+ *                           nothing for `governance.absent_cycles` cycles.
+ *
+ * This is arithmetic telling the truth about a bar. It is not the tier
+ * fallback 19F withdrew: no threshold moves, and a village that misses quorum
+ * still misses it.
+ */
+export interface QuorumPolicy {
+  /** `governance.nonhuman_in_quorum`. False, the default, excludes those seats. */
+  nonHumanInQuorum: boolean;
+}
+
+export const DEFAULT_QUORUM_POLICY: QuorumPolicy = { nonHumanInQuorum: false };
+
+/** Why a seat's weight sits outside the quorum, or `null` when it is inside. */
+export type ExclusionReason = "speaks_for_a_being" | "cannot_vote";
+
+/** Whether this seat's weight counts toward quorum, and why not when it does not. */
+export function exclusionOf(seat: WeighedSeat, policy: QuorumPolicy): ExclusionReason | null {
+  if (seat.nonHuman && !policy.nonHumanInQuorum) return "speaks_for_a_being";
+  if (seat.canVote === false) return "cannot_vote";
+  return null;
+}
+
+/** The quorum base for a roll, with the weight left out of it named. */
+export interface QuorumBase {
+  /** The roll's whole weight, every seat included. */
+  totalWeight: number;
+  /** The weight the quorum percentage is measured against. */
+  baseWeight: number;
+  /** The weight outside the quorum arithmetic. */
+  excludedWeight: number;
+  /** How many seats that weight sits on. */
+  excludedPeople: number;
+  /** Seats inside the quorum arithmetic. */
+  votablePeople: number;
+  /** Excluded because they speak for a being, when the village excludes those. */
+  speaksForABeing: number;
+  /** Excluded because the weight provably cannot answer. */
+  cannotVote: number;
+}
+
+export function quorumBaseOf(
+  roll: readonly WeighedSeat[],
+  policy: QuorumPolicy = DEFAULT_QUORUM_POLICY,
+): QuorumBase {
+  const out: QuorumBase = {
+    totalWeight: 0,
+    baseWeight: 0,
+    excludedWeight: 0,
+    excludedPeople: 0,
+    votablePeople: 0,
+    speaksForABeing: 0,
+    cannotVote: 0,
+  };
+  for (const seat of roll) {
+    const w = Math.max(0, Number(seat.weight) || 0);
+    out.totalWeight += w;
+    const why = exclusionOf(seat, policy);
+    if (why === null) {
+      out.baseWeight += w;
+      out.votablePeople += 1;
+      continue;
+    }
+    out.excludedWeight += w;
+    out.excludedPeople += 1;
+    if (why === "speaks_for_a_being") out.speaksForABeing += 1;
+    else out.cannotVote += 1;
+  }
+  return out;
+}
+
+/** The seats whose weight counts toward quorum, in roll order. */
+export function votableSeats(
+  roll: readonly WeighedSeat[],
+  policy: QuorumPolicy = DEFAULT_QUORUM_POLICY,
+): WeighedSeat[] {
+  return roll.filter((seat) => exclusionOf(seat, policy) === null);
 }
 
 /** Whether every seat on the roll weighs the same, so the bar reads in heads. */
@@ -416,21 +569,41 @@ export interface PeopleAndWeight {
   dials: MethodDials;
   /** Fewest people who can meet the quorum bar, or null when it cannot be told. */
   fewestForQuorum: number | null;
-  /** True when the quorum bar can only be met by every seat on the roll. */
+  /** True when the quorum bar can only be met by every seat that can vote. */
   needsEveryone: boolean;
   /** True when every seat weighs the same, so weight and heads are one count. */
   equalWeights: boolean;
+  /**
+   * The quorum base and the weight outside it (19G). Every field is here even
+   * when nothing is excluded, so a surface reads one shape and shows the
+   * excluded clause only when there is one.
+   */
+  quorumBase: QuorumBase;
 }
 
-export function peopleAndWeightFor(dials: MethodDials, roll: readonly WeighedSeat[]): PeopleAndWeight {
-  const fewestForQuorum = fewestHoldersFor(roll, dials.quorumPct);
+export function peopleAndWeightFor(
+  dials: MethodDials,
+  roll: readonly WeighedSeat[],
+  policy: QuorumPolicy = DEFAULT_QUORUM_POLICY,
+): PeopleAndWeight {
+  const quorumBase = quorumBaseOf(roll, policy);
+  /*
+   * THE BAR IS MET BY SEATS INSIDE THE QUORUM AND BY NOBODY ELSE, so the
+   * fewest-people count is worked out over those seats and over their own
+   * share of the weight. Counting the whole roll here would answer a question
+   * the arithmetic no longer asks and would name people who cannot help.
+   */
+  const inQuorum = votableSeats(roll, policy);
+  const fewestForQuorum = fewestHoldersFor(inQuorum, dials.quorumPct);
   return {
     people: roll.length,
-    totalWeight: totalWeightOf(roll),
+    totalWeight: quorumBase.totalWeight,
     dials,
     fewestForQuorum,
-    needsEveryone: fewestForQuorum !== null && roll.length > 0 && fewestForQuorum >= roll.length,
-    equalWeights: everySeatWeighsAlike(roll),
+    needsEveryone:
+      fewestForQuorum !== null && inQuorum.length > 0 && fewestForQuorum >= inQuorum.length,
+    equalWeights: everySeatWeighsAlike(inQuorum),
+    quorumBase,
   };
 }
 
@@ -449,21 +622,45 @@ const people = (n: number): string => (n === 1 ? "1 person" : `${n} people`);
  * a share of the weight. The people clause is the same fact said in the unit
  * a member lives in.
  */
-export function thresholdSentence(dials: MethodDials, roll: readonly WeighedSeat[]): string {
-  const r = peopleAndWeightFor(dials, roll);
+/**
+ * THE EXCLUDED CLAUSE, said beside the people count (19G and audit 2, item 90).
+ *
+ * Empty when every seat's weight is in the count, so the ordinary sentence is
+ * exactly what it was. A village that has seated a being reads how much of the
+ * Voice sits outside its own quorum arithmetic, every time it reads a bar.
+ */
+export function excludedWeightClause(base: QuorumBase): string {
+  if (!(base.excludedWeight > 0) || base.excludedPeople === 0) return "";
+  const share = base.totalWeight > 0 ? pct((base.excludedWeight / base.totalWeight) * 100) : "0";
+  const seats =
+    base.speaksForABeing > 0 && base.cannotVote === 0
+      ? `${base.excludedPeople === 1 ? "One seat speaks" : `${base.excludedPeople} seats speak`} for a being that is not a person`
+      : base.speaksForABeing === 0
+        ? `${base.excludedPeople === 1 ? "One seat holds" : `${base.excludedPeople} seats hold`} weight that cannot answer`
+        : `${base.excludedPeople} seats speak for beings that are not people or hold weight that cannot answer`;
+  return ` ${seats}, holding ${share}% of the weight, and that weight is outside this count.`;
+}
+
+export function thresholdSentence(
+  dials: MethodDials,
+  roll: readonly WeighedSeat[],
+  policy: QuorumPolicy = DEFAULT_QUORUM_POLICY,
+): string {
+  const r = peopleAndWeightFor(dials, roll, policy);
+  const aside = excludedWeightClause(r.quorumBase);
   const bar =
     `${pct(dials.quorumPct)}% of the weight must show up and ` +
     `${pct(dials.unityPct)}% of the weight cast must agree`;
   if (r.people === 0) return `${bar}. Nobody holds a voice in this village yet, so there is no roll to count against.`;
   if (r.fewestForQuorum === null) {
-    return `${bar}. Nobody on the roll of ${r.people} carries weight today, so the Game cannot say how many people that is.`;
+    return `${bar}. Nobody on the roll of ${r.people} carries weight this count can reach today, so the Game cannot say how many people that is.${aside}`;
   }
   if (r.equalWeights) {
-    return `${bar}. Today that is at least ${r.fewestForQuorum} of ${r.people} people, because every seat weighs the same.`;
+    return `${bar}. Today that is at least ${r.fewestForQuorum} of ${r.people} people, because every seat weighs the same.${aside}`;
   }
   return (
     `${bar}. Today that is at least ${r.fewestForQuorum} of ${r.people} people, because ` +
-    `${people(r.fewestForQuorum)} hold ${pct(dials.quorumPct)}% of the weight.`
+    `${people(r.fewestForQuorum)} hold ${pct(dials.quorumPct)}% of the weight.${aside}`
   );
 }
 
@@ -477,6 +674,12 @@ export interface ParticipationCounts {
   weightVoted: number;
   /** The weight frozen at open (`ballots.total_weight`). */
   totalWeight: number;
+  /**
+   * The weight outside the quorum count (19G), when the ballot has any. Absent
+   * means none was excluded, which is every ballot in a village that has
+   * seated nobody for a being.
+   */
+  excluded?: QuorumBase;
 }
 
 /**
@@ -488,11 +691,12 @@ export function participationSentence(c: ParticipationCounts): string {
   const votedPeople = Math.max(0, Math.trunc(c.peopleVoted));
   const roll = Math.max(0, Math.trunc(c.people));
   const head = `${votedPeople} of ${roll} ${roll === 1 ? "person" : "people"} voted`;
+  const aside = c.excluded ? excludedWeightClause(c.excluded) : "";
   if (!(c.totalWeight > 0)) {
-    return `${head}. The roll carries no weight today, so no share of it can be worked out.`;
+    return `${head}. The roll carries no weight today, so no share of it can be worked out.${aside}`;
   }
   const share = pct((Math.max(0, c.weightVoted) / c.totalWeight) * 100);
-  return `${head}, holding ${share}% of the weight.`;
+  return `${head}, holding ${share}% of the weight.${aside}`;
 }
 
 /**
@@ -506,12 +710,53 @@ export function participationSentence(c: ParticipationCounts): string {
  *
  * It warns and never refuses, which is the founder's posture on this dial.
  */
-export function wholeRollWarning(dials: MethodDials, roll: readonly WeighedSeat[]): string | null {
-  const r = peopleAndWeightFor(dials, roll);
+export function wholeRollWarning(
+  dials: MethodDials,
+  roll: readonly WeighedSeat[],
+  policy: QuorumPolicy = DEFAULT_QUORUM_POLICY,
+): string | null {
+  const r = peopleAndWeightFor(dials, roll, policy);
   if (!r.needsEveryone) return null;
+  const asked = r.quorumBase.votablePeople;
   return (
-    `At ${pct(dials.quorumPct)}% of the weight, every one of the ${r.people} ` +
-    `${r.people === 1 ? "person" : "people"} on the roll has to vote before this can count. ` +
+    `At ${pct(dials.quorumPct)}% of the weight, every one of the ${asked} ` +
+    `${asked === 1 ? "person" : "people"} this count reaches has to vote before it can pass. ` +
     "One member who dies, leaves or stops playing holds it there until the roll changes."
+  );
+}
+
+/**
+ * ── THE BAR AGAINST THE WEIGHT THAT ACTUALLY VOTES (audit 2, risks 11 and 90) ─
+ *
+ * `stalemateWarning` tests a number against 97, which is the founder's own
+ * ceiling and stays exactly as he set it. It cannot see the failure the second
+ * audit found: a village whose dials are all inside the recommended range, and
+ * whose constitutional tier is still arithmetically out of reach because a
+ * quarter of the Voice sits on seats that answer nothing.
+ *
+ * So this one computes instead of testing. The most quorum this roll can ever
+ * reach is the weight inside the count as a share of the whole roll, and when
+ * that maximum is under the bar, no turnout can carry a vote at this tier.
+ *
+ * It warns and never refuses, the same posture every other warning here holds.
+ * The door out is the same one 19F left standing: withdraw and rewrite, or ask
+ * again on a roll that has changed. It reintroduces no fallback.
+ */
+export function reachableQuorumWarning(
+  dials: MethodDials,
+  roll: readonly WeighedSeat[],
+  policy: QuorumPolicy = DEFAULT_QUORUM_POLICY,
+): string | null {
+  const base = quorumBaseOf(roll, policy);
+  if (!(base.totalWeight > 0)) return null;
+  if (!(base.excludedWeight > 0)) return null;
+  const reachable = (base.baseWeight / base.totalWeight) * 100;
+  const bar = Number(dials.quorumPct) || 0;
+  if (reachable >= bar) return null;
+  return (
+    `The most this bar can ever reach today is ${pct(reachable)}% of the weight, and it asks for ${pct(bar)}%. ` +
+    `${base.excludedPeople === 1 ? "One seat holds" : `${base.excludedPeople} seats hold`} ` +
+    `${pct(100 - reachable)}% of the Voice outside this count, so no turnout carries a decision at this bar. ` +
+    "Lower the bar, seat somebody for the weight that is silent, or bring the change back as a new proposal once the roll has moved."
   );
 }
