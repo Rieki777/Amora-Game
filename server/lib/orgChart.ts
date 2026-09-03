@@ -855,10 +855,24 @@ export async function seatHolder(
 ): Promise<{ ok: boolean; reason?: string; assignmentId?: string }> {
   const isAgent = !!h.isAgent;
   if (isAgent && h.userId) {
-    // See the header. This is the one rule that keeps an agent out of both the
-    // payout and the declare door, and it is enforced here so that no caller
-    // can construct the combination.
-    return { ok: false, reason: "An agent is never given a member account" };
+    /*
+     * THE SCOPE OF THIS REFUSAL IS THE SEAT PLANE, AND SAYING SO IS THE POINT.
+     *
+     * A seat-plane agent is `documented` and carries no user id, which is what
+     * keeps it out of the settlement job's `holder_kind = 'member'` filter and
+     * out of the 0083 declare door. Enforced here so no caller can build the
+     * combination that opens either.
+     *
+     * IT IS NOT A CLAIM THAT NO AGENT MAY EVER HOLD A `users` ROW. The founder
+     * ruled (19G) that a non-human seat, a river or a mountain or the wolves,
+     * is a VOTING seat held by a human member or by a bot built to carry that
+     * point of view, and a voting bot needs a row `ballot_votes` can reference.
+     * That representative is a different object from this one and lives on the
+     * permission plane, not here. An earlier draft of this file said "an agent
+     * is never given a member account", which would have read as false the day
+     * the first river got a vote.
+     */
+    return { ok: false, reason: "A seat-plane agent holds its seat as documented, with no member account" };
   }
   const kind = h.userId ? "member" : "documented";
   if (kind === "documented" && !String(h.displayName ?? "").trim()) {

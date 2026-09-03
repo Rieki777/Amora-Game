@@ -40,6 +40,24 @@
  * An accepted quest proposal goes through `questsRepo.add`, the same function
  * POST /api/admin/quests calls.
  *
+ * ── NOTHING HERE PUBLISHES, AND THAT BOUNDARY IS LOAD-BEARING ────────────
+ *
+ * No route in this file calls `publishDraft`, writes `org_roles`, or writes
+ * `org_role_assignments`. Accepting produces a draft and stops.
+ *
+ * That is not tidiness, it is where a governance line falls. Under the model
+ * landing in this release, every change to the live Game after the Birthing is
+ * a proposal with a veto window, and roles and seats are Game changes.
+ * Accepting INTO a draft is a capability holder's act and stays here.
+ * PUBLISHING a draft into the live chart once `readGameStart().started` is
+ * true has to go through the proposal path, and the direct route has to
+ * refuse and redirect the way `PATCH /api/admin/economy/rules/:id` already
+ * does after launch.
+ *
+ * So: if a later change adds a publish call to this file, it needs that
+ * launch-state refusal in the same commit. A quest is a different matter and
+ * needs none of this, because a quest is activity rather than structure.
+ *
  * ── EDIT BEFORE ACCEPT IS THE CENTRE OF THIS, NOT A CONVENIENCE ──────────
  *
  * The server has always re-validated an edited payload at accept and no client

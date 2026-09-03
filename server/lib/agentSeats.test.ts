@@ -96,7 +96,11 @@ describe.skipIf(!configured)("an agent holds a seat", () => {
     await makeMember("u1");
     const r = await seatHolder(pool, "s1", { userId: "u1", isAgent: true, displayName: "Scribe" });
     expect(r.ok).toBe(false);
-    expect(r.reason).toContain("never given a member account");
+    expect(r.reason).toContain("no member account");
+    // The refusal is scoped to the SEAT PLANE and does not claim that no agent
+    // may ever hold a users row. Governance ruling 19G gives a voting
+    // representative for a river or a mountain an account of its own, and that
+    // object is not this one.
 
     const [rows] = await pool.query<any[]>("SELECT id FROM org_role_assignments"); // module-review-ok: same
     expect(rows).toHaveLength(0);
