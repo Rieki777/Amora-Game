@@ -30,6 +30,14 @@
       "preblur": 0.6,
       "quality": 70
     },
+    "crowdpool": {
+      "at": "2026-09-02T18:35:27+00:00",
+      "bytes": 27598,
+      "file": "crowdpool.webp",
+      "place": "many small vessels gathered into one shared pool",
+      "source": "ee35320",
+      "parametersRecorded": false
+    },
     "events": {
       "at": "2026-08-16T17:23:11+00:00",
       "bytes": 25096,
@@ -70,6 +78,14 @@
       "preblur": 0.6,
       "quality": 62
     },
+    "governance": {
+      "at": "2026-09-02T18:35:27+00:00",
+      "bytes": 26636,
+      "file": "governance.webp",
+      "place": "a council circle of carved seats, hearth, speaking staff",
+      "source": "ee35320",
+      "parametersRecorded": false
+    },
     "gratitude": {
       "at": "2026-08-16T17:22:39+00:00",
       "bytes": 25464,
@@ -89,6 +105,22 @@
       "place": "the ridge weather station",
       "preblur": 0,
       "quality": 66
+    },
+    "hypha": {
+      "at": "2026-09-02T18:35:27+00:00",
+      "bytes": 26740,
+      "file": "hypha.webp",
+      "place": "the glowing mycelial network under the village",
+      "source": "ee35320",
+      "parametersRecorded": false
+    },
+    "introductions": {
+      "at": "2026-09-02T18:35:27+00:00",
+      "bytes": 26278,
+      "file": "introductions.webp",
+      "place": "a garlanded gateway at the head of the path in",
+      "source": "ee35320",
+      "parametersRecorded": false
     },
     "library": {
       "at": "2026-08-16T17:22:58+00:00",
@@ -160,6 +192,14 @@
       "preblur": 0,
       "quality": 70
     },
+    "resources": {
+      "at": "2026-09-02T18:35:27+00:00",
+      "bytes": 27470,
+      "file": "resources.webp",
+      "place": "an open storehouse of grain jars, tools and rope",
+      "source": "ee35320",
+      "parametersRecorded": false
+    },
     "stays": {
       "at": "2026-08-16T17:22:54+00:00",
       "bytes": 24956,
@@ -181,5 +221,5 @@
       "quality": 70
     }
   },
-  "updatedAt": "2026-08-16T17:23:11+00:00"
+  "updatedAt": "2026-09-02T18:35:27+00:00"
 }

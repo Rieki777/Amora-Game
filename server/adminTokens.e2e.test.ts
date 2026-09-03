@@ -14,6 +14,16 @@ import path from "path";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { E2E_BOOT_DEADLINE_MS, provisionTestDb, testDbConfigured, type TestDb, waitForPortFree } from "./db/testDb";
+/*
+ * THE CLIENT'S OWN FORMATTER, imported into a server test on purpose.
+ *
+ * The defect this file's last case is about lived in the SEAM: the payload was
+ * right about the number and silent about its scale, and the page was right
+ * about how to render a scale it was never given. A test on either side alone
+ * passes while a member reads 10000. So the assertion runs the real payload
+ * through the real renderer and checks the string a member actually sees.
+ */
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -414,5 +424,99 @@ describe.skipIf(!DB_CONFIGURED)("the tokens tab, and what a member sees afterwar
     await call("POST", `/api/admin/mint-requests/${String(now.json?.requestId)}/decline`, {
       reason: "tidying up after the case",
     }, boToken);
+  });
+
+  /**
+   * A MEMBER WHO HOLDS TEN VILLAGE VOICE READS TEN. EVERYWHERE.
+   *
+   * `token_balances.balance` is an INT, so a token with decimals stores MINOR
+   * units. Village Voice carries decimals 3, so ten Voice is 10000 on the row.
+   * `loadStanding` has always shipped `decimals` and the profile chip has
+   * always divided, so that chip read 10. `/api/wallet` and `/api/exchange`
+   * shipped the row with no scale at all, and the wallet and the Tokens page
+   * printed it: 10000. Same member, same second, two answers, and the wallet
+   * is the one they believe.
+   *
+   * WHAT THIS ASSERTS, and why it is not an assertion about a payload key.
+   * `expect(json.tokenDecimals["village-voice"]).toBe(3)` would pass against a
+   * page that ignores the field, which is exactly the state this fix started
+   * from. So every check below ends in the STRING a member reads, produced by
+   * the same `formatTokenAmount` the wallet card calls.
+   *
+   * The control is the last two lines: the same balance formatted at scale 0,
+   * which is what every one of these surfaces did before, reads "10000". If
+   * the payloads stop carrying `decimals`, `decimals ?? 0` makes every
+   * assertion above collapse onto that control and this case fails.
+   *
+   * THE AMOUNT IS IN MINOR UNITS because `POST /api/admin/tokens/:slug/mint`
+   * takes ledger units, not human ones. That is its own defect, reported as a
+   * handoff and deliberately not fixed here: this file is about what a member
+   * READS, and changing what an admin TYPES is a different change with a
+   * different blast radius.
+   */
+  it("shows ten Village Voice as ten on the wallet, the Exchange and the ledger", async () => {
+    const VOICE = "village-voice";
+    const TEN = 10_000; // ten Voice, in the thousandths the ledger stores
+
+    // Seeded by `seedEconomy` at boot, with decimals 3. If this ever fails the
+    // village has no voice token and the rest of the case is meaningless.
+    const registry = await call("GET", "/api/admin/tokens", undefined, founderToken);
+    const voiceRow = (registry.json?.tokens ?? []).find((t: any) => t.slug === VOICE);
+    expect(voiceRow, "the village voice token is seeded at boot").toBeTruthy();
+    expect(voiceRow.decimals, "and it is the one token that rides in thousandths").toBe(3);
+
+    // Over the co-signature threshold, so it goes through the two-steward
+    // flow the cases above establish.
+    const raised = await call("POST", `/api/admin/tokens/${VOICE}/mint`, {
+      toUserId: oraId, amount: TEN, reason: "ten voice, so there is a real balance to read",
+    }, founderToken);
+    expect(raised.status, `raise: ${raised.text.slice(0, 200)}`).toBe(202);
+    const signed = await call("POST", `/api/admin/mint-requests/${String(raised.json?.requestId)}/approve`, {}, boToken);
+    expect(signed.status, `sign-off: ${signed.text.slice(0, 200)}`).toBe(200);
+
+    // 1. /api/wallet — behind the send card and the on-chain card.
+    const wallet = await call("GET", "/api/wallet", undefined, oraToken);
+    expect(wallet.status).toBe(200);
+    expect(wallet.json?.ledger?.[VOICE], "the ledger row is minor units and stays that way").toBe(TEN);
+    expect(
+      formatTokenAmount(Number(wallet.json?.ledger?.[VOICE]), Number(wallet.json?.tokenDecimals?.[VOICE] ?? 0)),
+      "and what a member reads off it is ten",
+    ).toBe("10");
+
+    // 2. /api/exchange — the Tokens page grid AND the profile wallet card.
+    const exchange = await call("GET", "/api/exchange", undefined, oraToken);
+    expect(exchange.status).toBe(200);
+    expect(exchange.json?.mine?.balances?.[VOICE]).toBe(TEN);
+    expect(
+      formatTokenAmount(Number(exchange.json?.mine?.balances?.[VOICE]), Number(exchange.json?.mine?.tokenDecimals?.[VOICE] ?? 0)),
+      "the wallet is the number a member believes, and it says ten",
+    ).toBe("10");
+
+    // 3. /api/game/ledger — the balances block and the journey feed's rows.
+    const led = await call("GET", "/api/game/ledger", undefined, oraToken);
+    expect(led.status).toBe(200);
+    const held = led.json?.balances?.[VOICE];
+    expect(held?.balance).toBe(TEN);
+    expect(formatTokenAmount(Number(held?.balance), Number(held?.decimals ?? 0))).toBe("10");
+    const row = (led.json?.entries ?? []).find((e: any) => e.tokenType === VOICE);
+    expect(row, "the mint left a line in her ledger").toBeTruthy();
+    expect(row.amount, "which is also minor units").toBe(TEN);
+    expect(
+      formatTokenAmount(Math.abs(Number(row.amount)), Number(row.decimals ?? 0)),
+      "and reads as ten in the feed",
+    ).toBe("10");
+
+    // 4. The data export, which is the member's own copy of all of it.
+    const exported = await call("GET", "/api/profile/export", undefined, oraToken);
+    expect(exported.status).toBe(200);
+    expect(
+      formatTokenAmount(Number(exported.json?.balances?.[VOICE]), Number(exported.json?.tokenDecimals?.[VOICE] ?? 0)),
+      "the file she downloads says ten too",
+    ).toBe("10");
+
+    // THE CONTROL. This is the sentence the fix was written against: the same
+    // balance, rendered with no scale, is what every surface above showed.
+    expect(formatTokenAmount(TEN, 0)).toBe("10000");
+    expect(formatTokenAmount(TEN, 3)).not.toBe("10000");
   });
 });

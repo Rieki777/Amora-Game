@@ -19,6 +19,8 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { authToken } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -33,23 +35,21 @@ interface Sheet {
   moonsOnTheLand?: number;
 }
 
-/**
- * Minor units to the number a member reads.
+/*
+ * This card's own copy of the minor-units rule is gone.
  *
- * The ledger stores integers, so the village voice rides in thousandths and
- * 100 on the row is 0.1 on the chip. Trailing zeros come off, because "0.10
- * Voice" reads like a price.
+ * It was RIGHT, and being right in one file is what caused the damage: the
+ * wallet had no copy at all and printed 10000 for the same ten Voice this chip
+ * printed correctly, an inch apart on the same profile. One rule, one file, so
+ * a surface can only be wrong by forgetting to call it, which is visible.
  */
-const show = (balance: number, decimals: number): string => {
-  if (decimals <= 0) return String(balance);
-  return (balance / 10 ** decimals).toFixed(decimals).replace(/0+$/, "").replace(/\.$/, "");
-};
 
 const card = "bg-white rounded-2xl shadow-lg p-8";
 const heading = "text-2xl font-display font-bold text-teal-deep mb-6";
 
 export default function ProfileSheet() {
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const tokenName = useTokenName("Recognition");
 
   useEffect(() => {
     fetch("/api/me/profile", { headers: headers() })
@@ -84,19 +84,19 @@ export default function ProfileSheet() {
                 key={s.token}
                 className="rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800"
               >
-                {show(s.balance, s.decimals)} {s.name}
+                {formatTokenAmount(s.balance, s.decimals)} {s.name}
               </li>
             ))}
           </ul>
           <p className="mt-4 text-sm text-gray-600">
-            Gratitude is held, never spent. It says what the village noticed.
+            {tokenName}: held, never spent. A record of what the village noticed.
           </p>
         </motion.div>
       ) : null}
 
       {g ? (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={card}>
-          <h2 className={heading}>Gratitude</h2>
+          <h2 className={heading}>{tokenName}</h2>
           <p className="text-gray-800">
             {g.receivedThisSeason === 0
               ? "No thanks yet this season."
@@ -110,7 +110,7 @@ export default function ProfileSheet() {
               ? "You have not thanked anyone yet this season."
               : `You thanked ${g.givenThisSeason} members in return.`}
           </p>
-          <p className="mt-3 text-sm text-gray-500">{g.lifetime} Gratitude held in all.</p>
+          <p className="mt-3 text-sm text-gray-500">{g.lifetime} {tokenName} held in all.</p>
         </motion.div>
       ) : null}
 
@@ -120,7 +120,7 @@ export default function ProfileSheet() {
           <p className="text-gray-800">
             {a.remaining === 0
               ? "You have given everything you had to give this moon."
-              : `You can still give ${a.remaining} Gratitude this moon.`}
+              : `You can still give ${a.remaining} ${tokenName} this moon.`}
           </p>
           <div
             className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100"

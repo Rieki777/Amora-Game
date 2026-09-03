@@ -8,6 +8,7 @@ import NotificationBell from "@/components/NotificationBell";
 import NotificationToasts from "@/components/NotificationToasts";
 import { altOr, useGameConfig } from "@/lib/gameApi";
 import { NAV, ACCOUNT_MENU, isGroup, type NavLink, type NavGroup } from "@/config/nav";
+import { useTokenName } from "@/hooks/useTokenNames";
 import MobileTabBar, { isBareRoute } from "./mobile/MobileTabBar";
 import MobileFab from "./mobile/MobileFab";
 
@@ -43,14 +44,22 @@ export default function Layout({ children }: LayoutProps) {
   // roles. Both absent means everyone sees it. The role is read once into a
   // local so a signed-out viewer (no user, no role) filters out by the same
   // test rather than a second branch.
+  const tokenName = useTokenName("Recognition");
   const role = user?.role;
   const visible = (item: NavLink) =>
     moduleOn(item.module) && (!item.roles || (!!role && item.roles.includes(role)));
 
+  // An entry named after a token carries the village's word for it, and its
+  // href stays put. Substituted HERE, once, because both the desktop dropdown
+  // and the mobile drawer render their items through groupItems.
+  const withTokenLabel = (link: NavLink): NavLink => (link.token ? { ...link, label: tokenName } : link);
+
   // Groups collapse to nothing when every child is filtered out, so a fork with
   // its optional modules off never renders an empty dropdown.
-  const groupItems = (group: NavGroup) => group.items.filter(visible);
-  const navEntries = NAV.filter((e) => (isGroup(e) ? groupItems(e).length > 0 : visible(e)));
+  const groupItems = (group: NavGroup) => group.items.filter(visible).map(withTokenLabel);
+  const navEntries = NAV.filter((e) => (isGroup(e) ? groupItems(e).length > 0 : visible(e))).map((e) =>
+    isGroup(e) ? e : withTokenLabel(e),
+  );
   const accountItems = ACCOUNT_MENU.filter(visible);
 
   // Footer-only modules. A gated footer link would be a dead end on a fresh
@@ -487,7 +496,7 @@ export default function Layout({ children }: LayoutProps) {
                 </li>
                 <li>
                   <Link href="/gratitude" className="text-white hover:underline transition-colors text-sm block py-1.5">
-                    Gratitude Wall
+                    {tokenName} Wall
                   </Link>
                 </li>
                 <li>
@@ -560,6 +569,21 @@ export default function Layout({ children }: LayoutProps) {
                   <li>
                     <Link href="/village-health" className="text-white hover:underline transition-colors text-sm block py-1.5">
                       Village Health
+                    </Link>
+                  </li>
+                )}
+                {/* The review queue. Signed-in only, because a visitor has no
+                    use for it, and NOT gated on admin here: the whole point of
+                    that page is that a steward who is not an admin can open
+                    it, and a door only admins can see would put it back where
+                    it started. The page itself says plainly when the person
+                    looking may not open it, so a member who follows this link
+                    without the capability gets a sentence and never a blank
+                    screen. */}
+                {user && (
+                  <li>
+                    <Link href="/review" className="text-white hover:underline transition-colors text-sm block py-1.5">
+                      Review Queue
                     </Link>
                   </li>
                 )}

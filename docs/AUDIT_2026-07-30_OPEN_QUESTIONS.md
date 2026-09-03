@@ -16,7 +16,7 @@ still literals in code and might not want to be.
 |---|---|---|
 | 1 | **Parked.** Contrast work waits for the post-Amora fork/palette work. | Nothing shipped; still `text-white/70` etc. |
 | 2 | **Ship it.** Overlay carries Amora; play.amora.cr SEO loss accepted (the game lives at amora.regencivics.earth). | Shipped: neutral `client/index.html`, config-driven shell, Amora defaults in `gameConfig.ts`. |
-| 3 | **Confirmed** — forks never carry Amora elements. | Logo / tab icon / site URLs / footer copy now Setup-Wizard fields; `AmoraLogo.tsx` deleted. |
+| 3 | **Confirmed** — forks never carry Amora elements. | Logo / tab icon / site URLs / footer copy now Setup-Wizard fields; AmoraLogo.tsx deleted. |
 | 4 | `quest.allow_zero_consent` stays default off. | No change. |
 | 5 | Login per-account cap 10/15min is comfortable. | No change. |
 | 6 | Set-password TTL stays 60 min in code. | No change. |

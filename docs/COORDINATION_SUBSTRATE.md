@@ -369,7 +369,7 @@ their own profile:
   "since": "...", "until": "...", "proof": { "alg": "ed25519", "kid": "...", "sig": "..." } }
 ```
 
-The subject comes free from the wallet challenge verification `drizzle/0025` already ships, with a
+The subject comes free from the wallet challenge verification `drizzle/0025_wallet_verification_and_onchain_cache.sql` already ships, with a
 `did:web` fallback for members with no wallet. A receiving village verifies against the issuer's
 published key and decides for itself what that is worth. Add a public revocation list.
 

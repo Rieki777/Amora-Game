@@ -405,7 +405,7 @@ audience visibility, click beacon, SSRF-guarded link check).
 
 **S16–S17. Notification spine + scheduler.** `insertNotification` with
 dedupeKey; precedence rule (mention > direct reply > follow) and caps ported
-from regen (leave `forum-notify.ts` behind — foundation plan rule); prefs live
+from regen (leave forum-notify.ts behind — foundation plan rule); prefs live
 on the user record (the map's contact opt-out will be one of these prefs, not a
 bespoke flag); email + web push; the cron host (which also absorbs nothing from
 seasons — rollover stays compute-on-read; say so to prevent "helpful"

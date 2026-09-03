@@ -307,7 +307,8 @@ export interface GameMe {
   stage: GameStagePublic & { gratitudeMultiplier: number };
   stageIndex: number;
   stages: GameStagePublic[];
-  gratitude: { balance: number; budget: { total: number; spent: number; remaining: number; cycleId: string } };
+  /** `balance` is MINOR units, `decimals` is its scale. See client/src/lib/tokenAmount.ts. */
+  gratitude: { balance: number; decimals?: number; budget: { total: number; spent: number; remaining: number; cycleId: string } };
   quests: QuestClaim[];
   journeys: Record<string, string[]>;
   membership: boolean;

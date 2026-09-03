@@ -1,10 +1,12 @@
 import { fetchGameMe, GameMe } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { ArrowRight, CheckCircle2, Circle, Compass, Heart, Sparkles } from "lucide-react";
 import MoonProgress from "@/components/natural/MoonProgress";
 import StageAdvanced from "@/components/StageAdvanced";
 import { claimMoment } from "@/lib/celebrated";
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 const CLAIM_STATUS: Record<string, { label: string; cls: string }> = {
   claimed: { label: "In progress", cls: "bg-amber-100 text-amber-800" },
@@ -15,7 +17,7 @@ const CLAIM_STATUS: Record<string, { label: string; cls: string }> = {
 
 export default function GameDashboard() {
   const [me, setMe] = useState<GameMe | null>(null);
-  const [currency, setCurrency] = useState("Gratitude");
+  const currency = useTokenName("Recognition");
   /**
    * The advance to celebrate, or null.
    *
@@ -34,10 +36,6 @@ export default function GameDashboard() {
       const fresh = next?.lastAdvance;
       if (fresh && claimMoment(`stage:${fresh.toStage}:${fresh.at}`)) setAdvance(fresh);
     });
-    fetch("/api/game/config")
-      .then((r) => r.json())
-      .then((c) => setCurrency(c?.currency?.name ?? "Gratitude"))
-      .catch(() => { /* silent */ });
   }, []);
 
   if (!me) return null;
@@ -137,7 +135,13 @@ export default function GameDashboard() {
             <Heart className="w-5 h-5 text-coral" />
             <h3 className="font-display text-lg font-bold text-teal-deep">{currency}</h3>
           </div>
-          <p className="text-3xl font-display font-bold text-teal-deep mb-1">{me.gratitude.balance}</p>
+          {/* Recognition carries decimals 0 today, so this number does not
+              move. It divides anyway: this is the biggest number on the
+              dashboard, and it is the one a member would quote back. See
+              client/src/lib/tokenAmount.ts. */}
+          <p className="text-3xl font-display font-bold text-teal-deep mb-1">
+            {formatTokenAmount(Number(me.gratitude.balance ?? 0), Number(me.gratitude.decimals ?? 0))}
+          </p>
           <p className="text-sm text-stone-500 mb-4">earned so far</p>
           {me.gratitude.budget.total > 0 && (
             <p className="text-sm text-stone-600 mb-4">

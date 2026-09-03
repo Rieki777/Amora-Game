@@ -3,6 +3,7 @@ import { useVillageLinks } from "@/lib/gameApi";
 import { altOr, useBrandImages } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
 import { useVillageName } from "@/hooks/useVillageName";
+import { useTokenName } from "@/hooks/useTokenNames";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,7 +25,7 @@ import {
 } from "lucide-react";
 
 
-const buildJourneySteps = (villageName: string) => [
+const buildJourneySteps = (villageName: string, tokenName: string) => [
   {
     id: "community-call",
     stage: "Visitor",
@@ -105,7 +106,7 @@ const buildJourneySteps = (villageName: string) => [
     link: "/quests",
     linkText: "View Quests",
     external: false,
-    details: ["Browse available quests", "Choose quests matching your skills", "Submit your own quest proposal", "Earn Gratitude for contributions"]
+    details: ["Browse available quests", "Choose quests matching your skills", "Submit your own quest proposal", `Earn ${tokenName} for contributions`]
   },
   {
     id: "passage",
@@ -131,11 +132,11 @@ const buildJourneySteps = (villageName: string) => [
   },
 ];
 
-const advancementPath = [
+const advancementPath = (tokenName: string) => [
   {
     level: "Role Holder",
     requirement: "Apply and be approved for a seasonal role",
-    benefits: "Compensation in Gratitude, voice in your circle",
+    benefits: `Compensation in ${tokenName}, voice in your circle`,
     icon: Star,
   },
   {
@@ -169,7 +170,8 @@ export default function StewardJourney() {
   // This village's own destinations. Blank hides the control.
   const { eventsUrl } = useVillageLinks();
   const villageName = useVillageName();
-  const journeySteps = buildJourneySteps(villageName);
+  const tokenName = useTokenName("Recognition");
+  const journeySteps = buildJourneySteps(villageName, tokenName);
   const steps = journeySteps.map((step) =>
     step.id === "community-call" || step.id === "events"
       ? { ...step, link: eventsUrl }
@@ -474,7 +476,7 @@ export default function StewardJourney() {
           </motion.div>
 
           <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {advancementPath.map((level, index) => (
+            {advancementPath(tokenName).map((level, index) => (
               <motion.div
                 key={level.level}
                 initial={{ opacity: 0, y: 20 }}

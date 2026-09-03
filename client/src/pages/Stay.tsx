@@ -15,6 +15,7 @@ import { BedDouble, CreditCard, Hammer, Moon, Send } from "lucide-react";
 import { Image } from "@/components/Image";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
 import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -135,7 +136,11 @@ export default function Stay() {
               <div className="flex items-center gap-3">
                 <Moon className="w-5 h-5 text-teal-deep" />
                 <p className="text-sm text-foreground">
-                  Your balance: <span className="font-bold">{data.mine.balance}</span> stay credit(s)
+                  {/* Stay credits carry decimals 0 today. Through the shared
+                      formatter regardless, for the reason in
+                      client/src/lib/tokenAmount.ts: after the move to 4
+                      decimals every undivided surface is wrong at once. */}
+                  Your balance: <span className="font-bold">{formatTokenAmount(Number(data.mine.balance ?? 0), Number(data.mine.balanceDecimals ?? 0))}</span> stay credit(s)
                   {data.mine.balance < 0 && <span className="text-red-600">, please settle up with the stewards</span>}
                 </p>
               </div>

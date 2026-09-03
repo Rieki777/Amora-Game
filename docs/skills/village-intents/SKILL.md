@@ -60,4 +60,4 @@ Never lower a tier the member named. If they did not name one, ask; do not defau
 
 ## References
 
-- `references/openapi.json` (served at `/api/agent/v1/openapi.json`).
+- `docs/skills/references/openapi.json` (served at `/api/agent/v1/openapi.json`).

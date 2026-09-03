@@ -131,7 +131,7 @@ export interface Envelope {
  * signature field, so a receiver checks the header against the body minus
  * `signature`, or the in-body signature against `${sentAt}.${JSON of the four
  * fields id, kind, sentAt, data in that order}`. Both recipes are documented in
- * docs/skills/village-calendar/references/agent-inbox.md.
+ * docs/skills/references/agent-inbox.md, shared by all three skills.
  */
 export function buildDelivery(secret: string, env: Envelope): { rawBody: string; header: string; body: Envelope & { signature: string } } {
   const rawBody = JSON.stringify({ id: env.id, kind: env.kind, sentAt: env.sentAt, data: env.data });

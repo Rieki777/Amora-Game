@@ -39,6 +39,7 @@ import {
   type YearAnchor,
 } from "../../shared/lunar";
 import { activeClock, boundsForNumber, formatCycleId } from "./gratitude-cycles";
+import { recognitionName } from "./economy";
 
 // ── The sky ─────────────────────────────────────────────────────────────────
 
@@ -192,11 +193,11 @@ export async function mirrorCalendarSources(pool: Pool, ctx: MirrorContext): Pro
     const mark = async (n: number, startsAt: Date, endsAt: Date, status: string) => {
       seen.add(n);
       const id = formatCycleId(n);
-      await write({ kind: "cycle-mark", sourceId: `cycle:${n}:open`, title: `Cycle ${n} opens`, description: `Gratitude cycle ${id} begins.`, startsAt, link: "/gratitude", colour: "#0f766e" });
+      await write({ kind: "cycle-mark", sourceId: `cycle:${n}:open`, title: `Cycle ${n} opens`, description: `${recognitionName()} cycle ${id} begins.`, startsAt, link: "/gratitude", colour: "#0f766e" });
       await write({
         kind: "cycle-mark", sourceId: `cycle:${n}:close`,
         title: status === "closed" ? `Cycle ${n} closed` : `Cycle ${n} closes`,
-        description: status === "closed" ? `Gratitude cycle ${id} was settled.` : `Gratitude cycle ${id} ends; settlement is a human act after this.`,
+        description: status === "closed" ? `${recognitionName()} cycle ${id} was settled.` : `${recognitionName()} cycle ${id} ends; settlement is a human act after this.`,
         startsAt: endsAt, link: "/gratitude", colour: "#0f766e",
       });
     };
@@ -232,11 +233,18 @@ export async function mirrorCalendarSources(pool: Pool, ctx: MirrorContext): Pro
   // Seat terms: a live seating with a term end.
   if (await tableExists(pool, "org_role_assignments")) {
     await runSource("org", async (write) => {
+      // AGENTS ARE EXCLUDED (0142). A term end is a date the village agreed
+      // to revisit an arrangement with a person, and the whole value of the
+      // column is that it turns removal into non-renewal. An agent's seating
+      // has nobody to have that conversation with, so a calendar entry saying
+      // one is due would put a meeting on the village's calendar that cannot
+      // happen. The term-watch notification job filters the same way, for the
+      // same reason, and this is its calendar twin.
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT a.id, a.term_ends_at, a.is_example, r.name AS role_name
            FROM org_role_assignments a
            LEFT JOIN org_roles r ON r.id = a.org_role_id
-          WHERE a.ended_at IS NULL AND a.term_ends_at IS NOT NULL`,
+          WHERE a.ended_at IS NULL AND a.term_ends_at IS NOT NULL AND a.is_agent = 0`,
       );
       for (const r of rows) {
         const at = r.term_ends_at instanceof Date ? r.term_ends_at : new Date(r.term_ends_at);

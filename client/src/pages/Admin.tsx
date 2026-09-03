@@ -8956,7 +8956,7 @@ function LedgerTab({ password }: { password: string }) {
                 <tr className="border-t border-gray-100">
                   <th className="px-4 py-2">Account</th>
                   <th className="px-4 py-2">Token</th>
-                  <th className="px-4 py-2">Balance</th>
+                  <th className="px-4 py-2">Balance (ledger units)</th>{/* on purpose: this table is the conservation proof and the proof is over the INT column, so a Voice row reads 10000 for ten. Every MEMBER-facing surface divides, through client/src/lib/tokenAmount.ts */}
                   <th className="px-4 py-2">Issued to date</th>
                 </tr>
               </thead>
@@ -10124,7 +10124,7 @@ function WorkWithUsTab({ password }: { password: string }) {
             <input type="text" value={cfg.assistantName ?? ""} onChange={(e) => setCfg({ ...cfg, assistantName: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">Gratitude on accepted proposal</label>
+            <label className="text-sm font-medium text-gray-700 block mb-1">{useGameConfig()?.currency?.name ?? "recognition"} on accepted proposal</label>
             <input type="number" min={0} value={cfg.acceptGratitude ?? 0} onChange={(e) => setCfg({ ...cfg, acceptGratitude: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
           </div>
         </div>

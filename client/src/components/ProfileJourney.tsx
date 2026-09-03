@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { TrendingUp, Heart, ScrollText, ShieldCheck, Users } from "lucide-react";
 import { authToken } from "@/lib/gameApi";
+import { useTokenNameLower } from "@/hooks/useTokenNames";
 import Celebration from "@/components/natural/Celebration";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import { useMomentWindow } from "@/components/natural/moments";
 import { capabilityLabel } from "@shared/capabilities";
 import { claimMoment } from "@/lib/celebrated";
 import { playMoment } from "@/lib/sound";
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 /**
  * S4: the member's journey in numbers, over three live endpoints that had no
@@ -126,6 +128,7 @@ export default function ProfileJourney() {
   const bloom = useGratitudeBloom();
   const blooming = useMomentWindow(bloom !== null);
   const [settled, setSettled] = useState(false);
+  const tokenNameLower = useTokenNameLower();
 
   useEffect(() => {
     Promise.all([
@@ -299,7 +302,7 @@ export default function ProfileJourney() {
           </p>
           {(ledger.entries ?? []).length === 0 ? (
             <p className="text-sm text-gray-500">
-              Nothing yet. Consented quests and received gratitude will appear here.
+              Nothing yet. Consented quests and received {tokenNameLower} will appear here.
             </p>
           ) : (
             <div className="space-y-1.5">
@@ -320,8 +323,14 @@ export default function ProfileJourney() {
                       <span className="block text-xs text-gray-400 truncate">{e.description}</span>
                     )}
                   </div>
+                  {/* MINOR UNITS. `amount` is `token_ledger.amount` verbatim,
+                      so a Village Voice row reading 10000 is ten, and this feed
+                      printed ten thousand. The sign is taken before formatting
+                      so a negative renders "-0.5" and never "-0.-5". See
+                      client/src/lib/tokenAmount.ts. */}
                   <span className={`shrink-0 font-semibold ${e.amount < 0 ? "text-red-500" : "text-teal-deep"}`}>
-                    {e.amount > 0 ? "+" : ""}{e.amount}
+                    {e.amount > 0 ? "+" : e.amount < 0 ? "-" : ""}
+                    {formatTokenAmount(Math.abs(Number(e.amount)), Number(e.decimals ?? 0))}
                   </span>
                 </div>
               ))}

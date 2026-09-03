@@ -51,6 +51,7 @@ import { register as registerPulseRoutes } from "./routes/pulse";
 import { register as registerPlayersRoutes } from "./routes/players";
 import { register as registerOrgSeatingRoutes } from "./routes/orgSeatings";
 import { register as registerOrgRoutes } from "./routes/org";
+import { register as registerReviewRoutes } from "./routes/review";
 import { register as registerGovernanceWeightRoutes } from "./routes/governanceWeights";
 import { register as registerGovernanceWizardRoutes } from "./routes/governanceWizard";
 import { register as registerDelegationRoutes } from "./routes/delegation";
@@ -311,7 +312,7 @@ import {
   tokenNameClash, slugFreezeRefusal,
   RECOGNITION_FAUCET,
   balanceOf,
-  balancesFor,
+  balancesFor, PLATFORM_TOKEN,
   checkLedgerInvariants,
   CYCLE_POOL_FAUCET,
   entriesForMember,
@@ -530,10 +531,7 @@ import {
   type Candidate,
 } from "./lib/map";
 import { ensureInstanceIdentity, instanceIdentity, PLATFORM_VERSION } from "./lib/identity";
-import {
-  listDrafts,
-  visionProgress,
-} from "./lib/orgDrafts";
+import { listDrafts, measureVisionMetrics, visionProgress } from "./lib/orgDrafts";
 import { DECIDES_BY, DOMAINS, HOW_CHOSEN, SHAPES } from "../shared/power";
 import { displayCurrencyProblem } from "../shared/money";
 import { latestRates, refreshDailyRates } from "./lib/fxRates";
@@ -5753,6 +5751,13 @@ async function startServer() {
    * One notification per row per event, through stable dedupe keys, because a
    * mandate nobody has acted on is a governance problem a weekly ping does not
    * solve. Member holders only; a documented holder is a name on a card.
+   *
+   * AGENTS ARE EXCLUDED, inherited (0142). An agent is a documented holder, so
+   * the `holderKind !== "member"` filter inside `runTermWatch` already drops
+   * it, and that is the behaviour to keep: a term end is a date the village
+   * agreed to revisit an arrangement with a person, and an agent's seating has
+   * nobody to have that conversation with. server/lib/calendarProviders.ts
+   * filters its twin for the same reason.
    */
   registerJob("term-watch", 24 * 60 * 60 * 1000, async () => {
     const r = await runTermWatch({
@@ -10433,6 +10438,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
                 // so there is a name to show and no profile to link to.
                 name: h.holderKind === "member" && h.userId ? nameOf(h.userId) : h.displayName,
                 kind: h.holderKind,
+                // An agent is a documented holder, so `kind` alone reads the
+                // same for a machine and for a person with no account (0142).
+                isAgent: h.isAgent,
                 focus: h.focus,
                 lapsed: !!h.lapsed,
                 avatar: h.userId ? (avatarByUser.get(h.userId) ?? null) : null,
@@ -11093,6 +11101,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           circleId: string | null;
         }> = [];
         for (const a of assignments) {
+          // Agents excluded, inherited (0142): this builds introductions
+          // between PEOPLE, and the member filter already does it.
           if (a.holderKind !== "member" || !a.userId || a.isExample) continue;
           const role = byId.get(a.orgRoleId);
           if (!role || !role.active || role.isExample) continue;
@@ -16190,9 +16200,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
        * no registry row keeps showing its slug: that is a drift worth seeing
        * and not a name worth inventing.
        */
-      tokenNames: Object.fromEntries(
-        Object.keys(ledger).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
-      ),
+      tokenNames: Object.fromEntries(Object.keys(ledger).map((s) => [s, tokenDef(s)?.name ?? s])),
+      tokenDecimals: Object.fromEntries(Object.keys(ledger).map((s) => [s, tokenDef(s)?.decimals ?? 0])), // THE SCALE OF EACH OF THOSE NUMBERS. `ledger` is the INT column verbatim, so it is MINOR units: Voice at decimals 3 ships 10000 for a member who earned 10, and this payload handed that straight to a card that printed it while their profile chip, off loadStanding, said 10 in the same second. Divide at the render site, through client/src/lib/tokenAmount.ts, which carries the why and why it has to land BEFORE every token moves to 4 decimals.
       wallet: { address: user.walletAddress ?? null, verifiedAt: user.walletVerifiedAt ?? null },
       onchain,
       economicsEnabled,
@@ -16352,7 +16361,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       const stage = stageIndex(await stageOf(viewer));
       const roles = roleIdsFor(viewer.id);
       mine = {
-        balance: await balanceOf(getPool(), memberAccount(viewer.id), LIBRARY_CREDIT),
+        balance: await balanceOf(getPool(), memberAccount(viewer.id), LIBRARY_CREDIT), balanceDecimals: tokenDef(LIBRARY_CREDIT)?.decimals ?? 0, // minor units + scale
         loans: await loansForUser(getPool(), viewer.id),
         strikes: await noShowStrikes(getPool(), viewer.id),
         eligible: Object.fromEntries(items.map((i) => {
@@ -16740,9 +16749,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
         // The same live registry read `/api/wallet` carries, for the same
         // reason: `balances` is keyed by slug, and the wallet page rendered
         // the slug as though it were the currency's name.
-        tokenNames: Object.fromEntries(
-          Object.keys(held).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
-        ),
+        tokenNames: Object.fromEntries(Object.keys(held).map((s) => [s, tokenDef(s)?.name ?? s])),
+        tokenDecimals: Object.fromEntries(Object.keys(held).map((s) => [s, tokenDef(s)?.decimals ?? 0])), // ...and the SCALE of each. `balances` is MINOR units, and the Tokens page and the profile wallet card both render this map raw. See client/src/lib/tokenAmount.ts.
         orders,
         canBuy: hasCapability("exchange.buy", ctx),
         canSwap: hasCapability("exchange.swap", ctx),
@@ -20495,12 +20503,11 @@ ${inner}
           "Consent releases value: the amount must be at least 1. To allow consenting at zero (acknowledged, no recognition), enable 'Allow consenting at zero' in Admin → Variables → Quests.",
       });
     }
+    // A cap needs a number to cap, so BOTH capping modes have to refuse a label naming none. This used to sit inside the posted branch, which left "capped" to compute a multiple of the 0 an unreadable label parses to and answer with a ceiling-shaped error for a label-shaped problem. Only "unlimited" is exempt, because that village asked for no ceiling at all.
+    if (capMode !== "unlimited" && !range.valid) {
+      return res.status(409).json({ error: "This quest does not advertise a readable amount, so it cannot be consented while a cap is set. Give the quest a number on the board first." });
+    }
     if (capMode === "posted") {
-      if (!range.valid) {
-        return res.status(409).json({
-          error: "This quest does not advertise a readable amount, so it cannot be consented while the cap is set to the posted range.",
-        });
-      }
       if (requested < range.min || requested > range.max) {
         return res.status(409).json({
           error: `${requested} is outside what this quest advertises (${describeRange(range)}). The board is the contract.`,
@@ -20750,7 +20757,7 @@ ${inner}
       stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
       stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
-      gratitude: { balance: user.recognitionBalance ?? 0, budget: await gratitudeBudget(user) },
+      gratitude: { balance: user.recognitionBalance ?? 0, decimals: tokenDef(PLATFORM_TOKEN)?.decimals ?? 0, budget: await gratitudeBudget(user) }, // `balance` is the cached MINOR-unit column; `decimals` is what turns it into the number on the card
       quests: claims.map((c: any) =>
         questCredits.has(c.id) ? { ...c, credited: questCredits.get(c.id) } : c,
       ),
@@ -21689,7 +21696,7 @@ ${inner}
     for (const id of sendPeers) sendNames.set(id, (await members.byId(id))?.name ?? null);
     const summed = await balanceOf(getPool(), memberAccount(user.id), "gratitude");
     const raw = await balancesFor(getPool(), memberAccount(user.id));
-    const balances: Record<string, { name: string; balance: number }> = {};
+    const balances: Record<string, { name: string; balance: number; decimals: number }> = {};
     for (const [slug, balance] of Object.entries(raw)) {
       // Hidden tokens stay out of the member's view, the same rule
       // loadStanding applies to the profile chips. The BALANCE is untouched in
@@ -21699,7 +21706,7 @@ ${inner}
       // that is a drift worth seeing, not a token someone chose to hide.
       const def = tokenDef(slug);
       if (def && !def.active) continue;
-      balances[slug] = { name: def?.name ?? slug, balance };
+      balances[slug] = { name: def?.name ?? slug, balance, decimals: def?.decimals ?? 0 }; // MINOR units + scale
     }
     res.json({
       // The column is a cache of the ledger. If these ever disagree the ledger
@@ -21716,7 +21723,8 @@ ${inner}
       entries: entries.map((e) => ({
         tokenType: e.tokenType,
         tokenName: tokenDef(e.tokenType)?.name ?? e.tokenType,
-        amount: e.amount,
+        amount: e.amount, // `token_ledger.amount` verbatim: an INT of MINOR units. A Voice row reading 10000 is ten, and the journey feed printed it as ten thousand.
+        decimals: tokenDef(e.tokenType)?.decimals ?? 0,
         source: e.source,
         sourceRef: e.sourceRef,
         description: e.description,
@@ -26944,7 +26952,16 @@ ${inner}
      * and this is the door their full name would otherwise leave by.
      */
     const publicHolder = (h: OrgAssignment) => ({
-      name: h.holderKind === "member" && h.userId ? nameOf(h.userId) : firstName(h.displayName ?? ""),
+      // AN AGENT PUBLISHES NO NAME (0142). Its display name is a vendor's
+      // product name, and the rule is that nothing about which commercial
+      // services a village uses goes out on a public surface. A generic word
+      // keeps this row consistent with the seat's own holderCount, which does
+      // count the agent, so the two cannot disagree at the anonymous tier.
+      name: h.isAgent
+        ? "An agent"
+        : h.holderKind === "member" && h.userId
+          ? nameOf(h.userId)
+          : firstName(h.displayName ?? ""),
     });
 
     const byRole = new Map<string, OrgAssignment[]>();
@@ -27195,46 +27212,20 @@ ${inner}
     for (const d of drafts) {
       for (const o of d.vision?.objectives ?? []) if (o.source === "measured" && o.metric) wanted.add(o.metric);
     }
-    const measured = new Map<string, number>();
-    if (Array.from(wanted).some((m) => m === "seats_filled" || m.startsWith("seats_filled_in:"))) {
-      const [roles, assignments] = await Promise.all([
-        listOrgRoles(getPool()),
-        listOrgAssignments(getPool(), lapseContext()),
-      ]);
-      const bySeat = new Map<string, OrgAssignment[]>();
-      for (const a of assignments) {
-        if (a.isExample) continue;
-        bySeat.set(a.orgRoleId, [...(bySeat.get(a.orgRoleId) ?? []), a]);
-      }
-      const live = roles.filter((r) => r.active && !r.isExample);
-      const filled = live.filter((r) => seatState(r, bySeat.get(r.id) ?? []) === "filled");
-      measured.set("seats_filled", filled.length);
-      for (const m of Array.from(wanted)) {
-        if (!m.startsWith("seats_filled_in:")) continue;
-        const circleId = m.slice("seats_filled_in:".length);
-        measured.set(m, filled.filter((r) => r.circleId === circleId).length);
-      }
-    }
-    if (Array.from(wanted).some((m) => m.startsWith("members_at_stage:"))) {
-      const [allMembers, consented] = await Promise.all([members.all(), claimsRepo.consentedCounts()]);
-      const real = (allMembers as any[]).filter((u) => !isExampleUser(u));
-      for (const m of Array.from(wanted)) {
-        if (!m.startsWith("members_at_stage:")) continue;
-        const floor = stageIndex(m.slice("members_at_stage:".length));
-        if (floor < 0) continue;
-        measured.set(
-          m,
-          real.filter((u) => stageIndex(computeStage(u, Number(consented.get(u.id) ?? 0))) >= floor).length,
-        );
-      }
-    }
-    if (wanted.has("seasons_completed")) {
-      const s = seasonState();
-      measured.set(
-        "seasons_completed",
-        s.seasons.filter((x: any) => x.endsOn && x.endsOn <= s.today).length,
-      );
-    }
+    // Counting moved to server/lib/orgDrafts.ts, beside VISION_METRICS, which
+    // is the vocabulary it counts. Agent-held seats do not count toward
+    // seats_filled and that file says why (0142).
+    const measured = await measureVisionMetrics(getPool(), wanted, {
+      lapseContext,
+      allMembers: async () => (await members.all()) as any[],
+      consentedCounts: () => claimsRepo.consentedCounts(),
+      isExampleUser,
+      computeStage,
+      seasonsCompleted: () => {
+        const st = seasonState();
+        return st.seasons.filter((x: any) => x.endsOn && x.endsOn <= st.today).length;
+      },
+    });
     const measure = (m: string) => (measured.has(m) ? measured.get(m)! : null);
 
     res.json({
@@ -27547,6 +27538,14 @@ ${inner}
   registerOrgRoutes(app, {
     isAdmin, authedUser, guardCapability, getPool, members, firstName,
     capabilityCtx, lapseContext, currentPatternId, seasonState, notify,
+  });
+
+  // The steward review surface (0140-0141). Mounted here beside the org
+  // routes because it reads the same seat and draft planes and shares their
+  // gates. NOT under /api/admin: a steward who is not an admin is exactly who
+  // this is for, so it is capability-gated all the way down.
+  registerReviewRoutes(app, {
+    isAdmin, authedUser, guardCapability, mayAct, adminActor, getPool, members, questsRepo,
   });
 
   // ── Season patterns (0050) ───────────────────────────────────────────────
@@ -27912,7 +27911,8 @@ ${inner}
       gratitudeSent: log.filter((g) => g.fromId === user.id),
       gratitudeReceived: log.filter((g) => g.toId === user.id),
       ledger: await entriesForMember(getPool(), user.id),
-      balances: await balancesFor(getPool(), memberAccount(user.id)),
+      balances: await balancesFor(getPool(), memberAccount(user.id)), // MINOR units, so the file is the ledger and not a rounding of it
+      tokenDecimals: Object.fromEntries(allTokens().map((t) => [t.slug, t.decimals])), // ...and what turns those rows into the numbers the member reads. Without it a Voice balance of 10000 in a downloaded file is unreadable by the one person entitled to read it.
       stageEvents: stageEventsRepo.all().filter((e: any) => e.userId === user.id),
       submissions: submissionsRepo.all().filter((s: any) => s.userId === user.id),
       notifications: notifRows,

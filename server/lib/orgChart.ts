@@ -137,6 +137,32 @@ export interface OrgAssignment {
   lapsedReason?: "term" | "season" | null;
   /** A standing-example seating (0046), seeded for an empty village to read. */
   isExample: boolean;
+  /**
+   * A software agent holds this seat (0142).
+   *
+   * THE MODEL, in one place so no reader has to reconstruct it. An agent is
+   * `holderKind: "documented"` with a `holderKey` of `agent:<slug>`, never a
+   * member and never given an account. Two doors close for free as a result,
+   * and neither of them is a guard written for agents:
+   *
+   *   THE MONEY. The settlement job selects `holder_kind = 'member' AND
+   *   user_id IS NOT NULL`, so an agent is excluded by a filter that predates
+   *   it. No new money guard exists and none should be added: an exclusion
+   *   that is inherited cannot drift away from the thing it protects.
+   *
+   *   THE ONE PERMISSION DOOR. `mayDeclare` below is the only bridge from
+   *   this table into an authorization decision, and it short-circuits on a
+   *   missing user id. A documented holder can never open it.
+   *
+   * SO WHY A FLAG AT ALL, if `documented` already carries the behaviour. It
+   * carries the behaviour and not the MEANING. A village needs to see at a
+   * glance which of its seats a person holds and which a machine does, and
+   * `holderKey.startsWith("agent:")` is a naming convention rather than a
+   * fact: a documented human called "Agent Smith" slugifies to
+   * `doc:agent-smith` today and nothing stops that changing. This is a thing
+   * somebody asserted at seating time.
+   */
+  isAgent: boolean;
 }
 
 const ROLE_COLS =
@@ -154,7 +180,11 @@ const ASSIGN_COLS =
   // standing-examples machinery (examples.ts seeds rows with is_example = 1),
   // so every read handed back demo seatings that nothing downstream could tell
   // from real ones. The public export is the first reader that must not.
-  "id, org_role_id, holder_kind, user_id, display_name, holder_key, focus, note, season_id, term_ends_at, started_at, ended_at, ended_reason, is_example";
+  "id, org_role_id, holder_kind, user_id, display_name, holder_key, focus, note, season_id, term_ends_at, started_at, ended_at, ended_reason, is_example, " +
+  // 0142. Same reasoning `is_example` carries above: a flag that does not ride
+  // through every SELECT is a flag downstream cannot act on, and the surfaces
+  // that must not count an agent are exactly the ones furthest from here.
+  "is_agent";
 
 /** MySQL hands JSON back already parsed on some drivers and as text on others. */
 function asList(v: unknown): string[] {
@@ -219,6 +249,7 @@ function rowToAssignment(r: any): OrgAssignment {
     endedAt: r.ended_at ?? null,
     endedReason: r.ended_reason ?? null,
     isExample: !!r.is_example,
+    isAgent: !!r.is_agent,
   };
 }
 
@@ -390,11 +421,57 @@ export function documentedKey(displayName: string): string {
   return `doc:${slug || "unnamed"}`;
 }
 
+/**
+ * The slug half of an agent's holder key.
+ *
+ * Sibling of `documentedKey` above and deliberately a different prefix: an
+ * agent and a documented human are the same `holder_kind` and must still be
+ * two different keys, or seating an agent named after a person would collide
+ * with that person's own card on the same seat.
+ */
+export function agentKeySlug(name: string): string {
+  return String(name)
+    .trim()
+    .toLowerCase()
+    .replace(/^agent:/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * The holders who are people (0142). THE ONE FILTER EVERY COVERAGE READ USES.
+ *
+ * A coverage read answers "is there somebody carrying this". An agent holding
+ * a seat is a real thing and belongs on the chart, and it is not an answer to
+ * that question: a village with six agent seats and nobody in them would
+ * otherwise read as better covered than a village with six empty ones, which
+ * is exactly backwards.
+ *
+ * It lives here as a named export rather than as an inline `.filter` at each
+ * site so that the decision is ONE decision. Four separate inline filters is
+ * four places for the next person to disagree with the first three without
+ * noticing.
+ *
+ * DISPLAY reads do not use it. The map, the seat cards and the public export
+ * all show a seat as held when an agent holds it, because it is, and the
+ * `isAgent` flag is how they say by what.
+ */
+export function peopleOnly<T extends { isAgent?: boolean }>(holders: readonly T[]): T[] {
+  return holders.filter((h) => !h.isAgent);
+}
+
 export interface HolderLoad {
   holderKey: string;
   name: string;
   /** A claimed member, or a name written on a card nobody has claimed yet. */
   isMember: boolean;
+  /**
+   * A software agent (0142). Reported and never hidden: an agent carrying a
+   * third of the seats is a real dependency and the village should see it.
+   * What it is kept out of is `humanSeatingsLive` and
+   * `seatsHeldOnlyByAgents` below, which answer a different question.
+   */
+  isAgent: boolean;
   seatsHeld: number;
   /** Seats where this person is the ONLY current holder. */
   soleHeld: number;
@@ -420,6 +497,21 @@ export interface StructuralLoad {
   distinctHolders: number;
   /** Active seats with nobody current on them at all. */
   unheldSeats: number;
+  /**
+   * Live seatings held by a person (0142). `seatingsLive` counts every holder
+   * including agents, which is the right denominator for a share of the chart
+   * and the wrong one for "how much of this is carried by people".
+   */
+  humanSeatingsLive: number;
+  /**
+   * Active seats where every live holder is an agent.
+   *
+   * THE NUMBER THIS WHOLE AUDIT EXISTS FOR. These seats are held, so they are
+   * not in `unheldSeats`, and no human is carrying them, so counting them as
+   * covered is the false reading. They are neither vacant nor staffed, and
+   * before this they were silently the second one.
+   */
+  seatsHeldOnlyByAgents: number;
   /** The largest single share, or null when the chart cannot support it. */
   concentration: number | null;
   /**
@@ -511,6 +603,7 @@ export function structuralLoad(
           holderKey: h.holderKey,
           name: (h.userId ? nameOf?.(h.userId) : null) || h.displayName || h.holderKey,
           isMember: h.holderKind === "member",
+          isAgent: !!h.isAgent,
           seatsHeld: 0,
           soleHeld: 0,
           soleHeldCritical: 0,
@@ -535,13 +628,26 @@ export function structuralLoad(
 
   const unheldSeats = Array.from(seatById.values()).filter((r) => !(byRole.get(r.id) ?? []).length).length;
 
+  // 0142. A seat with holders, every one of them an agent, is held and
+  // uncarried. See the field comment: this is the reading that was wrong.
+  const seatsHeldOnlyByAgents = Array.from(seatById.values()).filter((r) => {
+    const held = byRole.get(r.id) ?? [];
+    return held.length > 0 && peopleOnly(held).length === 0;
+  }).length;
+  const humanSeatingsLive = holders.filter((h) => !h.isAgent).reduce((n, h) => n + h.seatsHeld, 0);
+
   // The same human under two keys. Compared by slug on BOTH sides so a member
   // named "Ada Vance" matches the card that says "ada vance".
+  //
+  // AGENTS ARE SKIPPED ON BOTH SIDES (0142). A member called Ada Vance and an
+  // agent called Ada Vance are two different holders on purpose, and reporting
+  // them as one human under two keys would invite somebody to merge a person
+  // into a piece of software.
   const memberBySlug = new Map<string, string>();
   for (const h of holders) if (h.isMember) memberBySlug.set(documentedKey(h.name), h.holderKey);
   const possibleDuplicates: StructuralLoad["possibleDuplicates"] = [];
   for (const h of holders) {
-    if (h.isMember) continue;
+    if (h.isMember || h.isAgent) continue;
     const memberKey = memberBySlug.get(h.holderKey);
     if (memberKey) possibleDuplicates.push({ documentedKey: h.holderKey, memberKey, name: h.name });
   }
@@ -555,6 +661,8 @@ export function structuralLoad(
     seatingsLive,
     distinctHolders: holders.length,
     unheldSeats,
+    humanSeatingsLive,
+    seatsHeldOnlyByAgents,
     concentration: readable && seatingsLive > 0 ? holders.reduce((m, h) => Math.max(m, h.share), 0) : null,
     possibleDuplicates,
     note: readable
@@ -739,11 +847,32 @@ export async function updateOrgRole(pool: Pool, id: string, body: any): Promise<
  * Seat somebody. A member holding carries their user id; a documented holder
  * carries only a name, which is how a real person occupies a real seat before
  * they have an account.
+ *
+ * AN AGENT IS SEATED THROUGH HERE TOO, and the refusal below is the whole of
+ * how that stays safe. Pass `isAgent` with an `agentSlug` and no `userId`, and
+ * the row lands as a documented holder keyed `agent:<slug>`. Pass `isAgent`
+ * WITH a `userId` and this refuses, because an agent with a member account
+ * would pass the settlement job's `holder_kind = 'member'` filter and could
+ * open the one seat-plane permission door in `mayDeclare`. That single refusal
+ * closes the money path and the declare path at once, which is why it lives
+ * at the write rather than at each of the readers.
  */
 export async function seatHolder(
   pool: Pool,
   orgRoleId: string,
-  h: { userId?: string | null; displayName?: string | null; focus?: string | null; note?: string | null; seasonId?: string | null; termEndsAt?: Date | null; grantedBy?: string | null },
+  h: {
+    userId?: string | null;
+    displayName?: string | null;
+    focus?: string | null;
+    note?: string | null;
+    seasonId?: string | null;
+    termEndsAt?: Date | null;
+    grantedBy?: string | null;
+    /** Seat a software agent. Never combined with a `userId`. */
+    isAgent?: boolean;
+    /** The agent's stable slug. The holder key becomes `agent:<slug>`. */
+    agentSlug?: string | null;
+  },
   /**
    * `assignmentId` is returned so the caller can key a notification on THIS
    * seating. Keying on the seat and the person instead would mean somebody
@@ -751,17 +880,44 @@ export async function seatHolder(
    * which is the same grammar the member-role appointment already uses.
    */
 ): Promise<{ ok: boolean; reason?: string; assignmentId?: string }> {
+  const isAgent = !!h.isAgent;
+  if (isAgent && h.userId) {
+    /*
+     * THE SCOPE OF THIS REFUSAL IS THE SEAT PLANE, AND SAYING SO IS THE POINT.
+     *
+     * A seat-plane agent is `documented` and carries no user id, which is what
+     * keeps it out of the settlement job's `holder_kind = 'member'` filter and
+     * out of the 0083 declare door. Enforced here so no caller can build the
+     * combination that opens either.
+     *
+     * IT IS NOT A CLAIM THAT NO AGENT MAY EVER HOLD A `users` ROW. The founder
+     * ruled (19G) that a non-human seat, a river or a mountain or the wolves,
+     * is a VOTING seat held by a human member or by a bot built to carry that
+     * point of view, and a voting bot needs a row `ballot_votes` can reference.
+     * That representative is a different object from this one and lives on the
+     * permission plane, not here. An earlier draft of this file said "an agent
+     * is never given a member account", which would have read as false the day
+     * the first river got a vote.
+     */
+    return { ok: false, reason: "A seat-plane agent holds its seat as documented, with no member account" };
+  }
   const kind = h.userId ? "member" : "documented";
   if (kind === "documented" && !String(h.displayName ?? "").trim()) {
     return { ok: false, reason: "A documented holder needs a name" };
   }
-  const holderKey = h.userId ? String(h.userId) : documentedKey(String(h.displayName));
+  const slug = agentKeySlug(String(h.agentSlug ?? h.displayName ?? ""));
+  if (isAgent && !slug) return { ok: false, reason: "An agent needs a name to be seated under" };
+  const holderKey = isAgent
+    ? `agent:${slug}`
+    : h.userId
+      ? String(h.userId)
+      : documentedKey(String(h.displayName));
   const assignmentId = newId("orgasg");
   try {
     await pool.query(
       `INSERT INTO org_role_assignments
-         (id, org_role_id, holder_kind, user_id, display_name, holder_key, focus, note, season_id, term_ends_at, granted_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+         (id, org_role_id, holder_kind, user_id, display_name, holder_key, focus, note, season_id, term_ends_at, granted_by, is_agent)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         assignmentId,
         orgRoleId,
@@ -774,6 +930,7 @@ export async function seatHolder(
         h.seasonId ?? null,
         h.termEndsAt ?? null,
         h.grantedBy ?? null,
+        isAgent ? 1 : 0,
       ],
     );
     return { ok: true, assignmentId };

@@ -155,6 +155,12 @@ export const POWERS: readonly PowerEntry[] = [
     routes: ["/api/admin/health/regen"],
   },
   {
+    capability: "quest.approve",
+    title: "What the board asks for, and what it pays",
+    surface: "The review queue, where a proposed quest becomes a real one",
+    routes: ["/api/review/quests/:id/accept", "/api/review/quests/:id/reject"],
+  },
+  {
     capability: "quest.consent",
     title: "Releasing value on finished work",
     surface: "Consenting to somebody else's finished quest",

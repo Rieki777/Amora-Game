@@ -67,6 +67,19 @@ export type Capability =
   | "library.keep" // keep the shared library: what comes in, what goes out
   | "story.tell" // say what the village is, in its own words, in public
   | "dial.set" // turn the village's own dials, within the open ring
+  // ── The proposal key (0141) ──────────────────────────────────────────────
+  //
+  // `quest.propose` was retired for gating nothing, and this is not it coming
+  // back. That key named the act of SUGGESTING a quest, which goes through the
+  // anonymous public intake form and needs no permission from anybody. This
+  // one names the act of turning a proposed quest into a live one on the
+  // board, with a reward typed on it, which is the moment the faucet acquires
+  // an obligation. Those are opposite ends of the same pipe.
+  //
+  // It passes the test the five handover keys set: a member can finish the
+  // sentence "the village's ____ look after that", and it covers a real
+  // refusal rather than a button.
+  | "quest.approve" // put a proposed quest on the board, with what it pays
   /*
    * The steward's veto, and the reason it has to carry.
    *
@@ -119,6 +132,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "library.keep",
   "story.tell",
   "dial.set",
+  "quest.approve",
   "steward.veto",
 ];
 
@@ -170,6 +184,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "library.keep": "Keep the shared library and its loans",
   "story.tell": "Say what the village is, in public, in its own words",
   "dial.set": "Turn the village's own dials",
+  "quest.approve": "Put a proposed quest on the board and set what it pays",
   "steward.veto": "Stop a carried decision inside its window, and say why",
 };
 
@@ -328,6 +343,11 @@ export const TRANSFERABLE: Record<Capability, boolean> = {
   // product, and a ceiling an operator cannot climb over is not a ceiling, it
   // is an outage.
   "intake.moderate": true,
+  // Accepting a quest proposal is the moment a payout obligation is created,
+  // which is exactly the sort of thing a village takes on for itself. Its one
+  // route asks `guardCapability`, so the escape hatch and the public record
+  // this column promises are both really there.
+  "quest.approve": true,
   "library.keep": true,
   "story.tell": true,
   "org.seat": true,
@@ -562,6 +582,11 @@ export const DENIABLE: Record<Capability, boolean> = {
   "org.declare": true,
   "org.seat": true,
   "intake.moderate": true,
+  // A job, and not a voice. Pausing it stops somebody putting paid work on
+  // the board while a village works something out; it takes away nothing they
+  // earned as a say in a decision the village makes, which is the line R65 and
+  // R66 draw.
+  "quest.approve": true,
   "library.keep": true,
   "story.tell": true,
   "dial.set": true,
