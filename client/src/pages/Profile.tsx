@@ -379,7 +379,16 @@ export default function Profile() {
                   )}
                 </motion.div>
 
-                {/* Path-Specific Sections */}
+                {/* Path-Specific Sections.
+
+                    THESE ARE WHAT THE YOUR PATHS EMPTY STATE PROMISES. Its
+                    copy says "each one you take opens its own section on
+                    this page", and these four blocks are the only thing in
+                    the whole product that makes it true: a member's paths
+                    are read nowhere else a member can see. GET
+                    /api/admin/players puts them on the wire, and no admin
+                    screen renders them. So if these blocks go, that
+                    sentence goes with them, in the same commit. */}
                 {user.paths.includes("investor") && (
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
@@ -391,19 +400,24 @@ export default function Profile() {
                       <DollarSign className="w-6 h-6" />
                       Investment Journey
                     </h3>
-                    <div className="grid md:grid-cols-3 gap-4">
-                      <div className="bg-blue-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Investment Tier</p>
-                        <p className="text-lg font-bold text-blue-400 italic">None yet</p>
-                      </div>
-                      <div className="bg-blue-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Total Contributed</p>
-                        <p className="text-lg font-bold text-blue-400 italic">None yet</p>
-                      </div>
-                      <div className="bg-blue-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Expected ROI</p>
-                        <p className="text-lg font-bold text-blue-400 italic">None yet</p>
-                      </div>
+                    {/* Three fixed strings styled as live metrics, with no
+                        backing column anywhere: grep investmentTier and
+                        nothing outside this file answers. Same treatment as
+                        the prosperity card below, for the reason its comment
+                        gives. They also failed contrast badly, text-blue-400
+                        on bg-blue-50 measuring 2.34:1 against a 4.5:1 floor,
+                        so deleting them ends that defect here instead of
+                        recolouring it. */}
+                    <div className="bg-gray-50 border border-dashed border-gray-200 p-4 rounded-lg">
+                      <p className="text-sm text-gray-600 mb-1">Your investment</p>
+                      <p className="text-sm text-gray-500">
+                        Not recorded yet. Nothing on your profile holds a tier, a total
+                        contributed, or a return. The{" "}
+                        <Link href="/investor" className="text-teal-deep font-medium hover:underline">
+                          investor journey
+                        </Link>{" "}
+                        is where this village sets out what it offers and what it asks.
+                      </p>
                     </div>
                   </motion.div>
                 )}
@@ -419,19 +433,23 @@ export default function Profile() {
                       <Users className="w-6 h-6" />
                       Steward Role
                     </h3>
-                    <div className="grid md:grid-cols-3 gap-4">
-                      <div className="bg-green-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Current Circle</p>
-                        <p className="text-lg font-bold text-green-400 italic">None yet</p>
-                      </div>
-                      <div className="bg-green-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Current Role</p>
-                        <p className="text-lg font-bold text-green-400 italic">None yet</p>
-                      </div>
-                      <div className="bg-green-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Seasons Completed</p>
-                        <p className="text-lg font-bold text-green-400 italic">0</p>
-                      </div>
+                    {/* "Seasons Completed" was a literal 0 and the other two
+                        were fixed strings, none of them backed by a column.
+                        text-green-400 on bg-green-50 measured 1.66:1, the
+                        worst on this page. Deliberately NOT wired to live
+                        roles data: another lane is changing the progression
+                        payload to send roles as objects, and consuming that
+                        shape here now would contend with it. Roles arrive
+                        separately. */}
+                    <div className="bg-gray-50 border border-dashed border-gray-200 p-4 rounded-lg">
+                      <p className="text-sm text-gray-600 mb-1">Your seat</p>
+                      <p className="text-sm text-gray-500">
+                        Not recorded yet. Nothing on your profile holds a circle or a seat.{" "}
+                        <Link href="/circles" className="text-teal-deep font-medium hover:underline">
+                          Circles
+                        </Link>{" "}
+                        shows every circle in this village and the seats inside it.
+                      </p>
                     </div>
                   </motion.div>
                 )}
@@ -447,19 +465,20 @@ export default function Profile() {
                       <Home className="w-6 h-6" />
                       Residency Status
                     </h3>
-                    <div className="grid md:grid-cols-3 gap-4">
-                      <div className="bg-amber-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Move-In Status</p>
-                        <p className="text-lg font-bold text-amber-400 italic">None yet</p>
-                      </div>
-                      <div className="bg-amber-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Housing Type</p>
-                        <p className="text-lg font-bold text-amber-400 italic">None yet</p>
-                      </div>
-                      <div className="bg-amber-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Years Planned</p>
-                        <p className="text-lg font-bold text-amber-400 italic">None yet</p>
-                      </div>
+                    {/* Three more with no backing column: grep moveInStatus,
+                        housingType or yearsPlanned and nothing outside this
+                        file answers. text-amber-400 on bg-amber-50 measured
+                        1.61:1. */}
+                    <div className="bg-gray-50 border border-dashed border-gray-200 p-4 rounded-lg">
+                      <p className="text-sm text-gray-600 mb-1">Your home</p>
+                      <p className="text-sm text-gray-500">
+                        Not recorded yet. Nothing on your profile holds a move-in date, a home
+                        type, or a length of stay.{" "}
+                        <Link href="/housing" className="text-teal-deep font-medium hover:underline">
+                          Housing
+                        </Link>{" "}
+                        shows the home types and how to reserve one.
+                      </p>
                     </div>
                   </motion.div>
                 )}
@@ -494,9 +513,20 @@ export default function Profile() {
                       </div>
                       <div className="bg-gray-50 border border-dashed border-gray-200 p-4 rounded-lg">
                         <p className="text-sm text-gray-600 mb-1">Your venture</p>
+                        {/* This said venture details "arrive with the
+                            prosperity module". There is no prosperity
+                            module: shared/modules.ts defines 29 ids and none
+                            of them is that one, nor housing, nor investment.
+                            The card that taught this page not to print
+                            numbers it cannot back was itself promising a
+                            surface that is on nobody's list. */}
                         <p className="text-sm text-gray-500">
-                          Not set up yet. Venture details and revenue-share tiers arrive with the
-                          prosperity module. Until then, tell the stewards what you're building.
+                          Not recorded yet. Nothing on your profile holds a venture or a share of
+                          its revenue. The{" "}
+                          <Link href="/prosperity" className="text-teal-deep font-medium hover:underline">
+                            prosperity journey
+                          </Link>{" "}
+                          is where this village sets out what it offers builders.
                         </p>
                       </div>
                     </div>
