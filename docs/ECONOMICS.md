@@ -105,6 +105,7 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `keys.roleCycle` | `role.cycle:<v>:<cycleKey>:<seatId>:<userId>` |
 | `keys.journeyStage` | `journey.stage_reached:<v>:<journeyId>:<stage>:<userId>` |
 | `keys.welcomeAboard` | `welcome_aboard.quest:<v>:<questNo>:<userId>` |
+| `keys.voiceDecay` | `voice.decay:<v>:<cycleKey>:<userId>:<tokenSlug>` |
 | `keys.transfer` | `transfer:<v>:<transferRowId>` |
 | `keys.reversal` | `reversal:<v>:<eventKey>` |
 | `keys.voiceClaim` | `voice-claim:<v>:<claimRowId>` |
@@ -304,6 +305,84 @@ says so in one line that is worth reading before believing any of this reaches a
 chain: `export const BRIDGE_DISPATCH_BUILT = false;`. Nothing in this build
 dispatches a claim to Hypha. A claim is recorded, the voice is debited and held
 at the bridge, and something outside this repository has to confirm it.
+
+### Voice that wanes (R3, R15)
+
+Voice does not keep. At the close of each cycle the settlement posts a
+percentage of every member's Voice to `sys:voice-decay`, a system account seeded
+by `drizzle/0148_voice_that_waned.sql` that is not a faucet and only ever
+receives, so its balance is all the Voice that has waned in this village to
+date. The rate is `economy.voice_decay_pct`, a percentage under The Mint that
+defaults to 1 and accepts 0 through 100, and `economy.voice_decay_basis` says
+what the rate is measured against. The basis ships with a single value, `all`,
+because a member's balance already is their unspent Voice: Voice leaves a member
+account through a voice claim and through an exit sweep, and both have taken it
+out of the balance before the settlement reads it, so an `unspent` option would
+measure the same number twice. Both dials carry `applyTiming: "cycle-close"` on
+their definitions, so a change voted mid cycle lands at the next close.
+
+Waning is a ledger posting and never a rewrite of a balance, which is what keeps
+every promise this document makes elsewhere. Conservation still holds, the member
+can read the row that took it (`mem:<user>` to `sys:voice-decay`, source
+`voice_decay`, description "Voice that waned this moon"), and a ballot that has
+already frozen its weights reads whatever the ledger held when it opened. No row
+names an actor. R65 and R66 rule that no party may strip another's earned voice,
+and a row naming an admin would read as exactly that act.
+
+The amount is computed in minor units and floored:
+`Math.floor(balanceUnits * pct / 100)`. Rounding up would take more than the
+published rate, which is the one direction that must never happen. Flooring also
+makes a balance too small to reach into a counted exemption instead of a unit
+quietly costed to somebody, so at three decimals and 1 percent a member holding
+5.000 Voice wanes 50 units and a member holding 0.050 Voice wanes nothing.
+
+The step runs inside `runSettlement`, behind `economyReady`, behind the launch
+fact, and ahead of the read that returns early when no `role.cycle` rule is in
+force. Ahead of that early return, because a village whose only rule is
+`quest.completed` must still wane. Ahead of the seat payout, because a balance
+should wane only after it has sat through a cycle, which is what makes the
+published ceiling true: an accrual of `a` a moon against a rate `d` settles at
+`a / d`, so a seat paying 50 Voice a moon at 1 percent settles at 5000 Voice.
+Behind the launch fact, because a village that has not voted its Game into
+existence is issuing nothing and must not be taken from. `economyReady` alone
+does not give that, although the design assumed it would: `seedEconomy` writes
+its rules enabled at boot, so a village that has never issued a token reads as
+ready, and `decayVoice` therefore reads `readGameStart` itself.
+
+Two exemptions, both structural. Every system account is exempt because the read
+asks for `kind = 'member'`, which is what keeps `sys:voice-bridge` and
+`sys:voice-settled` out of it: waning Voice held against an open claim would
+change the amount arriving at the far end of a crossing that has already been
+quoted, and the refund path reverses the original debit, so it would then hand
+back a different number than was taken. A member with an open exit is exempt
+because their balances are already on the way to `sys:exit-settlement` and a
+notice period has been quoted to them. A member who is simply away wanes like
+anybody else, which is the whole mechanism.
+
+`SettlementResult` carries a field named `decay`, always present and filled with
+zeros when the step did not run, so a reader cannot mistake "the engine never
+reached this" for "nothing waned". It holds `slug` (the token that wanes,
+`village-voice`), `pct` (the rate this run read off the dial), `total` (units
+posted to the sink by this run, in minor units of `slug`), `holders` (members
+whose Voice actually waned), `skippedTooSmall` (members whose share of the rate
+floored to nothing), `skippedExiting` (members left alone because they are in
+the middle of leaving), and `cycleKey` (the lunation the run is keyed on). One
+key per member per cycle, `voice.decay:<village>:<cycleKey>:<userId>:<slug>`,
+is what makes an hourly job take once a moon and lets a partial run resume. A
+refusal from the ledger, a missing `sys:voice-decay` account among them, rides
+home on the settlement's existing `unpayable` array with a sentence naming the
+account, once for the whole village and not once for each member.
+
+One edge is measured and named. A member holding nothing when a moon's first
+hourly ask runs is not in the read at all, so no key is written for them, and a
+payout later in that same moon wanes at the next ask. It happens once in a
+member's life, and closing it would mean posting a ledger row of zero, which
+`postTransfer` refuses.
+
+The public supply feed reports `waned` beside `issued` and derives `circulating`
+as the difference. `issued` counts what came out of a faucet and nothing puts it
+back, so on its own it would climb every moon while every wallet in the village
+shrank, and a village watching that would stop trusting its own books.
 
 ---
 
