@@ -2247,6 +2247,14 @@ a point of view that was voted is agreement or disagreement like any other. When
 (weight leaves the denominator after `governance.absent_cycles` cycles without a vote) applies.
 Flagged for him.
 
+**A bot that votes needs a row a ballot can reference.** The org chart's seat-plane agents
+(`holder_kind = 'documented'`, `is_agent`, from the bridge lane's PR #143) are not members and cannot
+vote; a non-human seat's bot representative is a different object: an account of a distinct member
+kind that `ballot_votes` can point at, seated by a `role_seat` ballot like any representative, with
+its votes attributed to the being it speaks for on every roll and read-back. The `birthing` and
+`clans` lanes own it; nothing in the org chart's agent model may assume an agent never has a
+`users` row.
+
 ### The mandate that follows
 
 > "your role now is to respond to my ideas for improvement with a final execution plan. Then you're
