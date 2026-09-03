@@ -22,6 +22,8 @@ This brief now has three layers, and the later ones win where they disagree with
   sections 1 to 11, section 13 is right. The full reports, with evidence tables, are outside the
   repository at `C:\Users\taren\Desktop\Amora\governance-sources\reports\` (section 18).
 
+**Sections 19C to 19E replace the steward-approval model wherever sections 3, 15, 19, 19B and the section 20.2 lane rows still describe one:** the steward is a 72-hour veto window, a token send executes at pass unless a seated steward votes no, and a Game change lands automatically at the later of the next new moon and the window's close. Section 20.8 records the audit that found the stale rows and the correction wave.
+
 **Three claims in sections 1 to 11 are now wrong.**
 
 1. "Governance mode cannot be switched back and forth" (sections 6, 7 and question 7). The founder
@@ -2211,3 +2213,113 @@ script so the walk runs in CI after this.
 - **Every governance act posts to the feed and notifies**, with the people-and-weight sentence.
 - **The bridge to the hub stays out of scope** and is described honestly in the document.
 - **The fake account's walk becomes a CI script**, so the Game cannot quietly stop being playable.
+
+### 20.8 The adversarial audit of 2026-09-03, and what it changed
+
+Ten Opus lenses attacked sections 12 to 20 and the code (capture, the clock, the data model,
+playability, privacy, forkability, consistency, completeness, testability, tokens, operations):
+144 findings, the 80 non-minor ones each put to two independent skeptics told to refute, 64
+survived, synthesised into twelve risks. The full audit is at
+`C:\Users\taren\Desktop\Amora\governance-sources\audit_2026-09-03.md`. Nothing was executed; it
+read the plan and the tree at `183460d`. What follows is what the coordinator adopted into the
+plan, what it put to the founder, and the correction wave the build now needs.
+
+**The twelve risks, in one line each.** (1) The admin plane sits outside the Game and owns every
+control the veto leaves standing: an admin can seat themselves as steward, unseat the elected one,
+rewrite every member's weight, flip the vote mode, and apply a passed proposal inside its window.
+(2) Section 20's lane rows still describe the approval model 19C deleted, so a lane briefed from
+its row builds the withdrawn thing. (3) A steward can veto their own removal, and the term that was
+supposed to end never comes due (seasons are an ungoverned list ending 2026-12-21; `term_ends_at`
+is erased by an unrelated appointment). (4) Quorum and unity are pure weight, so one holder of 97%
+of the weight clears the 97/97 tier alone, and below about 34 members the top tier is unanimity.
+(5) The pass instant is a human press, so the proposer chooses which three days the steward gets.
+(6) Delegation is an unconsented read channel on hidden votes and a silent quorum veto. (7) The
+secret ballot leaks through per-choice tallies, `silent[]` and timing, and a veto reason is
+permanent free text about a named neighbour. (8) A bundle splits across two clocks, and the token
+half cannot be un-minted. (9) The apply path can apply twice, half-apply, or roll back into caches
+that keep serving the change. (10) The platform counts accounts, and the plan reads them as
+people: three delegated rows or three accounts one person made satisfy the Birthing. (11) The
+automatic landing path has single points of failure (the settlement job's early return, the brake,
+a changeset switching the governance module off). (12) A fork inherits Amora's institutions,
+calendar and hub on top of a governance module that ships off.
+
+**Adopted by the coordinator (no ruling needed; consistent with his words).**
+
+- `steward.veto` is a capability no admin route can grant or revoke; seating and unseating happen
+  only through the `role_seat` and `role_unseat` executors, and the admin holders route refuses any
+  role carrying it, admin path included.
+- After the Birthing, the admin weight-write routes, the admin vote-mode flip and the admin
+  mechanics apply route are refused and redirected to proposals; an apply inside a veto window is
+  refused. Once the Game starts, those writes are the village's.
+- `lands_at` and `veto_closes_at` are timestamps on the row; no hold, no queue, no cycle number on
+  the vote path. `applyDueGovernance` runs as its own five-minute job outside the settlement job,
+  elects a single executor with a guarded claim UPDATE (`passed` to `applying`), logs "nothing due"
+  distinctly from "did not run", and marks a row stalled if the brake was off when it came due.
+- The changeset applies in two phases, validate then apply, irreversible writes last, a per-element
+  ledger row for every write, and every written-through cache reloaded afterwards. The legacy
+  apply throws before its first write on any item it cannot type. Atomicity comes from
+  pre-validation, and the document says so.
+- A vote closes when its window ends, by the settlement path, so no human hand picks the steward's
+  three days; early close is refused on every method. `lands_at` derives from the frozen
+  `closes_at`.
+- The seat that vetoes cannot veto its own removal: `role_seat` and `role_unseat` on
+  steward-capable roles, and any edit to the veto map, execute at pass.
+- Terms are stamped as instants computed from the cycle clock, kept in an append-only per-term
+  table, and a term survives an unrelated appointment; `term-watch` treats "no season is running"
+  as loud.
+- Every tier carries a head-count quorum beside its weight quorum, frozen at open from the
+  electorate rows, with a minimum of yes heads on the top tiers; every tier renders in heads against
+  this village's roll ("all 9 of you must vote and all 9 must agree"), and the stalemate warning
+  fires whenever a tier rounds to the whole roll. Delegated rows never count on a subject at 100
+  unity, the Birthing included.
+- A delegation must be accepted by the delegate; the copied choice is suppressed on the
+  delegator's row while choices are hidden ("cast, following Ren"); withdrawing a delegation or
+  taking a vote back restores the not-cast state; a delegate's unvoted delegation count is visible
+  on the live ballot.
+- While a ballot is open and secret the payload carries a participation count and, after the
+  half mark, the names of those who voted, and nothing else: no per-choice tallies, no `silent[]`
+  names, no cast times; the route needs a session; the reveal floor is three named voters; a roll
+  small enough that the tally determines the choices says so.
+- A veto reason is length-capped plain text, escaped everywhere, marked public and permanent above
+  the input, and redactable (the text blanks, the act, author and time stay). The same three rules
+  apply to objection text.
+- Stewards are notified at carry, at the half-way point and at two hours left, with the instant in
+  their own zone, by email and in-app, through a veto-watch job.
+- One person or agent holds at most one seat; a non-human being's representative is seated and
+  replaced by a `role_seat` ballot, never by declaration; the village sets the total share of Voice
+  all non-human seats may hold before the Birthing; the Birthing document shows how each seat
+  arrived. The document says the platform counts accounts rather than people.
+- A changeset cannot switch the governance module off; the module gets an open-state check.
+- Fork defaults: the 2025 institutions leave the shipped pages, the circles seed ships empty,
+  `governance.hub_url` ships blank, a fresh village's seasons derive from its cadence and timezone,
+  every new surface renders one honest sentence when the module is off, and the quest chain is
+  seeded only once the module serves members. Catalyst, Birthing and Steward join the per-village
+  vocabulary object so no player-facing noun is hardcoded.
+- Three new Phase 2 lanes: `dashboard`, `quests`, `phone-IA`. The QA walk is rewritten around the
+  veto window and pinned to a 375px viewport, and "good enough to keep playing" is a printed
+  checklist.
+
+**Put to the founder (section 20.9), with the default the build proceeds on.**
+
+1. A bundle mixing a token send with a Game change: the whole bundle takes the later clock and
+   one veto window (default), or the token half executes at pass. Default: the later clock.
+2. Several stewards seated: one veto stops a change (default, his training-wheels framing), or a
+   majority of seated stewards.
+3. A tier above 97: warn (his ruling, kept) and add an automatic fallback of one tier after three
+   consecutive lunar cycles without quorum, recorded on the proposal that carries. Default: warn
+   plus fallback.
+4. The late-carry jump: a change carried one minute before the new moon lands in three days; one
+   minute after, in twenty-nine. His words give the first rule and the build keeps it; he should
+   know the jump exists.
+
+**The correction wave (Phase 1b).** Wave A lanes were briefed from the old rows. After Merge A:
+`steward-veto` converts the approval record to a veto record, renames the capability, makes it
+ungrantable by admin routes, stamps terms from the clock; `thresholds-heads` adds head-count
+quorum, minimum yes heads, the delegated-row rule at 100 unity, the tier render in heads, and
+blanks the hub URL default; `delegation-consent` adds acceptance, suppression while hidden, the
+uncast path and the unvoted count; `dispatcher` builds the veto-window model with the widened
+ownership (the admin cycles region, the admin apply route, the withdraw reset, the own job);
+`clock` with the widened ownership (seasons default, `voiceClaim.ts`, `suggestNextSeasonDates`, the
+cycle-mode landing precondition); `docgen-refresh` regenerates against the merged tree with the
+widened scope (sections 3, 4, 5, 12, 19 to 19E, withdrawn sentences as struck history). Then Merge
+B, verify, fix.
