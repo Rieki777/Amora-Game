@@ -53,6 +53,8 @@ import { register as registerOrgSeatingRoutes } from "./routes/orgSeatings";
 import { register as registerOrgRoutes } from "./routes/org";
 import { register as registerGovernanceWeightRoutes } from "./routes/governanceWeights";
 import { register as registerGovernanceWizardRoutes } from "./routes/governanceWizard";
+import { register as registerGovernanceApprovalRoutes } from "./routes/governanceApprovals";
+import { holdingHasLapsed, runTermWatch } from "./lib/stewardship";
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
 import { register as registerHousingRoutes } from "./routes/housing";
 import { register as registerJourneyRoutes } from "./routes/journey";
@@ -1339,6 +1341,12 @@ const roleHoldersRepo = dbCollection<RoleHolderRow>(getPool(), {
     { js: "userId", db: "user_id" },
     { js: "grantedBy", db: "granted_by" },
     { js: "grantedAt", db: "granted_at", kind: "time" },
+    // 0134. SPEC'D SO replaceAll CANNOT ERASE A TERM: that writer names every
+    // spec'd column and only those, so a term left out here would return as
+    // NULL on the next whole-table write and every mandate would silently
+    // become permanent. The isExample line two specs up records the same trap.
+    { js: "termEndsAt", db: "term_ends_at", kind: "time" },
+    { js: "seasonId", db: "season_id" },
   ],
 });
 // Each document carries its REAL default; absent rows read as the default and
@@ -2855,7 +2863,7 @@ type RoleDef = {
   minStage?: string | null;
   order?: number;
 };
-type RoleHolderRow = { id: string; roleId: string; userId: string; grantedBy?: string; grantedAt: string };
+type RoleHolderRow = { id: string; roleId: string; userId: string; grantedBy?: string; grantedAt: string; termEndsAt?: string | null; seasonId?: string | null };
 
 function loadRoles(): RoleDef[] {
   return rolesRepo.all();
@@ -2890,9 +2898,20 @@ function roleIdsFor(userId: string): string[] {
   return loadRoleHolders().filter((r) => r.userId === userId).map((r) => r.roleId);
 }
 
-/** Every capability the member's roles grant, deduplicated. */
+/**
+ * Every capability the member's UNLAPSED roles grant, deduplicated.
+ *
+ * A holding whose `term_ends_at` has passed grants nothing (0134). The founder
+ * ruled it: "If they're not voted back in then they expire when they expire!"
+ * A term used to be a note beside a power that kept working, which is a status
+ * saying one thing while the power says another. `roleIdsFor` still reports
+ * the seat: who holds what is a different question from what they may do.
+ */
 function roleCapabilitiesFor(userId: string): string[] {
-  const held = new Set(roleIdsFor(userId));
+  const now = new Date();
+  const held = new Set(
+    loadRoleHolders().filter((r) => r.userId === userId && !holdingHasLapsed(r, now)).map((r) => r.roleId),
+  );
   const caps = new Set<string>();
   for (const role of loadRoles()) {
     if (!held.has(role.id)) continue;
@@ -5747,43 +5766,25 @@ async function startServer() {
   });
 
   /**
-   * Terms: tell the HOLDER, once, and never again.
+   * Terms: tell the HOLDER once, and make an empty seat loud where a carried
+   * decision is actually waiting on it.
    *
-   * The admin panel already lists overdue mandates, so this exists for the
-   * person actually holding the seat, who is the one who can say whether they
-   * want to keep it. Nothing here revokes anything, and the copy has to carry
-   * that or the notification reads as a dismissal.
-   *
-   * ONE notification per assignment per event, deliberately. `dedupe_key` is
-   * globally unique, so a key with a week bucket in it would re-fire forever,
-   * and a mandate nobody has acted on is a governance problem that a weekly
-   * ping does not solve; it just teaches people to ignore notifications. Two
-   * events are worth telling apart, so two keys: the warning and the fact.
-   *
-   * Member holders only. A documented holder is a name written on a card with
-   * no account behind it, and the admin panel is where those get seen.
+   * The body is `runTermWatch` in server/lib/stewardship.ts, which sweeps both
+   * planes: org-chart seatings, which carry no permissions and revoke nothing,
+   * and permission holdings, where a term genuinely ends the powers (0134).
+   * One notification per row per event, through stable dedupe keys, because a
+   * mandate nobody has acted on is a governance problem a weekly ping does not
+   * solve. Member holders only; a documented holder is a name on a card.
    */
   registerJob("term-watch", 24 * 60 * 60 * 1000, async () => {
-    const rows = await expiringSeatings(getPool(), lapseContext(), 14);
-    let told = 0;
-    for (const a of rows) {
-      if (a.holderKind !== "member" || !a.userId) continue;
-      const ended = !!a.lapsed;
-      const r = await notify({
-        userId: a.userId,
-        type: "term_expiring",
-        title: ended
-          ? `Your term on ${a.roleName} has ended`
-          : `Your term on ${a.roleName} ends in ${a.daysLeft} day(s)`,
-        body: ended
-          ? "You are still holding the seat and nothing has been taken away. What has run out is the agreement to keep holding it unasked, so it is a good moment to say whether you want to carry on."
-          : "Nothing happens automatically when it does. This is the nudge to say whether you want to carry on.",
-        link: "/roles",
-        dedupeKey: `${ended ? "term-ended" : "term-soon"}:${a.id}`,
-      });
-      if (r.fresh) told += 1;
-    }
-    if (told > 0) console.log(`[org] ${told} holder(s) told their term is ending or has ended`);
+    const r = await runTermWatch({
+      pool: getPool(),
+      notify,
+      notifyRoll,
+      seatings: await expiringSeatings(getPool(), lapseContext(), 14),
+    });
+    if (r.holdersTold > 0) console.log(`[org] ${r.holdersTold} holder(s) told their term is ending or has ended`);
+    if (r.waiting > 0) console.log(`[governance] ${r.waiting} carried decision(s) waiting, ${r.rollsTold} member(s) told`);
   });
 
   /**
@@ -26770,6 +26771,7 @@ ${inner}
     isAdmin, authedUser, adminActor, getPool, members, firstName, notify, weightModeNow,
   });
   registerGovernanceWizardRoutes(app, { authedUser, getPool, capabilityCtx, weightModeNow });
+  registerGovernanceApprovalRoutes(app, { authedUser, mayAct, getPool, members, firstName, notify });
 
   /**
    * The subset of variables the CLIENT is allowed to know, so the UI can render

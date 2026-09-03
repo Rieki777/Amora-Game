@@ -147,6 +147,11 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
     case "ballot_withdrawn":
     case "ballot_advisory_closed":
     case "ballot_expired":
+    // The steward's decision, and the wait for one, are the same conversation
+    // as the ballot they are about, so they ride the same preference.
+    case "ballot_approved":
+    case "ballot_refused":
+    case "ballot_awaiting_steward":
       return p.governanceEmail;
     // A lunation's pool landed in somebody's wallet. Fixed daily for the
     // same reason stage_advanced is: welcome, never urgent, and nobody is

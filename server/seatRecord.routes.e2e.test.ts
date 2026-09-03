@@ -263,7 +263,22 @@ describe.skipIf(!DB_CONFIGURED)("the term a seating never carried", () => {
     expect(holder?.termEndsAt, "the holder carries their own term").toBeTruthy();
   });
 
-  it("FEATURE 2, the seat's own lapse: isLapsed's term branch reaches the map", async () => {
+  it("FEATURE 2, the seat's own lapse: the term branch reaches the map, and the seat stops reading as filled", async () => {
+    /*
+     * REWRITTEN TO THE 2026-09-02 RULE, and the rewrite is a SPLIT rather than
+     * a reversal. This case used to end on "nothing was revoked", stated as a
+     * fact about the product. The founder ruled otherwise on 2026-08-31: "If
+     * they're not voted back in then they expire when they expire!"
+     *
+     * The rule now depends on the plane. An org-chart seat carries
+     * accountabilities and no permissions, so there is nothing here to switch
+     * off and the holding stays in the record, which is what the last
+     * assertion below still pins. What changed is that the SEAT has to stop
+     * reading as comfortably filled, because a seat nobody reviews is the harm
+     * the lapse exists to surface. Real revocation lives on the permission
+     * plane (`role_holders.term_ends_at`, migration 0134) and is driven by
+     * server/stewardship.db.test.ts and server/lib/seatLapse.test.ts.
+     */
     const org = await call("GET", "/api/org", { token: memberToken });
     const past = (org.json?.roles ?? []).find((r: any) => r.id === PAST_SEAT);
     const wren = (past?.holders ?? []).find((h: any) => h.userId === memberId);
@@ -271,7 +286,13 @@ describe.skipIf(!DB_CONFIGURED)("the term a seating never carried", () => {
     // The term branch of isLapsed, which no seating could ever reach before.
     expect(wren.lapsed, "a term that reached its date reads as lapsed").toBe(true);
     expect(wren.lapsedReason, "and it lapsed on its TERM, not on a season turn").toBe("term");
-    // And nothing was revoked to say it. The holder is still on the seat.
+    // The seat says out loud that it is short a holder. This seat wants two
+    // and has one current holder beside the lapsed one, so it reads `partial`:
+    // a lapsed holding does not count toward filling a seat, which is the
+    // whole point of deriving the state instead of counting rows.
+    expect(past.state, "a lapsed holder does not fill a seat").toBe("partial");
+    expect(past.state, "and it is certainly not filled").not.toBe("filled");
+    // The RECORD keeps the holding. History is not deleted by a date passing.
     expect((past?.holders ?? []).some((h: any) => h.userId === memberId)).toBe(true);
   });
 
