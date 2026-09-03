@@ -10,10 +10,16 @@ given where each is described.
    the code actually does rather than what it intends.
 2. **A pipeline that keeps it accurate**, so it cannot silently drift the way
    every other document in this repo has.
-3. **The dry run**: a feature any village can run during setup to see its economy
-   work, and afterwards to model a proposed change before voting on it. This is
-   the largest piece and it is a product feature, not a test.
+3. **The economics model for the shared dry run**: the feature any village runs
+   during setup to see its economy work, and afterwards to model a proposed
+   change before voting on it. It is a product feature, not a test, and it is
+   SHARED with governance. You build the economics half; the governance session
+   owns the engine. Read that section before assuming its shape.
 4. **The decimals sweep**, last, with the dry run as the safety net.
+
+You are one of three sessions on this. The governance session owns the shared
+simulation engine, the coordinator lands every merge, and there is a written plan
+both of them are working from. See "Who you work with".
 
 ---
 
@@ -151,79 +157,105 @@ have a self-test today, which is worth fixing while you are in there.
 
 ---
 
-## Deliverable 3: the dry run
+## Deliverable 3: the economics model for the shared dry run
 
-**This is a product feature, not a test harness, and it is the largest piece.**
+**You do not build the dry run. You build its economics half.** Rye has decided
+the shared simulation ENGINE is owned by the governance session, because a
+proposal changes economic parameters and governance weight IS a token balance, so
+a dry run that models one without the other answers half a question.
 
-Rye's words: it is *"part of the setup process for any game to also run a
-governance and economics dry run to see how it's all working"*, it *"should also
-stay available to model changes and how they would affect a game when players are
-proposing to change anything"*, and it *"should be able to catch and flag
-potential issues during the test phase so we don't have to catch them live."*
+Three layers, named apart so nobody builds two of anything:
 
-So it has three lives:
+| Layer | Owner |
+|---|---|
+| The **engine**: takes a village config plus a set of proposed changes, runs N cycles, writes nothing | governance session |
+| The **governance model**: what a ballot does to power | governance session |
+| The **economics model**: what a cycle does to balances | **you** |
 
-1. **At setup.** A founder who has never run an economy sets their rules and
-   presses something that says: here is what a season looks like. They see the
-   numbers before thirteen people are depending on them.
-2. **Attached to a proposal.** When a player proposes changing a mint rule, an
-   allowance, a threshold or a weight mode, the proposal can carry a preview of
-   what that change does. This is how a village votes on an economy rather than
-   on a number.
-3. **As the regression harness**, run in CI over a complete cycle so the things
-   found this session cannot come back.
+### What the feature is, in Rye's words
 
-### The cardinal rule
+It is *"part of the setup process for any game to also run a governance and
+economics dry run to see how it's all working"*, it *"should also stay available
+to model changes and how they would affect a game when players are proposing to
+change anything"*, and it *"should be able to catch and flag potential issues
+during the test phase so we don't have to catch them live."*
 
-**A simulation must never write to the real ledger.** Not one row. Design that in
-from the first line, and make it structurally impossible rather than carefully
-avoided: a separate schema, or a projection that never touches `postTransfer`'s
-real connection. The whole feature is worthless if a founder pressing "what if"
-can move real money, and it will be pressed by people who do not know what a
-ledger is.
+So it has three lives: a founder sees a season before thirteen people depend on
+them; a proposal carries a preview of what it would do, so a village votes on an
+economy rather than on a number; and it runs in CI over a complete cycle so what
+was found this session cannot come back.
 
-### What it simulates
+### Four rules that hold for your half too
 
-It reads a village's ACTUAL configuration, not a fixture: its tokens and their
-decimals, its `mint_rules`, its `game_variables`, its module state, its member
-count and seats. Then it runs N cycles of plausible activity and reports.
+**THE CARDINAL RULE: a simulation must never write to the real ledger.** Not one
+row. Structurally impossible rather than carefully avoided, because the button
+will be pressed by founders who do not know what a ledger is. If the engine's
+contract does not make that impossible, say so to the governance session before
+you build against it, not after.
 
-Inputs a founder can move: how many members, how active they are, quests
-completed per cycle, how much gratitude is given, how many seats are held, how
-much is spent at sinks, how many claims are made.
+**Deterministic and seeded.** If two members run the same proposal preview and
+see different numbers, they will argue about the tool instead of the proposal.
 
-### What it must flag, and this is where the value is
+**Comparative, not absolute.** A preview is a diff. "The gratitude pool runs dry
+in cycle 7 instead of never" is something a village can vote on. A table of
+absolute postings is not.
 
-Every one of these is a real failure mode this codebase has or could have:
+**It reads the village's ACTUAL configuration**, not a fixture: its tokens and
+their decimals, its `mint_rules`, its `game_variables`, its module state, its
+member count and seats.
+
+### What your model must flag
+
+Every one of these is a real failure mode this codebase has or could have, and
+each is the kind of thing a founder cannot discover any other way until it hurts:
 
 - **A rule that can never pay.** The engine already computes `unpayable` for
   exactly this: a `from_source` rule on a token the work posts no amount in, a
-  faucet that does not exist, an amount below the token's own resolution. Surface
-  it in words a founder understands rather than in a log line.
+  missing faucet, an amount below the token's own resolution. It currently ends
+  up in a log line. Surface it in words a founder understands.
 - **An amount that rounds away.** `mint_rules.amount` carries four decimal places
   and most tokens carry none, so 0.4 credits saves cleanly and pays nothing.
 - **A pool that exhausts.** Gratitude allowance times members times cycles
   against the pool. Say which cycle it runs dry in.
-- **Concentration.** What percentage of total voice one holder ends up with after
-  N cycles. Rye has ruled that founders may self-grant voice and that the
-  protection is transparency, so this number IS the protection. It belongs on
-  screen before a vote, not in a report nobody opens.
-- **Conservation.** Every token summing to zero across all accounts including
-  faucets, asserted at every step, so a simulated economy that breaks the
-  invariant is caught here rather than in production.
-- **Negative balances that are not faucets**, and any ceiling that is never
-  reached or always hit, which usually means it was set without thinking.
-- **Concurrency.** Simulate several members acting in the same instant. That is
-  what found the deadlock, and it is the class of defect a serial test cannot see.
+- **Concentration**, which is where your half meets governance most directly.
+  Rye has ruled founders may self-grant voice and that the protection is
+  TRANSPARENCY, so the percentage of total voice a holder commands IS the
+  protection. Compute it; the governance model puts it on screen before a vote.
+- **Conservation**, asserted at every simulated step: every token summing to zero
+  across all accounts including faucets.
+- **Negative balances that are not faucets**, and any ceiling never reached or
+  always hit, which usually means it was set without thinking.
+- **Concurrency.** Several members acting in the same instant. That is what found
+  the deadlock, and a serial simulation cannot see that class at all.
 
 ### Output
 
-A report a founder can act on, in plain language, saying what would happen and
-what looks wrong. Not a table of raw postings. The audience is somebody standing
-up their first village, and the whole point is that they learn something before
-it costs them.
+Plain language a founder can act on, not a table of raw postings. The audience is
+somebody standing up their first village, and the whole point is that they learn
+something before it costs them.
 
 ---
+
+## Who you work with
+
+**The governance session** owns the engine and the governance model. Get their
+interface contract before you build: what a caller hands the engine, what a
+domain model implements, what comes back. If no contract exists yet, ask for one
+or offer a strawman. Do not build a second engine because theirs is not ready;
+say so and wait, or agree a seam.
+
+**The coordinator session** (`amora-architecture-audit-a4778f-1a`) lands merges
+across all sessions. Hand it a branch rather than pushing to `main` yourself.
+Every conflict it hit today was in shared state neither side could see: the
+ratchet baselines and the identity guard's pending list all conflict silently,
+because each lane lowers them to its own measured value, and taking either side's
+number records a figure true of neither tree.
+
+Claim the Economy row in `PLAN_TO_A.md` so nobody builds this twice. Three
+sessions landed the same lanes today by accident.
+
+---
+
 
 ## Deliverable 4: the decimals sweep, last
 
