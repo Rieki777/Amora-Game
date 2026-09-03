@@ -43,6 +43,12 @@ what, where, what breaks without it.
 | `PLATFORM_SUPPORT_EMAIL` | (module library, optional) The same, as an address. Used when `PLATFORM_SUPPORT_URL` is unset. | As above |
 | *a Managed listing's key* | (module library, per listing) Each Managed listing names its own env var in `vendor.managedEnvKey` in `shared/modules.ts`. The key is the PLATFORM's, is read from env at call time, is never added to `SECRET_KEYS`, and is never returned to a village by any route, not even masked (hub ADR-49). Set it at provisioning by whoever has deploy access; there is deliberately no admin screen for it, exactly as with `PLATFORM_ASSISTANT_KEY`. | That listing answers 503 with "this one is on us" and its Integrations card reads "Not on your plan". Everything else keeps working |
 | *a Connected listing's key* | (module library, per listing) Each Connected listing names its slots in `vendor.secretKeys`. They join `SECRET_KEYS` automatically, so they are settable from **Admin → Integrations** with source and last4 shown, and this env var (the slot name uppercased, e.g. `example_api_key` → `EXAMPLE_API_KEY`) is the fallback. The village holds its own account and can rotate the key unaided. | That listing answers 503 naming the vendor and their support link. Everything else keeps working |
+| `SATELLITE_PROVIDER` | (2026-09-02) Which aerial-imagery source the Living Map's land pages fetch from. One of `village-upload`, `sentinel2`, `mapbox`, `google`, `esri`, each of which then needs its own key below. `village-upload` needs no key, no account and no third-party licence: the founder's own photograph goes through the ordinary upload path. There is deliberately NO default and no keyless fallback, because a map quietly showing a different picture from the one the founder configured is a worse failure than a map saying nothing is configured. | The land page shows an honest empty state naming this variable |
+| `SENTINEL_WMS_URL` / `MAPBOX_TOKEN` / `GOOGLE_MAPS_STATIC_KEY` / `ESRI_API_KEY` | (2026-09-02) The key for whichever provider `SATELLITE_PROVIDER` names (`keyEnv` in `server/lib/satellite.ts`). Sentinel takes a WMS base URL rather than a key, because every keyless route to Sentinel-2 is a WMS somebody operates and naming one here would point every village at a host this project does not run. Mapbox and Google forbid serving their imagery from a cache; Esri's standard layer is not licensed for holding tiles offline. | That provider reports not ready and names the exact missing variable |
+| `BACKUP_EXPORT_TOKEN` | (2026-09-02) Authenticates `GET /api/admin/backup/uploads-archive`, which is how the scheduled backup pulls the uploads volume. This route is gated by the token and NOT by an admin session. 32 bytes of hex; mirror it as the backup workflow's secret. | The route answers 503, member uploads are in no backup, and the database dump keeps succeeding so the backup still looks green |
+| `SCHEDULER_ENABLED` | (2026-09-02) Turns the background scheduler off when set to `0`/`off`/`false`/`no`. **Unset means ON**, which is correct. | Set by accident: loans never settle, cycles never close, digests never send, and the only signal is one boot-log line saying NOT STARTED and naming this variable |
+| `HYPHA_LISTENER_*` | (2026-09-02) Fifteen variables for a village running its OWN Base listener process (`server/lib/hypha/selfHostedListener.ts`) instead of the shared ReGen hub. **The web process imports none of them**, so setting them changes nothing until that second process is started. Required: `CONTRACT_ADDRESS`, `RPC_URL`, `WEBHOOK_URL`, `WEBHOOK_SECRET`, `START_BLOCK` on a first run, and at least one of `PASSED_TOPIC0`/`FAILED_TOPIC0`. Optional: `AGREEMENT_ID_TOPIC_INDEX` (0-3), `SPACE_ID`, `CONFIRMATIONS`, `POLL_INTERVAL_MS`, `MAX_ATTEMPTS`, `DATA_DIR`, `CHECKPOINT_PATH`, `DEADLETTER_PATH`. | The listener refuses to start and names the first missing one. The shared hub path (`GOVERNANCE_HUB_SECRET`) is unaffected |
+| `GOOGLE_TOKEN_ENDPOINT` | (dev/CI only) Points the Google token exchange at a local stand-in. Enforced: a value that is not an http loopback address is logged and ignored, and the real Google endpoint is used. | Google is used, which is correct in production |
 | `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests. The harness creates a uniquely-named `village_test_*` schema per provision and drops it after; never point it at the app schema. It also keeps a `village_tpl_*` TEMPLATE schema, migrated once and cloned per suite, swept after 24 hours — so the account needs CREATE/DROP DATABASE rights and will show two families of scratch schema. `pnpm measure:provisioning` prints what that costs. | DB suites skip loudly |
 
 ## Account recovery
@@ -190,6 +196,41 @@ two from the admin panel and almost never touches the first.
   no village's brand at all; the app shell, client pages, applied
   migrations and test fixtures are ratcheted — their counts may only fall.
   Forks extend the banned-terms list in that script with their own names.
+- **The second guard, for the slots a word list cannot see:**
+  `node scripts/check-identity-keys.mjs` checks every identity slot in
+  `gameConfig.ts` is empty or platform-neutral, by key PRESENCE rather than by
+  matching words. Two of the three strings that once leaked one village's
+  identity into every fork's defaults carried no village name at all
+  ("Co-Become the Most Beautiful Village"), so no word list could ever have
+  seen them. A fork passes `--fork` and gets the report with exit 0, because a
+  fork's `gameConfig.ts` is supposed to carry its own name.
+  **Pending list: 3 as of 2026-09-02, down from 5.** `project.tagline`
+  graduated on 08-31; `project.country` graduated on 09-02 (it was the only one
+  of the four with no reader anywhere in `server/`, `shared/` or `client/src/`,
+  so blanking it changed no pixel). `project.location`, `project.fiatCurrency`
+  and `project.footerBlurb` all still render somewhere and still wait on the
+  founder entering them in Admin first.
+- **The third guard, for `.env.example`:** `node scripts/fork-env-audit.mjs`
+  fails when the server reads a variable the template does not name, and when
+  the template names a village. It exists because that file is not scanned by
+  the brand guard (wrong extension) and had been drifting behind the code for
+  25 variables, eight of which are also invisible to grep because the code
+  reaches them through a string.
+- **THE NINETEEN BROCHURE PAGES ARE STILL CODE, and this is the standing gap
+  in fork-ability.** `SHOPFRONT` in `check-brand-refs.mjs` lists them; they
+  carry 39 references to the first village and roughly 11,500 lines of its
+  story. The exemption is correct (a village's prose about its own land is
+  supposed to name it) and the consequence is not: replacing them is the one
+  step in provisioning that still needs somebody who can edit TSX, and there
+  is no per-page visibility switch, so a village that has not rewritten them
+  is publishing them. Five pieces have been lifted into Admin already, by the
+  pattern to keep using: the Team page, the Legal and Jurisdiction Notices
+  (22 claims, commit fe3f3e1), the two Love Letter covenant paragraphs
+  (`server/seeds/pages-covenant-seed.json`), the FAQs and the milestones. Each
+  extraction is a section in `client/src/components/admin/contentSections.ts`
+  plus a read through the generic `/api/content/:section` route. Nothing about
+  the remaining pages needs new infrastructure, only the work.
+  `docs/PROVISIONING.md` step 7 now tells founders this before they launch.
 - **Images are WebP, and CI enforces it.**
   `node scripts/check-image-budget.mjs` walks `client/public` and fails on any
   raster that is not WebP or AVIF, on any single file over 400 KB, and on a
