@@ -16,6 +16,7 @@ This brief now has three layers, and the later ones win where they disagree with
 - **Section 12** is the founder's fuller vision, stated 2026-09-02, in his words. It is the target
   the document must describe.
 - **Section 19** is his answer to section 15, given the same evening, and the mandate to build.
+- **Section 20** is the execution plan the coordinator runs: lanes, ownership, migration numbers, merge order, the QA walk.
 - **Sections 13 to 18** are what fourteen readers measured against the repository on 2026-09-02,
   each reader's citations re-opened by a second, adversarial agent. Where section 13 contradicts
   sections 1 to 11, section 13 is right. The full reports, with evidence tables, are outside the
@@ -1866,3 +1867,98 @@ voting, where choices show. Ledger ruling R9 is superseded by this. The people-a
 The coordinating session runs on Fable; every building agent runs on Opus or lower. Completion
 means a fake account has walked every governance action end to end on the site and the walk was
 good enough to keep playing. Section 20 is the plan.
+
+---
+
+## 20. The execution plan (2026-09-02, evening)
+
+The founder's mandate: the Fable session coordinates, every building agent runs on Opus or lower,
+and the work is complete only when a fake account has played every governance action end to end on
+the site and the walk was good. This section is the plan the coordinator runs. It is written here
+so a coordinator that loses its context can pick it up.
+
+### 20.1 Ground rules for every lane
+
+- **Integration branch:** `wt/governance-build`, worktree `C:\Users\taren\Desktop\Amora\wt-govbuild`,
+  cut from `origin/main` at `2bce3df`. Every lane branches from it (`git worktree add
+  ../wt-gb-<lane> -b wt/gb-<lane> wt/governance-build`), commits only its own paths by name, and is
+  merged back by a merge agent in the order listed. Nobody writes into `hotfix`.
+- **Migration numbers are reserved here, once.** `0127` to `0131` are held by other lanes on this
+  machine; the governance build takes **`0132` to `0139`** in the order below. A lane that needs one
+  more asks the coordinator; nobody counts `ls drizzle/`.
+- **Routes go in `server/routes/<domain>.ts`** exporting `register(app, deps)`, wired with exactly
+  two lines in `server/index.ts` (the import and the register call, nothing adjacent), so the ratchet
+  costs nothing. The close-dispatcher wrapper is the one exception and lives where `SUBJECT_CLOSERS`
+  lives.
+- **New documents are guarded the day they land:** `scripts/check-doc-links.mjs` now globs every `.md` under `docs/` and the root (PR #141), so `docs/GOVERNANCE.md` must name only paths that exist; run it before pushing, and do not edit that script while #141 is open.
+- **Every lane ships red-to-green tests**, runs `pnpm check`, `pnpm check:tests` cold, its own suites
+  alone and inside the full run, `node scripts/check-voice.mjs`, and regenerates `docs/GOVERNANCE.md`
+  and `docs/TOKENS.md` when its change moves either guard. A green from a pipe is not a green.
+- **Writing rules** apply to copy, comments and commits. The word is Catalyst, never founder, in
+  anything a player reads; `founder` stays as the stored role value.
+- **Nothing auto-executes on a timer except through `applyDueGovernance`**, and every apply is
+  idempotent on status so two callers cannot apply twice.
+
+### 20.2 Phase 1, foundations (parallel lanes, then one merge)
+
+| Lane | Owns | Builds | Migrations |
+|---|---|---|---|
+| **clock** | `shared/lunar.ts`, new `shared/cycleClock.ts`, every consumer that imports lunar arithmetic, the client `CycleClock` | The `CycleClock` seam (`boundsFor`, `idFor`, `parseId`, `startOf`); lunar implementation unchanged; a calendar implementation with its own id prefix; `cycle.mode` setting, lunar default, boundary-timed, launch-grade; past cycles frozen with their ids; a boot assertion that no setting is shown that nothing reads | `0132` if a column is needed |
+| **thresholds** | `shared/governanceEngine.ts`, `shared/ballotSubjects.ts`, the Governance category of `shared/gameVariables.ts`, `server/lib/mechanics.ts`, the open path in `server/lib/ballots.ts` | A criticality tier on every setting with a tier-to-quorum-and-unity map; the 97/97 recommended ceiling with a warning above it; `SUBJECT_THRESHOLDS` as settings with the registry as floors; a per-subject abstain policy and minimum-yes-heads; the Birthing requires every frozen seat to vote yes; a mixed change set priced at the highest floor among its elements; the one-vocabulary rule replaced by typed items | none |
+| **steward** | new `server/lib/stewardship.ts`, new `server/routes/governanceApprovals.ts`, `server/lib/orgChart.ts`, the `term-watch` job, `roleCapabilitiesFor`, `server/lib/founderGrant.ts` | `ballot_approvals` (ballot id, decided by, decision, reason NOT NULL on refusal); term columns on `role_holders`; `roleCapabilitiesFor` drops lapsed holdings; `term-watch` says the seat is empty and makes the vacancy loud where the approval is needed; approve and refuse routes gated by a new `steward.approve` capability; the seating of every catalyst as a steward, idempotent, with a term ending at the next season turn, exposed as one function the launch closer calls; a village with no steward documented as healthy | `0133` approvals, `0134` terms |
+| **dispatcher** | the governance region of `server/index.ts`, new `server/lib/changeset.ts`, `server/lib/dryRun.ts` | The closer split into settle and execute; the approval hold (`held = "waiting for a steward"`) and the per-subject auto-execute map with the mechanics brake kept as its entry; `lands_at_cycle` stamped at pass; `applyDueGovernance(pool, at)` called from both the hourly settlement job and the human cycle close; late approval rolls to the following boundary; the `governance_mode` subject type with its executor; the changeset as typed namespaces on `mechanics_proposals.change_set` (dials, mint rules, weight allocation, mode switch, module lifecycle, brand fields, roles) applied through the existing writers in one transaction, all or nothing, with the blocking element named; a durable executor-pending row | `0135` landing and supersedes columns, `0136` executor-pending |
+| **delegation** | new `server/lib/delegation.ts`, new `server/routes/delegation.ts`, the tally path in `server/lib/ballots.ts` | Delegations that copy the choice and never move the weight; transitive resolution; cycle refusal at creation; the delegator's row shows who they actually followed; effective concentration per member; concentration visible on the weights route | `0137` delegations |
+| **docgen** | new `scripts/generate-governance-doc.mjs`, `scripts/check-governance-doc.mjs`, `scripts/generate-governance-doc.test.mjs`, `server/db/governanceDoc.test.ts`, `docs/GOVERNANCE.md`, `.gitattributes`, `ci.yml`, `CLAUDE.md`, `README.md`, ruling 4 in `scripts/generate-token-doc.mjs` | The generated document of TODAY exactly as section 16.2 specifies, with every ruling in sections 3, 4, 5, 12 and 19 carried verbatim with date and status, every section 14 gap named as staged, clans and voice for other beings named as staged at 144 players; the guard in CI; the self-test; the database test | none |
+
+**Merge order:** clock, thresholds, steward, dispatcher, delegation, docgen. The merge agent
+regenerates both documents after each merge and refuses to continue on a red guard.
+
+### 20.3 Phase 2, surfaces (parallel lanes, then one merge)
+
+| Lane | Builds |
+|---|---|
+| **mechanics-section** | The admin panel's game tabs renamed the **Game Mechanics** section and public always: `mayReadAdmin` true for everyone on the game tabs, every write still on `mayAct`; before the Birthing catalysts edit directly and everyone watches; after it every control renders "propose this change", edits collect into a visible change log (the staging tray, drafts as its store), and one button submits the tray as one proposal; operator tabs and every surface carrying personal data stay where they are; save-honesty defects in section 13.5 fixed; mobile first, because the founder plays from a phone |
+| **birthing** | The launch renamed the Birthing in copy; the proposal document reveals the Game: the founding Voice distribution as a table with each catalyst's share of the total, the structure (modules on, roles declared, clans named, dials changed from default, seasons seeded), and the conditions; the invitation to name non-human governance roles on the founding screen; the founding-allocation act behind one exempted faucet; catalysts become players after it carries |
+| **ballot-surfaces** | Viewer-aware ballot serving: who voted visible, how they voted hidden, names revealed only after half the required count, a village setting for public voting; the people-and-weight sentence on every card and page; `shareOfTotal` on standing and weights in display units; the 0.1-shows-as-100 defect fixed; objection asks on every method and visible to the proposer; the withdraw-and-rewrite door with the predecessor's asks carried over; "lands at cycle N" on every held proposal; the steward's approve and refuse on the decision page with the vacancy shown |
+| **delegation-ui** | Give and withdraw a delegation from the standing page; see who you actually followed on each vote; the concentration view for every player |
+| **clans** | The naming surface only: clans as named groups anchored on a living being, editable in the Game Mechanics section, with the 144-player unlock for voice shown as a staged feature, never as a broken one |
+
+### 20.4 Phase 3, the record
+
+Maia's shelf and `COORDINATION_SUBSTRATE.md` amended to the rulings; the nine public pages
+stripped of the 2025 institutions or labelled as history; the "what the site says" gate; the
+`ARCHITECTURE.md`, `VILLAGE_OVERVIEW.md` and `FORK_RUNBOOK.md` pointers; `docs/GOVERNANCE.md`
+regenerated one final time against the merged tree.
+
+### 20.5 Phase 4, playing the Game
+
+A fresh village provisioned locally against the local MySQL, the built server started, and a fake
+account driven through the Browser pane: claim the village as a catalyst; name the clans and a
+non-human role; allocate founding Voice and see the shares; invite two more catalysts; open the
+Birthing; watch it refuse an abstention; carry it unanimously; become a player; open the Game
+Mechanics section as a plain member; stage three edits and submit them as one proposal; vote; see
+who voted and not how; object with an ask; watch the proposer withdraw, rewrite and resubmit with
+the ask carried; pass it; see the steward hold; approve as the steward; see "lands at cycle N";
+turn the moon and see it land; propose a mode switch bundled with a Voice distribution and see the
+highest floor; delegate a vote and see who was followed; let a steward's term lapse and see the
+vacancy; switch the cycle setting and see nothing about the past change. Every rough edge found is
+a lane in the next pass. The coordinator writes the walk down as a runbook and turns it into an e2e
+script so the walk runs in CI after this.
+
+### 20.6 What the coordinator adds beyond the founder's list
+
+- **Criticality is a property of every setting, shown on its control** ("changing this needs 97 of
+  100 to show up and 97 to agree"), so the bar is visible before anyone proposes.
+- **A dry run on every proposal** before it is published, from `server/lib/dryRun.ts`, showing what
+  would change and what would block it, so a proposal that cannot apply is caught before a vote.
+- **A governance read-back on the Game Mechanics front page:** which Hypha corner the dials describe,
+  concentration of voice, participation over the last three moons, and whether a steward holds the
+  seat.
+- **Stalemate protection the founder asked for in words:** when a frozen roll can no longer reach
+  its quorum because a member left, the page says so and offers the re-run in one click.
+- **The first governance actions as quests.** A short chain on the quest board (make your first
+  proposal, cast your first vote, give your first delegation) so a new player learns the Game by
+  playing it.
+- **Every governance act posts to the feed and notifies**, with the people-and-weight sentence.
+- **The bridge to the hub stays out of scope** and is described honestly in the document.
+- **The fake account's walk becomes a CI script**, so the Game cannot quietly stop being playable.
