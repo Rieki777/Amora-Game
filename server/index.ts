@@ -6758,29 +6758,15 @@ async function startServer() {
   const server = createServer(app);
 
   /**
-   * Express 4 does not route async handler rejections into its error
-   * pipeline — an unawaited throw becomes an unhandled rejection, which kills
-   * the process. S6 made most handlers async (the members repository is
-   * MySQL now), so patch the four registration verbs once, here, instead of
-   * wrapping ~100 call sites: any handler that returns a rejecting promise
-   * has the rejection forwarded to next().
+   * Express 5 changed the default query parser from `extended` to `simple`,
+   * which stops `?a[b]=c` arriving as a nested object and hands it over as
+   * the literal key `a[b]`. Nothing in this repository reads a bracketed
+   * query today, checked by hand across server/ and client/, but thirteen
+   * founder instances run this image with routes upstream cannot see, and a
+   * silent change to how every query string parses is not part of a
+   * dependency upgrade. Pinned to the Express 4 behaviour on purpose.
    */
-  for (const method of ["get", "post", "put", "delete"] as const) {
-    const original = (app as any)[method].bind(app);
-    (app as any)[method] = (pathArg: any, ...handlers: any[]) =>
-      original(
-        pathArg,
-        ...handlers.map((h: any) =>
-          typeof h === "function"
-            ? (req: any, res: any, next: any) => {
-                const out = h(req, res, next);
-                if (out && typeof out.catch === "function") out.catch(next);
-                return out;
-              }
-            : h,
-        ),
-      );
-  }
+  app.set("query parser", "extended");
 
   /**
    * SECURITY RESPONSE HEADERS, on every response this process writes.
@@ -28362,8 +28348,8 @@ ${inner}
     });
   });
 
-  // Terminal error handler: async handler rejections land here via the
-  // registration wrapper above. JSON, because every consumer is the SPA.
+  // Terminal error handler. Express 5 forwards a rejected handler promise
+  // here by itself, on every verb. JSON, because every consumer is the SPA.
   app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error("[route error]", err);
     if (res.headersSent) return next(err);
