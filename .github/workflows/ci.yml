@@ -221,6 +221,18 @@ jobs:
         # would travel with it.
         run: node scripts/check-brand-refs.mjs
 
+      - name: Fork env audit
+        # .env.example is the only list of what a founder must set, and it
+        # calls itself the single source of truth. This compares it against
+        # every env read in server/ and shared/, so a variable the code
+        # started reading cannot stay unmentioned there.
+        #
+        # It sat unwired for its whole life: four documents named it, no
+        # workflow and no package script ran it, and it exited 1 the day it
+        # was wired in. A guard that does not run is a comment, and a path
+        # resolving is not a guard running.
+        run: node scripts/fork-env-audit.mjs
+
       - name: Voice guard
         # Shipped language follows the house writing rules (the Rye Voice
         # Profile). It reads only JSX text and string literals, parsed with
