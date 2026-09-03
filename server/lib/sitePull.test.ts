@@ -219,6 +219,17 @@ describe("a hostname that resolves into private space is refused before a socket
     expect(fake.opened).toHaveLength(0);
   });
 
+  it("refuses a bracketed IPv6 literal, brackets and all", async () => {
+    // The brackets are URL syntax and not part of the address, so this path
+    // has to strip them before the range rules see anything.
+    const fake = fakeIo({});
+    for (const host of ["[::1]", "[fd00::1]", "[::ffff:127.0.0.1]"]) {
+      const refusal = await refusalOf(() => pullDocument(`https://${host}/`, { io: fake.io }));
+      expect({ host, reason: refusal.reason }).toEqual({ host, reason: "private-address" });
+    }
+    expect(fake.opened).toHaveLength(0);
+  });
+
   it("refuses a round robin that answers one public address and one private one", async () => {
     const fake = fakeIo({ "village.example": [PUBLIC_V4, "10.0.0.5"] });
     const refusal = await refusalOf(() => pullDocument("https://village.example/", { io: fake.io }));
