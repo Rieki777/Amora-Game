@@ -4,6 +4,7 @@ import WhyCostaRica from "@/components/WhyCostaRica";
 import FaqSection from "@/components/FaqSection";
 import { useVillageContent } from "@/hooks/useVillageContent";
 import { useVillageName } from "@/hooks/useVillageName";
+import { useTokenName } from "@/hooks/useTokenNames";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -228,6 +229,7 @@ interface LegalContent {
 
 export default function ResidentJourney() {
   const villageName = useVillageName();
+  const tokenName = useTokenName("Recognition");
   const journeySteps = buildJourneySteps(villageName);
   const brand = useBrandImages();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
@@ -635,13 +637,13 @@ export default function ResidentJourney() {
             <p className="text-muted-foreground mb-6">
               {dues?.note?.trim()
                 ? dues.note
-                : "As a resident, you'll pay Village Dues that cover utilities, maintenance, and community services. These can be offset through Gratitude, a living record of the value you contribute, not a fixed dollar amount. Together, we work to reduce costs and create surplus that benefits everyone."}
+                : `As a resident, you'll pay Village Dues that cover utilities, maintenance, and community services. These can be offset through ${tokenName}, a living record of the value you contribute, not a fixed dollar amount. Together, we work to reduce costs and create surplus that benefits everyone.`}
             </p>
             <Link
               href="/how-we-create"
               className="inline-flex items-center gap-2 text-teal-deep font-medium hover:gap-3 transition-all"
             >
-              Learn How Gratitude Works
+              Learn How {tokenName} Works
               <ArrowRight className="w-4 h-4" />
             </Link>
           </motion.div>

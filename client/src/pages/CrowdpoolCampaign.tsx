@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useRoute } from "wouter";
 import { useModule, useModules } from "@/modules/ModuleProvider";
 import { authToken } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
 import { ExampleChip } from "@/components/ExamplesBanner";
 import { ArrowLeft, ExternalLink, HandHeart, Package, Sparkles, Users } from "lucide-react";
 import InfoTip from "@/components/InfoTip";
@@ -55,16 +56,17 @@ interface Campaign {
 }
 
 /** One arrival, in the register Maia uses on the map. */
-function narrate(e: PoolEvent): string {
+function narrate(e: PoolEvent, tokenName: string): string {
   if (e.type === "delivered") {
     return e.item ? `${e.item} arrived; the walls grew.` : "Something promised arrived; the walls grew.";
   }
-  if (e.type === "thanked") return `Gratitude went back down the thread to ${e.who}.`;
+  if (e.type === "thanked") return `${tokenName} went back down the thread to ${e.who}.`;
   if (e.item) return `${e.who} spoke for ${e.item}.`;
   return `${e.who} laid a promise on the ring.`;
 }
 
 export default function CrowdpoolCampaign() {
+  const tokenName = useTokenName("Recognition");
   const modules = useModules();
   const crowdpool = useModule("crowdpool");
   const [, params] = useRoute("/campaign/:slug");
@@ -417,7 +419,7 @@ export default function CrowdpoolCampaign() {
                       style={{ color: "#f3e6c8" }}
                     >
                       <span className="cp-smallcaps text-[11px] shrink-0 w-20">{e.type}</span>
-                      <span className="flex-1">{narrate(e)}</span>
+                      <span className="flex-1">{narrate(e, tokenName)}</span>
                       {e.at && <span className="text-[11px] shrink-0" style={{ color: "#c9a25e" }}>{timeAgo(e.at)}</span>}
                     </li>
                   ))}

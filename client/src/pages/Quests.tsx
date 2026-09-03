@@ -15,6 +15,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchGameMe, QuestClaim, useGameConfig } from "@/lib/gameApi";
+import { useTokenName, useValueTokenName } from "@/hooks/useTokenNames";
 import { rewardCeiling } from "@shared/questRewards";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
 import InfoTip from "@/components/InfoTip";
@@ -73,8 +74,8 @@ export default function Quests() {
   // The recognition and value tokens' live names (Admin → Tokens) — a fork's
   // rename reaches every line below without a code change.
   const cfg = useGameConfig();
-  const currencyName = cfg?.currency?.name ?? "Gratitude";
-  const valueName = cfg?.currency?.value?.name ?? "village tokens";
+  const currencyName = useTokenName("Recognition");
+  const valueName = useValueTokenName();
   // Same rule for the village's own name and its events page: this page is
   // platform code, so it asks the config rather than naming anybody.
   const villageName = cfg?.project?.name ?? "the village";
@@ -526,10 +527,10 @@ export default function Quests() {
         <div className="container">
           <div className="max-w-3xl mx-auto">
             <h2 className="font-display text-3xl font-bold text-foreground mb-4 text-center">
-              What Is {currencyName}?
+              About {currencyName}
             </h2>
             <p className="text-muted-foreground text-center mb-10">
-              {currencyName} is how {villageName} acknowledges contributions, a recognition signal with
+              {villageName} acknowledges contributions in {currencyName}, a recognition signal with
               no financial value of its own. The value rides beside it: each cycle the
               community sets aside a real pool of {valueName} and shares it across
               everyone's {currencyName}, so appreciation decides where the value flows.
@@ -543,7 +544,7 @@ export default function Quests() {
                 },
                 {
                   title: "Hold",
-                  body: `${currencyName} accumulates in your Village Profile and reflects your full contribution history. It's a record of everything you've invested.`,
+                  body: `Your Village Profile accumulates ${currencyName} and reflects your full contribution history, a record of everything you have invested.`,
                   icon: Star,
                 },
                 {

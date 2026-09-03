@@ -1,8 +1,8 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { useGameConfig } from "@/lib/gameApi";
 import { useVillageName } from "@/hooks/useVillageName";
+import { useTokenName, useValueTokenName } from "@/hooks/useTokenNames";
 import {
   Users,
   Heart,
@@ -18,8 +18,8 @@ import {
 } from "lucide-react";
 
 // A function of the live value-token name (Admin → Tokens): a fork's rename
-// reaches the Gratitude card without a code change.
-const RIGHTS = (valueName: string, villageName: string) => [
+// reaches the recognition card without a code change.
+const RIGHTS = (tokenName: string, valueName: string, villageName: string) => [
   {
     icon: Users,
     title: "Voice in Governance",
@@ -28,9 +28,9 @@ const RIGHTS = (valueName: string, villageName: string) => [
   },
   {
     icon: Heart,
-    title: "Earn Gratitude for Your Contribution",
+    title: `Earn ${tokenName} for Your Contribution`,
     description:
-      `Every role you hold, every quest you complete, and every meaningful act of stewardship earns you Gratitude: the recognition signal, with no financial value of its own. Each cycle the community shares a real pool of ${valueName} across everyone's Gratitude, so appreciation decides where value flows. As ${villageName} grows, ${valueName} convert to cash, equity, or community currency. Your effort builds real wealth.`,
+      `Every role you hold, every quest you complete, and every meaningful act of stewardship earns you ${tokenName}: the recognition signal, with no financial value of its own. Each cycle the community shares a real pool of ${valueName} across everyone's ${tokenName}, so appreciation decides where value flows. As ${villageName} grows, ${valueName} convert to cash, equity, or community currency. Your effort builds real wealth.`,
   },
   {
     icon: Star,
@@ -97,16 +97,16 @@ const RESPONSIBILITIES = (villageName: string) => [
   },
 ];
 
-const PROGRESSION = [
+const PROGRESSION = (tokenName: string) => [
   {
     level: "Co-Creator",
-    description: "Full governance voice, seasonal role eligibility, Gratitude economy access",
+    description: `Full governance voice, seasonal role eligibility, ${tokenName} economy access`,
     icon: Star,
     color: "bg-teal-deep",
   },
   {
     level: "Guide",
-    description: "Mentorship responsibilities, increased Gratitude, voice in cross-circle decisions",
+    description: `Mentorship responsibilities, increased ${tokenName}, voice in cross-circle decisions`,
     icon: Compass,
     color: "bg-sage",
   },
@@ -119,8 +119,10 @@ const PROGRESSION = [
 ];
 
 export default function StewardRights() {
-  const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
+  const valueName = useValueTokenName();
+  const tokenName = useTokenName("Recognition");
   const villageName = useVillageName();
+  const progression = PROGRESSION(tokenName);
   return (
     <Layout>
       {/* Hero */}
@@ -202,7 +204,7 @@ export default function StewardRights() {
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            {RIGHTS(valueName, villageName).map((right, i) => {
+            {RIGHTS(tokenName, valueName, villageName).map((right, i) => {
               const Icon = right.icon;
               return (
                 <motion.div
@@ -293,7 +295,7 @@ export default function StewardRights() {
             </p>
           </div>
           <div className="flex flex-col gap-4">
-            {PROGRESSION.map((stage, i) => {
+            {progression.map((stage, i) => {
               const Icon = stage.icon;
               return (
                 <motion.div
@@ -311,7 +313,7 @@ export default function StewardRights() {
                     <div className="font-semibold text-foreground">{stage.level}</div>
                     <div className="text-muted-foreground text-sm">{stage.description}</div>
                   </div>
-                  {i < PROGRESSION.length - 1 && (
+                  {i < progression.length - 1 && (
                     <CheckCircle2 className="w-5 h-5 text-teal ml-auto opacity-40" />
                   )}
                 </motion.div>

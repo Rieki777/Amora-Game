@@ -10110,7 +10110,7 @@ function WorkWithUsTab({ password }: { password: string }) {
             <input type="text" value={cfg.assistantName ?? ""} onChange={(e) => setCfg({ ...cfg, assistantName: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">Gratitude on accepted proposal</label>
+            <label className="text-sm font-medium text-gray-700 block mb-1">{useGameConfig()?.currency?.name ?? "recognition"} on accepted proposal</label>
             <input type="number" min={0} value={cfg.acceptGratitude ?? 0} onChange={(e) => setCfg({ ...cfg, acceptGratitude: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
           </div>
         </div>

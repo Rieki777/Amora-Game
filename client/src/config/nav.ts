@@ -34,6 +34,17 @@ export type NavLink = {
   roles?: readonly string[];
   /** Amber treatment, for the one team-only entry. */
   accent?: boolean;
+  /**
+   * This entry is named after a token, so what a member reads is whatever the
+   * village calls that token (Admin → Tokens). Layout swaps `label` for the
+   * live name; the `label` written here is the platform's own default word,
+   * kept so this file still reads as a menu rather than a set of blanks.
+   *
+   * The HREF never moves. A village renaming its recognition token to Seeds
+   * gets a menu entry that reads Seeds and still points at /gratitude, which
+   * is where every link, bookmark and notification already goes.
+   */
+  token?: "recognition";
 };
 
 export type NavGroup = {
@@ -88,7 +99,7 @@ export const NAV: readonly NavEntry[] = [
       { href: "/introductions", label: "Introductions", module: "introductions" },
       { href: "/circles", label: "Circles" },
       { href: "/roles", label: "Roles" },
-      { href: "/gratitude", label: "Gratitude" },
+      { href: "/gratitude", label: "Gratitude", token: "recognition" },
       { href: "/events", label: "Events", module: "events" },
       { href: "/seasonal-festivals", label: "Seasonal Festivals" },
       { href: "/feedback", label: "Share Feedback" },
