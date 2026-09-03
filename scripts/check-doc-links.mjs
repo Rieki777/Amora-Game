@@ -56,6 +56,7 @@ const DOCS = [
   "docs/modules/REVIEW_CHECKLIST.md",
   "docs/modules/DD_ASSISTANT.md",
   "docs/MODULE_LIBRARY_CONTRACT.md",
+  "docs/FOUNDER_AGENT_GUIDE.md",
 ];
 
 /** Extensions that make a slash-free token worth resolving (`CLAUDE.md`). */
