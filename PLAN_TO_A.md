@@ -19,7 +19,7 @@ Graded 2026-09-03 against `main`. Grades in brackets are the challenger's.
 | Bridges | B+ (B-) | A- | the receiver has no test |
 | Architecture | B+ | A- | residue and a wide seam |
 | Data model | B | A- | zero foreign keys, 153 tables |
-| Fork-ability | B (B-) | A- | item 1 in flight (`wt/guards-that-run`); 2 and 3 open |
+| Fork-ability | B (B-) | A- | item 1 landed; 2 and 3 open |
 | Client | B (B-) | A- | the core loop is silent to a screen reader |
 | Operability | B- | A- | no uploads backup, alarm reaches no person |
 | Upgrade path | B- (C+) | A- | tags a village cannot pin |
@@ -131,6 +131,12 @@ its own coordinator is integrating.
 
 Two critical findings, both structural.
 
+**Item 1 is done (#155).** The suite now carries `if: ${{ !cancelled() }}`, so a
+failing guard no longer hides it. `!cancelled()` rather than `always()` on
+purpose: cancel-in-progress is on and runs are cancelled constantly at this
+merge rate, and `always()` would run a ten-minute suite on every cancelled one.
+Splitting the job is still worth doing and is still open.
+
 1. **`ci.yml` is one job of sequential steps with no `if: always()`, and the
    test suite is the second-to-last of them.** Any guard before it failing
    means the suite never runs, and the build still reports a single red step.
@@ -165,6 +171,28 @@ Two critical findings, both structural.
    payout. Find the others: a test that would still pass if the feature were
    deleted is not coverage.
 
+
+   **Do not try to find these with a static scan. That was tried and it does
+   not work.** A scanner looking for assertion-shaped defects (no `expect` in
+   the block, presence-only assertions, an expectation that mirrors the
+   implementation) returned 70 candidates across the 286 test files. Five were
+   checked by hand and all five were false positives: assertions living in a
+   helper such as `expectRefused()` are invisible to it, and `f(x) === f(x)` is
+   the correct way to assert determinism or clamping, not a defect.
+
+   The reason is in the calibration case, 17a5a3b. The assertion that hid the
+   lost first payout was `expect(total).toBe(50)` with a comment describing the
+   mechanism exactly. Its own words: "The number was not wrong about the
+   engine; it was right about an engine that was wrong." Nothing about that
+   line looks wrong on any axis a parser can see, because nothing about it IS
+   wrong except the world it was measured against.
+
+   So the method is mutation, which is the plan's own wording taken literally:
+   delete or neuter the feature, run the suite, and list every test that stayed
+   green. It needs a working `TEST_DATABASE_URL` first, because 92 files and
+   157 guarded describe blocks are database-gated and silently do not run
+   without one, which would itself produce a hollow pass. Start from the
+   economy paths that 17a5a3b touched. Budget it as its own session.
 ---
 
 ## 4. Bridges: B+ to A-
@@ -224,7 +252,7 @@ constraint, 114 migrations applied at boot with no approval gate.
 1. **`scripts/fork-env-audit.mjs` is referenced in four documents and wired into
    zero workflows and zero package.json scripts, and it exits 1 today.** A guard
    that does not run is a comment. Wire it into `ci.yml` and fix what it reports.
-   **In flight (branch `wt/guards-that-run`).** Wired into `ci.yml` beside the
+   **LANDED (#149).** Wired into `ci.yml` beside the
    brand guard and into `package.json` as `audit:fork-env`. The one thing it
    reported was `VILLAGE_TEST_RUN_ID`, which the vitest globalSetup assigns to
    itself before any worker starts, so it is declared INTERNAL and the omission

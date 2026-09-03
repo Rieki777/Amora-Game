@@ -618,6 +618,21 @@ jobs:
         run: pnpm build
 
       - name: Test
+        # RUNS EVEN WHEN AN EARLIER GUARD FAILED. This job is 35 sequential
+        # steps and the suite is the 33rd, so without this one red guard means
+        # the tests never ran and the build reports a single red step either
+        # way. CI was red for five commits that way, and for those five nothing
+        # exercised the code at all. A guard failure and a test failure are
+        # different facts and the build should report both.
+        #
+        # `!cancelled()` rather than `always()`, deliberately. This workflow
+        # sets cancel-in-progress on a group keyed by ref, and with the current
+        # merge rate runs are cancelled constantly: three of mine were
+        # cancelled inside 90 seconds one afternoon. `always()` would keep a
+        # ten-minute suite running on every one of them. `!cancelled()` keeps
+        # the point of the change, which is that a failing guard no longer
+        # hides the suite, without paying for runs nobody is waiting on.
+        if: ${{ !cancelled() }}
         run: pnpm test
 
       - name: Bundle budget
