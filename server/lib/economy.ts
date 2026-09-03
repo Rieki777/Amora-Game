@@ -87,6 +87,24 @@ export const VILLAGE_VOICE = "village-voice";
  */
 export const CREDITS = "credits";
 
+/**
+ * The village's word for the recognition token, for anything a member reads.
+ *
+ * THE REGISTRY IS THE SOURCE (Rye, 2026-08-14), the same rule `mergedConfig()`
+ * follows on the way out to the client, so a rename in Admin then Tokens
+ * reaches a refusal message and a ledger row description as well as a page.
+ * Reading `HEARTS` (the slug) here would be wrong twice over: the slug never
+ * moves, and a slug is not a word a member should be shown.
+ *
+ * The fallback is a generic noun and never the platform default word. A
+ * missing registry entry means the load has not happened, and a village that
+ * renamed its token to Seeds must not be told "Gratitude" on the way to being
+ * told why its gift was refused.
+ */
+export function recognitionName(): string {
+  return tokenDef(HEARTS)?.name?.trim() || "Recognition";
+}
+
 /** Faucets. A faucet's negative balance is that token's issued supply. */
 export const VOICE_MINT = "sys:voice-mint";
 /** Not a faucet: voice held against an open claim came from a member. */
@@ -681,13 +699,13 @@ export function checkGive(
 ): { ok: true } | { ok: false; error: string } {
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
-    return { ok: false, error: "Gratitude is given in whole positive hearts" };
+    return { ok: false, error: `Give ${recognitionName()} in whole positive hearts` };
   }
   // Self-gratitude is blocked, and it is blocked HERE rather than at the route,
   // so every future caller inherits it. Thanking yourself mints standing out of
   // nothing, which is the cheapest possible attack on a reputation number.
   if (input.fromUserId === input.toUserId) {
-    return { ok: false, error: "Gratitude flows to others" };
+    return { ok: false, error: `Send ${recognitionName()} to others` };
   }
   if (amount > allowance.remaining) {
     return { ok: false, error: `You can still give ${allowance.remaining} this moon` };

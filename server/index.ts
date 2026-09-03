@@ -20520,12 +20520,11 @@ ${inner}
           "Consent releases value: the amount must be at least 1. To allow consenting at zero (acknowledged, no recognition), enable 'Allow consenting at zero' in Admin → Variables → Quests.",
       });
     }
+    // A cap needs a number to cap, so BOTH capping modes have to refuse a label naming none. This used to sit inside the posted branch, which left "capped" to compute a multiple of the 0 an unreadable label parses to and answer with a ceiling-shaped error for a label-shaped problem. Only "unlimited" is exempt, because that village asked for no ceiling at all.
+    if (capMode !== "unlimited" && !range.valid) {
+      return res.status(409).json({ error: "This quest does not advertise a readable amount, so it cannot be consented while a cap is set. Give the quest a number on the board first." });
+    }
     if (capMode === "posted") {
-      if (!range.valid) {
-        return res.status(409).json({
-          error: "This quest does not advertise a readable amount, so it cannot be consented while the cap is set to the posted range.",
-        });
-      }
       if (requested < range.min || requested > range.max) {
         return res.status(409).json({
           error: `${requested} is outside what this quest advertises (${describeRange(range)}). The board is the contract.`,

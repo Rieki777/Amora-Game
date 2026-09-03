@@ -641,3 +641,276 @@ export function reservationStatusNotice(
   }
   return null;
 }
+
+/* ── THE HOMES A VILLAGE OFFERS (0131) ──────────────────────────────────────
+ *
+ * 0077 above answers "how many homes does this hamlet have open". This half
+ * answers "what homes does this village build, and what does one cost", and
+ * until 0131 it had no answer at all: the four tiers were a module constant
+ * in `client/src/pages/Housing.tsx` with a second copy of their sizes in
+ * `client/src/pages/ReserveHome.tsx`, so every fork published one American
+ * village's dollars and square footage under its own name with no field
+ * anywhere able to change them.
+ *
+ * The rules are 0077's rules, applied to describing text instead of counts:
+ * every column is independently nullable, a row existing is not a home type
+ * being published, and the predicate that decides which is which lives in
+ * ONE function that every surface reads the answer from.
+ */
+
+/** varchar(190) on name, size_text and price_text. Trim before the database. */
+const MAX_HOME_TEXT = 190;
+/** The long fields. Generous, and still a bound: text is not unbounded input. */
+const MAX_HOME_BODY = 4000;
+
+/** A home type as a stranger sees it: what publishes, and nothing else. */
+export interface PublicHomeType {
+  homeType: HomeType;
+  name: string;
+  /** Blank when the village did not write one. Never a supplied default. */
+  size: string;
+  price: string;
+  description: string;
+  /** One per line as typed, blank lines dropped, each line otherwise verbatim. */
+  features: string[];
+}
+
+/** A home type as a founder sees it: unpublished ones included, provenance on. */
+export interface HomeTypeRow {
+  homeType: HomeType;
+  name: string | null;
+  size: string | null;
+  price: string | null;
+  description: string | null;
+  features: string | null;
+  /**
+   * THE SAME PREDICATE `publicHomeTypes` APPLIES, carried so a founder
+   * surface cannot re-derive it and drift. This is the lesson `HousingRow`'s
+   * `isSet` was written to record: the panel that re-derived set-ness for
+   * hamlets showed a founder a green badge on a row every visitor was being
+   * told was an example.
+   */
+  isPublished: boolean;
+  updatedBy: string | null;
+  updatedAt: string | null;
+}
+
+const nullableText = (v: unknown): string | null => {
+  if (v == null) return null;
+  const t = String(v).trim();
+  return t.length > 0 ? t : null;
+};
+
+/**
+ * One feature per line. The ONLY structure this module imposes on anything a
+ * founder typed, and it is imposed because a list typed one per line is a
+ * list. Nothing else is a separator: a comma inside a feature is part of the
+ * feature.
+ */
+export function homeFeatureLines(raw: string | null | undefined): string[] {
+  return String(raw ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * THE ONE PLACE it is decided whether a village has published a home type.
+ *
+ * A NAME, and at least one of SIZE or PRICE. A name on its own is a card with
+ * a heading and nothing under it, which is the empty scaffolding this change
+ * exists to stop drawing; a size or a price with no name is a figure with
+ * nothing to attach it to.
+ *
+ * Blank is not the same as absent and both mean unpublished, which is why
+ * `nullableText` folds an empty string to null on the way in: a founder who
+ * clears a box has unset it, and a column holding "" must never publish a
+ * card with an empty heading.
+ *
+ * "Ask us" is a price. Anything the founder typed is theirs, and this
+ * function asks only whether they typed something.
+ */
+const homeTypeIsPublished = (
+  name: string | null,
+  size: string | null,
+  price: string | null,
+): boolean => name != null && (size != null || price != null);
+
+/**
+ * What publishes, for the uncredentialed housing read.
+ *
+ * `updated_by` and `updated_at` are NOT SELECTED at all rather than selected
+ * and dropped, the same rule `publicEntries` follows: a field that is never
+ * loaded cannot leak through a later refactor that spreads the row.
+ *
+ * The order is HOME_TYPES order and not the database's, so /housing and
+ * /reserve list homes in the same order every time and a founder editing a
+ * name does not reshuffle the page.
+ */
+export async function publicHomeTypes(pool: Pool): Promise<PublicHomeType[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT home_type, name, size_text, price_text, description, features " +
+      "FROM housing_home_types WHERE village_id = ?",
+    [VILLAGE],
+  );
+  const byType = new Map(rows.map((r) => [String(r.home_type), r]));
+  const out: PublicHomeType[] = [];
+  for (const homeType of HOME_TYPES) {
+    const r = byType.get(homeType);
+    if (!r) continue;
+    const name = nullableText(r.name);
+    const size = nullableText(r.size_text);
+    const price = nullableText(r.price_text);
+    if (!homeTypeIsPublished(name, size, price)) continue;
+    out.push({
+      homeType,
+      // Non-null by the predicate above. The others publish as blank when the
+      // village did not write them, and a blank field draws nothing.
+      name: name as string,
+      size: size ?? "",
+      price: price ?? "",
+      description: nullableText(r.description) ?? "",
+      features: homeFeatureLines(r.features == null ? null : String(r.features)),
+    });
+  }
+  return out;
+}
+
+/**
+ * All four home types including the ones nobody has filled in, for the
+ * founder surface. Carries `updated_by`, which is why it sits behind the
+ * capability gate while `publicHomeTypes` does not.
+ *
+ * A home type with no row at all and a home type with an empty row are the
+ * same thing to a founder, so both come back as a row of nulls. The panel
+ * then has four boxes to type into whether or not anything has ever been
+ * written, and the first save creates the row.
+ */
+export async function allHomeTypes(pool: Pool): Promise<HomeTypeRow[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT home_type, name, size_text, price_text, description, features, updated_by, updated_at " +
+      "FROM housing_home_types WHERE village_id = ?",
+    [VILLAGE],
+  );
+  const byType = new Map(rows.map((r) => [String(r.home_type), r]));
+  return HOME_TYPES.map((homeType) => {
+    const r = byType.get(homeType);
+    const name = nullableText(r?.name);
+    const size = nullableText(r?.size_text);
+    const price = nullableText(r?.price_text);
+    return {
+      homeType,
+      name,
+      size,
+      price,
+      description: nullableText(r?.description),
+      features: r?.features == null ? null : String(r.features),
+      isPublished: homeTypeIsPublished(name, size, price),
+      updatedBy: r?.updated_by == null ? null : String(r.updated_by),
+      updatedAt: r?.updated_at == null ? null : String(r.updated_at),
+    };
+  });
+}
+
+/** The five writable fields, each optional: absent leaves, null clears. */
+export interface HomeTypePatch {
+  name?: string | null;
+  size?: string | null;
+  price?: string | null;
+  description?: string | null;
+  features?: string | null;
+}
+
+/**
+ * Read a founder surface's body into a patch, or say why not.
+ *
+ * The same three-line contract `readAvailabilityPatch` states for hamlets,
+ * for the same reason it lives here rather than in the route: absence is
+ * interpreted in ONE place, where a test can run it.
+ *
+ *   absent   the key is not in the body: leave that column alone
+ *   null     clear it, and the home type stops publishing if that was the
+ *            last thing holding it up
+ *   value    set it
+ *
+ * An emptied box arrives as an empty string and is folded to null, because
+ * "the founder cleared this" and "the founder never wrote this" are the same
+ * state, and `homeTypeIsPublished` must not have to know two spellings of
+ * unset.
+ *
+ * NOTHING IS COERCED, CONVERTED OR APPENDED. There is no number parsing here
+ * and there must never be: no currency symbol is supplied, no unit is added,
+ * no range is normalised. The only edit is a trim and a length clamp, and the
+ * clamp is the column width.
+ */
+export function readHomeTypePatch(
+  body: unknown,
+): { ok: true; patch: HomeTypePatch } | { ok: false; error: string } {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const patch: HomeTypePatch = {};
+
+  for (const field of ["name", "size", "price"] as const) {
+    const v = b[field];
+    if (v === undefined) continue;
+    if (v !== null && typeof v !== "string") {
+      return { ok: false, error: "A home's name, size and price are text, or null to clear" };
+    }
+    patch[field] = v === null ? null : v.trim().slice(0, MAX_HOME_TEXT) || null;
+  }
+
+  for (const field of ["description", "features"] as const) {
+    const v = b[field];
+    if (v === undefined) continue;
+    if (v !== null && typeof v !== "string") {
+      return { ok: false, error: "A home's description and features are text, or null to clear" };
+    }
+    // Trimmed at the ends only. The newlines INSIDE `features` are the list,
+    // so nothing here touches them.
+    patch[field] = v === null ? null : v.trim().slice(0, MAX_HOME_BODY) || null;
+  }
+
+  return { ok: true, patch };
+}
+
+/**
+ * Set (or clear) one home type's description. The founder surface lands here.
+ *
+ * ONE RULE FOR ALL FIVE FIELDS: absent leaves the column alone, null clears
+ * it. Copied from `setAvailability` deliberately, including the reason: three
+ * different meanings for a missing field is what silently destroyed a
+ * founder's hamlet name on any edit that did not mention it, and a control
+ * that sends only the field it changed cannot revert the four it never named.
+ *
+ * An empty patch creates an unset row and changes nothing on a row that
+ * exists, so a save with nothing typed cannot cost a founder what they had.
+ */
+export async function setHomeType(
+  pool: Pool,
+  input: HomeTypePatch & { homeType: string; updatedBy: string | null },
+): Promise<void> {
+  const sets: string[] = [];
+  if (input.name !== undefined) sets.push("name = VALUES(name)");
+  if (input.size !== undefined) sets.push("size_text = VALUES(size_text)");
+  if (input.price !== undefined) sets.push("price_text = VALUES(price_text)");
+  if (input.description !== undefined) sets.push("description = VALUES(description)");
+  if (input.features !== undefined) sets.push("features = VALUES(features)");
+  sets.push("updated_by = VALUES(updated_by)");
+  await pool.query(
+    "INSERT INTO housing_home_types " +
+      "(id, village_id, home_type, name, size_text, price_text, description, features, updated_by) " +
+      "VALUES (?,?,?,?,?,?,?,?,?) " +
+      "ON DUPLICATE KEY UPDATE " +
+      sets.join(", "),
+    [
+      `hht-${randomUUID().slice(0, 12)}`,
+      VILLAGE,
+      input.homeType,
+      input.name ?? null,
+      input.size ?? null,
+      input.price ?? null,
+      input.description ?? null,
+      input.features ?? null,
+      input.updatedBy,
+    ],
+  );
+}

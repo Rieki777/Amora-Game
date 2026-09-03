@@ -239,9 +239,22 @@ function isPinned(v) {
  */
 function extractSha(buildMarker) {
   if (typeof buildMarker !== "string" || buildMarker.length === 0) return null;
+  /*
+   * A MARKER THAT IS NOTHING BUT THE SHA IS THE NORMAL CASE NOW.
+   *
+   * This read `lastIndexOf("-")` and gave up when there was no dash, which was
+   * right while every marker looked like `2026-07-28-wave1-a1b2c3d`. The
+   * builder was changed to compose the marker whole, and production now serves
+   * `{"build":"5fc1bfa"}`. Nothing here was wrong and nothing there was wrong;
+   * they were changed on the same day by different hands and only meet here.
+   *
+   * What it cost: `roll.mjs check`, which the 2am runbook sends an operator to
+   * in order to confirm a rollback landed, answered `unparseable_build` about a
+   * perfectly healthy village, and retried for five minutes before saying so.
+   * The one tool for "did the recovery work" said no when the answer was yes.
+   */
   const idx = buildMarker.lastIndexOf("-");
-  if (idx === -1) return null;
-  const candidate = buildMarker.slice(idx + 1).toLowerCase();
+  const candidate = (idx === -1 ? buildMarker : buildMarker.slice(idx + 1)).toLowerCase();
   if (candidate === "dev") return "dev";
   return /^[0-9a-f]{7}$/.test(candidate) ? candidate : null;
 }

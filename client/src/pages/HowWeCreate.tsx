@@ -1,8 +1,9 @@
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { useGameConfig, useVillageLinks } from "@/lib/gameApi";
+import { useVillageLinks } from "@/lib/gameApi";
 import { useVillageName } from "@/hooks/useVillageName";
+import { useTokenName, useValueTokenName } from "@/hooks/useTokenNames";
 import { 
   Sparkles, 
   ArrowRight, 
@@ -19,7 +20,7 @@ import {
   Handshake
 } from "lucide-react";
 
-const principles = (villageName: string) => [
+const principles = (villageName: string, tokenName: string, valueName: string) => [
   {
     title: "Sociocracy & Teal",
     description: "We blend sociocratic governance with Teal organization principles. Self-management, wholeness, and evolutionary purpose guide our structure.",
@@ -31,8 +32,8 @@ const principles = (villageName: string) => [
     icon: Settings,
   },
   {
-    title: "Gratitude Economy",
-    description: "Two tokens, two jobs. Gratitude acknowledges every contribution. It carries no financial value on its own. Each cycle, the community sets aside a real pool of value tokens and shares it across everyone's Gratitude, so appreciation decides where the value flows.",
+    title: `${tokenName} Economy`,
+    description: `Two tokens, two jobs. Every contribution is acknowledged in ${tokenName}, a recognition signal with no financial value of its own. Each cycle, the community sets aside a real pool of ${valueName} and shares it across everyone's ${tokenName}, so appreciation decides where the value flows.`,
     icon: Heart,
   },
   {
@@ -42,17 +43,17 @@ const principles = (villageName: string) => [
   },
 ];
 
-// The three cards read the LIVE value-token name (Admin → Tokens): a fork
-// that names its token renames every mention here in one act.
-const recognitionInfo = (valueName: string, villageName: string) => [
+// The three cards read BOTH live token names (Admin → Tokens): a fork
+// that names its tokens renames every mention here in one act.
+const recognitionInfo = (tokenName: string, valueName: string, villageName: string) => [
   {
-    title: "Earn Gratitude",
-    description: "Complete quests, fulfill roles, or receive revenue shares from community and private businesses. Every contribution is acknowledged with Gratitude, the recognition signal. It has no financial value on its own, on purpose.",
+    title: `Earn ${tokenName}`,
+    description: `Complete quests, fulfill roles, or receive revenue shares from community and private businesses. Every contribution is acknowledged with ${tokenName}, the recognition signal, with no financial value of its own, on purpose.`,
     icon: "🤝",
   },
   {
     title: `Share the ${valueName} Pool`,
-    description: `Each cycle, the community sets aside a real pool of ${valueName} and splits it across everyone's Gratitude. Appreciation is the signal; ${valueName} are the value it steers: the honest record of the work, time, and resources everyone is pooling to make ${villageName} real.`,
+    description: `Each cycle, the community sets aside a real pool of ${valueName} and splits it across everyone's ${tokenName}. Appreciation is the signal; ${valueName} are the value it steers: the honest record of the work, time, and resources everyone is pooling to make ${villageName} real.`,
     icon: "📊",
   },
   {
@@ -105,12 +106,12 @@ const itemVariants = {
 };
 
 export default function HowWeCreate() {
-  const config = useGameConfig();
   // Blank hides the button rather than pointing at another village.
   const { eventsUrl } = useVillageLinks();
   // Until the config lands (or on a fork that hasn't named one) speak
   // generically — never render a blank where the token's name belongs.
-  const valueName = config?.currency?.value?.name ?? "village tokens";
+  const valueName = useValueTokenName();
+  const tokenName = useTokenName("Recognition");
   const villageName = useVillageName();
   return (
     <Layout>
@@ -145,7 +146,7 @@ export default function HowWeCreate() {
             whileInView="visible"
             viewport={{ once: true }}
           >
-            {principles(villageName).map((principle) => (
+            {principles(villageName, tokenName, valueName).map((principle) => (
               <motion.div
                 key={principle.title}
                 variants={itemVariants}
@@ -183,10 +184,10 @@ export default function HowWeCreate() {
                 <Heart className="w-12 h-12 text-primary mx-auto mb-4" />
               </motion.div>
               <h2 className="font-display text-3xl md:text-4xl font-semibold text-foreground mb-4">
-                The Gratitude Economy
+                The {tokenName} Economy
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto mb-2">
-                Two tokens work together here. <strong>Gratitude</strong> is the recognition signal. It acknowledges contributions, work, time, resources, and expertise, and it has no financial value on its own. <strong>{valueName}</strong> are the tracked value: <strong>each cycle the community sets aside a real pool of {valueName} and shares it across everyone's Gratitude</strong>, so appreciation decides where the value flows.
+                Two tokens work together here. Contributions, work, time, resources and expertise are all acknowledged in <strong>{tokenName}</strong>, the recognition signal, which carries no financial value of its own. <strong>{valueName}</strong> are the tracked value: <strong>each cycle the community sets aside a real pool of {valueName} and shares it across everyone's {tokenName}</strong>, so appreciation decides where the value flows.
               </p>
               <p className="text-sm text-muted-foreground">
                 Every {valueName.replace(/s$/, "")} is a promise: as {villageName} grows, they convert to cash or equity.
@@ -194,7 +195,7 @@ export default function HowWeCreate() {
             </div>
 
             <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              {recognitionInfo(valueName, villageName).map((item, index) => (
+              {recognitionInfo(tokenName, valueName, villageName).map((item, index) => (
                 <motion.div
                   key={item.title}
                   initial={{ opacity: 0, y: 20 }}
@@ -229,7 +230,7 @@ export default function HowWeCreate() {
               transition={{ delay: 0.5 }}
             >
               <p className="text-muted-foreground">
-                Gratitude is never bought or sold. It's appreciation, kept honest by having no
+                Nobody buys or sells {tokenName}. Appreciation is kept honest by having no
                 price. {valueName} are the <strong>record of shared investment</strong>: we track
                 the full value of what everyone is contributing so no one's effort goes
                 unacknowledged when {villageName} becomes financially whole.

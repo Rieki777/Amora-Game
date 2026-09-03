@@ -41,6 +41,7 @@ import {
   type YearAnchor,
 } from "../../shared/lunar";
 import { formatCycleId } from "./gratitude-cycles";
+import { recognitionName } from "./economy";
 
 // ── The sky ─────────────────────────────────────────────────────────────────
 
@@ -194,11 +195,11 @@ export async function mirrorCalendarSources(pool: Pool, ctx: MirrorContext): Pro
     const mark = async (n: number, startsAt: Date, endsAt: Date, status: string) => {
       seen.add(n);
       const id = formatCycleId(n);
-      await write({ kind: "cycle-mark", sourceId: `cycle:${n}:open`, title: `Cycle ${n} opens`, description: `Gratitude cycle ${id} begins.`, startsAt, link: "/gratitude", colour: "#0f766e" });
+      await write({ kind: "cycle-mark", sourceId: `cycle:${n}:open`, title: `Cycle ${n} opens`, description: `${recognitionName()} cycle ${id} begins.`, startsAt, link: "/gratitude", colour: "#0f766e" });
       await write({
         kind: "cycle-mark", sourceId: `cycle:${n}:close`,
         title: status === "closed" ? `Cycle ${n} closed` : `Cycle ${n} closes`,
-        description: status === "closed" ? `Gratitude cycle ${id} was settled.` : `Gratitude cycle ${id} ends; settlement is a human act after this.`,
+        description: status === "closed" ? `${recognitionName()} cycle ${id} was settled.` : `${recognitionName()} cycle ${id} ends; settlement is a human act after this.`,
         startsAt: endsAt, link: "/gratitude", colour: "#0f766e",
       });
     };

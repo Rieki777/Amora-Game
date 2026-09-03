@@ -45,4 +45,4 @@ Names, seats and labels about a person come word for word from a result. If it i
 
 ## References
 
-- `references/openapi.json` (served at `/api/agent/v1/openapi.json`).
+- `docs/skills/references/openapi.json` (served at `/api/agent/v1/openapi.json`).

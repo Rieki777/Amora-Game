@@ -1,14 +1,22 @@
 /**
  * Housing: how many homes are open, and who has asked for one.
  *
- * Six routes, lifted out of server/index.ts unchanged:
+ * Six routes lifted out of server/index.ts unchanged, and two added by 0131:
  *
- *   GET /api/housing/public                    the counts, no identity
+ *   GET /api/housing/public                    the counts and the homes, no identity
  *   GET /api/housing/availability              every hamlet, founder only
  *   PUT /api/housing/availability/:structureKey  set or clear one hamlet
+ *   GET /api/housing/home-types                every home type, founder only
+ *   PUT /api/housing/home-types/:homeType      set or clear one home type
  *   POST /api/housing/reservations             a stranger asks for a home
  *   GET /api/housing/reservations              the intents, founder only
  *   PUT /api/housing/reservations/:id/status   move one along
+ *
+ * The 0131 pair answers what a home IS: what this village calls it, how big
+ * it is and what it costs, in that village's own words. The four tiers used
+ * to be a module constant in two page files, so every fork published one
+ * American village's dollars and square footage under its own name with no
+ * field able to change them.
  *
  * THESE PATHS ARE NOT UNDER /api/map, AND THAT IS LOAD-BEARING. The section
  * comment below says it in full: `app.use("/api/map", requireModule("map"))`
@@ -40,6 +48,7 @@ import type { Express } from "express";
 import type { AppDeps } from "../lib/appDeps";
 import { recordEvent } from "../lib/events";
 import {
+  allHomeTypes,
   allRows as housingRows,
   createReservation,
   exceedsTotal,
@@ -47,10 +56,13 @@ import {
   isReservationStatus,
   listReservations,
   publicEntries as housingPublicEntries,
+  publicHomeTypes,
   readAvailabilityPatch,
+  readHomeTypePatch,
   reservationById,
   reservationStatusNotice,
   setAvailability as setHousingAvailability,
+  setHomeType,
   setReservationStatus,
 } from "../lib/housing";
 
@@ -103,15 +115,99 @@ export function register(app: Express, deps: Deps): void {
    */
 
   /**
-   * The public counts, for site surfaces that are not the map.
+   * The public housing read, for site surfaces that are not the map.
    *
-   * Same body as the `housing` block on `/api/map/config` and the same
-   * identity-free guarantee. A surface labels its numbers an example whenever
-   * its structure key is absent from `entries`.
+   * `entries` carries the per-hamlet counts: the same body as the `housing`
+   * block on `/api/map/config` and the same identity-free guarantee. A
+   * surface labels its numbers an example whenever its structure key is
+   * absent from `entries`.
+   *
+   * `homes` (0131) carries the home types this village has PUBLISHED, and it
+   * rides this route rather than the map's because the map paints hamlets and
+   * knows nothing about home types, while both surfaces that draw a home
+   * (/housing and /reserve) already fetch this one. The two lists answer
+   * different questions about the same subject and neither is derived from
+   * the other: a village can price a casita before it has drawn a hamlet, and
+   * a hamlet can have homes open before anybody has said what a home costs.
+   *
+   * An empty `homes` is the honest answer for a village that has not
+   * described its homes, and it is what /housing reads as "draw no tier
+   * section at all". `configured` is about the hamlet counts and is left
+   * meaning exactly what it always meant; a caller asking about homes asks
+   * `homes.length`.
    */
   app.get("/api/housing/public", async (_req, res) => {
     const entries = await housingPublicEntries(getPool());
-    res.json({ entries, configured: entries.length > 0 });
+    const homes = await publicHomeTypes(getPool());
+    res.json({ entries, configured: entries.length > 0, homes });
+  });
+
+  /**
+   * All four home types including the unfilled ones, for the founder surface.
+   *
+   * Gated exactly like `GET /api/housing/availability` beside it, and for the
+   * same reason: it carries `updatedBy`, which names a person. `mayStillSee`
+   * and not `guardCapability`, because there is no break-glass on a GET and
+   * an admin refused a LOOK would have no way back at all.
+   */
+  app.get("/api/housing/home-types", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to see the homes" });
+    if (!(await mayStillSee(req, "map.publish"))) {
+      return res.status(403).json({ error: "Describing the homes is an appointment" });
+    }
+    res.json({ rows: await allHomeTypes(getPool()) });
+  });
+
+  /**
+   * Set (or clear) what one home type is called, how big it is and what it
+   * costs. The Admin housing tab lands here.
+   *
+   * ── WHY THE SAME KEY AS THE COUNTS ─────────────────────────────────────
+   * `map.publish`, the same appointment that gates a hamlet's numbers. What a
+   * home costs becomes true for every visitor the moment it lands, which is
+   * the same property that key already means, and it is already the key the
+   * founder holds to run this tab. Minting a second capability for the other
+   * half of one admin panel would give a village two keys to hand out for one
+   * job and no way to explain the difference.
+   *
+   * ── THE BODY IS A PATCH ────────────────────────────────────────────────
+   * Identical to the availability route above, which is the point:
+   *
+   *   field absent   the column keeps what it has. Nothing is written.
+   *   field null     CLEARED, and the home stops publishing if that was the
+   *                  last of name, size and price holding it up.
+   *   a value        set to that value, verbatim.
+   *
+   * `{}` is legal and creates an unfilled row, so a save with nothing typed
+   * cannot cost a founder what they already had.
+   *
+   * NOTHING HERE PARSES A NUMBER. `readHomeTypePatch` trims and clamps to the
+   * column width and does no other edit, so a village publishes "0.5
+   * hectares" or a price in colones exactly as it typed them. The platform
+   * has no opinion about anybody's units or currency, which is the whole
+   * reason the compiled-in tiers had to go.
+   */
+  app.put("/api/housing/home-types/:homeType", async (req, res) => {
+    const user = await authedUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in to describe the homes" });
+    const maySet = await guardCapability(req, res, "map.publish", {
+      status: 403,
+      body: { error: "Describing the homes is an appointment" },
+    });
+    if (!maySet) return;
+    const homeType = String(req.params.homeType ?? "");
+    // The same guard the reservation POST uses, so a home a founder can
+    // describe is always a home a visitor can ask for. A free-text home type
+    // is a typo that quietly becomes a category nobody reports on.
+    if (!isHomeType(homeType)) {
+      return res.status(400).json({ error: "That is not one of the home types" });
+    }
+    const read = readHomeTypePatch(req.body);
+    if (!read.ok) return res.status(400).json({ error: read.error });
+    await setHomeType(getPool(), { homeType, ...read.patch, updatedBy: user.id });
+    const rows = await allHomeTypes(getPool());
+    res.json({ ok: true, row: rows.find((r) => r.homeType === homeType) ?? null });
   });
 
   /**
