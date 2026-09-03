@@ -123,8 +123,8 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.proposal_support_threshold` | Supporters before a proposal can go to the vote | `open` | `0` | 0 to 10000 supporters | when it is written |
 | `governance.hub_url` | ReGen governance hub URL | `founder` | `https://regencivics.earth` | text | when it is written |
 | `governance.auto_apply_enabled` | Apply verified proposals automatically | `founder` | `true` | boolean | when it is written |
-| `governance.steward_subjects` | Which decisions wait for a steward | `open` | `all` | text | when it is written |
-| `governance.auto_execute_subjects` | Which decisions carry themselves | `open` | `none` | text | when it is written |
+| `governance.steward_subjects` | Which decisions a steward can stop | `open` | `all` | text | when it is written |
+| `governance.steward_council` | A veto needs a majority of the stewards | `open` | `false` | boolean | when it is written |
 | `governance.change_cooldown_days` | Cooldown after a governed rule change | `open` | `0` | 0 to 365 days | when it is written |
 | `governance.weight_mode` | How voting weight is assigned | `founder` | `equal` | `equal`, `token`, `custom` | when it is written |
 | `governance.weight_token` | The weight token | `founder` | `gratitude` | text | when it is written |
@@ -255,7 +255,7 @@ The word steward means three different things in this platform, and they are nam
 **The Village Steward persona.** One of the paths a new member can pick on the way in, part of the identity plane and carrying no power of its own.
 
 <!-- written by a person: stewardApprover -->
-**The steward the founder ruled for.** A seat, held by a village's catalysts at the Birthing and re-voted each season, whose holder approves a passed proposal before it takes effect and can refuse it with a reason. This one does not exist yet.
+**The steward the founder ruled for.** A seat, held by a village's catalysts at the Birthing and re-voted each term, whose holder can stop a decision the village has already carried, inside the window before it lands, and has to say why. It approves nothing: a carried decision lands whether or not anybody holds this seat.
 
 ## What a village publishes
 
@@ -378,7 +378,7 @@ The quotes are reproduced exactly, including the spelling and the punctuation, b
 > having it default that the steward (by default the founder(s) are granted a steward role after Game launch) needs to approve a proposal to change the game before it actually goes through is a great addition, but also there's another stage of maturity where the founder gives up this power and then auto-execute takes over. Stewards have the power to approve anything in the Game that needs approval - they're the 'training wheels' for the Game until it matures enough that they can give more and more power to the Game to auto-execute decisions.
 
 <!-- written by a person: ruling-1 -->
-The seat exists. A `steward.approve` capability gates an approve route and a refuse route, one row per ballot records who decided and why, and two settings say which subjects wait for a steward and which carry themselves. What is still missing is the hold itself: the close dispatcher has no step that waits, so a passed ballot runs its executor at the close and an approval today changes no outcome. The other hold that exists is `governance.auto_apply_enabled`, a founder-ring dial defaulting to `true`, which covers the mechanics closer alone and hands a held proposal to an administrator to apply by hand. Read this ruling next to the founder's 2026-09-03 words, which withdraw the approval gate and make the steward a veto window instead: a Game change lands at the next new moon on its own unless a steward blocks it, and the window closes at the later of the cycle's end and three days after the vote carried. The approval machinery above is the record and the seat that ruling still needs. The waiting is what it no longer wants.
+The seat exists, and the approval gate this ruling describes is WITHDRAWN by the founder's 2026-09-03 words. A `steward.veto` capability gates a veto route, an early no-objection route and a redaction route; one row per steward per ballot records who acted, on what, and why; and one setting says which kinds of decision the seat may stop. Nothing waits: a Game change lands at the later of the next new moon and the close of its window, on its own, whether or not anybody holds the seat, and a token send executes when its ballot closes unless a steward voted no while it was open. What is still missing is the landing instant itself, which the close dispatcher owns. The other hold that exists is `governance.auto_apply_enabled`, a founder-ring dial defaulting to `true`, which covers the mechanics closer alone and hands a held proposal to an administrator to apply by hand.
 
 ### 2. Catalysts inherit the steward seat at the Birthing, and the seat is re-voted every season
 
@@ -411,7 +411,7 @@ There is no seat to step back from. The design this ruling settles is worth keep
 > Yes a steward veto absolutely should carry a reason
 
 <!-- written by a person: ruling-4 -->
-A refusal is a first-class act now. The refuse route stores who decided, which ballot, and the reason, and it refuses an empty or whitespace-only reason at the door, so a proposal the village passed can never die silently. An approval may carry no words, because a yes explains itself. The first decision on a ballot stands and a second one never overwrites it. What the record still waits on is the surface that shows it to the proposer.
+A veto is a first-class act now. The veto route stores who acted, which ballot, and the reason, and it refuses an empty or whitespace-only reason at the door, so a decision the village carried can never die silently. The reason is plain text capped at 2000 characters, rendered escaped, and redactable: the words can be blanked later while the act, its author and its time stay on the record. An early no-objection may be recorded and it changes no timing. What the record still waits on is the surface that shows it to the proposer.
 
 ### 5. Terms end when they end
 
@@ -574,7 +574,7 @@ Built: withdrawal exists at both layers, a no vote may carry a free-text reason 
 > Sure and it's perfectly fine to have no stewards and for the game to have self/executing agreements - Stewards are like the 'training wheels' to the game to help them start - not a desirable endstate. Except one where we're all stewards in our own way.
 
 <!-- written by a person: ruling-17 -->
-The seat does not exist, so nothing renders an empty one. When it does: an empty steward seat is never a warning once a village has chosen it, and passed proposals queue for the seat when it is empty by accident so the backlog is itself the pressure to hold the vote.
+An empty steward seat is never a warning, and nothing queues behind it. A village with nobody on the seat is a village nobody can veto: its carried decisions land at their landing time exactly as they would with the seat filled. The vacancy read says that in one sentence and never as a fault report.
 
 ### 18. Voice for other beings, and clans, at 144 players
 
@@ -840,7 +840,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     },
     {
       "key": "governance.steward_subjects",
-      "label": "Which decisions wait for a steward",
+      "label": "Which decisions a steward can stop",
       "ring": "open",
       "type": "text",
       "default": "all",
@@ -850,11 +850,11 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "applyTiming": "instant"
     },
     {
-      "key": "governance.auto_execute_subjects",
-      "label": "Which decisions carry themselves",
+      "key": "governance.steward_council",
+      "label": "A veto needs a majority of the stewards",
       "ring": "open",
-      "type": "text",
-      "default": "none",
+      "type": "boolean",
+      "default": "false",
       "min": null,
       "max": null,
       "choices": null,

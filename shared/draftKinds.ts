@@ -176,6 +176,6 @@ export const CAPABILITY_CONSEQUENCE: Record<Capability, string> = {
   "library.keep": "keep the shared library: what comes in, what goes out on loan, what comes back",
   "story.tell": "say what this village is, in public, in its own words",
   "dial.set": "turn the village's own dials, within the ring the village governs",
-  "steward.approve":
-    "let a proposal the village has already passed take effect, or refuse it and say why",
+  "steward.veto":
+    "stop a decision the village has already carried, inside the window before it lands, and say why",
 };

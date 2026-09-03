@@ -68,17 +68,21 @@ export type Capability =
   | "story.tell" // say what the village is, in its own words, in public
   | "dial.set" // turn the village's own dials, within the open ring
   /*
-   * The steward's approval, and the refusal that carries a reason.
+   * The steward's veto, and the reason it has to carry.
    *
    * A separate key from `proposal.decide` on purpose, because they are two
    * different acts on the same ballot and a village should be able to split
    * them. `proposal.decide` CLOSES a vote: it reads the tally and writes down
-   * what the village decided, which is a facilitation job. This one decides
-   * whether a proposal the village already passed takes effect, which is the
-   * veto the founder described as training wheels. A facilitator who can also
-   * veto is one person holding both ends of the decision.
+   * what the village decided, which is a facilitation job. This one stops a
+   * decision the village already carried, inside the window before it lands.
+   * A facilitator who can also veto is one person holding both ends of the
+   * decision.
+   *
+   * NOTHING APPROVES ANY MORE. A passed decision lands on its own, whether or
+   * not anybody holds this seat. The key opens one door: stopping a landing
+   * inside its window, in the open, with a name and a reason on it.
    */
-  | "steward.approve"; // approve a passed proposal, or refuse it with a reason
+  | "steward.veto"; // stop a carried decision inside its window, and say why
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -115,7 +119,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "library.keep",
   "story.tell",
   "dial.set",
-  "steward.approve",
+  "steward.veto",
 ];
 
 /**
@@ -166,7 +170,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "library.keep": "Keep the shared library and its loans",
   "story.tell": "Say what the village is, in public, in its own words",
   "dial.set": "Turn the village's own dials",
-  "steward.approve": "Approve a passed proposal, or refuse it with a reason",
+  "steward.veto": "Stop a carried decision inside its window, and say why",
 };
 
 /**
@@ -334,8 +338,15 @@ export const TRANSFERABLE: Record<Capability, boolean> = {
    * giving the power up is reversible and that the village fills the seat
    * again by voting somebody into it, which is exactly this key crossing to a
    * role the village declared.
+   *
+   * `true` HERE MEANS MORE THAN IT MEANS ANYWHERE ELSE IN THIS MAP. For every
+   * other key it removes an admin's short-circuit and leaves the break-glass
+   * door. For this one the admin roles routes refuse the key outright, in
+   * both directions, admin path included: a village seats and unseats its
+   * steward through the `role_seat` and `role_unseat` ballots and through
+   * nothing else. See `stewardSeatRefusal` in server/lib/roleGrants.ts.
    */
-  "steward.approve": true,
+  "steward.veto": true,
   "event.manage": true,
   "exchange.manage": true,
   "forum.moderate": true,
@@ -500,6 +511,18 @@ export const DENIABLE: Record<Capability, boolean> = {
    * without suspending a named person. Villages set their own dials (R56).
    */
   "mechanics.propose": false,
+  /*
+   * The steward's veto. NOT a voice, and it is here for the other reason.
+   *
+   * A warning badge is written by an admin, and this key is the one power an
+   * admin route may not touch in either direction: a village seats and
+   * unseats its steward through the `role_seat` and `role_unseat` ballots.
+   * Leaving it deniable would put the removal the ballots own back inside the
+   * badge panel, which is the same door under a different name. So the deny
+   * is refused here, and taking the seat away stays a decision the village
+   * makes out loud.
+   */
+  "steward.veto": false,
 
   // ── TRUE: EXPRESSION. Speaking, but not deciding ────────────────────────
   //
@@ -542,11 +565,6 @@ export const DENIABLE: Record<Capability, boolean> = {
   "library.keep": true,
   "story.tell": true,
   "dial.set": true,
-  // A job the village handed out, the same family as `proposal.decide` two
-  // groups up. A warning badge pausing it stops nothing the village passed:
-  // an undecided proposal waits, which is the fail-safe direction, and the
-  // seat itself stays filled.
-  "steward.approve": true,
 };
 
 /**

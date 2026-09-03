@@ -458,27 +458,32 @@ export const VARIABLES: VariableDef[] = [
     default: "true",
     ring: "founder",
   },
-  // The steward gradient. Two lists, both settings, so the training wheels
-  // come off one subject at a time instead of by one boolean somebody has to
-  // be brave enough to flip. `governance.auto_apply_enabled` is untouched and
-  // still means exactly what it always meant: the mechanics brake.
+  // The steward's reach, as one list. It was two lists while the steward
+  // approved things, one for what waited and one for what carried itself.
+  // Nothing waits any more: a decision the village carried lands at its
+  // landing time whether or not anybody holds the seat, so the second list
+  // said nothing the first one did not, and it is gone.
+  // `governance.auto_apply_enabled` is untouched and still means exactly what
+  // it always meant: the mechanics brake.
   {
     key: "governance.steward_subjects",
     category: "Governance",
-    label: "Which decisions wait for a steward",
+    label: "Which decisions a steward can stop",
+    criticality: "constitutional",
     description:
-      "A steward approves a proposal the village has already passed before it takes effect, and can refuse it with a reason. This names which kinds of decision wait for that approval. Leave it as all while the village is young; name a shorter list, or none, as it learns to trust its own agreements. A village with no steward and self-executing agreements is a healthy village, not a broken one. Advisory votes never wait, because they execute nothing.",
+      "A steward can stop a decision the village has already carried, inside the window before it lands, and has to say why. This names which kinds of decision are inside that reach. Leave it as all while the village is young; name a shorter list, or none, as it learns to trust its own agreements. A village with no steward and self-executing agreements is a healthy village, not a broken one. Advisory votes are never in reach, because they change nothing. Neither is the ballot that seats or unseats a steward, so the seat can never stop its own removal.",
     type: "text",
     default: "all",
   },
   {
-    key: "governance.auto_execute_subjects",
+    key: "governance.steward_council",
     category: "Governance",
-    label: "Which decisions carry themselves",
+    label: "A veto needs a majority of the stewards",
+    criticality: "constitutional",
     description:
-      "The other end of the same gradient: kinds of decision that apply themselves at the cycle boundary with nobody in the loop. Empty by default, so nothing carries itself until the village says so. A subject named here does not wait for a steward even when the list above names it.",
-    type: "text",
-    default: "none",
+      "Off by default, and off means any one seated steward can stop a decision on their own. Turn it on and a village with several stewards runs them as a council: stopping a decision then takes a majority of the seated seats, so one seat alone cannot hold the village up. Changing this is priced at the top tier, and no steward can stop the change, because a seat that could veto an edit to its own limits would have none.",
+    type: "boolean",
+    default: "false",
   },
   {
     key: "governance.change_cooldown_days",

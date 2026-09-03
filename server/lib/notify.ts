@@ -147,11 +147,15 @@ export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "da
     case "ballot_withdrawn":
     case "ballot_advisory_closed":
     case "ballot_expired":
-    // The steward's decision, and the wait for one, are the same conversation
-    // as the ballot they are about, so they ride the same preference.
-    case "ballot_approved":
-    case "ballot_refused":
-    case "ballot_awaiting_steward":
+    // A steward's veto is the same conversation as the ballot it is about, so
+    // it rides the same preference. REGISTERED HERE ON PURPOSE: a kind with no
+    // case in this switch is in-app only and silently so, which for the one
+    // act that stops a decision the village carried would mean the proposer
+    // finds out by refreshing a page.
+    case "ballot_vetoed":
+    // The calendar the terms hang on. Governance, because that is what it is
+    // about: a stopped season is a steward's mandate that cannot end.
+    case "season":
       return p.governanceEmail;
     // A lunation's pool landed in somebody's wallet. Fixed daily for the
     // same reason stage_advanced is: welcome, never urgent, and nobody is

@@ -122,25 +122,15 @@ export const NOTIFICATION_KINDS: Record<string, NotificationKind> = {
     many: "{n} advisory votes closed.",
     celebrate: false,
   },
-  // The steward's two answers, and the wait between them. Neither celebrates:
-  // a village that passed something already had its moment, and this is the
-  // last word on it rather than a second one.
-  ballot_approved: {
+  // The steward's one act. It does not celebrate: a village that carried
+  // something already had its moment, and this is the last word on it rather
+  // than a second one. There is no approval kind beside it, because nothing
+  // waits for a steward: a carried decision lands on its own, and the seat can
+  // only stop it inside the window before it does.
+  ballot_vetoed: {
     group: "decisions",
-    blurb: "A steward let a decision the village carried take effect.",
-    many: "{n} decisions were approved.",
-    celebrate: false,
-  },
-  ballot_refused: {
-    group: "decisions",
-    blurb: "A steward stopped a decision the village carried, and said why.",
-    many: "{n} decisions were refused, each with a reason.",
-    celebrate: false,
-  },
-  ballot_awaiting_steward: {
-    group: "decisions",
-    blurb: "A decision the village carried is waiting for somebody to hold the steward's seat.",
-    many: "{n} carried decisions are waiting for a steward.",
+    blurb: "A steward stopped a decision the village carried, inside its window, and said why.",
+    many: "{n} decisions were stopped, each with a reason.",
     celebrate: false,
   },
   ballot_expired: {
@@ -172,6 +162,12 @@ export const NOTIFICATION_KINDS: Record<string, NotificationKind> = {
     group: "decisions",
     blurb: "A seat is yours to hold. The role page says what it is accountable for.",
     many: "{n} seats came to you.",
+    celebrate: false,
+  },
+  season: {
+    group: "decisions",
+    blurb: "No season is running, so the calendar every term is measured against has stopped. Every mandate in the village hangs on it, the steward's seat included, so it says so until somebody starts the next one.",
+    many: "The calendar has been stopped for {n} sweeps.",
     celebrate: false,
   },
   term_expiring: {

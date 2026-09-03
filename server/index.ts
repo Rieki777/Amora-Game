@@ -54,8 +54,9 @@ import { register as registerOrgRoutes } from "./routes/org";
 import { register as registerGovernanceWeightRoutes } from "./routes/governanceWeights";
 import { register as registerGovernanceWizardRoutes } from "./routes/governanceWizard";
 import { register as registerDelegationRoutes } from "./routes/delegation";
-import { register as registerGovernanceApprovalRoutes } from "./routes/governanceApprovals";
-import { holdingHasLapsed, runTermWatch } from "./lib/stewardship";
+import { register as registerGovernanceVetoRoutes } from "./routes/governanceVetoes";
+import { holdingHasLapsed, runTermWatch, forgetStewardActs } from "./lib/stewardship";
+import { decideRoleCapabilities, stewardSeatRefusal } from "./lib/roleGrants";
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
 import { register as registerHousingRoutes } from "./routes/housing";
 import { register as registerJourneyRoutes } from "./routes/journey";
@@ -4737,6 +4738,10 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<Era
   }
   if (scrubbed) await submissionsRepo.replaceAll(submissions);
 
+  // Governance free text: the acts a departing member WROTE keep their shape
+  // and lose their words, because what the village stopped is the village's
+  // record and the sentence about a neighbour is the member's.
+  await forgetStewardActs(pool, target.id);
   await withRoleHolderLock(async () => {
     const holders = loadRoleHolders().filter((h) => h.userId !== target.id);
     await roleHoldersRepo.replaceAll(holders);
@@ -5782,11 +5787,12 @@ async function startServer() {
     const r = await runTermWatch({
       pool: getPool(),
       notify,
-      notifyRoll,
+      notifyAdmins,
       seatings: await expiringSeatings(getPool(), lapseContext(), 14),
+      season: seasonState(),
     });
     if (r.holdersTold > 0) console.log(`[org] ${r.holdersTold} holder(s) told their term is ending or has ended`);
-    if (r.waiting > 0) console.log(`[governance] ${r.waiting} carried decision(s) waiting, ${r.rollsTold} member(s) told`);
+    if (!r.seasonRunning) console.log(`[governance] ${r.lapsed} term(s) already lapsed, and ${r.seasonSentence}`);
   });
 
   /**
@@ -10658,49 +10664,19 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if ((all[idx] as any).isExample) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
 
     const requested = Array.isArray(req.body?.capabilities) ? req.body.capabilities.map(String) : [];
-    const unknown = requested.filter((c: string) => !ALL_CAPABILITIES.includes(c as Capability));
-    if (unknown.length) {
-      return res.status(400).json({ error: `Not capabilities this platform knows about: ${unknown.join(", ")}` });
-    }
-    /*
-     * WHAT COUNTS AS AN ESCALATION HERE, and the version of this that was
-     * wrong for one test run.
-     *
-     * The draft path compares a NEW role against every existing one, because
-     * a new role introducing a power nothing else has is a governance change
-     * wearing a job title. This route edits an EXISTING role, so the baseline
-     * has to include what that role already carries. Without it, every
-     * capability the role uniquely held came back as an escalation, and
-     * "silence is refusal" then stripped the lot: a founder adding one power
-     * to the Steward Circle would have silently taken away its announcements,
-     * its measurements and its calendar. The refusal rule is right and the
-     * baseline was wrong.
-     */
-    const elsewhere = new Set<string>(((all[idx] as any).capabilities ?? []) as string[]);
-    for (const r of all) {
-      if ((r as any).id === req.params.id) continue;
-      for (const c of ((r as any).capabilities ?? []) as string[]) elsewhere.add(c);
-    }
-    const escalations = computeEscalations(requested, Array.from(elsewhere));
-    const granted = applyEscalationChoices(requested, escalations, {
-      grantedEscalations: Array.isArray(req.body?.grantedEscalations)
-        ? req.body.grantedEscalations.map(String)
-        : [],
+    // THE STEWARD'S SEAT IS THE VILLAGE'S. The one capability no admin route
+    // may add or take away, in either direction; see server/lib/roleGrants.ts.
+    const locked = stewardSeatRefusal(all[idx] as any, requested);
+    if (locked) return res.status(locked.status).json(locked.body);
+    const decision = decideRoleCapabilities({
+      role: all[idx] as any,
+      everyRole: all as any,
+      requested,
+      grantedEscalations: req.body?.grantedEscalations,
+      answered: req.body?.grantedEscalations !== undefined,
     });
-    const refused = escalations.filter((e) => !granted.includes(e.capability));
-    if (refused.length > 0 && req.body?.grantedEscalations === undefined) {
-      // First call with no answer at all: say what is being asked for, in
-      // sentences, and change nothing. The same warn-and-proceed shape the
-      // badge kind change uses, for the same reason: what may never happen is
-      // the change landing silently.
-      return res.status(409).json({
-        error:
-          `This would be the first role in the village to carry ${refused.length === 1 ? "a power" : "powers"} nothing else grants. ` +
-          `Tick the ones you mean and send them back.`,
-        escalations: escalations.map((e) => ({ capability: e.capability, consequence: e.consequence })),
-        requiresConfirmation: true,
-      });
-    }
+    if (decision.refusal) return res.status(decision.refusal.status).json(decision.refusal.body);
+    const { granted, refused } = decision;
 
     const before = ((all[idx] as any).capabilities ?? []) as string[];
     all[idx] = { ...all[idx], capabilities: granted } as any;
@@ -10726,7 +10702,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         { actorUserId: actor, entityType: "role", entityRef: req.params.id },
       );
     }
-    res.json({ success: true, role: all[idx], added, removed, refused: refused.map((e) => e.capability) });
+    res.json({ success: true, role: all[idx], added, removed, refused });
   });
 
   /** Raise your hand on a vacant seat → the EXISTING submissions inbox. */
@@ -26773,7 +26749,7 @@ ${inner}
   });
   registerGovernanceWizardRoutes(app, { authedUser, getPool, capabilityCtx, weightModeNow });
   registerDelegationRoutes(app, { authedUser, getPool, capabilityCtx, members, firstName });
-  registerGovernanceApprovalRoutes(app, { authedUser, mayAct, getPool, members, firstName, notify });
+  registerGovernanceVetoRoutes(app, { authedUser, mayAct, isAdmin, getPool, members, firstName, notify });
 
   /**
    * The subset of variables the CLIENT is allowed to know, so the UI can render
@@ -27738,6 +27714,10 @@ ${inner}
     if ((loadRoles().find((r: any) => r.id === req.params.id) as any)?.isExample) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
+    // Seating and unseating a steward happen through the role_seat and
+    // role_unseat ballots and through nothing else, the admin path included.
+    const seatLock = stewardSeatRefusal(loadRoles().find((r: any) => r.id === req.params.id) as any);
+    if (seatLock) return res.status(seatLock.status).json(seatLock.body);
     if (isExampleUser(await members.byId(String(req.body?.userId ?? "")))) {
       return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     }
