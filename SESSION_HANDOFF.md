@@ -5,7 +5,7 @@ hour. Written because the session was about to hit its limit.
 
 ## Where the work is
 
-`main` is at `f639774` and **is production**: a push to main auto-builds on
+`main` is at `e2d1cbd` and **is production**: a push to main auto-builds on
 Railway within seconds and applies migrations at boot. Verified live.
 
 Five lane branches are pushed to origin so nothing depends on this machine:
@@ -25,6 +25,24 @@ re-ran the gates independently. That audit did not complete. Treat every claim
 on those branches as unverified until the gates are run again.
 
 `wt/g-decimals` is merged and is `f639774`.
+
+## Shipped after this file was first written
+
+- `99a52b7` this handoff.
+- `e2d1cbd` the last two village-specific platform defaults. `project.location`
+  is now empty (there is no neutral location) and `project.footerBlurb` is
+  "A regenerative village where all beings belong and thrive.", so a village
+  that never edits its footer no longer tells visitors it is in Costa Rica.
+  Safe because production was read first: Amora stores its own copy of both in
+  `app_config.brand`, so clearing the defaults cannot blank what it renders.
+  PENDING_CEILING 4 -> 2; `project.country` and `project.fiatCurrency` remain,
+  both empty on production.
+  **`wt/g-forkability` also graduated `project.country` on its own branch, so
+  it WILL conflict with this commit in `scripts/check-identity-keys.mjs`.** The
+  resolution is a pending list holding only `project.fiatCurrency` at ceiling 1,
+  if that lane's reasoning holds up under audit.
+- Deploy verified live at each step via `/health`, and `/api/platform/info`
+  confirms Amora still renders its own name, tagline and location.
 
 ## The audit scorecard
 
