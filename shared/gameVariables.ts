@@ -229,6 +229,56 @@ export const VARIABLES: VariableDef[] = [
     type: "text",
     default: "",
   },
+  // ── Waning (R3, R15, 2026-09-03) ──────────────────────────────────────────
+  //
+  // "The Mint" and not a new Economy category, because there is no Economy
+  // category: every `economy.*` key above sits here and the Mint panel reads
+  // them together. A fifth one somewhere else would split one panel across two
+  // headings.
+  //
+  // Ring is derived, and derives to `open`: "The Mint" is not a founder
+  // category and neither key is in FOUNDER_KEYS. That is the ruling, which is
+  // that any village may set any percent.
+  //
+  // `applyTiming` sits on the def rather than in CYCLE_APPLY_KEYS because that
+  // set is edited by two sessions at once and a def-level override cannot be
+  // lost in a merge. It needs the timing for the reason
+  // `gratitude.max_share_per_recipient` needs it: a mid-cycle change moves a
+  // rule under somebody who has already held a balance through most of the
+  // moon, and this rule takes.
+  {
+    key: "economy.voice_decay_pct",
+    category: "The Mint",
+    label: "How much Voice wanes each cycle",
+    description:
+      "How much of each member's Voice wanes at the close of each cycle. Voice that wanes is posted to the village's waning account, so nothing is destroyed and the books still balance. Nobody takes it: it simply does not keep, the way standing does not keep if you stop showing up. Set it to 0 and Voice never wanes. At the default of 1 percent, somebody holding 5 Voice loses 0.05 in a moon and earns it back many times over by holding a seat or finishing one quest. An amount too small to reach your token's smallest unit wanes nothing at all, and the settlement counts how many members that was true of. Members who are in the middle of leaving are left alone until their exit is settled. Works with: 'Which Voice wanes' below, and the seat and quest payouts under The Mint, because what wanes and what is earned settle against each other over time.",
+    type: "percentage",
+    default: "1",
+    min: 0,
+    max: 100,
+    // Short, for the reason `gratitude.max_share_per_recipient` gives: Game
+    // Mechanics renders a value as `${raw} ${unit}` in a chip and three of
+    // those share one line.
+    unit: "% a cycle",
+    applyTiming: "cycle-close",
+  },
+  {
+    key: "economy.voice_decay_basis",
+    category: "The Mint",
+    label: "Which Voice wanes",
+    description:
+      "Which of a member's Voice the waning rate is measured against. One answer is offered today and it is the only honest one: all of it. A member's balance already IS the Voice they have never spent, because the two ways Voice leaves a member here are a claim toward Hypha and the settlement of an exit, and each of those takes it out of the balance the moment it happens. So there is no second pot of unspent Voice for the books to point at, and an option promising one would measure the same number twice and call it a choice. The dial is here so that a village which later gains another way to spend Voice can be given a real second setting without renaming the one it already holds.",
+    type: "choice",
+    default: "all",
+    choices: [
+      {
+        value: "all",
+        label: "All of a member's Voice",
+        hint: "The whole balance wanes at the rate above. This is the ruling as it stands: waning is uniform, over Voice that was bought and Voice that was earned alike.",
+      },
+    ],
+    applyTiming: "cycle-close",
+  },
   {
     key: "gratitude.max_share_per_recipient",
     category: "Gratitude",
