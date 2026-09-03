@@ -22,7 +22,7 @@ the current model rather than to the model they were drafted under.
 - **Section 19** is his answer to section 15, given the same evening, and the mandate to build.
   **Sections 19B to 19F** are the later rounds, of 2026-09-02 night and 2026-09-03 morning, and the
   later letter wins over the earlier one wherever they touch the same rule.
-- **Section 20** is the execution plan the coordinator runs: lanes, ownership, migration numbers, merge order, the QA walk. **Section 21** specifies the eight additions the founder accepted on 2026-09-03.
+- **Section 20** is the execution plan the coordinator runs: lanes, ownership, migration numbers, merge order, the QA walk. **Section 21** specifies the eight additions the founder accepted on 2026-09-03. **Section 22** is the shared dry run's contract with the economics session.
 - **Sections 13 to 18** are what fourteen readers measured against the repository on 2026-09-02,
   each reader's citations re-opened by a second, adversarial agent. Where section 13 contradicts
   sections 1 to 11, section 13 is right. The full reports, with evidence tables, are outside the
@@ -2906,3 +2906,66 @@ one honest sentence at `members` or below.
   tier and fix it; try a setting for one moon and watch it revert; read the timeline on a phone;
   read the new-moon digest; read the constitution route as a stranger and find no names; read the
   assistant's summary and find no recommendation.
+
+---
+
+## 22. The shared dry run, and the economics session (2026-09-03)
+
+The founder launched a sibling session for economics (its prompt is
+`CLAUDE_CODE_PROMPT_2026-09-03_ECONOMICS.md` on `main`) and ruled that the two builds work
+together because "those two are so intertwined". The dry run is SHARED: the governance build owns
+the engine and the governance model (what a ballot does to power); the economics session owns the
+economics model (what a cycle does to balances). The contract below is what the economics session
+builds against; the governance build's Phase 2 gains a lane, `dryrun-engine`, that builds the
+engine on top of `server/lib/proposalDryRun.ts` and the governance model, and wires the preview
+into the wizard (21.1) and the tray (20.8). The engine's cardinal rule is structural: it takes
+plain data and has no path to a connection. Migration numbers: economics holds 0145 to 0149; the
+governance build's spare is 0144.
+
+### The engine's contract, strawman
+
+The governance session owns the engine and will build it in its Phase 2 as the `dryrun-engine`
+lane, on top of `server/lib/proposalDryRun.ts` (Phase 1b), which already shares the changeset
+validator with the executor so the thing previewed is the thing that will run. Build your model
+against this contract; if you need it changed, say so before you build, and we change it together.
+
+```ts
+// shared/dryRun/types.ts  (governance-owned; both models import it)
+export interface VillageSnapshot {          // read once, then plain data; no pool, no connection
+  atIso: string; clock: CycleClockSpec;      // lunar | calendar, timezone
+  tokens: TokenSpec[];                       // slug, kind, decimals, faucet, sinks
+  balances: Record<string, Record<string, bigint>>; // accountId -> slug -> minor units
+  mintRules: MintRuleSpec[]; variables: Record<string, string>;
+  members: MemberSpec[];                     // id, stage, seats, isRepresentative?, representsSeatId?
+  modules: Record<string, Lifecycle>;
+}
+export interface ProposedChange { kind: ChangeItemKind; key?: string; from?: unknown; to?: unknown; timing: 'at_acceptance' | 'next_moon'; expiresAfterCycles?: number }
+export interface SimInput { snapshot: VillageSnapshot; changes: ProposedChange[]; cycles: number; seed: number; concurrency?: number }
+export interface DomainModel {
+  name: 'governance' | 'economics';
+  step(state: SimState, cycle: number, rng: Rng): SimState;   // pure; returns a new state
+  flags(state: SimState, cycle: number): Flag[];               // plain-language, actionable
+  invariants(state: SimState): Violation[];                    // conservation, non-negative non-faucets
+}
+export interface SimResult { baseline: CycleResult[]; proposed: CycleResult[]; diff: Diff[]; flags: Flag[]; violations: Violation[]; seed: number }
+export function simulate(input: SimInput, models: DomainModel[]): SimResult   // writes nothing: takes no pool, no connection, no fs
+```
+
+Rules the engine enforces so the cardinal rule is structural: `simulate` receives plain data and
+has no import path to the pool; the snapshot is taken by a governance-owned reader that opens a
+READ-ONLY connection (`SET TRANSACTION READ ONLY`) and returns plain objects; models are pure
+functions of state; the seed is part of the input and printed in the output; the diff is against
+a baseline run of the same snapshot with no changes. Your economics model implements
+`DomainModel` and owns everything in `step` that moves balances: settlement, mint rules,
+allowances, sinks, exits, the pool. The governance model owns thresholds, weights, concentration,
+windows and landing instants. The engine composes them in a fixed order per cycle (governance
+landings first, then the economics step, then flags and invariants from both) and stops at the
+first violation with the cycle and the posting named.
+
+
+### Who owns which file (so the merge agent never takes either side)
+
+| Governance session owns | Economics session owns | Shared, edit by category only |
+|---|---|---|
+| `server/lib/applyDue.ts`, `changeset.ts`, `governanceKinds.ts`, `proposalDryRun.ts`, `stewardship.ts`, `delegation.ts`, `governanceWeights.ts`, `ballots.ts`, `mechanics.ts`, `governanceWindows.ts`, `moonDigest.ts`, `shared/cycleClock.ts`, `shared/governanceEngine.ts`, `shared/ballotSubjects.ts`, `shared/dryRun/*`, `server/routes/governance*.ts`, `delegation.ts`, `constitution.ts`, `scripts/generate-governance-doc.mjs` and its guard, `docs/GOVERNANCE.md` | `server/lib/economy.ts`, `ledger.ts`, `spending.ts`, `exit.ts`, `voiceClaim.ts`, `economySeed.ts`, `gratitude.ts`, the mint-rule routes, `server/lib/dryRun/economicsModel.ts`, `scripts/generate-token-doc.mjs` and its guard (tell governance before editing ruling text), `docs/TOKENS.md`, `docs/ECONOMICS.md` and its guard | `shared/gameVariables.ts` (Governance category is governance's; Gratitude, Economy and Ledger categories are economics'; the Cycle keys are governance's), `server/index.ts` (two exempt lines per route module; no net lines), the settlement job registration (governance registers `applyDueGovernance`; economics owns `runSettlement`; neither reaches into the other's body) |
+
