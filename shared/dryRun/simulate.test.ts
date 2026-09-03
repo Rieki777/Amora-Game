@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { diffOf, initialState, orderedModels, simulate } from "./simulate";
-import type { DomainModel, Flag, ProposedChange, SimState, VillageSnapshot, Violation } from "./types";
+import type { DomainModel, Flag, MintRuleSpec, ProposedChange, SimState, VillageSnapshot, Violation } from "./types";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +28,7 @@ const snapshot = (over: Partial<VillageSnapshot> = {}): VillageSnapshot => ({
       amount: BigInt(5),
       amountRaw: "5.0000",
       ceiling: null,
+      ceilingRaw: "",
       enabled: true,
     },
   ],
@@ -523,15 +524,31 @@ describe("launch, quests and the token registry", () => {
 });
 
 /**
- * THE MINT AMOUNT, HELD TWICE AND KEPT IN STEP.
+ * THE TWO DECIMAL FIELDS, HELD TWICE EACH AND KEPT IN STEP.
  *
- * `mint_rules.amount` is `decimal(18,4)`, and a token with no decimals turns
- * 0.0004 into 0 minor units. So the rounded number and the column's own text
- * are both carried, and they have to move together or the flag that says "this
- * rule rounds away to nothing" fires on a value nobody proposed.
+ * `mint_rules.amount` and `mint_rules.ceiling` are both `decimal(18,4)`, and a
+ * token with no decimals turns 0.0004 into 0 minor units. So each rounded
+ * number and its column's own text are both carried, and they have to move
+ * together or the flag that says "this rounds away to nothing" fires on a
+ * value nobody proposed.
  */
-describe("amountRaw", () => {
+describe("amountRaw and ceilingRaw", () => {
   const RULE_KEY = "mint:rule-quest-voice:amount";
+  const CEILING_KEY = "mint:rule-quest-voice:ceiling";
+
+  /** One rule, with whichever of the four fields a test wants to pin. */
+  const ruleWith = (over: Partial<MintRuleSpec> = {}): MintRuleSpec => ({
+    id: "rule-quest-voice",
+    trigger: "quest.completed",
+    tokenSlug: "voice",
+    recipient: "member",
+    amount: BigInt(5),
+    amountRaw: "5.0000",
+    ceiling: null,
+    ceilingRaw: "",
+    enabled: true,
+    ...over,
+  });
 
   it("comes through the snapshot unrounded, beside the rounded amount", () => {
     const out = simulate(
@@ -546,6 +563,7 @@ describe("amountRaw", () => {
               amount: BigInt(0),
               amountRaw: "0.0004",
               ceiling: null,
+              ceilingRaw: "",
               enabled: true,
             },
           ],
@@ -591,6 +609,7 @@ describe("amountRaw", () => {
               amount: BigInt(5),
               amountRaw: "5.4321",
               ceiling: null,
+              ceilingRaw: "",
               enabled: true,
             },
           ],
@@ -609,14 +628,91 @@ describe("amountRaw", () => {
     expect(out.proposed[1].state.mintRules[0].amountRaw).toBe("5.4321");
   });
 
-  it("leaves the text alone when a change writes some other field of the rule", () => {
+  it("leaves both texts alone when a change writes some other field of the rule", () => {
     const changes: ProposedChange[] = [
       { kind: "mint_rule", key: "mint:rule-quest-voice:enabled", from: "true", to: "false", timing: "at_acceptance" },
     ];
-    const out = simulate({ snapshot: snapshot(), changes, cycles: 1, seed: 1 }, [inert("governance")]);
+    const out = simulate(
+      { snapshot: snapshot({ mintRules: [ruleWith({ ceiling: BigInt(20), ceilingRaw: "20.0000" })] }), changes, cycles: 1, seed: 1 },
+      [inert("governance")],
+    );
     const rule = out.proposed[0].state.mintRules[0];
     expect(rule.enabled).toBe(false);
     expect(rule.amountRaw).toBe("5.0000");
+    expect(rule.ceilingRaw).toBe("20.0000");
+  });
+
+  it("carries a ceiling of 0.0004 through the snapshot as text beside a rounded 0", () => {
+    // THE CASE THIS FIELD EXISTS FOR. A cap typed below the token's own
+    // resolution reaches a model as BigInt(0), which is the same value a cap
+    // of "let nothing through" carries. Without the text a preview would show
+    // the village a total stop where the engine clamps.
+    const out = simulate(
+      {
+        snapshot: snapshot({ mintRules: [ruleWith({ ceiling: BigInt(0), ceilingRaw: "0.0004" })] }),
+        changes: [],
+        cycles: 1,
+        seed: 1,
+      },
+      [inert("governance")],
+    );
+    const rule = out.baseline[0].state.mintRules[0];
+    expect(rule.ceiling).toBe(BigInt(0));
+    expect(rule.ceilingRaw).toBe("0.0004");
+    // And the cap that really is nothing carries the same 0 with a text that
+    // says so, which is the pair doing the one job it has.
+    const stopped = simulate(
+      {
+        snapshot: snapshot({ mintRules: [ruleWith({ ceiling: BigInt(0), ceilingRaw: "0.0000" })] }),
+        changes: [],
+        cycles: 1,
+        seed: 1,
+      },
+      [inert("governance")],
+    );
+    expect(stopped.baseline[0].state.mintRules[0].ceiling).toBe(BigInt(0));
+    expect(stopped.baseline[0].state.mintRules[0].ceilingRaw).toBe("0.0000");
+  });
+
+  it("moves the ceiling's text with the ceiling when a change retunes it", () => {
+    const changes: ProposedChange[] = [
+      { kind: "mint_rule", key: CEILING_KEY, from: "20", to: "0.0004", timing: "at_acceptance" },
+    ];
+    const out = simulate(
+      {
+        snapshot: snapshot({ mintRules: [ruleWith({ ceiling: BigInt(20), ceilingRaw: "20.0000" })] }),
+        changes,
+        cycles: 1,
+        seed: 1,
+      },
+      [inert("governance")],
+    );
+    const proposed = out.proposed[0].state.mintRules[0];
+    expect(proposed.ceiling).toBe(BigInt(0));
+    expect(proposed.ceilingRaw).toBe("0.0004");
+    // The amount and its own text were never touched by a ceiling change.
+    expect(proposed.amount).toBe(BigInt(5));
+    expect(proposed.amountRaw).toBe("5.0000");
+    expect(out.baseline[0].state.mintRules[0].ceilingRaw).toBe("20.0000");
+  });
+
+  it("gives back the ceiling's exact text a term reversion took away", () => {
+    const changes: ProposedChange[] = [
+      { kind: "mint_rule", key: CEILING_KEY, from: "20", to: "50", timing: "at_acceptance", expiresAfterCycles: 1 },
+    ];
+    const out = simulate(
+      {
+        snapshot: snapshot({ mintRules: [ruleWith({ ceiling: BigInt(20), ceilingRaw: "20.8765" })] }),
+        changes,
+        cycles: 3,
+        seed: 1,
+      },
+      [inert("governance")],
+    );
+    expect(out.proposed[0].state.mintRules[0].ceilingRaw).toBe("50");
+    expect(codes(out.flags)).toContain("term_reverted");
+    expect(out.proposed[1].state.mintRules[0].ceiling).toBe(BigInt(20));
+    expect(out.proposed[1].state.mintRules[0].ceilingRaw).toBe("20.8765");
   });
 });
 

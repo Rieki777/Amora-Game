@@ -109,11 +109,11 @@ interface Landing {
   /** What stood there before, `undefined` when nothing stood there at all. */
   previous: unknown;
   /**
-   * The mint amount's text as it stood before, for a `mintRules/<id>/amount`
-   * landing and undefined for every other path. A reversion that restored the
-   * rounded bigint alone would hand back a rule whose text had lost the four
-   * places the column keeps, so the term would silently edit the rule it was
-   * supposed to put back.
+   * The text as it stood before, for a landing on one of the two mint rule
+   * fields the ledger stores as `decimal(18,4)`, and undefined for every
+   * other path. A reversion that restored the rounded bigint alone would hand
+   * back a rule whose text had lost the four places the column keeps, so the
+   * term would silently edit the rule it was supposed to put back.
    */
   previousRaw?: string;
   /** What this change wrote, already coerced to the shape the path holds. */
@@ -361,25 +361,47 @@ function nextStart(starts: readonly string[], cycle: number, thisCycleStart: str
 }
 
 /**
- * The mint amount's text as it stands right now, for a landing to hand back
- * when its term runs out. Undefined for every path that is not a mint amount,
- * which is how `writePath` knows to leave `amountRaw` alone.
+ * THE TWO MINT RULE FIELDS THE LEDGER STORES AS `decimal(18,4)`, each named
+ * beside the text twin that carries what the rounding drops.
+ *
+ * Declared as one table so the two are handled identically and a third
+ * decimal field is one line. Handling them case by case is how they drift:
+ * the amount would keep its text while a cap typed below the token's own
+ * resolution reached a model as a flat zero, with nothing to tell it from a
+ * cap of nothing.
  */
-function rawBefore(state: SimState, path: ParsedPath): string | undefined {
-  if (path.root !== "mintRules" || path.b !== "amount") return undefined;
-  const rule = state.mintRules.find((r) => r.id === path.a);
-  return rule ? rule.amountRaw : undefined;
+const RAW_TWIN: Readonly<Record<string, "amountRaw" | "ceilingRaw">> = {
+  amount: "amountRaw",
+  ceiling: "ceilingRaw",
+};
+
+/** The twin a path writes to, or null when the path has none. */
+function twinOf(path: ParsedPath): "amountRaw" | "ceilingRaw" | null {
+  if (path.root !== "mintRules") return null;
+  return RAW_TWIN[path.b] ?? null;
 }
 
 /**
- * A change's `to` as the text `mint_rules.amount` would hold, unrounded.
+ * The text as it stands right now, for a landing to hand back when its term
+ * runs out. Undefined for every path with no text twin, which is how
+ * `writePath` knows to leave both twins alone.
+ */
+function rawBefore(state: SimState, path: ParsedPath): string | undefined {
+  const twin = twinOf(path);
+  if (!twin) return undefined;
+  const rule = state.mintRules.find((r) => r.id === path.a);
+  return rule ? rule[twin] : undefined;
+}
+
+/**
+ * A change's `to` as the `decimal(18,4)` column would hold it, unrounded.
  *
  * This is the one place the four decimal places survive. `coerce` truncates
  * to minor units because that is what a balance is, and the truncation is why
  * the text has to be kept beside the number instead of derived back from it.
  */
 function rawTextOf(path: ParsedPath, to: unknown): string | undefined {
-  if (path.root !== "mintRules" || path.b !== "amount") return undefined;
+  if (!twinOf(path)) return undefined;
   if (to === undefined || to === null) return "";
   const text = String(to).trim();
   return text === "from-source" ? "" : text;
@@ -534,9 +556,9 @@ function readPath(state: SimState, path: ParsedPath): unknown {
 /**
  * Write one path, returning a new state.
  *
- * `raw` is the change's own text for the value, carried only for the mint
- * amount, which the ledger stores as `decimal(18,4)` and the simulation holds
- * twice. See the `mintRules` case below.
+ * `raw` is the change's own text for the value, carried for the two mint rule
+ * fields the ledger stores as `decimal(18,4)` and the simulation holds twice.
+ * See the `mintRules` case below.
  */
 function writePath(state: SimState, path: ParsedPath, value: unknown, raw?: string): SimState {
   const next: SimState = { ...state };
@@ -554,16 +576,16 @@ function writePath(state: SimState, path: ParsedPath, value: unknown, raw?: stri
       return next;
     }
     case "mintRules": {
-      // `amount` and `amountRaw` are two spellings of one fact and they move
-      // TOGETHER or the rounds-away flag lies: a rule retuned to 0.0004 would
-      // otherwise keep the snapshot's old text beside a fresh 0, and a model
-      // comparing them would report a rounding that belongs to a value nobody
-      // proposed. The caller hands the text; where it hands none, the written
-      // amount is its own text.
-      const pair: Partial<MintRuleSpec> =
-        path.b === "amount"
-          ? { amount: value as bigint | null, amountRaw: raw ?? (value === undefined ? "" : String(value)) }
-          : ({ [path.b]: value } as Partial<MintRuleSpec>);
+      // A number and its text twin are two spellings of one fact and they
+      // move TOGETHER or the rounds-away flag lies: a rule retuned to 0.0004
+      // would otherwise keep the snapshot's old text beside a fresh 0, and a
+      // model comparing them would report a rounding that belongs to a value
+      // nobody proposed. The caller hands the text; where it hands none, the
+      // written number is its own text.
+      const twin = twinOf(path);
+      const pair: Partial<MintRuleSpec> = twin
+        ? ({ [path.b]: value, [twin]: raw ?? (value === undefined ? "" : String(value)) } as Partial<MintRuleSpec>)
+        : ({ [path.b]: value } as Partial<MintRuleSpec>);
       next.mintRules = state.mintRules.map((r) => (r.id === path.a ? ({ ...r, ...pair } as MintRuleSpec) : r));
       return next;
     }
