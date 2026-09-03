@@ -1,12 +1,19 @@
 /**
  * The village-fact guard: no NEW hardcoded village facts in user-facing copy.
  *
- * NO SHEBANG, and it has to stay that way, for the reason
- * `scripts/check-identity-keys.mjs` records in its own header: this module is
- * imported (by `scripts/check-village-facts.test.mjs`), and a shebang together
- * with CRLF line endings makes Vite's transform throw `SyntaxError: Invalid or
- * unexpected token`. Either one alone is fine, which is how that failure
- * reached main. Its own test asserts the line is still absent.
+ * NO SHEBANG, and it has to stay that way. Every other guard in this directory
+ * that is only ever RUN opens with `#!/usr/bin/env node`, and this one is
+ * IMPORTED as well: `scripts/check-village-facts.test.mjs` takes its rules and
+ * drives them directly. That import is plain node today, which handles a
+ * shebang without complaint. The line stays out anyway, for the reason
+ * `scripts/check-identity-keys.mjs` records after paying for it: the moment
+ * anything under vitest.config.ts's globs imports a guard, the file goes
+ * through Vite's transform as well, and a shebang together with CRLF line
+ * endings makes that transform throw `SyntaxError: Invalid or unexpected
+ * token`. Either one alone is fine, which is how that ran green half a dozen
+ * times on an LF working copy and failed the moment a checkout rewrote the file
+ * with CRLF. Every caller runs this as `node scripts/check-village-facts.mjs`,
+ * so a shebang would buy nothing. Its own test asserts the line is absent.
  *
  * ── WHY ────────────────────────────────────────────────────────────────────
  *
