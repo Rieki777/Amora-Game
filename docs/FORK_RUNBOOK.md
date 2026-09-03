@@ -1664,3 +1664,53 @@ do: adding a column is safe to roll back over, dropping one is not. The full
 rule, with the table of what is safe to land and what is not, is in `CLAUDE.md`
 under "Writing a migration", and `node scripts/check-migration-compat.mjs`
 enforces it.
+
+## Where a member stands on each path (0144, 0145, 0146)
+
+Your fork ships four member paths, declared in `shared/gameConfig.ts` under
+`paths`. A member's position on one of them is DERIVED from facts that are true
+right now, and no position is ever stored. That is what lets a position fall on
+its own when the fact behind it goes away, with nobody having to remember to
+write the change down.
+
+Nothing here needs an env var, a seed, or a provisioning step. Three migrations
+apply at boot like every other. A migration file costs a fraction of a second
+of the one-off schema build a test run pays once, and the figure moves with
+machine load: two runs on this tree measured 261ms and 188ms per file. So read
+your own with `pnpm measure:provisioning` rather than trusting either number
+here, the same way the dist budget is read and never quoted.
+
+| Path | Where its facts live | What makes a position fall |
+|---|---|---|
+| steward | `org_role_assignments` (0049) | a seating ends, or its season lapses |
+| resident | `housing_reservations` (0077, indexed for this in 0144) | the reservation status moves to `withdrawn` |
+| investor | `investor_path_facts` (0145) | a fact gets an `ended_at` |
+| prosperity creator | `member_ventures` (0146) | the venture gets a `closed_at`, or is unlisted |
+
+The server-side readers are `reservationsForMember` in `server/lib/housing.ts`,
+`server/repos/investorPath.ts` and `server/repos/ventures.ts`.
+
+**`investor_path_facts` holds no money, and that is not a style preference.**
+The table has no numeric column at all, so it cannot store an amount even by
+accident. Equity and voice are Hypha-governed tokens that live on Base and are
+mirrored into your village READ-ONLY; a writable capital figure sitting beside
+them would quietly become a second cap table, which is exactly what
+`server/lib/ledger.ts` refuses to let this platform become. If you want to know
+how much somebody holds, the ledger is the only thing that may answer, and it
+answers from the mirror. What this table records is what happened and when:
+they registered interest, the packet was released to them, they declared they
+qualify, an agreement was signed. Words and dates.
+
+The same rule applies to `member_ventures`: no revenue, no valuation. A
+member-editable number about what a venture is worth is a claim your village
+cannot stand behind, so the table does not offer one.
+
+A prosperity creator's venture is PLATFORM data owned by the core `profiles`
+module, and not a module of its own. That matters to you because a non-core
+module ships OFF: put one of the four paths behind one and a village that never
+turns it on shows three ladders and a hole. `profiles` is core and cannot be
+disabled, which is why it owns this.
+
+Both new tables carry `is_example`, the same standing-example flag
+`org_role_assignments` uses. An example row is display only and is never
+counted when a real member's position is worked out.
