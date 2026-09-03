@@ -89,8 +89,13 @@ describe("the governance doc states the numbers the engine produces", () => {
     expect(unityPctOf(tallies)).toBe(80);
     expect(quorumPctOf(tallies, 100)).toBe(20);
     expect(quorumPctOf({ yesW: 8, noW: 2, abstainW: 0 }, 100)).toBe(10);
-    expect(doc.engine.abstainCountsTowardQuorum).toBe(true);
-    expect(doc.engine.abstainCountsTowardUnity).toBe(false);
+    // These are the DEFAULT now, and the document says so in the key itself. A
+    // subject may override the abstain policy, and village_launch does, so a
+    // flat claim about every ballot stopped being true on 2026-09-02.
+    expect(doc.engine.abstainCountsTowardQuorumByDefault).toBe(true);
+    expect(doc.engine.abstainCountsTowardUnityByDefault).toBe(false);
+    const launch = doc.subjects.find((s: any) => s.everySeatWeighs);
+    expect(launch.abstainPolicy).toBe("no_answer");
   });
 
   it("states each subject's floors, as thresholdsForSubject holds them", () => {
@@ -194,10 +199,17 @@ describe.skipIf(!configured)("the governance doc's claims, against a real ballot
     expect(opened.ballot.totalWeight).toBe(3);
   });
 
-  it("A BIRTHING STILL CARRIES ON ONE YES AND TWO ABSTENTIONS, which the document names as broken", async () => {
-    // The residual the document states in "What is broken today". When a lane
-    // fixes it, this test goes red and that paragraph has to be rewritten,
-    // which is the whole reason the claim is pinned by a test.
+  it("A BIRTHING NO LONGER CARRIES ON ONE YES AND TWO ABSTENTIONS, and closes for want of quorum", async () => {
+    // This used to pin the defect the document named in "What is broken today":
+    // an abstention counted toward quorum, so the Game could start on one
+    // person's yes. The 2026-09-02 governance build gave the subject its own
+    // abstain policy, and an abstention on the Birthing now answers nothing at
+    // all. The test went red on the day of the fix, which is what it was for,
+    // and it pins the new rule from the same direction.
+    //
+    // no_quorum matters here and "failed" would be wrong: a question too few
+    // people answered is recoverable, and the constant subject_ref lets the
+    // Birthing be asked again the same hour on a fresh freeze.
     const launch = doc.subjects.find((s: any) => s.everySeatWeighs);
     const opened = await openOne({
       subjectType: launch.subjectType,
@@ -221,11 +233,14 @@ describe.skipIf(!configured)("the governance doc's claims, against a real ballot
     });
     expect(closed.ok).toBe(true);
     if (!closed.ok) return;
-    expect(closed.outcome).toBe("passed");
-    expect(closed.quorum).toBe(100);
-    expect(closed.unity).toBe(100);
-    // And the honest sentence about it names people AND weight: 3 of 3 people
-    // answered, holding 100% of the frozen weight, and 1 of them agreed.
+    expect(closed.outcome).toBe("no_quorum");
+    // The quorum REPORTED is computed under the policy that decided, so the
+    // two abstentions are absent from it: 1 of 3 seats answered, holding 33% of
+    // the frozen weight. A reported 100 beside an outcome of no_quorum would be
+    // a number that contradicts the sentence beside it.
+    expect(closed.quorum).toBeCloseTo(100 / 3, 6);
+    // The raw tallies still record what each person did, because an abstention
+    // is a real act even when it answers nothing.
     expect(closed.tallies).toEqual({ yesW: 1, noW: 0, abstainW: 2 });
   });
 

@@ -148,20 +148,28 @@ function importSource(abs, name) {
   return null;
 }
 
-/** A literal, or a name that resolves to one, following relative imports. */
-export function literalOf(node, abs) {
+/**
+ * A literal, or a name that resolves to one, following relative imports.
+ *
+ * `env` binds names to expressions the caller already resolved, which is how a
+ * function's parameters reach its body when a call is inlined. It is empty for
+ * every read that starts at a top-level constant.
+ */
+export function literalOf(node, abs, env = null) {
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   if (ts.isNumericLiteral(node)) return Number(node.text);
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
   if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
   if (node.kind === ts.SyntaxKind.NullKeyword) return null;
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
-    return -literalOf(node.operand, abs);
+    return -literalOf(node.operand, abs, env);
   }
   if (ts.isAsExpression(node) || ts.isParenthesizedExpression(node) || ts.isSatisfiesExpression?.(node)) {
-    return literalOf(node.expression, abs);
+    return literalOf(node.expression, abs, env);
   }
   if (ts.isIdentifier(node)) {
+    const bound = env?.get(node.text);
+    if (bound) return literalOf(bound.node, bound.abs, bound.env ?? null);
     const local = constAnywhere(abs, node.text);
     if (local) return literalOf(local, abs);
     const imported = importSource(abs, node.text);
@@ -174,7 +182,137 @@ export function literalOf(node, abs) {
     }
     fail(`cannot resolve the constant ${node.text} in ${path.basename(abs)}`);
   }
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const bound = bindingOf(node, abs, env);
+    return literalOf(bound.node, bound.abs, bound.env ?? null);
+  }
+  if (
+    ts.isCallExpression(node)
+    && ts.isIdentifier(node.expression)
+    && node.expression.text === "String"
+    && node.arguments.length === 1
+  ) {
+    return String(literalOf(node.arguments[0], abs, env));
+  }
   fail(`${path.basename(abs)} holds a value this reader cannot read: ${node.getText().slice(0, 80)}`);
+}
+
+/**
+ * The expression a name or a member access finally stands for, with the file
+ * that expression lives in, so a later read resolves the next name against the
+ * right imports.
+ *
+ * This exists because a setting's floor is written as the place the number
+ * already lives (`TIER_FLOORS.structural.unityPct`,
+ * `SUBJECT_THRESHOLDS[MINT_RULE].minQuorumPct`) instead of the number retyped
+ * beside it. A reader that could not follow the member access would have to be
+ * told those numbers by hand, which is the one thing this generator exists to
+ * avoid: the document would then agree with itself and disagree with the code.
+ */
+function bindingOf(node, abs, env = null) {
+  if (ts.isAsExpression(node) || ts.isParenthesizedExpression(node) || ts.isSatisfiesExpression?.(node)) {
+    return bindingOf(node.expression, abs, env);
+  }
+  if (ts.isIdentifier(node)) {
+    const bound = env?.get(node.text);
+    if (bound) return bindingOf(bound.node, bound.abs, bound.env ?? null);
+    const local = constAnywhere(abs, node.text);
+    if (local) return bindingOf(local, abs);
+    const imported = importSource(abs, node.text);
+    if (imported) {
+      const init = constAnywhere(imported.abs, imported.exported);
+      if (!init) {
+        fail(`${node.text} is imported into ${path.basename(abs)} but is not a const in ${path.basename(imported.abs)}`);
+      }
+      return bindingOf(init, imported.abs);
+    }
+    fail(`cannot resolve the constant ${node.text} in ${path.basename(abs)}`);
+  }
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const key = ts.isPropertyAccessExpression(node)
+      ? node.name.text
+      : String(literalOf(node.argumentExpression, abs, env));
+    const holder = bindingOf(node.expression, abs, env);
+    if (!ts.isObjectLiteralExpression(holder.node)) {
+      fail(`${node.expression.getText().slice(0, 60)} in ${path.basename(abs)} is not an object this reader can index`);
+    }
+    for (const p of holder.node.properties) {
+      if (!ts.isPropertyAssignment(p)) continue;
+      if (propertyName(p.name, holder.abs) !== key) continue;
+      return bindingOf(p.initializer, holder.abs, holder.env ?? null);
+    }
+    fail(`${path.basename(holder.abs)} declares no ${key} on ${node.expression.getText().slice(0, 60)}`);
+  }
+  return { node, abs, env };
+}
+
+/** `function NAME(...)` in a file, wherever it sits. */
+function functionAnywhere(abs, name) {
+  const sf = sourceFile(abs);
+  let found;
+  eachChild(sf, (node) => {
+    if (found) return;
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name) found = node;
+  });
+  return found;
+}
+
+/**
+ * The object a call to a small local helper returns, worked out from that
+ * helper's own body with its parameters bound to the arguments at the call.
+ *
+ * This exists for `...tierFloors("constitutional")`. A spread is the one shape
+ * `objectOf` used to walk past in silence, and it cost the subject table a row
+ * reading `undefined%` on the day the tier floors landed. Nothing here guesses
+ * what a function does: it inlines a body of `const` declarations followed by
+ * one `return` of an object literal, and refuses any other shape, so a helper
+ * that grows a branch stops the build instead of being assumed.
+ */
+function callObject(call, abs) {
+  if (!ts.isIdentifier(call.expression)) {
+    fail(`${path.basename(abs)} spreads a call this reader cannot follow: ${call.getText().slice(0, 60)}`);
+  }
+  const name = call.expression.text;
+  let home = abs;
+  let fn = functionAnywhere(abs, name);
+  if (!fn) {
+    const imported = importSource(abs, name);
+    if (imported) {
+      home = imported.abs;
+      fn = functionAnywhere(home, imported.exported);
+    }
+  }
+  if (!fn) fail(`${name}() is spread in ${path.basename(abs)} and this reader cannot find where it is declared`);
+
+  const env = new Map();
+  fn.parameters.forEach((param, i) => {
+    if (!ts.isIdentifier(param.name)) fail(`${name}() takes a destructured parameter this reader cannot bind`);
+    const arg = call.arguments[i];
+    if (!arg) fail(`${name}() is called in ${path.basename(abs)} with fewer arguments than it declares`);
+    env.set(param.name.text, { node: arg, abs, env: null });
+  });
+
+  const body = fn.body?.statements ?? [];
+  let result;
+  for (const stmt of body) {
+    if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(d.name) || !d.initializer) fail(`${name}() declares a local this reader cannot bind`);
+        env.set(d.name.text, { node: d.initializer, abs: home, env: new Map(env) });
+      }
+      continue;
+    }
+    if (ts.isReturnStatement(stmt)) {
+      if (!stmt.expression) fail(`${name}() returns nothing, and a spread of it would contribute nothing`);
+      result = stmt.expression;
+      break;
+    }
+    fail(`${name}() does more than declare and return, so this reader will not guess what a spread of it means`);
+  }
+  if (!result) fail(`${name}() has no return this reader can read`);
+  const shape = bindingOf(result, home, env);
+  if (!ts.isObjectLiteralExpression(shape.node)) fail(`${name}() does not return an object literal, so it cannot be spread`);
+  return objectOf(shape.node, shape.abs, shape.env ?? env);
 }
 
 /** A property name, including a `[CONSTANT]:` computed key resolved to a string. */
@@ -184,14 +322,30 @@ function propertyName(name, abs) {
   return null;
 }
 
-function objectOf(node, abs) {
+function objectOf(node, abs, env = null) {
   if (!ts.isObjectLiteralExpression(node)) fail(`expected an object literal in ${path.basename(abs)}`);
   const out = {};
   for (const p of node.properties) {
+    // A spread is resolved or refused, and never skipped. Skipping one is how
+    // `...tierFloors("constitutional")` dropped two floors out of a subject
+    // and put `undefined%` in the table this document ships.
+    if (ts.isSpreadAssignment(p)) {
+      const source = ts.isCallExpression(p.expression)
+        ? callObject(p.expression, abs)
+        : (() => {
+            const bound = bindingOf(p.expression, abs, env);
+            if (!ts.isObjectLiteralExpression(bound.node)) {
+              fail(`${path.basename(abs)} spreads something that is not an object: ${p.getText().slice(0, 60)}`);
+            }
+            return objectOf(bound.node, bound.abs, bound.env ?? null);
+          })();
+      Object.assign(out, source);
+      continue;
+    }
     if (!ts.isPropertyAssignment(p)) continue;
     const key = propertyName(p.name, abs);
     if (key === null) continue;
-    out[key] = literalOf(p.initializer, abs);
+    out[key] = literalOf(p.initializer, abs, env);
   }
   return out;
 }
@@ -533,9 +687,21 @@ export function weightFacts(root = ROOT) {
 export function changeSetFacts(root = ROOT) {
   const rel = "server/lib/mechanics.ts";
   const abs = absOf(root, rel);
+  // The cap is read from the exported constant when there is one, because a
+  // named export survives a refactor that a literal in a comparison does not.
+  // The old inline shape is still accepted so this keeps answering for a tree
+  // that has not named it yet, and the refusal fires only when both are gone.
+  const named = constAnywhere(abs, "CHANGE_SET_CAP");
+  if (named) {
+    const cap = literalOf(named, abs);
+    if (typeof cap !== "number") fail(`${rel} declares CHANGE_SET_CAP as something other than a number`);
+    return { maxChanges: cap };
+  }
   const text = fs.readFileSync(abs, "utf8");
   const m = /changes\.length\s*>\s*(\d+)/.exec(text);
-  if (!m) fail(`${rel} no longer caps a change set with "changes.length > N"; the 12-dial ceiling is read from it`);
+  if (!m) {
+    fail(`${rel} caps a change set neither with CHANGE_SET_CAP nor with "changes.length > N"; the dial ceiling is read from one of them`);
+  }
   return { maxChanges: Number(m[1]) };
 }
 
@@ -829,8 +995,9 @@ const PROSE = {
     "drifting away can freeze a Game a large majority wants to continue. The Birthing stays at 100 and 100 because " +
     "it is the one vote where everyone is present by definition.",
   criticalityToday:
-    "Criticality tiers are staged. Today a subject's floor is a constant in code and the village's own two dials do " +
-    "the rest of the work.",
+    "Criticality tiers are built. Every setting carries a tier, the tier sets the quorum and the unity a change to it " +
+    "needs, and the tiers and the subject floors are themselves settings a village may raise and may never lower. What " +
+    "is still staged is the rule that a threshold changes at its own current bar.",
   decisionIs:
     "A decision is a ballot: one question, one frozen electorate, one document, and one outcome recorded by a person. " +
     "The document a ballot carries is the document that was checked when it opened, stored on the ballot's own row, " +
@@ -851,7 +1018,9 @@ const PROSE = {
     "answered reads as no quorum and never as a rejection.",
   abstainRule:
     "An abstention counts toward quorum and takes no side on unity. It is the instrument for helping a decision reach " +
-    "the room without taking a position in it. One consequence is named in what is broken below.",
+    "the room while holding no position in it. One subject overrides that, and the subject table below says which: on " +
+    "the Birthing an abstention answers nothing at all, so it counts toward neither the quorum nor the unity and the " +
+    "vote closes for want of quorum, which can be asked again.",
   peopleAndWeight:
     "Every sentence this platform generates about a vote states people AND weight together. One of three people " +
     "voting, holding all of the frozen weight, is a true sentence about a vote; a bare participation percentage is " +
@@ -1038,6 +1207,8 @@ const KNOWN_DIALS = [
   "governance.proposal_support_threshold",
   "governance.hub_url",
   "governance.auto_apply_enabled",
+  "governance.steward_subjects",
+  "governance.auto_execute_subjects",
   "governance.change_cooldown_days",
   "governance.weight_mode",
   "governance.weight_token",
@@ -1046,6 +1217,14 @@ const KNOWN_DIALS = [
   "governance.vote_days",
   "governance.consent_window_days",
   "governance.default_method",
+  "governance.tier_routine_quorum_pct",
+  "governance.tier_routine_unity_pct",
+  "governance.tier_structural_quorum_pct",
+  "governance.tier_structural_unity_pct",
+  "governance.tier_constitutional_quorum_pct",
+  "governance.tier_constitutional_unity_pct",
+  "governance.subject_mint_rule_quorum_pct",
+  "governance.subject_mint_rule_unity_pct",
   "membership.vouch_threshold",
 ];
 
@@ -1121,12 +1300,18 @@ const RULINGS = [
     quotes: [
       "having it default that the steward (by default the founder(s) are granted a steward role after Game launch) needs to approve a proposal to change the game before it actually goes through is a great addition, but also there's another stage of maturity where the founder gives up this power and then auto-execute takes over. Stewards have the power to approve anything in the Game that needs approval - they're the 'training wheels' for the Game until it matures enough that they can give more and more power to the Game to auto-execute decisions.",
     ],
-    status: (f) => (f.staged.steward ? "**Staged.** Not built." : "**Built.**"),
+    status: (f) => (f.staged.steward ? "**Staged.** Not built." : "**Half built.**"),
     note: (f) =>
-      `No capability key names a steward, no subject type in the close dispatcher names an approval, and a passed ballot ` +
-      `runs its executor at the close. The one hold that exists is \`governance.auto_apply_enabled\`, a ${f.dials.autoApply.ring}-ring ` +
-      `dial defaulting to \`${f.dials.autoApply.default}\`, which covers the mechanics closer alone and hands a held proposal to an ` +
-      `administrator to apply by hand. So the code's default today is the mature posture and the ruling's default is training wheels.`,
+      `The seat exists. A \`steward.approve\` capability gates an approve route and a refuse route, one row per ballot records ` +
+      `who decided and why, and two settings say which subjects wait for a steward and which carry themselves. What is still ` +
+      `missing is the hold itself: the close dispatcher has no step that waits, so a passed ballot runs its executor at the ` +
+      `close and an approval today changes no outcome. The other hold that exists is \`governance.auto_apply_enabled\`, a ` +
+      `${f.dials.autoApply.ring}-ring dial defaulting to \`${f.dials.autoApply.default}\`, which covers the mechanics closer alone and hands a ` +
+      `held proposal to an administrator to apply by hand. Read this ruling next to the founder's 2026-09-03 words, which ` +
+      `withdraw the approval gate and make the steward a veto window instead: a Game change lands at the next new moon on ` +
+      `its own unless a steward blocks it, and the window closes at the later of the cycle's end and three days after the ` +
+      `vote carried. The approval machinery above is the record and the seat that ruling still needs. The waiting is what it ` +
+      `no longer wants.`,
   },
   {
     id: 2,
@@ -1161,9 +1346,10 @@ const RULINGS = [
     ],
     status: (f) => (f.staged.steward ? "**Staged.** Not built." : "**Built.**"),
     note: () =>
-      "A refusal has to be a first-class act with a name, a reason and a record, the way a weight change already is. A " +
-      "proposal the village passed that dies without anybody being told why is the same failure this codebase has spent " +
-      "weeks removing.",
+      "A refusal is a first-class act now. The refuse route stores who decided, which ballot, and the reason, and it " +
+      "refuses an empty or whitespace-only reason at the door, so a proposal the village passed can never die silently. " +
+      "An approval may carry no words, because a yes explains itself. The first decision on a ballot stands and a second " +
+      "one never overwrites it. What the record still waits on is the surface that shows it to the proposer.",
   },
   {
     id: 5,
@@ -1172,12 +1358,15 @@ const RULINGS = [
     quotes: [
       "No terms should definitely end when they end not with a polite warning! If they're not voted back in then they expire when they expire!",
     ],
-    status: () => "**Staged, and the code currently says the opposite.**",
+    status: () => "**Half built.**",
     note: () =>
-      "Terms and powers live on two planes that share only a word. Permission roles carry powers and have no term at all. " +
-      "Org-chart seats carry terms and no powers, and a term ending today notifies the holder and takes nothing away; the " +
-      "job's own copy says nothing has been taken away. Building this ruling means term columns on the permission plane, a " +
-      "capability that drops when a term lapses, and a vacancy loud enough to see on the screens that depend on it.",
+      "Terms and powers live on two planes that share only a word, and the ruling now holds on the plane that matters. A " +
+      "permission role carries a term and a season beside the holder, and the capability lookup drops a holding whose term " +
+      "has passed, so the powers end on the day the term does with no warning and no grace. A term left empty never lapses, " +
+      "which is what let the column land on villages that had never heard of a term. The record of who held the seat " +
+      "outlives the mandate on purpose: history is kept and the powers are taken. Org-chart seats are the other plane and " +
+      "are unchanged, so a season turn there still reopens a seat without touching anybody's powers. What remains is the " +
+      "vote that puts a holder back in, and a vacancy loud enough to see on every screen that depends on it.",
   },
   {
     id: 6,
@@ -1204,10 +1393,14 @@ const RULINGS = [
     ],
     status: (f) => (f.staged.delegation ? "**Staged.** Not built." : "**Built.**"),
     note: () =>
-      "Nothing copies a vote today. The design the ruling settles: a delegated vote is a row for the DELEGATOR carrying the " +
-      "delegate's choice, so participation arithmetic stays honest and the frozen electorate keeps meaning what it says. " +
-      "Weight never moves. Cycles are refused when a delegation is created and never at tally time, a delegator can see who " +
-      "they actually followed several hops away, and how many votes a member effectively decides is shown to every player.",
+      "A delegated vote is a row for the DELEGATOR carrying the delegate's choice, stamped with the member who finally " +
+      "decided it, so participation arithmetic stays honest and the frozen electorate keeps meaning what it says. Weight " +
+      "never moves. The choice alone is copied and the words beside a no are never attributed to somebody who did not " +
+      "write them. Chains resolve to the member at the end, a cycle is refused at the moment a delegation is given and " +
+      "never at tally time, and a member who votes for themselves takes their row back whatever their delegate does. A " +
+      "delegate who stays silent leaves the delegator uncast, counted as not voted and never as an abstention. Concentration " +
+      "is served to every player: how many votes each member effectively decides, what share of the village that is, and the " +
+      "direct count beside it. What is missing is the surface, so today all of it answers through the API alone.",
   },
   {
     id: 8,
@@ -1267,10 +1460,11 @@ const RULINGS = [
     note: (f) =>
       `Built: the floors are code at ${f.launchFloor.minUnityPct} unity, ${f.launchFloor.minQuorumPct} quorum and ` +
       `${f.launchFloor.minElectorate} on the roll, with every seat required to carry weight above zero, which is what makes ` +
-      "100 percent of weight also mean 100 percent of people. Staged: an abstention counts toward quorum and takes no " +
-      "side, so a Birthing can still carry on one yes and two abstentions, which the ruling's own words refuse. Staged " +
-      "too: the proposal shows the head count, the dials and an abstention sentence, and carries no Voice distribution, " +
-      "no overview of the structure and no statement of the conditions.",
+      "100 percent of weight also mean 100 percent of people. Built since 2026-09-02: an abstention on the Birthing " +
+      "answers nothing, counting toward neither the quorum nor the unity, and the subject asks for a yes from every seat " +
+      "on the roll by head as well as by weight. One yes and two abstentions now closes for want of quorum, which can be " +
+      "asked again the same hour on a fresh roll. Staged: the proposal shows the head count, the dials and an abstention " +
+      "sentence, and carries no Voice distribution, no overview of the structure and no statement of the conditions.",
   },
   {
     id: 12,
@@ -1416,11 +1610,14 @@ const RULINGS = [
     ],
     status: (f) => (f.staged.criticality ? "**Staged.** Not built." : "**Built.**"),
     note: (f) =>
-      `Today a subject's floor is a constant in code, ${f.subjects.length} subject types carry one, and the \`founder\` ring is a ` +
-      "flat refusal and never a higher bar. The ruling replaces both: every setting carries a criticality tier, the tier " +
-      "sets the quorum and the unity a change needs, the most critical tier asks 97 and 97, a village may set its dials " +
-      "above that and gets warned in words, and the floors that live in code move into settings behind the same tiers. " +
-      "The Birthing stays at 100 and 100.",
+      `Every setting carries a criticality tier now, defaulting to routine, and the tier sets both the quorum and the unity ` +
+      `a change to it needs: routine asks nothing beyond the village's own dials, structural asks 80 unity and 50 quorum, ` +
+      `and constitutional asks 97 and 97, which is the founder's own number. The tiers are themselves eight settings, and ` +
+      `the ${f.subjects.length} subject floors that used to live only in code are settings too. All ten are raise-only: the shipped number ` +
+      "is a floor and a village may go above it and never below, because a village that can lower the bar for changing the " +
+      "bar has no bar. Any dial typed above 97 shows the stalemate warning in words while it is being typed, and the " +
+      "Birthing is the one subject exempt from it because it stays at 100 and 100 by rule. Still open: the founder's " +
+      "2026-09-02 ruling that a threshold changes at its own current bar, which is a later lane.",
   },
   {
     id: 22,
@@ -1479,20 +1676,27 @@ function stagedFlags(dialKeys, governanceKeys, caps, dispatcher, routes, launchS
     delegation: !anyKey(/delegat/i) && !routes.rows.some((r) => /delegat/i.test(r.path)),
     cycleSetting: !dialKeys.some((k) => /^cycle\./i.test(k) || /(cycle_mode|cycle_kind|rhythm)/i.test(k)),
     clans: !dialKeys.some((k) => /\bclan/i.test(k)),
-    criticality: !anyKey(/critical/i),
+    // The tiers landed as `governance.tier_<tier>_<dial>_pct` settings, and the
+    // word criticality itself lives on a VariableDef property where no key can
+    // carry it. A pattern watching for "critical" alone therefore stayed quiet
+    // through the whole landing, which is the failure mode this guard exists to
+    // prevent, so the tier keys are what it watches now.
+    criticality: !anyKey(/critical/i) && !anyKey(/\.tier_/i),
     secrecy: !anyKey(/(secret|anonym|voter_identity|public_votes|ballot_privacy)/i),
     governanceModeSubject: !dispatcher.all.some((k) => /governance_mode/i.test(k)),
   };
 }
 
 function stalenessProblem(staged) {
+  // Rulings 1, 4, 7 and 21 landed on 2026-09-02 in the governance build, so
+  // their rows come out of this list and their notes now describe what shipped.
+  // A row stays here only while the ruling's note still says "not built": the
+  // guard's whole job is to stop the build once, on the day the code moves past
+  // the prose, and it has done that job for these four.
   const complaints = [
-    [!staged.steward, 1, "a steward"],
     [!staged.governanceWeek, 6, "a governance week"],
-    [!staged.delegation, 7, "delegation"],
     [!staged.cycleSetting, 13, "a cycle setting"],
     [!staged.clans, 18, "clans"],
-    [!staged.criticality, 21, "criticality tiers"],
     [!staged.secrecy, 22, "a voter-identity setting"],
     [!staged.governanceModeSubject, 14, "a governance_mode subject type"],
   ];
@@ -1970,10 +2174,10 @@ export function render(f) {
   say("brokenIntro");
   p();
   p(
-    "- **A Birthing can carry on one yes and two abstentions.** Quorum counts an abstention and unity does not read " +
-      `it, so on a roll of three: 3 of 3 people answered, holding ${f.launchFloor.minQuorumPct}% of the frozen weight, and 1 of them ` +
-      `took a side, holding ${f.launchFloor.minUnityPct}% of the weight that took one. Both floors are met and the Game starts on one ` +
-      "person's yes. The engine records this as a documented decision, and the 2026-09-02 ruling refuses it.",
+    "- **A close and its executor still decide separately from the steward.** The seat, its capability, its record and " +
+      "its two settings all exist, and the close dispatcher has no step that reads any of them, so a passed ballot runs " +
+      "its executor at the close and an approval or a refusal changes no outcome today. Nothing seats a catalyst as a " +
+      "steward yet either, so no village has one.",
   );
   p(
     "- **A close and its executor are not one transaction.** The ballot is closed by one guarded update and the executor " +
@@ -2068,18 +2272,28 @@ export function render(f) {
           outcomes: f.engine.outcomes,
           ballotStatuses: f.statuses,
           unityStampedByMethod: f.engine.presets,
-          abstainCountsTowardQuorum: true,
-          abstainCountsTowardUnity: false,
+          // The default, which a subject may override. Read the per-subject
+          // `abstainPolicy` below before believing either of these about a
+          // particular ballot.
+          abstainCountsTowardQuorumByDefault: true,
+          abstainCountsTowardUnityByDefault: false,
         },
         subjects: f.subjects.map((s) => ({
           subjectType: s.subject,
-          minUnityPct: s.minUnityPct,
-          minQuorumPct: s.minQuorumPct,
-          minElectorate: s.minElectorate,
+          // A floor of null means this subject states no floor of its own and
+          // takes the one its criticality tier sets. JSON drops an undefined
+          // value and would have dropped the key with it, which reads as a
+          // subject that forgot to have a floor.
+          minUnityPct: s.minUnityPct ?? null,
+          minQuorumPct: s.minQuorumPct ?? null,
+          minElectorate: s.minElectorate ?? null,
           everySeatWeighs: !!s.everySeatWeighs,
           method: s.method ?? null,
+          criticality: s.criticality ?? null,
+          abstainPolicy: s.abstainPolicy ?? null,
+          minYesHeads: s.minYesHeads ?? null,
           executesAtClose: s.executes,
-          why: s.why,
+          why: s.why ?? null,
         })),
         executingSubjectTypes: f.dispatcher.all,
         dials: f.dials.all.map((d) => ({

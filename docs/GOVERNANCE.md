@@ -11,7 +11,7 @@ This describes a FRESH village: what a village standing up a new instance holds 
 <!-- written by a person: generated -->
 This file is generated. `scripts/generate-governance-doc.mjs` reads the engine, the subject registry, the dials, the capability tables, the module definition, the clock and the route registrations, works out the facts, and writes the whole document. `scripts/check-governance-doc.mjs` regenerates it and fails the build when the committed text and the code have come apart.
 
-It describes the code at commit `3e691fe5afe30711971fd0086632ff68f3fc6eda`.
+It describes the code at commit `45fc8a64bee97a8fe9904cf70abed301df01c660`.
 
 <!-- written by a person: editing -->
 Editing this file by hand does not hold. Change the code, then run:
@@ -60,7 +60,7 @@ With every seat above zero, 100% of the weight is reached only when every seat h
 **Criticality, and the ceiling of 97.** Nothing is un-votable. The more critical a change is, the more of the village has to show up and agree before it lands, and the recommended ceiling is 97 percent of quorum and 97 percent of unity. Above that a village is warned in words: as the bar approaches 100, one player dying or drifting away can freeze a Game a large majority wants to continue. The Birthing stays at 100 and 100 because it is the one vote where everyone is present by definition.
 
 <!-- written by a person: criticalityToday -->
-Criticality tiers are staged. Today a subject's floor is a constant in code and the village's own two dials do the rest of the work.
+Criticality tiers are built. Every setting carries a tier, the tier sets the quorum and the unity a change to it needs, and the tiers and the subject floors are themselves settings a village may raise and may never lower. What is still staged is the rule that a threshold changes at its own current bar.
 
 <!-- written by a person: publishModule -->
 Read the module state first. While the governance module is off, every path under its prefixes answers 404 to everybody, signed in or not. The mechanics routes are never module-gated, so they answer under every lifecycle.
@@ -95,7 +95,7 @@ passed = quorum >= quorumFrozen && unity >= unityFrozen
 ```
 
 <!-- written by a person: abstainRule -->
-An abstention counts toward quorum and takes no side on unity. It is the instrument for helping a decision reach the room without taking a position in it. One consequence is named in what is broken below.
+An abstention counts toward quorum and takes no side on unity. It is the instrument for helping a decision reach the room while holding no position in it. One subject overrides that, and the subject table below says which: on the Birthing an abstention answers nothing at all, so it counts toward neither the quorum nor the unity and the vote closes for want of quorum, which can be asked again.
 
 A vote is one of `yes`, `no`, `abstain`. An outcome is one of `passed`, `failed`, `no_quorum`.
 
@@ -123,6 +123,8 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.proposal_support_threshold` | Supporters before a proposal can go to the vote | `open` | `0` | 0 to 10000 supporters | when it is written |
 | `governance.hub_url` | ReGen governance hub URL | `founder` | `https://regencivics.earth` | text | when it is written |
 | `governance.auto_apply_enabled` | Apply verified proposals automatically | `founder` | `true` | boolean | when it is written |
+| `governance.steward_subjects` | Which decisions wait for a steward | `open` | `all` | text | when it is written |
+| `governance.auto_execute_subjects` | Which decisions carry themselves | `open` | `none` | text | when it is written |
 | `governance.change_cooldown_days` | Cooldown after a governed rule change | `open` | `0` | 0 to 365 days | when it is written |
 | `governance.weight_mode` | How voting weight is assigned | `founder` | `equal` | `equal`, `token`, `custom` | when it is written |
 | `governance.weight_token` | The weight token | `founder` | `gratitude` | text | when it is written |
@@ -131,12 +133,20 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.vote_days` | How long a ballot stays open | `open` | `7` | 1 to 30 days | when it is written |
 | `governance.consent_window_days` | How long a consent window stays open | `open` | `7` | 1 to 30 days | when it is written |
 | `governance.default_method` | How village-wide ballots decide | `open` | `custom` | `custom`, `majority`, `consensus`, `consent`, `hypha` | when it is written |
+| `governance.tier_routine_quorum_pct` | Routine changes: quorum floor | `open` | `0` | 0 to 100 % | when it is written |
+| `governance.tier_routine_unity_pct` | Routine changes: unity floor | `open` | `0` | 0 to 100 % | when it is written |
+| `governance.tier_structural_quorum_pct` | Structural changes: quorum floor | `open` | `50` | 50 to 100 % | when it is written |
+| `governance.tier_structural_unity_pct` | Structural changes: unity floor | `open` | `80` | 80 to 100 % | when it is written |
+| `governance.tier_constitutional_quorum_pct` | Constitutional changes: quorum floor | `open` | `97` | 97 to 100 % | when it is written |
+| `governance.tier_constitutional_unity_pct` | Constitutional changes: unity floor | `open` | `97` | 97 to 100 % | when it is written |
+| `governance.subject_mint_rule_quorum_pct` | Minting rule changes: quorum floor | `open` | `50` | 50 to 100 % | when it is written |
+| `governance.subject_mint_rule_unity_pct` | Minting rule changes: unity floor | `open` | `0` | 0 to 100 % | when it is written |
 | `membership.vouch_threshold` | Vouches to admit a member | `open` | `0` | 0 to 20 vouches | when it is written |
 
 <!-- written by a person: dialsStorage -->
 Only CHANGED values are stored. An absent row means the platform default in the table above, so a fresh village starts with every one of these and no rows at all.
 
-10 settings across the whole registry wait for a cycle close instead of applying when they are written: `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 16 settings above is one of them, so every governance dial takes effect the moment it is written.
+10 settings across the whole registry wait for a cycle close instead of applying when they are written: `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 26 settings above is one of them, so every governance dial takes effect the moment it is written.
 
 ## What each kind of decision asks
 
@@ -147,9 +157,11 @@ What each kind of decision asks. A subject declares MINIMUMS and the village's o
 | --- | --- | --- | --- | --- | --- | --- |
 | `village_launch` | 100% | 100% | 3 | yes | `custom` | yes |
 | `mint_rule` | 0% | 50% | 0 | no | the village's own | yes |
+| `governance_mode` | 97% | 97% | 0 | no | `custom` | no, it conducts a decision and executes nothing |
 
-- `village_launch`: Starting the Game turns on token issuance, so it asks for every member on the roll to vote and every one of them to agree.
+- `village_launch`: Starting the Game asks every member on the roll to vote yes. An abstention is not a yes, and a vote nobody cast is not a yes either.
 - `mint_rule`: This one changes what the village mints, so it asks for more than half the village's voting weight to take part. How much of that has to agree is the village's own setting.
+- `governance_mode`: This one changes how every vote in the village is counted, so it asks the constitutional bar: almost everybody present, and almost everybody in favour.
 
 Every other subject type keeps the village's own dials: `80% unity` and `20% quorum` on a fresh village, with no floor of its own.
 
@@ -323,7 +335,7 @@ The hub address is `governance.hub_url`, a `founder`-ring dial defaulting to `ht
 <!-- written by a person: brokenIntro -->
 What is broken today, by name. A document that only described the parts that work would be the same kind of check this repository has spent weeks removing: green about the wrong thing.
 
-- **A Birthing can carry on one yes and two abstentions.** Quorum counts an abstention and unity does not read it, so on a roll of three: 3 of 3 people answered, holding 100% of the frozen weight, and 1 of them took a side, holding 100% of the weight that took one. Both floors are met and the Game starts on one person's yes. The engine records this as a documented decision, and the 2026-09-02 ruling refuses it.
+- **A close and its executor still decide separately from the steward.** The seat, its capability, its record and its two settings all exist, and the close dispatcher has no step that reads any of them, so a passed ballot runs its executor at the close and an approval or a refusal changes no outcome today. Nothing seats a catalyst as a steward yet either, so no village has one.
 - **A close and its executor are not one transaction.** The ballot is closed by one guarded update and the executor runs after it. An executor that throws leaves a ballot closed and passed with nothing applied, and only the mechanics subject has a second door to apply by hand.
 - **3 reads under the governance prefix answer a stranger**, and at the module's `public` lifecycle that means the whole voter roll with names, choices and weights is served to the internet.
 - **A weight in token mode is displayed in ledger units.** A holding a member reads as 0.1 weighs 100 in the tally, and the hand-mint form takes raw units with no hint, so typing 1 for a 3-decimal token mints a thousandth.
@@ -338,11 +350,8 @@ What is broken today, by name. A document that only described the parts that wor
 <!-- written by a person: stagedIntro -->
 What is staged: ruled by the founder, described here, and absent from the code. Nothing in this list exists. Each one carries a guard in the generator, so the day somebody builds it the guard goes red and this section has to be updated before the build passes.
 
-- **A steward approves a passed proposal before it takes effect, and auto-execute is the maturity path** (ruling 1)
 - **Catalysts inherit the steward seat at the Birthing, and the seat is re-voted every season** (ruling 2)
 - **Giving up the steward power is reversible, and only the village can fill the seat again** (ruling 3)
-- **The veto is the point of the role, and it carries a reason** (ruling 4)
-- **Terms end when they end** (ruling 5)
 - **Governance week is a default pattern and never a permission check** (ruling 6)
 - **Delegation copies the choice, chains are transitive, and concentration is visible** (ruling 7)
 - **One to three catalysts start a village, and Voice is the only token they may issue before the Game starts** (ruling 10)
@@ -351,7 +360,6 @@ What is staged: ruled by the founder, described here, and absent from the code. 
 - **A village with no steward and self-executing agreements is healthy** (ruling 17)
 - **Voice for other beings, and clans, at 144 players** (ruling 18)
 - **A late approval rolls to the following new moon** (ruling 20)
-- **Nothing is un-votable, criticality raises the bar, and 97 is the recommended ceiling** (ruling 21)
 - **Who voted is visible, how they voted is hidden, and names appear after half** (ruling 22)
 
 ## The founder's rulings
@@ -364,13 +372,13 @@ The quotes are reproduced exactly, including the spelling and the punctuation, b
 
 ### 1. A steward approves a passed proposal before it takes effect, and auto-execute is the maturity path
 
-**Staged.** Not built. Status computed from the code. Said 2026-08-31 and 2026-09-02.
+**Half built.** Status computed from the code. Said 2026-08-31 and 2026-09-02.
 
 <!-- the founder's own words -->
 > having it default that the steward (by default the founder(s) are granted a steward role after Game launch) needs to approve a proposal to change the game before it actually goes through is a great addition, but also there's another stage of maturity where the founder gives up this power and then auto-execute takes over. Stewards have the power to approve anything in the Game that needs approval - they're the 'training wheels' for the Game until it matures enough that they can give more and more power to the Game to auto-execute decisions.
 
 <!-- written by a person: ruling-1 -->
-No capability key names a steward, no subject type in the close dispatcher names an approval, and a passed ballot runs its executor at the close. The one hold that exists is `governance.auto_apply_enabled`, a founder-ring dial defaulting to `true`, which covers the mechanics closer alone and hands a held proposal to an administrator to apply by hand. So the code's default today is the mature posture and the ruling's default is training wheels.
+The seat exists. A `steward.approve` capability gates an approve route and a refuse route, one row per ballot records who decided and why, and two settings say which subjects wait for a steward and which carry themselves. What is still missing is the hold itself: the close dispatcher has no step that waits, so a passed ballot runs its executor at the close and an approval today changes no outcome. The other hold that exists is `governance.auto_apply_enabled`, a founder-ring dial defaulting to `true`, which covers the mechanics closer alone and hands a held proposal to an administrator to apply by hand. Read this ruling next to the founder's 2026-09-03 words, which withdraw the approval gate and make the steward a veto window instead: a Game change lands at the next new moon on its own unless a steward blocks it, and the window closes at the later of the cycle's end and three days after the vote carried. The approval machinery above is the record and the seat that ruling still needs. The waiting is what it no longer wants.
 
 ### 2. Catalysts inherit the steward seat at the Birthing, and the seat is re-voted every season
 
@@ -394,7 +402,7 @@ There is no seat to step back from. The design this ruling settles is worth keep
 
 ### 4. The veto is the point of the role, and it carries a reason
 
-**Staged.** Not built. Status computed from the code. Said 2026-08-31.
+**Built.** Status computed from the code. Said 2026-08-31.
 
 <!-- the founder's own words -->
 > Yes stewards have the ability to veto through non approval. This is primarily to protect against harm they see that the village wasn't able to (which is why they voted them to be stewards to begin with).
@@ -403,17 +411,17 @@ There is no seat to step back from. The design this ruling settles is worth keep
 > Yes a steward veto absolutely should carry a reason
 
 <!-- written by a person: ruling-4 -->
-A refusal has to be a first-class act with a name, a reason and a record, the way a weight change already is. A proposal the village passed that dies without anybody being told why is the same failure this codebase has spent weeks removing.
+A refusal is a first-class act now. The refuse route stores who decided, which ballot, and the reason, and it refuses an empty or whitespace-only reason at the door, so a proposal the village passed can never die silently. An approval may carry no words, because a yes explains itself. The first decision on a ballot stands and a second one never overwrites it. What the record still waits on is the surface that shows it to the proposer.
 
 ### 5. Terms end when they end
 
-**Staged, and the code currently says the opposite.** Status stated by a person; the code cannot answer this one. Said 2026-08-31.
+**Half built.** Status stated by a person; the code cannot answer this one. Said 2026-08-31.
 
 <!-- the founder's own words -->
 > No terms should definitely end when they end not with a polite warning! If they're not voted back in then they expire when they expire!
 
 <!-- written by a person: ruling-5 -->
-Terms and powers live on two planes that share only a word. Permission roles carry powers and have no term at all. Org-chart seats carry terms and no powers, and a term ending today notifies the holder and takes nothing away; the job's own copy says nothing has been taken away. Building this ruling means term columns on the permission plane, a capability that drops when a term lapses, and a vacancy loud enough to see on the screens that depend on it.
+Terms and powers live on two planes that share only a word, and the ruling now holds on the plane that matters. A permission role carries a term and a season beside the holder, and the capability lookup drops a holding whose term has passed, so the powers end on the day the term does with no warning and no grace. A term left empty never lapses, which is what let the column land on villages that had never heard of a term. The record of who held the seat outlives the mandate on purpose: history is kept and the powers are taken. Org-chart seats are the other plane and are unchanged, so a season turn there still reopens a seat without touching anybody's powers. What remains is the vote that puts a holder back in, and a vacancy loud enough to see on every screen that depends on it.
 
 ### 6. Governance week is a default pattern and never a permission check
 
@@ -442,7 +450,7 @@ No governance dial names a week. The shape the ruling asks for is a pattern that
 > A delegate would puncture because you always see on a proposal a vote you made. So since your vote was cast following another's you were able to see what that other member did because you can see what you did.
 
 <!-- written by a person: ruling-7 -->
-Nothing copies a vote today. The design the ruling settles: a delegated vote is a row for the DELEGATOR carrying the delegate's choice, so participation arithmetic stays honest and the frozen electorate keeps meaning what it says. Weight never moves. Cycles are refused when a delegation is created and never at tally time, a delegator can see who they actually followed several hops away, and how many votes a member effectively decides is shown to every player.
+A delegated vote is a row for the DELEGATOR carrying the delegate's choice, stamped with the member who finally decided it, so participation arithmetic stays honest and the frozen electorate keeps meaning what it says. Weight never moves. The choice alone is copied and the words beside a no are never attributed to somebody who did not write them. Chains resolve to the member at the end, a cycle is refused at the moment a delegation is given and never at tally time, and a member who votes for themselves takes their row back whatever their delegate does. A delegate who stays silent leaves the delegator uncast, counted as not voted and never as an abstention. Concentration is served to every player: how many votes each member effectively decides, what share of the village that is, and the direct count beside it. What is missing is the surface, so today all of it answers through the API alone.
 
 ### 8. Transparency is the protection, so concentration is allowed and invisibility is not
 
@@ -494,7 +502,7 @@ Nothing is issuable before the Birthing, Voice included: every faucet posting is
 > No we need 100% saying yes as a collective 'Birthing' moment where you reveal the game, it's at LEAST 3 but could be many more people who then activate a new game before they all switch to being 'players' instead of just the catalysts (we say Catalyst instead of founder for those who play the game this way.
 
 <!-- written by a person: ruling-11 -->
-Built: the floors are code at 100 unity, 100 quorum and 3 on the roll, with every seat required to carry weight above zero, which is what makes 100 percent of weight also mean 100 percent of people. Staged: an abstention counts toward quorum and takes no side, so a Birthing can still carry on one yes and two abstentions, which the ruling's own words refuse. Staged too: the proposal shows the head count, the dials and an abstention sentence, and carries no Voice distribution, no overview of the structure and no statement of the conditions.
+Built: the floors are code at 100 unity, 100 quorum and 3 on the roll, with every seat required to carry weight above zero, which is what makes 100 percent of weight also mean 100 percent of people. Built since 2026-09-02: an abstention on the Birthing answers nothing, counting toward neither the quorum nor the unity, and the subject asks for a yes from every seat on the roll by head as well as by weight. One yes and two abstentions now closes for want of quorum, which can be asked again the same hour on a fresh roll. Staged: the proposal shows the head count, the dials and an abstention sentence, and carries no Voice distribution, no overview of the structure and no statement of the conditions.
 
 ### 12. The Game Mechanics section is public, always, and after the Birthing every control becomes a proposal
 
@@ -600,13 +608,13 @@ The case: a proposal passes on the 20th of the moon, the steward is away, and th
 
 ### 21. Nothing is un-votable, criticality raises the bar, and 97 is the recommended ceiling
 
-**Staged.** Not built. Status computed from the code. Said 2026-09-02.
+**Built.** Status computed from the code. Said 2026-09-02.
 
 <!-- the founder's own words -->
 > Everything can be! But the more critical it is, the higher percentage of quorum you need (hard to get quorum) such that changing the most critical things would require a max high of 97% quorum where only 3% of the whole network would be able to not be informed and have 97% approval (max heights - we don't recommend more than those though they can exceed them (if they do we warn them) because the closer you get to 100% the chances of you getting a stalemate increase where the Game breaks even though a massive majority want to continue they can't because someone died suddenly or stopped playing the Game, etc.
 
 <!-- written by a person: ruling-21 -->
-Today a subject's floor is a constant in code, 2 subject types carry one, and the `founder` ring is a flat refusal and never a higher bar. The ruling replaces both: every setting carries a criticality tier, the tier sets the quorum and the unity a change needs, the most critical tier asks 97 and 97, a village may set its dials above that and gets warned in words, and the floors that live in code move into settings behind the same tiers. The Birthing stays at 100 and 100.
+Every setting carries a criticality tier now, defaulting to routine, and the tier sets both the quorum and the unity a change to it needs: routine asks nothing beyond the village's own dials, structural asks 80 unity and 50 quorum, and constitutional asks 97 and 97, which is the founder's own number. The tiers are themselves eight settings, and the 3 subject floors that used to live only in code are settings too. All ten are raise-only: the shipped number is a floor and a village may go above it and never below, because a village that can lower the bar for changing the bar has no bar. Any dial typed above 97 shows the stalemate warning in words while it is being typed, and the Birthing is the one subject exempt from it because it stays at 100 and 100 by rule. Still open: the founder's 2026-09-02 ruling that a threshold changes at its own current bar, which is a later lane.
 
 ### 22. Who voted is visible, how they voted is hidden, and names appear after half
 
@@ -635,7 +643,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
 
 ```json
 {
-  "commit": "3e691fe5afe30711971fd0086632ff68f3fc6eda",
+  "commit": "45fc8a64bee97a8fe9904cf70abed301df01c660",
   "module": {
     "id": "governance",
     "shipsAs": "off",
@@ -694,8 +702,8 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "consent": 0,
       "custom": null
     },
-    "abstainCountsTowardQuorum": true,
-    "abstainCountsTowardUnity": false
+    "abstainCountsTowardQuorumByDefault": true,
+    "abstainCountsTowardUnityByDefault": false
   },
   "subjects": [
     {
@@ -705,8 +713,11 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "minElectorate": 3,
       "everySeatWeighs": true,
       "method": "custom",
+      "criticality": null,
+      "abstainPolicy": "no_answer",
+      "minYesHeads": "all",
       "executesAtClose": true,
-      "why": "Starting the Game turns on token issuance, so it asks for every member on the roll to vote and every one of them to agree."
+      "why": "Starting the Game asks every member on the roll to vote yes. An abstention is not a yes, and a vote nobody cast is not a yes either."
     },
     {
       "subjectType": "mint_rule",
@@ -715,8 +726,24 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "minElectorate": 0,
       "everySeatWeighs": false,
       "method": null,
+      "criticality": null,
+      "abstainPolicy": null,
+      "minYesHeads": null,
       "executesAtClose": true,
       "why": "This one changes what the village mints, so it asks for more than half the village's voting weight to take part. How much of that has to agree is the village's own setting."
+    },
+    {
+      "subjectType": "governance_mode",
+      "minUnityPct": 97,
+      "minQuorumPct": 97,
+      "minElectorate": 0,
+      "everySeatWeighs": false,
+      "method": "custom",
+      "criticality": "constitutional",
+      "abstainPolicy": null,
+      "minYesHeads": null,
+      "executesAtClose": false,
+      "why": "This one changes how every vote in the village is counted, so it asks the constitutional bar: almost everybody present, and almost everybody in favour."
     }
   ],
   "executingSubjectTypes": [
@@ -806,6 +833,28 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "ring": "founder",
       "type": "boolean",
       "default": "true",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.steward_subjects",
+      "label": "Which decisions wait for a steward",
+      "ring": "open",
+      "type": "text",
+      "default": "all",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.auto_execute_subjects",
+      "label": "Which decisions carry themselves",
+      "ring": "open",
+      "type": "text",
+      "default": "none",
       "min": null,
       "max": null,
       "choices": null,
@@ -907,6 +956,94 @@ The same facts, for anything that would sooner parse than read. Regenerated with
         "consent",
         "hypha"
       ],
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.tier_routine_quorum_pct",
+      "label": "Routine changes: quorum floor",
+      "ring": "open",
+      "type": "percentage",
+      "default": "0",
+      "min": 0,
+      "max": 100,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.tier_routine_unity_pct",
+      "label": "Routine changes: unity floor",
+      "ring": "open",
+      "type": "percentage",
+      "default": "0",
+      "min": 0,
+      "max": 100,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.tier_structural_quorum_pct",
+      "label": "Structural changes: quorum floor",
+      "ring": "open",
+      "type": "percentage",
+      "default": "50",
+      "min": 50,
+      "max": 100,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.tier_structural_unity_pct",
+      "label": "Structural changes: unity floor",
+      "ring": "open",
+      "type": "percentage",
+      "default": "80",
+      "min": 80,
+      "max": 100,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.tier_constitutional_quorum_pct",
+      "label": "Constitutional changes: quorum floor",
+      "ring": "open",
+      "type": "percentage",
+      "default": "97",
+      "min": 97,
+      "max": 100,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.tier_constitutional_unity_pct",
+      "label": "Constitutional changes: unity floor",
+      "ring": "open",
+      "type": "percentage",
+      "default": "97",
+      "min": 97,
+      "max": 100,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.subject_mint_rule_quorum_pct",
+      "label": "Minting rule changes: quorum floor",
+      "ring": "open",
+      "type": "percentage",
+      "default": "50",
+      "min": 50,
+      "max": 100,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.subject_mint_rule_unity_pct",
+      "label": "Minting rule changes: unity floor",
+      "ring": "open",
+      "type": "percentage",
+      "default": "0",
+      "min": 0,
+      "max": 100,
+      "choices": null,
       "applyTiming": "instant"
     },
     {
@@ -1286,7 +1423,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
         "2026-08-31",
         "2026-09-02"
       ],
-      "status": "Staged. Not built.",
+      "status": "Half built.",
       "statusBasis": "computed"
     },
     {
@@ -1313,7 +1450,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-08-31"
       ],
-      "status": "Staged. Not built.",
+      "status": "Built.",
       "statusBasis": "computed"
     },
     {
@@ -1322,7 +1459,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-08-31"
       ],
-      "status": "Staged, and the code currently says the opposite.",
+      "status": "Half built.",
       "statusBasis": "stated"
     },
     {
@@ -1466,7 +1603,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-09-02"
       ],
-      "status": "Staged. Not built.",
+      "status": "Built.",
       "statusBasis": "computed"
     },
     {

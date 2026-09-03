@@ -239,6 +239,18 @@ check("the document carries a machine-readable block that parses", () => {
     for (const field of ["subjectType", "minUnityPct", "minQuorumPct", "executesAtClose"]) {
       assert.ok(field in s, `every machine-readable subject needs ${field}`);
     }
+    // Both floors are numbers, however the subject spells them. `governance_mode`
+    // takes its pair from `...tierFloors("constitutional")`, and a reader that
+    // walked past the spread reported no floor at all, which rendered as
+    // `undefined%` in the subject table. A missing floor is a defect in the
+    // reader every time, so it fails here rather than shipping in a document.
+    for (const field of ["minUnityPct", "minQuorumPct"]) {
+      assert.equal(
+        typeof s[field],
+        "number",
+        `${s.subjectType} has no readable ${field}; the reader lost it on the way out of the code`,
+      );
+    }
   }
 });
 
