@@ -81,6 +81,55 @@ database had no `token_ledger` table; Amora demonstrably does. The old
 - Deploy verified live at each step via `/health`, and `/api/platform/info`
   confirms Amora still renders its own name, tagline and location.
 
+## WHAT TO PICK UP FIRST (added 2026-09-03, end of the coordinator session)
+
+**Two economy fixes are written, verified in part, and NOT merged.** Both are
+pushed to origin so nothing depends on any machine:
+
+| Branch | Head | State |
+|---|---|---|
+| `wt/fix-decimals` | `2c9b5b0` | **verified holds** by an independent agent, gates reproduced. Conflicts with current main in `client/src/components/ProfileSheet.tsx`, `client/src/pages/PublicProfile.tsx` and `server/index.ts`. |
+| `wt/fix-gratdead` | `2f56055` | committed; its verifier had not reported when this session ended. |
+
+I aborted the decimals merge rather than resolve three conflicts in code that
+renders money, at the end of a session, under time pressure. The tree is clean
+and `main` is `8a96984`. Resolve those three properly, run the gates and the full
+suite, then land both.
+
+**What each fix does**, so a merge conflict can be resolved on meaning rather
+than on which side looks newer:
+
+- `fix-decimals`: `fromLedgerUnits` had exactly ONE non-test caller, so a member
+  holding 10 Village Voice read 10 on their profile chip and 10000 on their
+  wallet. It adds a `decimals` field to the payloads and divides at every render
+  site. Its verifier proved BOTH fields load-bearing by deleting each in turn,
+  rebuilding, and watching `expected '10000' to be '10'` fail. **This must land
+  before the 4-decimals sweep**: today one token is wrong by 1000x, afterwards
+  every token would be wrong by 10,000x on any surface that does not divide.
+- `fix-gratdead`: drops `writeGratitudeRow` from SERIALIZABLE to REPEATABLE READ,
+  because the `SELECT ... FOR UPDATE` on the giver's row is what actually
+  serialises a giver against themselves, while SERIALIZABLE's gap locks covered a
+  `gratitude_log` range every giver in the village shares. At twelve concurrent
+  givers, ten failed. It also carries the charge-without-delivery repair and a
+  deadlock retry for `postTransfer`. **Both halves must be proven together**: the
+  deadlock gone AND the allowance still exactly enforced, because the allowance
+  is the only reason that lock exists.
+
+**Also landed this session and worth knowing:** the five module images are live
+and the image budget went DOWN (2117 to 2111 KB) rather than up, by recompressing
+23 avatars with no visible loss. The avatar masters in `scripts/avatar-bases` are
+NOT in git, so the shipped WebP files are the only masters there are; that is
+recorded in `client/public/images/avatars/manifest.json` beside the files.
+
+**Three documents are the map:** `PLAN_TO_A.md` (per-dimension work to reach A-,
+and where sessions claim rows), `docs/ECONOMICS.md` (the engine, what is proven,
+and the six known defects with their numbers), and
+`CLAUDE_CODE_PROMPT_2026-09-03_ECONOMICS.md` (the economics session's brief; the
+shared dry-run ENGINE is owned by the governance session, economics builds the
+money model that plugs into it).
+
+---
+
 ## The audit scorecard
 
 Recovered from the session transcript; it was never committed anywhere else.
