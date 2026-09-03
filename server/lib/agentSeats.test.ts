@@ -54,8 +54,7 @@ describe.skipIf(!configured)("an agent holds a seat", () => {
   });
 
   beforeEach(async () => {
-    // module-review-ok: resetting the scratch schema this suite provisioned, between cases
-    await pool.query("DELETE FROM org_role_assignments");
+    await pool.query("DELETE FROM org_role_assignments"); // module-review-ok: resetting the scratch schema this suite provisioned, between cases
     await pool.query("DELETE FROM org_roles"); // module-review-ok: same
     await pool.query("DELETE FROM users"); // module-review-ok: same
   });

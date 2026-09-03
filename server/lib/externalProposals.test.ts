@@ -75,8 +75,7 @@ describe.skipIf(!configured)("the vendor proposal inbox", () => {
   });
 
   beforeEach(async () => {
-    // module-review-ok: resetting the scratch schema this suite provisioned, between cases
-    await pool.query("DELETE FROM external_proposals");
+    await pool.query("DELETE FROM external_proposals"); // module-review-ok: resetting the scratch schema this suite provisioned, between cases
     await pool.query("DELETE FROM external_proposal_drops"); // module-review-ok: same
     await pool.query("DELETE FROM health_events"); // module-review-ok: same
     await pool.query("DELETE FROM roles"); // module-review-ok: same

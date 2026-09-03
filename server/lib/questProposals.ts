@@ -267,7 +267,7 @@ export async function proposeQuest(pool: Pool, input: ProposeQuestInput): Promis
   const dedupeKey = questDedupeKey({ moduleId, sourceRef: input.sourceRef, title });
   const id = `qprop-${randomUUID().slice(0, 12)}`;
   try {
-    await pool.query(
+    await pool.query( // module-review-ok: quest_proposals has no repo cache above it, and this file is the table's one enumerable home (the ballots.ts pattern); the QUEST itself is written through questsRepo.add and never here
       "INSERT INTO quest_proposals (id, village_id, module_id, batch_id, correlation_id, source_proposal_id, " +
         "title, subtitle, description, impact, story, first_step, steps, deliverable, tips, tags, duration, " +
         "difficulty, circle, icon, role_required, rationale, quote, source_ref, dedupe_key, proposed_by, " +
@@ -515,7 +515,7 @@ export async function acceptQuestProposal(
   // carries comes with it, including the reward-range parse.
   await questsRepo.add(quest);
 
-  await pool.query(
+  await pool.query( // module-review-ok: quest_proposals has no repo cache above it, and this file is the table's one enumerable home (the ballots.ts pattern); the QUEST itself is written through questsRepo.add and never here
     "UPDATE quest_proposals SET status = 'accepted', decided_by = ?, decided_at = CURRENT_TIMESTAMP, " +
       "decided_note = ?, created_ref = ?, title = ?, subtitle = ?, description = ?, impact = ?, story = ?, " +
       "first_step = ?, steps = ?, deliverable = ?, tips = ?, tags = ?, duration = ?, difficulty = ?, " +
@@ -563,7 +563,7 @@ export async function rejectQuestProposal(
   pool: Pool,
   input: { id: string; decidedBy: string; note?: string | null },
 ): Promise<boolean> {
-  const [res]: any = await pool.query(
+  const [res]: any = await pool.query( // module-review-ok: quest_proposals has no repo cache above it, and this file is the table's one enumerable home (the ballots.ts pattern); the QUEST itself is written through questsRepo.add and never here
     "UPDATE quest_proposals SET status = 'rejected', decided_by = ?, decided_at = CURRENT_TIMESTAMP, " +
       "decided_note = ? WHERE id = ? AND status = 'proposed'",
     [input.decidedBy, str(input.note), input.id],

@@ -372,7 +372,7 @@ export async function countDrop(
   input: { villageId: string; moduleId: string; reason: DropReason },
 ): Promise<void> {
   try {
-    await pool.query(
+    await pool.query( // module-review-ok: external_proposals has no repo cache above it, and this file is the table's one enumerable home (the ballots.ts pattern)
       "INSERT INTO external_proposal_drops (id, village_id, module_id, on_day, reason, dropped) " +
         "VALUES (?,?,?,CURRENT_DATE,?,1) " +
         "ON DUPLICATE KEY UPDATE dropped = dropped + 1, last_at = CURRENT_TIMESTAMP",
@@ -446,7 +446,7 @@ export async function landProposal(pool: Pool, input: LandInput): Promise<LandRe
   try {
     await conn.beginTransaction();
     try {
-      await conn.query(
+      await conn.query( // module-review-ok: external_proposals has no repo cache above it, and this file is the table's one enumerable home (the ballots.ts pattern)
         "INSERT INTO external_proposals (id, village_id, module_id, batch_id, correlation_id, kind, payload, " +
           "quote, source_ref, source_occurred_at, subject_ref, trust_tier, significance, confidence, evidence, " +
           "audience, dedupe_key, identity_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -489,7 +489,7 @@ export async function landProposal(pool: Pool, input: LandInput): Promise<LandRe
     }
     let res: any;
     try {
-      [res] = await conn.query(
+      [res] = await conn.query( // module-review-ok: external_proposals has no repo cache above it, and this file is the table's one enumerable home (the ballots.ts pattern)
         "UPDATE external_proposals SET status = 'superseded' " +
           "WHERE identity_key = ? AND status = 'proposed' AND dedupe_key <> ?",
         [identityKey, dedupeKey],
@@ -647,7 +647,7 @@ export async function markProposalDecided(
     args.push(JSON.stringify(input.editedPayload));
   }
   args.push(input.id);
-  const [res]: any = await pool.query(
+  const [res]: any = await pool.query( // module-review-ok: external_proposals has no repo cache above it, and this file is the table's one enumerable home (the ballots.ts pattern)
     `UPDATE external_proposals SET ${sets.join(", ")} WHERE id = ? AND status = 'proposed'`,
     args,
   );
