@@ -272,6 +272,16 @@ async function snapshotAllowance(
    * for the same moment (server/cycleId.test.ts pins it), so the two agree on
    * every row written inside its own lunation.
    *
+   * TWO PLACES THIS IS A VILLAGE FIGURE AND NOT A SUM OF MEMBERS. The floor
+   * at zero is applied to the village total, where `allowanceFor` applies it
+   * per member, and a reversal posted this moon against a gift from LAST moon
+   * is subtracted here the same way the engine subtracts it from that
+   * member. Both agree whenever every reversal in the window reverses a gift
+   * in the window, which is every case a test could find and the ordinary
+   * one; a village that reverses an old gift reads a slightly smaller given
+   * than the sum of its members would. Counting reversals per member would
+   * mean a query per member on top of the one the allowance already costs.
+   *
    * Joined to the roster because the total is: a gift from somebody the
    * total never counted would push `given` above what the village could
    * give, and unspent to a floor of zero, which is the shape of a lie that
