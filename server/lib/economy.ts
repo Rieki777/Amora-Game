@@ -512,10 +512,59 @@ export function clampToCeiling(posted: number, rule: MintRule): number {
 // ── Reversal ────────────────────────────────────────────────────────────────
 
 /**
+ * What a caller BELIEVES it is undoing. Every field is checked, none decides.
+ *
+ * This used to be the instruction: `reverse()` took its direction, its token
+ * and its amount from whoever called it, and checked only that SOME row with
+ * the original key existed. An audit turned a 25 credit posting into a
+ * 1,000,000 credit payment to the same member with every invariant green,
+ * because a mirror that invents its own numbers still balances.
+ *
+ * So the numbers come off the original row now, and this interface is what a
+ * caller may ASSERT about that row. A field that disagrees refuses the whole
+ * reversal before anything is written, naming the field and both values.
+ *
+ * The keys stayed flat and stayed spelled as they were, which turned the two
+ * call sites in `voiceClaim.ts` from commands into checks with no edit at all.
+ * `undefined` is no claim; every other value is compared, ZERO AND THE EMPTY
+ * STRING INCLUDED, because a caller that computed nothing and a caller that
+ * passed nothing are different facts and only the first one is wrong.
+ */
+export interface ReverseOpts {
+  /** Expected debit side of the mirror: the original row's `to_account`. */
+  from?: string;
+  /** Expected credit side of the mirror: the original row's `from_account`. */
+  to?: string;
+  /** Expected token: the original row's `token_type`. */
+  tokenSlug?: string;
+  /** Expected size IN LEDGER MINOR UNITS, which is what the row already holds. */
+  amount?: number;
+  /** Free text carried into the mirror's description. Decides nothing either. */
+  note?: string;
+}
+
+/** One caller claim about the original row, checked against the row. */
+function reverseClaimProblem(
+  field: string,
+  claimed: string | number | undefined,
+  actual: string | number,
+): string | null {
+  if (claimed === undefined) return null;
+  const agrees = typeof actual === "number" ? Number(claimed) === actual : String(claimed) === actual;
+  if (agrees) return null;
+  return (
+    `this reversal was asked for with ${field} ${JSON.stringify(claimed)}, ` +
+    `and the posting it reverses has ${field} ${JSON.stringify(actual)}`
+  );
+}
+
+/**
  * Undo one posting with a mirror that has its own key.
  *
- * Three rules, each of which is a way this goes wrong:
+ * Four rules, each of which is a way this goes wrong:
  *
+ *  - the mirror is DERIVED from the original row: same token, same size, the
+ *    two accounts swapped. Nothing a caller passes can change any of them;
  *  - a reversal carries its OWN idempotency key, so reversing twice writes one
  *    mirror and the second call is a duplicate rather than a second refund;
  *  - a reversal may not be reversed, or two calls alternate forever and each
@@ -524,11 +573,19 @@ export function clampToCeiling(posted: number, rule: MintRule): number {
  *
  * Refunds are always reversals. Never a fresh mint: a mint would inherit none
  * of these guards and would be a way to make the token it claims to return.
+ *
+ * A CLAWBACK OF VALUE ALREADY SPENT COMPLETES, AND THE BALANCE GOES NEGATIVE.
+ * A member paid 25 who spent all 25 reads -25 once the payment is undone, and
+ * that is the truthful state. Refusing the reversal instead would leave the
+ * ledger insisting the payment stands, which is the one thing every party
+ * knows is false. `reversal` is in `ALLOW_NEGATIVE_SOURCES` for this, and
+ * `checkLedgerInvariants` reads the same set, so the negative balance is
+ * lawful at boot rather than a refusal to serve.
  */
 export async function reverse(
   pool: Pool,
   originalKey: string,
-  opts: { from: string; to: string; tokenSlug: string; amount: number; note?: string },
+  opts: ReverseOpts = {},
 ): Promise<MintOutcome> {
   if (originalKey.startsWith("reversal:")) {
     return { ok: false, error: "a reversal cannot itself be reversed" };
@@ -537,21 +594,44 @@ export async function reverse(
   const tooLong = keyTooLong(mirrorKey);
   if (tooLong) return { ok: false, error: tooLong };
 
+  // Four columns rather than `SELECT 1`: the row IS the instruction now.
   const [orig] = await pool.query<RowDataPacket[]>(
-    "SELECT 1 FROM `token_ledger` WHERE `idempotency_key` = ? LIMIT 1",
+    "SELECT `from_account`, `to_account`, `token_type`, `amount` FROM `token_ledger` " +
+      "WHERE `idempotency_key` = ? LIMIT 1",
     [originalKey],
   );
-  if (!orig.length) {
+  const row = orig[0];
+  if (!row) {
     return { ok: false, error: "there is no such posting to reverse" };
   }
 
   // The mirror runs the opposite way: what the original credited, this debits.
+  // `token_ledger.amount` is already minor units, so nothing is converted here.
+  // A conversion would be the 1000x wallet bug wearing a reversal's clothes.
+  const mirror = {
+    from: String(row.to_account),
+    to: String(row.from_account),
+    tokenType: String(row.token_type),
+    amount: Number(row.amount),
+  };
+
+  const problem =
+    reverseClaimProblem("from", opts.from, mirror.from) ??
+    reverseClaimProblem("to", opts.to, mirror.to) ??
+    reverseClaimProblem("tokenSlug", opts.tokenSlug, mirror.tokenType) ??
+    reverseClaimProblem("amount", opts.amount, mirror.amount);
+  if (problem) return { ok: false, error: problem };
+
   const res = await postTransfer(pool, {
-    from: opts.from,
-    to: opts.to,
-    tokenType: opts.tokenSlug,
-    amount: opts.amount,
+    from: mirror.from,
+    to: mirror.to,
+    tokenType: mirror.tokenType,
+    amount: mirror.amount,
     source: "reversal",
+    // The clawback may take a member below zero, and below zero is the truth
+    // once the value has been spent onward. Honoured only because "reversal"
+    // is in ALLOW_NEGATIVE_SOURCES: the flag on its own grants nothing.
+    allowNegative: true,
     // Prefix, because source_ref is varchar(120) and a quest occurrence key can
     // run past it. A prefix is enough for the allowance query, which matches on
     // `gratitude.given:<village>:%`, and the whole key rides in the note so a
