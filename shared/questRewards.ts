@@ -29,9 +29,24 @@ export interface RewardRange {
 const SEPARATORS = /\s*(?:–|—|-|to)\s*/i;
 
 /**
- * Parse "50–100", "50-100", "50 to 100", "100", or 100 into a range.
- * Anything unparseable comes back `valid: false` with zeros, so callers can
- * refuse rather than silently treating a typo as free work.
+ * Parse "50-100", "50 to 100", "100", or 100 into a range. En dash and em dash
+ * separate a range too; see SEPARATORS.
+ *
+ * A LABEL HAS TO NAME A NUMBER. Anything carrying no digit at all comes back
+ * `valid: false` with zeros, so callers can refuse instead of silently
+ * treating a typo as free work. That is what the flag is for: on the shipped
+ * default of `quest.consent_cap_mode = 'posted'` the advertised label IS the
+ * payout contract, so a label nobody can read has no contract inside it and
+ * the consent route says so by name.
+ *
+ * This promise was written here before the code kept it. `Number("")` is 0 and
+ * 0 is finite, so every wordy label ("some hearts", "a few", "TBD") used to
+ * parse as a VALID reward of zero, and a quest could sit on the board
+ * advertising words that no admin could ever consent. The digit check below is
+ * the fix; `shared/questRewards.test.ts` holds the line.
+ *
+ * A deliberate "0" stays VALID, and so does "0-0". Caps fail closed in this
+ * platform: zero means zero, and a quest may pay in stay credits alone.
  */
 export function parseRewardRange(raw: unknown): RewardRange {
   const label = raw === null || raw === undefined ? "" : String(raw).trim();
@@ -45,7 +60,21 @@ export function parseRewardRange(raw: unknown): RewardRange {
   }
 
   const parts = label.split(SEPARATORS).map((p) => p.trim()).filter((p) => p !== "");
-  const numbers = parts.map((p) => Number(p.replace(/[^0-9.]/g, ""))).filter((n) => Number.isFinite(n));
+  // A FRAGMENT WITH NO DIGIT IN IT IS NOT A NUMBER, and the order of these two
+  // steps is the whole defect. Stripping the non-digits first and converting
+  // second handed `Number("")` to the finite check, `Number("")` is 0, and 0 is
+  // finite: so "some hearts" came back as a VALID reward of zero, which is the
+  // exact opposite of what the header above promises. Requiring a digit makes
+  // the strip and the conversion agree.
+  //
+  // The same line also stops ONE wordy side of a range reading as a floor of
+  // zero: "50 to a lot" was min 0 / max 50 and is now 50 / 50, because a side
+  // nobody can read is a side that names nothing, not a side that names free.
+  const numbers = parts
+    .map((p) => p.replace(/[^0-9.]/g, ""))
+    .filter((digits) => /[0-9]/.test(digits))
+    .map((digits) => Number(digits))
+    .filter((n) => Number.isFinite(n));
   if (numbers.length === 0) return { min: 0, max: 0, label, valid: false };
 
   const lo = Math.max(0, Math.trunc(Math.min(...numbers)));
