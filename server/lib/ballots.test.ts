@@ -223,7 +223,22 @@ describe.skipIf(!configured)("ballots (MySQL)", () => {
     expect(again.ok).toBe(true);
   });
 
-  it("early close is the facilitator's call alone", async () => {
+  /*
+   * REWRITTEN BY THE DISPATCHER LANE, because the rule it pinned is now wrong.
+   *
+   * It used to assert that a facilitator may close a passing ballot early. The
+   * 2026-09-03 landing model derives every steward's veto window from the
+   * ballot's frozen `closes_at`, so an early close would hand the length and
+   * the calendar days of that window to whoever pressed the button: the
+   * proposer could park a vote until the one seat holder posted about a trip.
+   * A ballot now PASSES when its window ends and not before, on every method,
+   * and the settlement path closes it on the clock.
+   *
+   * What a facilitator can still do early is close a ballot that is NOT going
+   * to carry, which is the case this half covers. Nothing about a failing
+   * ballot starts a window.
+   */
+  it("a ballot passes when its window ends and never before, on any method", async () => {
     const opened = await openOne({ subjectRef: "gmp-early" });
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
@@ -234,8 +249,29 @@ describe.skipIf(!configured)("ballots (MySQL)", () => {
     expect(tooSoon.ok).toBe(false);
     if (!tooSoon.ok) expect(tooSoon.error).toContain("still running");
 
+    // Even the facilitator, because the instant a steward is owed derives from
+    // this ballot's own frozen window.
     const facilitator = await closeBallot(pool, { ballotId: id, closedBy: "u-decider", outcomeNote: "Closed early by the facilitator.", closerMayCloseEarly: true });
-    expect(facilitator.ok).toBe(true);
+    expect(facilitator.ok).toBe(false);
+    if (!facilitator.ok) expect(facilitator.error).toContain("window ends");
+
+    // The window ends and the same call goes through.
+    await expire(id);
+    const onTime = await closeBallot(pool, { ballotId: id, closedBy: "u-decider", outcomeNote: "The window ended.", closerMayCloseEarly: false });
+    expect(onTime.ok).toBe(true);
+    if (onTime.ok) expect(onTime.outcome).toBe("passed");
+  });
+
+  it("still lets a facilitator close a ballot early that is not going to carry", async () => {
+    const opened = await openOne({ subjectRef: "gmp-early-fail" });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const id = opened.ballot.id;
+    await castVote(pool, id, "u-a", "no");
+    await castVote(pool, id, "u-b", "no");
+    const early = await closeBallot(pool, { ballotId: id, closedBy: "u-decider", outcomeNote: "The village has answered.", closerMayCloseEarly: true });
+    expect(early.ok).toBe(true);
+    if (early.ok) expect(early.outcome).toBe("failed");
   });
 
   it("the consent flow: no auto-files, rulings need notes, concern passes, integrated fails", async () => {

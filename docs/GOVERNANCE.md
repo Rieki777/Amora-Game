@@ -125,6 +125,9 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.auto_apply_enabled` | Apply verified proposals automatically | `founder` | `true` | boolean | when it is written |
 | `governance.steward_subjects` | Which decisions wait for a steward | `open` | `all` | text | when it is written |
 | `governance.auto_execute_subjects` | Which decisions carry themselves | `open` | `none` | text | when it is written |
+| `governance.veto_hours` | How long a steward has to stop a change | `open` | `72` | 72 to 720 hours | when it is written |
+| `governance.steward_council` | A veto needs a majority of stewards | `open` | `false` | boolean | when it is written |
+| `governance.highest_tier` | The tier that overrides a veto | `open` | `constitutional` | `routine`, `structural`, `constitutional` | when it is written |
 | `governance.change_cooldown_days` | Cooldown after a governed rule change | `open` | `0` | 0 to 365 days | when it is written |
 | `governance.weight_mode` | How voting weight is assigned | `founder` | `equal` | `equal`, `token`, `custom` | when it is written |
 | `governance.weight_token` | The weight token | `founder` | `gratitude` | text | when it is written |
@@ -146,7 +149,7 @@ The dials a village holds, with the ring that says who may move each one and the
 <!-- written by a person: dialsStorage -->
 Only CHANGED values are stored. An absent row means the platform default in the table above, so a fresh village starts with every one of these and no rows at all.
 
-10 settings across the whole registry wait for a cycle close instead of applying when they are written: `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 26 settings above is one of them, so every governance dial takes effect the moment it is written.
+10 settings across the whole registry wait for a cycle close instead of applying when they are written: `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 29 settings above is one of them, so every governance dial takes effect the moment it is written.
 
 ## What each kind of decision asks
 
@@ -157,7 +160,7 @@ What each kind of decision asks. A subject declares MINIMUMS and the village's o
 | --- | --- | --- | --- | --- | --- | --- |
 | `village_launch` | 100% | 100% | 3 | yes | `custom` | yes |
 | `mint_rule` | 0% | 50% | 0 | no | the village's own | yes |
-| `governance_mode` | 97% | 97% | 0 | no | `custom` | no, it conducts a decision and executes nothing |
+| `governance_mode` | 97% | 97% | 0 | no | `custom` | yes |
 
 - `village_launch`: Starting the Game asks every member on the roll to vote yes. An abstention is not a yes, and a vote nobody cast is not a yes either.
 - `mint_rule`: This one changes what the village mints, so it asks for more than half the village's voting weight to take part. How much of that has to agree is the village's own setting.
@@ -189,9 +192,10 @@ What closing a decision DOES, per subject type, and the one place that question 
 | `role_seat` | Puts a named member into a seat. | its own entry in the close dispatcher |
 | `role_unseat` | Takes a named member out of a seat. | its own entry in the close dispatcher |
 | `village_launch` | Starts the Game. Token issuance turns on and does not turn off. | its own entry in the close dispatcher |
+| `governance_mode` | Changes how one vote is weighed, and which token carries the weight when it is a token. | its own entry in the close dispatcher |
 | `mint_rule` | Changes what the village mints and on what terms. It shares the dial executor and carries a higher quorum floor. | the same executor as `mechanics`, one executor and two subject types |
 
-9 subject types execute something. Whether a member's vote BINDS is derived from this same table, so the word on the decision page and the behaviour at the close cannot come apart.
+10 subject types execute something. Whether a member's vote BINDS is derived from this same table, so the word on the decision page and the behaviour at the close cannot come apart.
 
 ## Starting the Game: the Birthing
 
@@ -343,7 +347,7 @@ What is broken today, by name. A document that only described the parts that wor
 - **A stored reason on a no vote is shown to nobody.** The widget invites a member to say why and the reader that serves votes drops it.
 - **The module lifecycle is edited by hand**, so a village turns its own governance on through the admin panel and never through a vote.
 - **Four displays about the hub bridge are false.** The sync flag is never set true so the card always says pending, the space check idles on every delivery, an outcome's source is hardcoded, and the card credits a hub with issuing a secret it does not issue.
-- **Two schema comments have drifted.** The engine's own migration lists five subject types in the column comment where the dispatcher now executes 9, and a later migration's header names the number of the one before it. Neither is edited, because a shipped migration file is never edited; both are stated here instead.
+- **Two schema comments have drifted.** The engine's own migration lists five subject types in the column comment where the dispatcher now executes 10, and a later migration's header names the number of the one before it. Neither is edited, because a shipped migration file is never edited; both are stated here instead.
 
 ## What is staged
 
@@ -532,7 +536,7 @@ There is one clock and no dial chooses it. A rhythm dial used to exist and was r
 
 ### 14. The vote mode switches both ways, holdings survive, and the village votes the switch
 
-**Half built.** Status computed from the code. Said 2026-09-02.
+**Built.** Status computed from the code. Said 2026-09-02.
 
 <!-- the founder's own words -->
 > within governance, we have some elements where you can have one person one vote or one token one vote where members can hold multiple voice tokens, and their vote is stronger. This should be able to go back-and-forth where you can change from one person one vote to one token one vote and vice versa and when we're making these changes, it doesn't delete the voice token holdings so if you have voice tokens, and you switch over to one person, one vote and just changes the overall governance that way, and then allows the community to go back to one token one vote and maintain the current token holdings
@@ -541,7 +545,7 @@ There is one clock and no dial chooses it. A rhythm dial used to exist and was r
 > yes
 
 <!-- written by a person: ruling-14 -->
-Built: `governance.weight_mode` carries 3 choices, nothing refuses a change in either direction, and switching reads or ignores holdings and deletes none of them. So the code already behaves the way this ruling describes. Staged: the village's own vote on it. The dial is founder ring, refused to a change set and to anybody who reaches the admin route through a capability, so a switch is an administrator's act today. His second quote is his answer to whether it should leave that ring, and the answer is yes, through a subject type of its own with a launch-grade floor.
+Built: `governance.weight_mode` carries 3 choices, nothing refuses a change in either direction, and switching reads or ignores holdings and deletes none of them. The village's own vote on it landed on 2026-09-03 as the `governance_mode` subject type, with an executor that writes the dial through the one amendment ledger and a landing instant a steward can stop it inside. Once the Game has started the admin route refuses the flip and names the vote, so the switch is the village's act and no longer an administrator's.
 
 ### 15. A proposal carries more than one element, priced at its hardest part, and applies all or nothing
 
@@ -742,7 +746,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "criticality": "constitutional",
       "abstainPolicy": null,
       "minYesHeads": null,
-      "executesAtClose": false,
+      "executesAtClose": true,
       "why": "This one changes how every vote in the village is counted, so it asks the constitutional bar: almost everybody present, and almost everybody in favour."
     }
   ],
@@ -755,6 +759,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     "role_seat",
     "role_unseat",
     "village_launch",
+    "governance_mode",
     "mint_rule"
   ],
   "dials": [
@@ -858,6 +863,43 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "min": null,
       "max": null,
       "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.veto_hours",
+      "label": "How long a steward has to stop a change",
+      "ring": "open",
+      "type": "integer",
+      "default": "72",
+      "min": 72,
+      "max": 720,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.steward_council",
+      "label": "A veto needs a majority of stewards",
+      "ring": "open",
+      "type": "boolean",
+      "default": "false",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.highest_tier",
+      "label": "The tier that overrides a veto",
+      "ring": "open",
+      "type": "choice",
+      "default": "constitutional",
+      "min": null,
+      "max": null,
+      "choices": [
+        "routine",
+        "structural",
+        "constitutional"
+      ],
       "applyTiming": "instant"
     },
     {
@@ -1540,7 +1582,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-09-02"
       ],
-      "status": "Half built.",
+      "status": "Built.",
       "statusBasis": "computed"
     },
     {

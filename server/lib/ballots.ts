@@ -47,6 +47,8 @@ import {
 } from "../../shared/governanceEngine";
 import { applyDelegatedVotes } from "./delegation";
 import { evaluationRulesFor } from "../../shared/ballotSubjects";
+// Dispatcher lane: the proposal timing 0135 freezes onto the ballot at open.
+import { DEFAULT_TIMING, timingOf, type ProposalTiming } from "../../shared/governanceKinds";
 import type { WeightMode } from "./governanceWeights";
 
 export interface BallotRow {
@@ -67,6 +69,8 @@ export interface BallotRow {
   opensAt: string;
   closesAt: string;
   status: "open" | "passed" | "failed" | "no_quorum" | "withdrawn";
+  /** Dispatcher lane, 0135: the timing FROZEN at open, like the dials. */
+  timing: ProposalTiming;
   outcomeNote: string | null;
   closedBy: string | null;
   closedAt: string | null;
@@ -94,6 +98,7 @@ export function rowToBallot(r: RowDataPacket): BallotRow {
     opensAt: iso(r.opens_at),
     closesAt: iso(r.closes_at),
     status: r.status,
+    timing: timingOf(r.timing),
     outcomeNote: r.outcome_note ?? null,
     closedBy: r.closed_by ?? null,
     closedAt: r.closed_at === null || r.closed_at === undefined ? null : iso(r.closed_at),
@@ -180,6 +185,8 @@ export interface OpenBallotInput {
    * "the subject says it is being voted on" commit together or never.
    */
   onOpen?: (conn: PoolConnection, ballotId: string) => Promise<void>;
+  /** Dispatcher lane, 0135: at_acceptance or next_moon. Defaults to next_moon. */
+  timing?: ProposalTiming;
 }
 
 export type OpenBallotResult =
@@ -240,8 +247,8 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
     await conn.query( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
       "INSERT INTO ballots (id, subject_type, subject_ref, open_key, title, doc_markdown, method, " +
         "weight_mode, weight_token, unity_pct, quorum_pct, total_weight, electorate_count, opened_by, " +
-        "opens_at, closes_at, status) " +
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, 'open')",
+        "opens_at, closes_at, timing, status) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, 'open')",
       [
         id,
         input.subjectType,
@@ -259,6 +266,7 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
         input.openedBy,
         opensAt,
         closesAt,
+        input.timing ?? DEFAULT_TIMING,
       ],
     );
     for (const e of electorate) {
@@ -603,9 +611,25 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
     minYesHeads: subjectRules.minYesHeads,
     heads,
   });
-  if (!expired && ballot.method === "consent" && outcome === "passed") {
-    // Silence only means consent once the whole window has had its say.
-    return { ok: false, error: "A consent ballot passes only after its window ends. It can close early only against a standing objection" };
+  if (!expired && outcome === "passed") {
+    /*
+     * A BALLOT PASSES WHEN ITS WINDOW ENDS AND NEVER BEFORE (dispatcher lane).
+     *
+     * This was the consent method's rule alone, and the reason it gave was
+     * about silence. There is a second reason now and it applies to every
+     * method: `lands_at` derives from the frozen `closes_at`, so an early
+     * close would hand the steward's window to whoever pressed the button.
+     * The proposer would choose which three days a steward got. So the
+     * refusal covers every method, and the settlement path closes ballots on
+     * the clock instead.
+     */
+    return {
+      ok: false,
+      error:
+        ballot.method === "consent"
+          ? "A consent ballot passes only after its window ends. It can close early only against a standing objection"
+          : "A ballot passes when its window ends and not before. The clock closes it, so nobody chooses the moment",
+    };
   }
   const [result] = await pool.query<any>(
     "UPDATE ballots SET status=?, outcome_note=?, closed_by=?, closed_at=NOW(), open_key=CONCAT(open_key, ':', id) " +

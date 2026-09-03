@@ -480,6 +480,46 @@ export const VARIABLES: VariableDef[] = [
     type: "text",
     default: "none",
   },
+  // The veto window, the arity of a veto, and the tier that overrides one.
+  // Three settings the 2026-09-03 rulings need and the registry did not have.
+  {
+    key: "governance.veto_hours",
+    category: "Governance",
+    label: "How long a steward has to stop a change",
+    criticality: "constitutional",
+    description:
+      "A change to the Game that the village has passed does not take effect straight away. It is stamped with a landing instant and a steward may stop it until then, with a reason that goes on the record. This is the least notice a steward gets, counted from the moment the vote closes. 72 hours is the floor and cannot be lowered; a village may give its stewards longer. A decision that sends tokens is not held by this: a steward stops one of those by voting no while the ballot is still open.",
+    type: "integer",
+    default: "72",
+    min: 72,
+    max: 720,
+    unit: "hours",
+  },
+  {
+    key: "governance.steward_council",
+    category: "Governance",
+    label: "A veto needs a majority of stewards",
+    criticality: "constitutional",
+    description:
+      "Off by default, and off means any single seated steward can stop a change on their own. Turn it on and a veto needs more than half of the seated stewards, so one seat cannot hold the village. With one steward seated the two settings mean the same thing.",
+    type: "boolean",
+    default: "false",
+  },
+  {
+    key: "governance.highest_tier",
+    category: "Governance",
+    label: "The tier that overrides a veto",
+    criticality: "constitutional",
+    description:
+      "A proposal a steward stopped can be brought back. If the village passes it again at this tier, it lands whatever any steward says, and the reason it was stopped stays visible beside it. This names the highest bar the village has set for itself, and changing it is priced at that same bar.",
+    type: "choice",
+    default: "constitutional",
+    choices: [
+      { value: "routine", label: "Routine", hint: "The ordinary bar. Choosing this makes an override cheap." },
+      { value: "structural", label: "Structural", hint: "The bar for changing how the village decides." },
+      { value: "constitutional", label: "Constitutional", hint: "The bar for changing the rules for changing the rules." },
+    ],
+  },
   {
     key: "governance.change_cooldown_days",
     category: "Governance",

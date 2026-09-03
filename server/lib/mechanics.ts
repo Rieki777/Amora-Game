@@ -343,7 +343,18 @@ export function mintRuleLabel(rule: MintRuleValues, field: MintRuleField): strin
  * dispatcher lane widens this as it lands each executor; a kind outside it is
  * refused at validation rather than voted on and silently dropped.
  */
-export const EXECUTABLE_ITEM_KINDS: ReadonlySet<ChangeItemKind> = new Set<ChangeItemKind>(["dial", "mint_rule"]);
+// Widened by the dispatcher lane as each executor landed in
+// `server/lib/changeset.ts`. `brand_field` and `role` are deliberately still
+// outside it: a role act has its own subject types and its own closers, and the
+// brand writer has no change-set executor yet. Absence refuses at validation,
+// which is the fail-safe direction.
+export const EXECUTABLE_ITEM_KINDS: ReadonlySet<ChangeItemKind> = new Set<ChangeItemKind>([
+  "dial",
+  "mint_rule",
+  "weight_allocation",
+  "mode_switch",
+  "module_lifecycle",
+]);
 
 /** The cap a change set may not pass. A proposal is read before it is voted on. */
 export const CHANGE_SET_CAP = 12;
