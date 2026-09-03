@@ -150,9 +150,9 @@ export const VARIABLES: VariableDef[] = [
   {
     key: "ledger.admin_mint_cycle_cap",
     category: "Ledger",
-    label: "Admin mint cap per lunar cycle",
+    label: "Admin mint cap per cycle",
     description:
-      "The most any admins can mint by hand, in total, per token, per lunar cycle (S9's mint endpoint enforces it as an aggregate, not per call). A cap on manual issuance is what makes 'the numbers mean something' a property of the system instead of a promise from whoever holds admin. 0 disables manual minting entirely.",
+      "The most any admins can mint by hand, in total, per token, per cycle (S9's mint endpoint enforces it as an aggregate, not per call). A cap on manual issuance is what makes 'the numbers mean something' a property of the system instead of a promise from whoever holds admin. 0 disables manual minting entirely.",
     type: "integer",
     default: "10000",
     min: 0,
@@ -225,7 +225,7 @@ export const VARIABLES: VariableDef[] = [
     category: "The Mint",
     label: "When each Claims Week begins",
     description:
-      "Four dates a year, one per season, as MM-DD separated by commas. The default follows the solstices and equinoxes, which is the same rhythm the moon settlement already runs on. Leave it blank to keep claims open all year, which suits a village that would rather not batch.",
+      "Four dates a year, one per season, as MM-DD separated by commas. The default follows the solstices and equinoxes, which is the sun's rhythm and a different clock from the cycle the settlement keeps: a season turn and a cycle boundary fall on different days, and the window opens at midnight in the village timezone. Leave it blank to keep claims open all year, which suits a village that would rather not batch.",
     type: "text",
     default: "03-21,06-21,09-23,12-21",
   },
@@ -269,7 +269,7 @@ export const VARIABLES: VariableDef[] = [
     default: "true",
   },
   /*
-   * THERE IS NO RHYTHM DIAL, AND THAT IS THE DECISION.
+   * THE RHYTHM DIAL, AND WHY IT IS BACK.
    *
    * `gratitude.cycle_mode` used to sit here offering "lunar" or "month". It
    * was live in the admin panel and reported to every client, and one branch
@@ -278,11 +278,44 @@ export const VARIABLES: VariableDef[] = [
    * months and nothing changed anywhere.
    *
    * Rye retired it rather than wiring it, 2026-08-29: "let's just stick with
-   * lunar months all around, it's good to be on our own rhythm." The moon is
-   * the clock this platform keeps. If you are here because a lunar-only
-   * economy looked like an oversight, it is a choice, and `shared/lunar.ts`
-   * is where it lives.
+   * lunar months all around, it's good to be on our own rhythm." Migration
+   * `0108` cleared the rows.
+   *
+   * He reopened it on 2026-09-02: "Yes the cycle structure can be changed."
+   * So `cycle.mode` below is the dial, and it is a different object from the
+   * one that was retired. The old one was a value with no reader. This one is
+   * read through `shared/cycleClock.ts`, which every consumer of village time
+   * now calls, and `assertCycleSettingsRead` refuses to boot a build where a
+   * rhythm setting is shown and nothing reads it. The defect `0108` retired
+   * the old dial for cannot come back silently.
    */
+  {
+    key: "cycle.mode",
+    category: "Gratitude",
+    // Constitutional. A village's rhythm is the frame every other number sits
+    // in: budgets, caps, mint rules, seat terms, the veto window and the
+    // instant a passed proposal lands are all counted in cycles. Changing it
+    // re-times all of them at once, so it asks for the same bar as the
+    // decisions that change who decides.
+    criticality: "constitutional",
+    label: "The rhythm the village keeps time by",
+    description:
+      "Whether a cycle is a moon or a calendar month. The moon is the default and is what every village has run on: budgets refill, caps reset and the settlement lands at the new moon, so the village keeps its own rhythm instead of the one on an office wall. Calendar months suit a village whose money and reporting already run that way. The switch is a constitutional change and lands only where a cycle ends, with every finished cycle settled first, so no cycle is ever cut in half or settled against a clock it was not played on. Every cycle already closed keeps the name and the dates it closed under, whichever rhythm the village moves to.",
+    type: "choice",
+    default: "lunar",
+    choices: [
+      {
+        value: "lunar",
+        label: "The moon",
+        hint: "New moon to new moon, about 29.5 days. Boundaries come from a checked-in table of true new moons.",
+      },
+      {
+        value: "calendar",
+        label: "The calendar month",
+        hint: "First of the month to first of the month, UTC. Cycles carry ids like month-2026-09.",
+      },
+    ],
+  },
 
   // ── The org chart and its seasons ─────────────────────────────────────────
   {
@@ -1951,6 +1984,13 @@ export function ringOf(def: VariableDef): VariableRing {
 
 /** Keys whose mid-cycle change would corrupt a settlement basis. */
 const CYCLE_APPLY_KEYS = new Set([
+  // The rhythm itself, and it is the strictest case in this set: a mid-cycle
+  // change of clock resets every per-cycle budget and cap and can leave the
+  // running lunation with no clock able to settle it. Cycle timing is the
+  // floor here; `cycleModeSwitchProblem` in shared/cycleClock.ts is the real
+  // guard, and it refuses any landing instant that is not a boundary of the
+  // outgoing clock with every finished cycle already settled.
+  "cycle.mode",
   // The claim dials shape what a member is told they can do THIS season, so a
   // mid-season change would move the goalposts under somebody already counting.
   "economy.voice_claim_threshold",

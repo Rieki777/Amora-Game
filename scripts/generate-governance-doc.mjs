@@ -741,14 +741,22 @@ export function clockFacts(root = ROOT) {
   const trueFrom = constAnywhere(lunarAbs, "TRUE_CLOCK_FROM_CYCLE");
   if (!trueFrom) fail(`${lunarRel} no longer declares TRUE_CLOCK_FROM_CYCLE; the frozen past is read from it`);
 
-  const cyclesRel = "server/lib/gratitude-cycles.ts";
+  // The id format moved to `shared/cycleClock.ts` when the rhythm became a
+  // setting again (brief section 19, Q5). Read it from there: that file owns
+  // both clocks now, and `gratitude-cycles.ts` calls through to it.
+  const cyclesRel = "shared/cycleClock.ts";
   const cyclesAbs = absOf(root, cyclesRel);
   const cyclesText = fs.readFileSync(cyclesAbs, "utf8");
   const pad = /padStart\((\d+),\s*"0"\)/.exec(cyclesText);
-  const prefix = /`(lunar-)\$\{/.exec(cyclesText);
-  if (!pad || !prefix) fail(`${cyclesRel}: formatCycleId no longer builds a zero-padded "lunar-" id; the cycle id format is read from it`);
+  const prefix = /LUNAR_ID_PREFIX\s*=\s*"([a-z-]+)"/.exec(cyclesText);
+  const calPrefix = /CALENDAR_ID_PREFIX\s*=\s*"([a-z-]+)"/.exec(cyclesText);
+  if (!pad || !prefix) fail(`${cyclesRel}: the lunar cycle id is no longer a zero-padded "lunar-" id; the cycle id format is read from it`);
+  if (!calPrefix) fail(`${cyclesRel} no longer declares CALENDAR_ID_PREFIX; the second clock's id format is read from it`);
   if (!new RegExp(`\\^${prefix[1]}`).test(cyclesText)) {
-    fail(`${cyclesRel}: parseCycleId no longer anchors on "${prefix[1]}", so an id this document describes would not parse back`);
+    fail(`${cyclesRel}: parseId no longer anchors on "${prefix[1]}", so an id this document describes would not parse back`);
+  }
+  if (!new RegExp(`\\^${calPrefix[1]}`).test(cyclesText)) {
+    fail(`${cyclesRel}: parseId no longer anchors on "${calPrefix[1]}", so a calendar id would not parse back`);
   }
 
   const table = constAnywhere(lunarAbs, "LUNAR_TABLE_YEARS");
@@ -763,6 +771,8 @@ export function clockFacts(root = ROOT) {
     idPrefix: prefix[1],
     idDigits: Number(pad[1]),
     idExample: `${prefix[1]}${String(literalOf(trueFrom, lunarAbs)).padStart(Number(pad[1]), "0")}`,
+    calendarIdPrefix: calPrefix[1],
+    calendarIdExample: `${calPrefix[1]}2026-09`,
   };
 }
 
@@ -1491,11 +1501,22 @@ const RULINGS = [
       "Yes the cycle structure can be changed.",
     ],
     status: (f) => (f.staged.cycleSetting ? "**Staged.** Not built." : "**Built.**"),
-    note: () =>
-      "There is one clock and no dial chooses it. A rhythm dial used to exist and was retired in 2026-08-29 at the " +
-      "founder's own instruction, because the panel offered a choice the engine did not honour. Bringing it back means a " +
-      "clock seam every consumer reads through first, a calendar implementation with its own id prefix, past cycles frozen " +
-      "with the ids they closed under, and the switch itself timed to a boundary.",
+    note: (f) =>
+      f.staged.cycleSetting
+        ? "There is one clock and no dial chooses it. A rhythm dial used to exist and was retired in 2026-08-29 at the " +
+          "founder's own instruction, because the panel offered a choice the engine did not honour. Bringing it back means a " +
+          "clock seam every consumer reads through first, a calendar implementation with its own id prefix, past cycles frozen " +
+          "with the ids they closed under, and the switch itself timed to a boundary."
+        : `\`cycle.mode\` chooses the rhythm, lunar by default, and every consumer reads one seam ` +
+          `(\`shared/cycleClock.ts\`). The lunar implementation is the arithmetic that was always here, ` +
+          `unchanged: the checked-in table of true new moons from cycle ${f.clock.trueClockFromCycle} on, the mean ` +
+          `${f.clock.synodicMonthDays}-day formula before it, and the past frozen. The calendar implementation takes ` +
+          `an id prefix of its own (\`${f.clock.calendarIdExample}\`) so the retired \`YYYY-MM\` ids stay refused at ` +
+          `settlement instead of being quietly re-read. A closed cycle keeps the id and the bounds it closed under, ` +
+          `and the settlement row records which clock it was played on. The change is constitutional and lands only ` +
+          `at an instant that ends a cycle under the clock the village is leaving, with every finished cycle settled ` +
+          `first. A boot assertion refuses to serve a build where a rhythm setting is shown and nothing reads it, ` +
+          `which is the defect the retired dial shipped with.`,
   },
   {
     id: 14,
@@ -1688,14 +1709,14 @@ function stagedFlags(dialKeys, governanceKeys, caps, dispatcher, routes, launchS
 }
 
 function stalenessProblem(staged) {
-  // Rulings 1, 4, 7 and 21 landed on 2026-09-02 in the governance build, so
-  // their rows come out of this list and their notes now describe what shipped.
-  // A row stays here only while the ruling's note still says "not built": the
-  // guard's whole job is to stop the build once, on the day the code moves past
-  // the prose, and it has done that job for these four.
+  // Rulings 1, 4, 7 and 21 landed on 2026-09-02 in the governance build, and
+  // ruling 13 (the rhythm as a setting) on 2026-09-03, so their rows come out
+  // of this list and their notes now describe what shipped. A row stays here
+  // only while the ruling's note still says "not built": the guard's whole job
+  // is to stop the build once, on the day the code moves past the prose, and
+  // it has done that job for these five.
   const complaints = [
     [!staged.governanceWeek, 6, "a governance week"],
-    [!staged.cycleSetting, 13, "a cycle setting"],
     [!staged.clans, 18, "clans"],
     [!staged.secrecy, 22, "a voter-identity setting"],
     [!staged.governanceModeSubject, 14, "a governance_mode subject type"],

@@ -146,7 +146,7 @@ The dials a village holds, with the ring that says who may move each one and the
 <!-- written by a person: dialsStorage -->
 Only CHANGED values are stored. An absent row means the platform default in the table above, so a fresh village starts with every one of these and no rows at all.
 
-10 settings across the whole registry wait for a cycle close instead of applying when they are written: `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 26 settings above is one of them, so every governance dial takes effect the moment it is written.
+11 settings across the whole registry wait for a cycle close instead of applying when they are written: `cycle.mode`, `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 26 settings above is one of them, so every governance dial takes effect the moment it is written.
 
 ## What each kind of decision asks
 
@@ -356,7 +356,6 @@ What is staged: ruled by the founder, described here, and absent from the code. 
 - **Delegation copies the choice, chains are transitive, and concentration is visible** (ruling 7)
 - **One to three catalysts start a village, and Voice is the only token they may issue before the Game starts** (ruling 10)
 - **The Game Mechanics section is public, always, and after the Birthing every control becomes a proposal** (ruling 12)
-- **Lunar by default, and the cycle is a setting** (ruling 13)
 - **A village with no steward and self-executing agreements is healthy** (ruling 17)
 - **Voice for other beings, and clans, at 144 players** (ruling 18)
 - **A late approval rolls to the following new moon** (ruling 20)
@@ -519,7 +518,7 @@ The admin panel stays administrator-only today, before and after the Birthing, a
 
 ### 13. Lunar by default, and the cycle is a setting
 
-**Staged.** Not built. Status computed from the code. Said 2026-09-02.
+**Built.** Status computed from the code. Said 2026-09-02.
 
 <!-- the founder's own words -->
 > so that we're following lunar cycle periods for every lunar cycle. A new game structure can take place this lunar cycle is also a setting that it could be changed to any calendar cycle or any other cycle but we default to lunar cycles where a new cycle start and end at the new moon just like with the gratitude cycle
@@ -528,7 +527,7 @@ The admin panel stays administrator-only today, before and after the Birthing, a
 > Yes the cycle structure can be changed.
 
 <!-- written by a person: ruling-13 -->
-There is one clock and no dial chooses it. A rhythm dial used to exist and was retired in 2026-08-29 at the founder's own instruction, because the panel offered a choice the engine did not honour. Bringing it back means a clock seam every consumer reads through first, a calendar implementation with its own id prefix, past cycles frozen with the ids they closed under, and the switch itself timed to a boundary.
+`cycle.mode` chooses the rhythm, lunar by default, and every consumer reads one seam (`shared/cycleClock.ts`). The lunar implementation is the arithmetic that was always here, unchanged: the checked-in table of true new moons from cycle 330 on, the mean 29.53058867-day formula before it, and the past frozen. The calendar implementation takes an id prefix of its own (`month-2026-09`) so the retired `YYYY-MM` ids stay refused at settlement instead of being quietly re-read. A closed cycle keeps the id and the bounds it closed under, and the settlement row records which clock it was played on. The change is constitutional and lands only at an instant that ends a cycle under the clock the village is leaving, with every finished cycle settled first. A boot assertion refuses to serve a build where a rhythm setting is shown and nothing reads it, which is the defect the retired dial shipped with.
 
 ### 14. The vote mode switches both ways, holdings survive, and the village votes the switch
 
@@ -594,7 +593,7 @@ Clans are a governance object nothing in the code knows about yet: groups within
 > I don't understand this fully.
 
 <!-- written by a person: ruling-19 -->
-Built: 10 dials wait for the next cycle close instead of applying at the close of the vote, and a minting rule stamped for a coming cycle is promoted on its own by the hourly job at the true boundary. Staged: a passed proposal carries no record of the cycle it lands in, the held state is a status plus a live check against a code list that can change between the vote and the close, and a member is never told which moon their proposal lands on. The ruling: the new moon itself. One routine applies everything due, both the hourly job and the human close call it, whichever runs first applies and the other finds nothing left to do, and the proposal says which cycle it lands in from the moment it passes.
+Built: 11 dials wait for the next cycle close instead of applying at the close of the vote, and a minting rule stamped for a coming cycle is promoted on its own by the hourly job at the true boundary. Staged: a passed proposal carries no record of the cycle it lands in, the held state is a status plus a live check against a code list that can change between the vote and the close, and a member is never told which moon their proposal lands on. The ruling: the new moon itself. One routine applies everything due, both the hourly job and the human close call it, whichever runs first applies and the other finds nothing left to do, and the proposal says which cycle it lands in from the moment it passes.
 
 ### 20. A late approval rolls to the following new moon
 
@@ -1059,6 +1058,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     }
   ],
   "cycleApplyKeys": [
+    "cycle.mode",
     "economy.voice_claim_threshold",
     "economy.claims_week_days",
     "economy.claims_week_starts",
@@ -1531,7 +1531,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-09-02"
       ],
-      "status": "Staged. Not built.",
+      "status": "Built.",
       "statusBasis": "computed"
     },
     {
