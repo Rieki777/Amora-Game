@@ -436,15 +436,19 @@ export const VARIABLES: VariableDef[] = [
   {
     key: "governance.hub_url",
     category: "Governance",
-    label: "ReGen governance hub URL",
+    label: "Governance hub URL",
     description:
-      "Base URL of the ReGen hub that listens to the chain for this village. When a proposal's Hypha URL is pasted in, the platform registers the on-chain proposal id with this hub (signed with the shared governance secret) so the verified outcome can find its way home. Leave as the platform default unless you run your own hub.",
+      "Base URL of the hub that listens to the chain for this village. When a proposal's Hypha URL is pasted in, the platform registers the on-chain proposal id with this hub (signed with the shared governance secret) so the verified outcome can find its way home. Empty means this village has no hub: nothing is registered and nothing is sent anywhere. Fill it in only if you run a hub or have been given one to point at.",
     type: "text",
-    // The ReGen hub is a platform SERVICE this village talks to, and a fork
-    // points it at its own hub or leaves it, the same way it leaves the
-    // Stripe endpoint alone. The waiver rides the line itself, because the
-    // guard reads the line carrying the hit and nothing above it.
-    default: "https://regencivics.earth", // brand-ok: platform service, not a village's name
+    /*
+     * SHIPS BLANK, the way `FEEDBACK_HUB_URL` was blanked once a fork could
+     * inherit it. This repository is public and every village that forks it
+     * gets these defaults as its constitution, so a default naming one
+     * organisation's hub would quietly point every new village's governance
+     * relay at that organisation. Empty is the honest default: it means no
+     * hub, and every reader already treats empty as off.
+     */
+    default: "",
     ring: "founder",
   },
   {
@@ -642,7 +646,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Governance",
     label: "Structural changes: quorum floor",
     description:
-      "The least share of the village's voting weight that must turn up before a structural change can be decided. Structural means it changes how the village decides or who belongs to it: the unity and quorum settings themselves, how ballots decide, who may be admitted, what the village mints, and turning a part of the Game on or off. Cannot be set below the platform floor.",
+      "The least share of the village's voting weight that must turn up before a structural change can be decided. Structural means it changes how the village decides or who belongs to it: the unity and quorum settings themselves, how ballots decide, who may be admitted, what the village mints, and turning a part of the Game on or off. The shipped 50 is this platform's starting number and your village may raise it. It cannot go below the platform floor.",
     type: "percentage",
     default: String(TIER_FLOORS.structural.quorumPct),
     min: TIER_FLOORS.structural.quorumPct,
@@ -655,7 +659,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Governance",
     label: "Structural changes: unity floor",
     description:
-      "The least share of the votes cast for or against that must be in favour before a structural change carries. The shipped number is the one this platform inherited from Hypha. Cannot be set below the platform floor.",
+      "The least share of the votes cast for or against that must be in favour before a structural change carries. The shipped 80 is the number this platform inherited from Hypha, and it is a starting point your village may raise. It cannot go below the platform floor.",
     type: "percentage",
     default: String(TIER_FLOORS.structural.unityPct),
     min: TIER_FLOORS.structural.unityPct,
@@ -687,6 +691,37 @@ export const VARIABLES: VariableDef[] = [
     min: TIER_FLOORS.constitutional.unityPct,
     max: 100,
     unit: "%",
+    criticality: "constitutional",
+  },
+  {
+    /*
+     * THE HIGHEST TIER THIS VILLAGE HAS SET, and the bar a veto override
+     * clears (19E). The founder's words of 2026-09-03: "We can have a veto
+     * override if it goes up to the highest tier they have set as a village
+     * (this is also a setting that can change at the highest tier set)."
+     *
+     * The registry tier below is the FLOOR on what it costs to move this.
+     * The live price is the tier this setting itself names, worked out by
+     * `thresholdChangePrice` in `shared/ballotSubjects.ts`, which is the
+     * "priced at itself" half of his sentence. Without that, a village could
+     * name the routine tier here on a quiet week and hand every future veto
+     * an override that costs nothing.
+     */
+    // The literal, because the generated governance document reads this
+    // registry as source text. `HIGHEST_TIER_KEY` in `shared/ballotSubjects.ts`
+    // holds the same string and `gameVariables.test.ts` pins the pair equal.
+    key: "governance.highest_tier",
+    category: "Governance",
+    label: "The tier a veto override is passed at",
+    description:
+      "A steward can veto a change the village passed. The village can bring the same proposal back and pass it again at this tier, and then it lands whatever any steward says. This names which tier that is: the highest one your village works at. Moving this setting costs whatever the tier it currently names costs, so lowering it is as hard as the bar you are lowering.",
+    type: "choice",
+    default: "constitutional",
+    choices: [
+      { value: "routine", label: "Routine", hint: "Your own unity and quorum settings decide an override." },
+      { value: "structural", label: "Structural", hint: "An override asks the structural bar: how the village decides." },
+      { value: "constitutional", label: "Constitutional", hint: "An override asks the highest bar this platform ships." },
+    ],
     criticality: "constitutional",
   },
   {

@@ -121,7 +121,7 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.sensing_days` | How long a topic stays open for sensing | `open` | `7` | 1 to 90 days | when it is written |
 | `governance.proposals_per_member_per_cycle` | Mechanics proposals per member per cycle | `open` | `5` | 1 to 100 per cycle | when it is written |
 | `governance.proposal_support_threshold` | Supporters before a proposal can go to the vote | `open` | `0` | 0 to 10000 supporters | when it is written |
-| `governance.hub_url` | ReGen governance hub URL | `founder` | `https://regencivics.earth` | text | when it is written |
+| `governance.hub_url` | Governance hub URL | `founder` | `` | text | when it is written |
 | `governance.auto_apply_enabled` | Apply verified proposals automatically | `founder` | `true` | boolean | when it is written |
 | `governance.steward_subjects` | Which decisions wait for a steward | `open` | `all` | text | when it is written |
 | `governance.auto_execute_subjects` | Which decisions carry themselves | `open` | `none` | text | when it is written |
@@ -139,6 +139,7 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.tier_structural_unity_pct` | Structural changes: unity floor | `open` | `80` | 80 to 100 % | when it is written |
 | `governance.tier_constitutional_quorum_pct` | Constitutional changes: quorum floor | `open` | `97` | 97 to 100 % | when it is written |
 | `governance.tier_constitutional_unity_pct` | Constitutional changes: unity floor | `open` | `97` | 97 to 100 % | when it is written |
+| `governance.highest_tier` | The tier a veto override is passed at | `open` | `constitutional` | `routine`, `structural`, `constitutional` | when it is written |
 | `governance.subject_mint_rule_quorum_pct` | Minting rule changes: quorum floor | `open` | `50` | 50 to 100 % | when it is written |
 | `governance.subject_mint_rule_unity_pct` | Minting rule changes: unity floor | `open` | `0` | 0 to 100 % | when it is written |
 | `membership.vouch_threshold` | Vouches to admit a member | `open` | `0` | 0 to 20 vouches | when it is written |
@@ -146,7 +147,7 @@ The dials a village holds, with the ring that says who may move each one and the
 <!-- written by a person: dialsStorage -->
 Only CHANGED values are stored. An absent row means the platform default in the table above, so a fresh village starts with every one of these and no rows at all.
 
-10 settings across the whole registry wait for a cycle close instead of applying when they are written: `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 26 settings above is one of them, so every governance dial takes effect the moment it is written.
+10 settings across the whole registry wait for a cycle close instead of applying when they are written: `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 27 settings above is one of them, so every governance dial takes effect the moment it is written.
 
 ## What each kind of decision asks
 
@@ -328,7 +329,7 @@ A village can carry its formal decisions to Hypha on Base instead of deciding th
 <!-- written by a person: bridgeHonest -->
 Stated honestly, because a bridge that half works is worse than one that is off: nothing leaves a village unless both the hub URL and a shared secret are configured; the round trip has never been proven end to end in both directions; and four displays about it are false today. A Hypha-decided ballot is counted by Hypha, so a village's own weight mode does not reach it.
 
-The hub address is `governance.hub_url`, a `founder`-ring dial defaulting to `https://regencivics.earth`. Nothing is sent until a shared secret is configured beside it.
+The hub address is `governance.hub_url`, a `founder`-ring dial that ships blank, so a fresh village has no hub and sends nowhere. Nothing is sent until a shared secret is configured beside it.
 
 ## What is broken today
 
@@ -818,10 +819,10 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     },
     {
       "key": "governance.hub_url",
-      "label": "ReGen governance hub URL",
+      "label": "Governance hub URL",
       "ring": "founder",
       "type": "text",
-      "default": "https://regencivics.earth",
+      "default": "",
       "min": null,
       "max": null,
       "choices": null,
@@ -1022,6 +1023,21 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "min": 97,
       "max": 100,
       "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.highest_tier",
+      "label": "The tier a veto override is passed at",
+      "ring": "open",
+      "type": "choice",
+      "default": "constitutional",
+      "min": null,
+      "max": null,
+      "choices": [
+        "routine",
+        "structural",
+        "constitutional"
+      ],
       "applyTiming": "instant"
     },
     {

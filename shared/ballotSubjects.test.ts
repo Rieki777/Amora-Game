@@ -15,20 +15,31 @@
 import { describe, expect, it } from "vitest";
 import {
   criticalityOfItems,
+  delegatedRowsCountOn,
+  delegationRefusalSentence,
   dialsForSubject,
   electorateFloorProblem,
   evaluationRulesFor,
   floorForCriticality,
   floorForSubject,
+  highestTier,
+  highestTierFrom,
   methodForSubject,
   methodForSubjects,
+  overrideDials,
+  rerunOffer,
   rollProblem,
   stalemateWarningFor,
+  subjectInPeople,
+  thresholdChangePrice,
   thresholdSettingsFrom,
   thresholdsFor,
   thresholdsForSubject,
+  tierInPeople,
   weightFloorProblem,
   CHANGE_ITEM_KINDS,
+  HIGHEST_TIER_KEY,
+  SELF_PRICED_THRESHOLD_KEYS,
   CRITICALITY_FOR_ITEM_KIND,
   GOVERNANCE_MODE,
   MINT_RULE,
@@ -508,5 +519,234 @@ describe("the typed items a change set is made of", () => {
     expect(criticalityOfItems([])).toBe("routine");
     expect(criticalityOfItems(["routine", "structural"])).toBe("structural");
     expect(criticalityOfItems(["routine", "constitutional", "structural"])).toBe("constitutional");
+  });
+});
+
+/**
+ * THE OVERRIDE TIER (19E). A vetoed proposal brought back and passed again at
+ * the village's highest set tier lands whatever a steward says, so the
+ * setting naming that tier is priced at itself.
+ */
+describe("the highest set tier, and the veto override", () => {
+  const tierOf = (value: string) =>
+    thresholdSettingsFrom(
+      () => 0,
+      (key) => (key === HIGHEST_TIER_KEY ? value : ""),
+    );
+
+  it("reads the setting, and the override tier is what it names", () => {
+    expect(highestTier(tierOf("structural"))).toBe("structural");
+    expect(overrideDials(tierOf("structural"))).toEqual(TIER_FLOORS.structural);
+    expect(highestTier(tierOf("constitutional"))).toBe("constitutional");
+    expect(overrideDials(tierOf("constitutional"))).toEqual(TIER_FLOORS.constitutional);
+  });
+
+  it("answers the top of the ladder when nothing was set or the value is not a tier", () => {
+    const top = CRITICALITIES[CRITICALITIES.length - 1];
+    expect(highestTierFrom()).toBe(top);
+    expect(highestTierFrom(() => "")).toBe(top);
+    expect(highestTierFrom(() => "whatever-a-fork-typed")).toBe(top);
+    expect(highestTier()).toBe(top);
+  });
+
+  it("carries a village's raised tier into the override, so the override is never the cheaper number", () => {
+    const raised = thresholdSettingsFrom(
+      (key) => (key === TIER_SETTING_KEYS.structural.quorum ? 90 : 0),
+      (key) => (key === HIGHEST_TIER_KEY ? "structural" : ""),
+    );
+    expect(overrideDials(raised)).toEqual({ unityPct: 80, quorumPct: 90 });
+  });
+});
+
+/**
+ * THRESHOLDS FOR THRESHOLDS (19B). "they also can be changed by reaching the
+ * same amount they are set at can change their threshold again."
+ */
+describe("a threshold change is priced at that threshold's current bar", () => {
+  it("prices a tier's own dials at that tier", () => {
+    const registry = thresholdSettingsFrom(() => 0);
+    expect(thresholdChangePrice(TIER_SETTING_KEYS.constitutional.unity, registry)).toEqual(
+      TIER_FLOORS.constitutional,
+    );
+    expect(thresholdChangePrice(TIER_SETTING_KEYS.structural.quorum, registry)).toEqual(
+      TIER_FLOORS.structural,
+    );
+    expect(thresholdChangePrice(TIER_SETTING_KEYS.routine.unity, registry)).toEqual(TIER_FLOORS.routine);
+  });
+
+  it("follows the bar a village has actually set, up or down, so 97 costs 97 to move", () => {
+    const raised = thresholdSettingsFrom((key) =>
+      key === TIER_SETTING_KEYS.structural.unity || key === TIER_SETTING_KEYS.structural.quorum ? 97 : 0,
+    );
+    expect(thresholdChangePrice(TIER_SETTING_KEYS.structural.unity, raised)).toEqual({
+      unityPct: 97,
+      quorumPct: 97,
+    });
+  });
+
+  it("prices the highest-tier setting at itself", () => {
+    const structural = thresholdSettingsFrom(
+      () => 0,
+      (key) => (key === HIGHEST_TIER_KEY ? "structural" : ""),
+    );
+    expect(thresholdChangePrice(HIGHEST_TIER_KEY, structural)).toEqual(TIER_FLOORS.structural);
+    const constitutional = thresholdSettingsFrom(
+      () => 0,
+      (key) => (key === HIGHEST_TIER_KEY ? "constitutional" : ""),
+    );
+    expect(thresholdChangePrice(HIGHEST_TIER_KEY, constitutional)).toEqual(TIER_FLOORS.constitutional);
+  });
+
+  it("prices a subject's own floor at that subject, and the village dials at the structural tier", () => {
+    const registry = thresholdSettingsFrom(() => 0);
+    expect(thresholdChangePrice(SUBJECT_SETTING_KEYS[MINT_RULE].quorum, registry)).toEqual(
+      floorForSubject(MINT_RULE, registry),
+    );
+    expect(thresholdChangePrice("governance.unity_pct", registry)).toEqual(TIER_FLOORS.structural);
+    expect(thresholdChangePrice("governance.quorum_pct", registry)).toEqual(TIER_FLOORS.structural);
+  });
+
+  it("answers null for a key that sets no bar of its own, which is not the same as free", () => {
+    expect(thresholdChangePrice("gratitude.base_budget")).toBeNull();
+    expect(thresholdChangePrice("governance.vote_days")).toBeNull();
+  });
+
+  it("names every self-priced key, so a control can find them without a second list", () => {
+    for (const key of SELF_PRICED_THRESHOLD_KEYS) {
+      expect(thresholdChangePrice(key), key).not.toBeNull();
+    }
+    expect(SELF_PRICED_THRESHOLD_KEYS).toContain(HIGHEST_TIER_KEY);
+  });
+});
+
+/** A tier and a subject, read against a real roll in people as well as weight. */
+describe("a tier read in people", () => {
+  const concentrated = [
+    { weight: 40 },
+    { weight: 32 },
+    { weight: 25 },
+    ...Array.from({ length: 6 }, () => ({ weight: 0.5 })),
+  ];
+  const equalNine = Array.from({ length: 9 }, () => ({ weight: 1 }));
+
+  it("says the constitutional bar in weight and in people on a concentrated roll", () => {
+    const reading = tierInPeople("constitutional", concentrated);
+    expect(reading.dials).toEqual(TIER_FLOORS.constitutional);
+    expect(reading.fewestForQuorum).toBe(3);
+    expect(reading.sentence).toContain("at least 3 of 9 people");
+    expect(reading.needsEveryone).toBe(false);
+    expect(reading.rollWarning).toBeNull();
+    expect(reading.ceilingWarning).toBeNull();
+  });
+
+  it("says the same bar in heads on an equal roll, and warns that it is everybody", () => {
+    const reading = tierInPeople("constitutional", equalNine);
+    expect(reading.equalWeights).toBe(true);
+    expect(reading.fewestForQuorum).toBe(9);
+    expect(reading.needsEveryone).toBe(true);
+    expect(reading.sentence).toContain("at least 9 of 9 people");
+    expect(reading.rollWarning).toContain("every one of the 9 people on the roll");
+  });
+
+  it("warns above 97 without refusing, which is his ruling and not the audit's", () => {
+    const above = thresholdSettingsFrom((key) =>
+      key === TIER_SETTING_KEYS.constitutional.quorum ? 99 : 0,
+    );
+    const reading = tierInPeople("constitutional", concentrated, above);
+    expect(reading.dials.quorumPct).toBe(99);
+    expect(reading.ceilingWarning).toContain("stalemate");
+  });
+
+  it("reads a subject the same way, and exempts the Birthing from both warnings", () => {
+    const launch = subjectInPeople(VILLAGE_LAUNCH, equalNine);
+    expect(launch.dials).toEqual({ unityPct: 100, quorumPct: 100 });
+    expect(launch.fewestForQuorum).toBe(9);
+    expect(launch.sentence).toContain("at least 9 of 9 people");
+    expect(launch.rollWarning).toBeNull();
+    expect(launch.ceilingWarning).toBeNull();
+  });
+});
+
+/** Delegated rows on a vote that asks everyone to agree in person. */
+describe("delegated rows at 100 unity", () => {
+  it("refuses a delegated row on the Birthing, whatever its stamped bar says", () => {
+    expect(delegatedRowsCountOn({ subjectType: VILLAGE_LAUNCH, unityPct: 100 })).toBe(false);
+    expect(delegatedRowsCountOn({ subjectType: VILLAGE_LAUNCH, unityPct: 80 })).toBe(false);
+  });
+
+  it("refuses a delegated row on any subject conducted at 100 unity", () => {
+    expect(delegatedRowsCountOn({ subjectType: "mechanics", unityPct: 100 })).toBe(false);
+    expect(delegatedRowsCountOn({ subjectType: GOVERNANCE_MODE, unityPct: 100 })).toBe(false);
+  });
+
+  it("counts a delegated row everywhere else, including the constitutional 97", () => {
+    expect(delegatedRowsCountOn({ subjectType: "mechanics", unityPct: 80 })).toBe(true);
+    expect(delegatedRowsCountOn({ subjectType: GOVERNANCE_MODE, unityPct: 97 })).toBe(true);
+    expect(delegatedRowsCountOn({ unityPct: 0 })).toBe(true);
+  });
+
+  it("says why, in one sentence the page can render", () => {
+    expect(delegationRefusalSentence()).toContain("in person");
+  });
+});
+
+/**
+ * THE STALEMATE RE-RUN, with the founder's abuse guard: "we have to do this in
+ * a way where they can't be abused by people who don't like the outcome."
+ */
+describe("the stalemate re-run", () => {
+  const gone = { userId: "u-gone", weight: 60, ledgerRef: "mem-2026-09-03-1" };
+  const base = {
+    subjectType: "mechanics",
+    status: "open",
+    quorumPct: 50,
+    totalWeight: 100,
+    departed: [gone],
+    votedUserIds: ["u-a", "u-b"],
+  };
+
+  it("is offered when a departed seat makes quorum unreachable, and carries the votes still here", () => {
+    const offer = rerunOffer(base);
+    expect(offer.offered).toBe(true);
+    if (offer.offered) {
+      expect(offer.carryForward).toEqual(["u-a", "u-b"]);
+      expect(offer.sentence).toContain("left the village");
+    }
+  });
+
+  it("is never offered after the ballot closes", () => {
+    const offer = rerunOffer({ ...base, status: "no_quorum" });
+    expect(offer).toMatchObject({ offered: false, reason: "closed" });
+  });
+
+  it("needs the membership record, so a self-declared absence opens nothing", () => {
+    const offer = rerunOffer({ ...base, departed: [{ userId: "u-gone", weight: 60 }] });
+    expect(offer).toMatchObject({ offered: false, reason: "nobody_left" });
+  });
+
+  it("is refused when the departed seat already voted against the outcome a re-run would change", () => {
+    const offer = rerunOffer({ ...base, departed: [{ ...gone, choice: "no" }] });
+    expect(offer).toMatchObject({ offered: false, reason: "departed_voted_against" });
+  });
+
+  it("is refused while quorum is still reachable with the members who are here", () => {
+    const offer = rerunOffer({ ...base, departed: [{ ...gone, weight: 40 }] });
+    expect(offer).toMatchObject({ offered: false, reason: "quorum_still_reachable" });
+  });
+
+  it("exempts the Birthing, whose re-runnability is designed", () => {
+    const offer = rerunOffer({ ...base, subjectType: VILLAGE_LAUNCH });
+    expect(offer).toMatchObject({ offered: false, reason: "exempt" });
+  });
+
+  it("drops a departed member from the carry list and keeps the rest", () => {
+    const offer = rerunOffer({ ...base, votedUserIds: ["u-a", "u-gone", "u-a"] });
+    expect(offer.offered).toBe(true);
+    if (offer.offered) expect(offer.carryForward).toEqual(["u-a"]);
+  });
+
+  it("says it could not tell on a weightless roll, and never calls that a stalemate", () => {
+    const offer = rerunOffer({ ...base, totalWeight: 0 });
+    expect(offer).toMatchObject({ offered: false, reason: "no_weight" });
   });
 });

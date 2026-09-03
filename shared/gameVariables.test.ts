@@ -22,6 +22,8 @@ import {
   VARIABLES_BY_KEY,
 } from "./gameVariables";
 import { GAME_CONFIG } from "./gameConfig";
+import { HIGHEST_TIER_KEY } from "./ballotSubjects";
+import { CRITICALITIES } from "./governanceEngine";
 import { hasCapability, STAGE_UNLOCKS, type Capability } from "./capabilities";
 
 const stageIndexOf = (id: string) => GAME_CONFIG.stages.findIndex((s) => s.id === id);
@@ -199,9 +201,18 @@ describe("a dial states its effect, and never its number", () => {
 describe("governance.hub_url: https-only, no loopback exemption (bridges lane)", () => {
   const def = VARIABLES_BY_KEY["governance.hub_url"];
 
-  it("exists, defaults to the platform hub, and is founder-held", () => {
+  /*
+   * SHIPS BLANK (thresholds lane, from the audit of 2026-09-03). This pin
+   * used to hold one organisation's hub as the default, and this repository
+   * is public: every fork inherited that address as part of its constitution.
+   * `FEEDBACK_HUB_URL` was blanked for the same reason and this key follows
+   * it. Empty means no hub, and every reader already treats empty as off.
+   */
+  it("exists, ships blank so no fork inherits somebody else's hub, and is founder-held", () => {
     expect(def).toBeTruthy();
-    expect(def.default).toBe("https://regencivics.earth"); // brand-ok: platform service, not a village's name
+    expect(def.default).toBe("");
+    expect(validateVariable(def, def.default)).toBeNull();
+    expect(def.description).toContain("Empty means this village has no hub");
     expect(ringOf(def)).toBe("founder");
   });
 
@@ -242,5 +253,55 @@ describe("governance.hub_url: https-only, no loopback exemption (bridges lane)",
     expect(rpcDef).toBeTruthy();
     expect(validateVariable(rpcDef, "http://127.0.0.1:8545")).toBeNull();
     expect(validateVariable(rpcDef, "http://some-other-host:8545")).toMatch(/https URL/);
+  });
+});
+
+/**
+ * THE OVERRIDE TIER AS A SETTING (19E). The village names the tier a veto
+ * override is passed at, and the setting is votable, which is what the
+ * founder's "this is also a setting that can change at the highest tier set"
+ * needs: an open-ring dial priced by `thresholdChangePrice` at the tier it
+ * currently names.
+ */
+describe("governance.highest_tier: the tier a veto override is passed at", () => {
+  const def = VARIABLES_BY_KEY[HIGHEST_TIER_KEY];
+
+  it("holds the same key string `shared/ballotSubjects.ts` exports, which is what the pricing rule looks up", () => {
+    // The registry writes the literal because the governance document reads
+    // this file as source text and cannot follow an imported constant.
+    expect(def.key).toBe(HIGHEST_TIER_KEY);
+  });
+
+  it("exists, offers exactly the tiers the ladder has, and defaults to the top of it", () => {
+    expect(def).toBeTruthy();
+    expect(def.type).toBe("choice");
+    expect((def.choices ?? []).map((c) => c.value)).toEqual([...CRITICALITIES]);
+    expect(def.default).toBe(CRITICALITIES[CRITICALITIES.length - 1]);
+    expect(validateVariable(def, def.default)).toBeNull();
+  });
+
+  it("is open ring, so the village can move it, and carries the constitutional floor", () => {
+    expect(ringOf(def)).toBe("open");
+    expect(def.criticality).toBe("constitutional");
+  });
+
+  it("refuses a value that is not a tier", () => {
+    expect(validateVariable(def, "whatever")).toMatch(/Must be one of/);
+  });
+});
+
+/**
+ * The structural tier's numbers are the build's own, and the control says so
+ * (thresholds lane). A village reading "80" should know it is a starting
+ * point somebody chose and not a law of the platform.
+ */
+describe("the structural tier says its numbers are a starting point", () => {
+  it("names the shipped number and says the village may raise it", () => {
+    const quorum = VARIABLES_BY_KEY["governance.tier_structural_quorum_pct"];
+    const unity = VARIABLES_BY_KEY["governance.tier_structural_unity_pct"];
+    expect(quorum.default).toBe("50");
+    expect(unity.default).toBe("80");
+    expect(quorum.description).toContain("your village may raise it");
+    expect(unity.description).toContain("your village may raise");
   });
 });
