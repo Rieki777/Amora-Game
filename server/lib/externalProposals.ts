@@ -70,6 +70,25 @@ export const EXTERNAL_PROPOSAL_KINDS = [
   "circle.proposed",
   "task.proposed",
   "quest.proposed",
+  /*
+   * `event.proposed` LANDS AND IS ACKNOWLEDGED, and does not create a calendar
+   * entry. The distinction is deliberate and worth stating where somebody will
+   * look for it.
+   *
+   * Creating an event is an inline admin route rather than an extracted
+   * function, so there is nothing an accept could call the way a quest accept
+   * calls `questsRepo.add`. Writing the insert here instead would be a second
+   * write path into the calendar, which is the one thing this whole surface is
+   * built to avoid: two writers of the same table disagree eventually, and the
+   * duplicate reward parsers in this repository are what that looks like after
+   * a year.
+   *
+   * So an event proposal behaves like a task or a tension: it lands with its
+   * evidence, a steward reads it and agrees it is true, and the decision is
+   * recorded. Turning that into a calendar entry is a human act with the admin
+   * form open, until somebody extracts a creation function worth calling.
+   */
+  "event.proposed",
   "risk.observed",
   "tension.observed",
   "commitment.observed",
