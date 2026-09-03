@@ -218,7 +218,7 @@ A faucet's NEGATIVE balance is the issued supply of its token. These system acco
 | `sys:voice-bridge` | voice debited by a claim, waiting on Hypha |
 | `sys:voice-settled` | voice whose claim Hypha confirmed |
 
-Sources that may drive a NON-faucet account below zero, and only with `allowNegative` set: `stay_night`, `payment_reversal`.
+Sources that may drive a NON-faucet account below zero, and only with `allowNegative` set: `stay_night`, `payment_reversal`, `reversal`.
 <!-- generated:faucets end -->
 
 The mint rules a fresh village is seeded with:
@@ -472,12 +472,39 @@ will believe.
 This must be fixed BEFORE the 4-decimals sweep. Today one token is wrong;
 afterwards every token is wrong by 10,000x on every surface that does not divide.
 
-### 10.4 `reverse()` takes its amount from the caller
+### 10.4 `reverse()` took its amount from the caller. Fixed on `wt/econ`, measured.
 
-It checks only that some row with the original key exists. An audit reversed a
-25-credit posting into a **1,000,000-credit payment** to the same member, and
-every invariant stayed green. It should derive from the original ledger row and
-refuse any caller value that disagrees.
+Until commit c131a36 it checked only that some row with the original key existed,
+and posted whatever amount, direction and token the caller supplied. An audit
+reversed a 25-credit posting into a **1,000,000-credit payment** to the same
+member, and every invariant stayed green.
+
+A reversal is now derived from the posting it reverses, not from the caller.
+`reverse()` reads the original row's `from_account`, `to_account`, `token_type`
+and `amount` and posts the mirror as that row with its two accounts swapped, in
+the same token, for the same number of minor units, under its own `reversal:`
+idempotency key. The options argument is optional and advisory: a caller may
+state what it believes the row says, and if any of `from`, `to`, `tokenSlug` or
+`amount` disagrees, the reversal is refused before anything is written, with an
+error naming the field and both values. Omitting a field is no claim; passing
+zero is a claim, and it disagrees with every postable row.
+
+Measured against the audit's exploit, on a local MariaDB at commit 6fb4cd4: on
+the previous code, reversing a 25-credit posting with a caller-supplied
+1,000,000 took the member from 25 to 1,000,025 and `checkLedgerInvariants`
+reported no problem; on the current code the same call is refused and the
+balance stays 25, while the honest reversal takes it to 0 and writes exactly one
+mirror row. Because the mirror can no longer be inflated, it is also allowed to
+complete against a member who has already spent the value: `reversal` joined
+`ALLOW_NEGATIVE_SOURCES` and the mirror posts with `allowNegative`, so clawing
+back 25 credits that were already sent onward leaves that member at -25, which
+`checkLedgerInvariants` accepts as lawful because the account holds a debit from
+an allow-negative source, and every token still sums to zero across all accounts
+and faucets. Those two changes belong together: allowing the negative balance
+without deriving the amount was measured to let a 1,000,000 clawback drive a
+member to -999,975 with every invariant green. Proven by its tests
+(`server/economy.test.ts`, the Reversal block, three of which go red with the
+fix removed); not yet proven in production, where the ledger is empty.
 
 ### 10.5 `postTransfer` has no deadlock retry
 
