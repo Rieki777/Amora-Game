@@ -306,10 +306,22 @@ describe.skipIf(!DB_CONFIGURED)("the steward the village seated can stop a decis
 
   beforeAll(async () => {
     if (!DB_CONFIGURED) return;
+    /*
+     * A CARRIED GAME CHANGE, STAMPED, which is the only state a veto has
+     * anything to say about. The fixture writes `lands_at` two days out and
+     * `landing_status` pending because that is what the close path writes on a
+     * decision that changes the Game: it does not execute at the close, it is
+     * given an instant, and the window before that instant is the door this
+     * whole describe block is about. A row with a NULL `lands_at` is a decision
+     * that took effect the moment it carried, and the route is right to refuse
+     * a veto on one.
+     */
     await pool.query( // module-review-ok: fixture SQL against the scratch schema, standing in for a carried ballot
       "INSERT INTO ballots (id, subject_type, subject_ref, open_key, title, doc_markdown, method, weight_mode, " +
-        "unity_pct, quorum_pct, total_weight, electorate_count, opened_by, opens_at, closes_at, status) " +
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW(),?)",
+        "unity_pct, quorum_pct, total_weight, electorate_count, opened_by, opens_at, closes_at, status, " +
+        "lands_at, veto_closes_at, landing_status) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW(),?," +
+        "DATE_ADD(NOW(), INTERVAL 2 DAY), DATE_ADD(NOW(), INTERVAL 2 DAY), 'pending')",
       [BALLOT, "mechanics", "ref", `mechanics:${BALLOT}`, "Turn the mint up", "body", "custom", "equal",
         80, 20, 3, 3, tamId, "passed"],
     );
@@ -321,9 +333,10 @@ describe.skipIf(!DB_CONFIGURED)("the steward the village seated can stop a decis
     expect(r.json?.seated).toBe(true);
     expect(r.json?.council).toBe(false);
     expect(String(r.json?.sentence)).toContain("can stop a decision inside its window");
-    // No dispatcher on this build, so no landing instant is recorded and no
-    // surface may render a countdown. That is its own answer, not a yes.
-    expect(r.json?.windowKnown).toBe(false);
+    // The dispatcher registers its window check at boot, so the instant is
+    // readable and a surface may render the countdown. On a build without it
+    // this answers false, which is its own answer and never a yes.
+    expect(r.json?.windowKnown).toBe(true);
     expect(String(r.json?.notice)).toContain("public and permanent");
   });
 

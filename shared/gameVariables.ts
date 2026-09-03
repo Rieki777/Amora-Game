@@ -518,8 +518,10 @@ export const VARIABLES: VariableDef[] = [
     type: "boolean",
     default: "false",
   },
-  // The veto window, the arity of a veto, and the tier that overrides one.
-  // Three settings the 2026-09-03 rulings need and the registry did not have.
+  // The veto window and the tier that overrides a veto. The arity of a veto
+  // is `governance.steward_council` above: the dispatcher lane and the
+  // steward-veto lane each wrote that key, and one of the two definitions
+  // came out at the merge rather than shipping the registry a duplicate.
   {
     key: "governance.veto_hours",
     category: "Governance",
@@ -532,16 +534,6 @@ export const VARIABLES: VariableDef[] = [
     min: 72,
     max: 720,
     unit: "hours",
-  },
-  {
-    key: "governance.steward_council",
-    category: "Governance",
-    label: "A veto needs a majority of stewards",
-    criticality: "constitutional",
-    description:
-      "Off by default, and off means any single seated steward can stop a change on their own. Turn it on and a veto needs more than half of the seated stewards, so one seat cannot hold the village. With one steward seated the two settings mean the same thing.",
-    type: "boolean",
-    default: "false",
   },
   {
     key: "governance.highest_tier",

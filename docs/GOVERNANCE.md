@@ -11,7 +11,7 @@ This describes a FRESH village: what a village standing up a new instance holds 
 <!-- written by a person: generated -->
 This file is generated. `scripts/generate-governance-doc.mjs` reads the engine, the subject registry, the dials, the capability tables, the module definition, the clock and the route registrations, works out the facts, and writes the whole document. `scripts/check-governance-doc.mjs` regenerates it and fails the build when the committed text and the code have come apart.
 
-It describes the code at commit `e206112023d375658f12ab387267896d3f50a441`.
+It describes the code at commit `85029d2e5c32cbd72d8848d04eb658ea12959aaa`.
 
 <!-- written by a person: editing -->
 Editing this file by hand does not hold. Change the code, then run:
@@ -126,7 +126,6 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.steward_subjects` | Which decisions a steward can stop | `open` | `all` | text | when it is written |
 | `governance.steward_council` | A veto needs a majority of the stewards | `open` | `false` | boolean | when it is written |
 | `governance.veto_hours` | How long a steward has to stop a change | `open` | `72` | 72 to 720 hours | when it is written |
-| `governance.steward_council` | A veto needs a majority of stewards | `open` | `false` | boolean | when it is written |
 | `governance.highest_tier` | The tier that overrides a veto | `open` | `constitutional` | `routine`, `structural`, `constitutional` | when it is written |
 | `governance.change_cooldown_days` | Cooldown after a governed rule change | `open` | `0` | 0 to 365 days | when it is written |
 | `governance.weight_mode` | How voting weight is assigned | `founder` | `equal` | `equal`, `token`, `custom` | when it is written |
@@ -149,7 +148,7 @@ The dials a village holds, with the ring that says who may move each one and the
 <!-- written by a person: dialsStorage -->
 Only CHANGED values are stored. An absent row means the platform default in the table above, so a fresh village starts with every one of these and no rows at all.
 
-11 settings across the whole registry wait for a cycle close instead of applying when they are written: `cycle.mode`, `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 29 settings above is one of them, so every governance dial takes effect the moment it is written.
+11 settings across the whole registry wait for a cycle close instead of applying when they are written: `cycle.mode`, `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 28 settings above is one of them, so every governance dial takes effect the moment it is written.
 
 ## What each kind of decision asks
 
@@ -646,7 +645,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
 
 ```json
 {
-  "commit": "e206112023d375658f12ab387267896d3f50a441",
+  "commit": "85029d2e5c32cbd72d8848d04eb658ea12959aaa",
   "module": {
     "id": "governance",
     "shipsAs": "off",
@@ -872,17 +871,6 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "default": "72",
       "min": 72,
       "max": 720,
-      "choices": null,
-      "applyTiming": "instant"
-    },
-    {
-      "key": "governance.steward_council",
-      "label": "A veto needs a majority of stewards",
-      "ring": "open",
-      "type": "boolean",
-      "default": "false",
-      "min": null,
-      "max": null,
       "choices": null,
       "applyTiming": "instant"
     },
