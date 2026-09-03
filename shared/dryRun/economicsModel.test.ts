@@ -40,10 +40,19 @@ const AT = new Date(AT_ISO);
 
 const SEED = 20260903;
 
-// ── The seven tokens, as this village's registry really holds them ──────────
+// ── The six platform tokens a fresh village boots with ───────────────────
+//
+// SIX AND NOT SEVEN. The registry a real village boots with also holds the
+// village's own EQUITY token, seeded by drizzle/0006_token_registry.sql:43. It
+// is left out of this fixture on purpose: `shared/` is a hard-clean zone for
+// `scripts/check-brand-refs.mjs`, and a platform test naming one village's
+// equity slug is exactly the debt every fork would inherit. Nothing here turns
+// on it. It is Hypha-governed with no faucet, so `faucetFor` (economy.ts:1028)
+// returns null for it and the engine can never issue it, and `voice` below is
+// the same shape and covers that path in the tests that need it.
 //
 // slugs, kinds and decimals from drizzle/0006_token_registry.sql:41 (gratitude,
-// amora, voice), drizzle/0007_village_credits_token.sql:10 (credits),
+// voice), drizzle/0007_village_credits_token.sql:10 (credits),
 // server/lib/economy.ts:122 (village-voice, decimals 3 from VOICE_DECIMALS at
 // economy.ts:151), server/lib/stays.ts:60 (stay-credit) and
 // server/lib/library.ts:44 (library-credit). Every other token takes the
@@ -52,14 +61,13 @@ const SEED = 20260903;
 // Faucets from `faucetFor` (server/lib/economy.ts:1028) and the four system
 // account ids it names: RECOGNITION_FAUCET and CYCLE_POOL_FAUCET and
 // MINT_FAUCET (server/lib/ledger.ts:63,64,67), VOICE_MINT (economy.ts:109) and
-// LIBRARY_MINT (economy.ts:72). `amora` and `voice` are Hypha-governed mirrors
-// and `faucetFor` returns null for both, which is why they have none.
+// LIBRARY_MINT (economy.ts:72). `voice` is a Hypha-governed mirror and
+// `faucetFor` returns null for it, which is why it has none.
 //
 // Sinks from `spendSinkFor` (server/lib/spending.ts:139).
 function tokens(): TokenSpec[] {
   return [
     { slug: "gratitude", kind: "recognition", decimals: 0, faucet: "sys:gratitude-pool", sinks: ["sys:treasury"] },
-    { slug: "amora", kind: "equity", decimals: 0, faucet: null, sinks: [] }, // brand-ok: the equity slug drizzle/0006_token_registry.sql:43 really seeds, and a snapshot fixture has to carry the registry the engine really reads. Same category as the migration itself, which is baselined for the same reason.
     { slug: "voice", kind: "voice", decimals: 0, faucet: null, sinks: [] },
     { slug: "credits", kind: "credit", decimals: 0, faucet: "sys:cycle-pool", sinks: ["sys:treasury"] },
     { slug: "village-voice", kind: "voice", decimals: 3, faucet: "sys:voice-mint", sinks: ["sys:treasury"] },
