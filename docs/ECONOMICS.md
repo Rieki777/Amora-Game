@@ -461,29 +461,38 @@ is the open question about what would change that.
 
 ## 10. Known defects, with their measurements
 
-### 10.1 Two members thanking at the same moment deadlock
+### 10.1 Two members thanking at the same moment deadlocked. Fixed on `wt/econ`, measured.
 
-`writeGratitudeRow` runs at SERIALIZABLE, taking gap locks over the whole
-`gratitude_log` cycle range, which every giver in the village shares. **The lock
-that correctly stops one member racing themselves is what makes the village fail
-against each other.**
+`writeGratitudeRow` ran at SERIALIZABLE, which turned its two SUM reads over
+`gratitude_log` into range locks every giver in the village shared. Measured
+through the built server before the fix: 2 concurrent givers, 1 failed; 12,
+ten failed, one of them an uncaught throw carrying the storage engine's own
+sentence as a 400.
 
-Measured through the built server over HTTP: 2 concurrent givers, 1 fails; 4, two
-fail; 8, six fail; **12, ten fail**, one of them an uncaught throw rather than a
-handled 400. The failure body carries raw driver text.
+The fix (branch `wt/fix-gratdead`, commit 2f56055, merged here): the row now
+runs at REPEATABLE READ, and the `SELECT ... FOR UPDATE` on the giver's own row
+is what serialises a member against themselves, so the allowance is still
+enforced to the unit: 40 concurrent gives of 5 against an allowance of 100
+spend exactly 100. `postTransfer` also locks the two accounts before creating
+any that are absent, because `INSERT IGNORE` on an existing row took a shared
+lock that the following `FOR UPDATE` had to upgrade, a deadlock by construction
+when several credits reached one recipient at once. Proven by its tests
+(`server/economy.test.ts`, the concurrency block); not yet proven in production,
+where the ledger is empty.
 
-### 10.2 A member can be charged for a credit that was never delivered
+### 10.2 A member could be charged for a credit that was never delivered. Fixed on `wt/econ`, measured.
 
-`give()` commits the note, which SPENDS the allowance, and posts the ledger
-credit afterwards, outside the lock. Under contention that post throws. Measured:
-**20 to 30 of every 100 charged units never delivered**, across three runs.
+`give()` committed the note, which spends the allowance, and posted the ledger
+credit afterwards in a transaction of its own. Under contention that second
+transaction threw, leaving the allowance spent and the recipient with nothing,
+and no surface could see it, because a charge with no delivery leaves the books
+balanced. Measured before the fix: 18 of 40 gives from one member, 36 units of a
+100-unit allowance, charged and never delivered.
 
-`sendGratitude()` in `server/lib/gratitude.ts` has the same shape for the same
-reason: `writeGratitudeRow` returns, and only then does `postTransfer` run.
-
-`checkLedgerInvariants` cannot see it, because nothing was created out of
-balance; nothing was created at all. So the founder's reconciliation panel reports
-a clean economy over a real loss, and there is no repair sweep.
+The fix: `postTransferOn` is `postTransfer` without its own transaction, so the
+note and its credit now commit together, both or neither, which is what
+`postTransferPair` has always done for a swap's two legs. Proven by its tests;
+not yet proven in production.
 
 ### 10.3 The wallet is wrong by a factor of a thousand
 
@@ -530,12 +539,21 @@ member to -999,975 with every invariant green. Proven by its tests
 (`server/economy.test.ts`, the Reversal block, three of which go red with the
 fix removed); not yet proven in production, where the ledger is empty.
 
-### 10.5 `postTransfer` has no deadlock retry
+### 10.5 `postTransfer` had no deadlock retry. Fixed on `wt/econ`.
 
-`postTransferPair` carries a three-attempt retry; `postTransfer` does not.
+`postTransferPair` carried a three-attempt retry on `ER_LOCK_DEADLOCK` and
+`ER_LOCK_WAIT_TIMEOUT`; `postTransfer`, which every mint goes through, rolled
+back and rethrew, and neither `mint` nor `mintForConfirmedClaim` caught it.
+Measured on 2026-09-03 by the ceiling lane on a tree without the fix: two
+concurrent quest confirmations threw into the consent route one run in three.
+`postTransfer` and `writeGratitudeRow` now carry the same three-attempt retry
+with a short jittered wait, and anything the engine did not decide is mapped to
+one written sentence with the driver's error kept in the log. A rolled-back
+transaction moved nothing, so the retry is safe. The one-in-three figure has
+not been re-measured on the merged tree; the closing-proof pass owes that number.
 
-**None of these has ever hurt anyone, because production has zero ledger rows.
-All of them land on the first day more than one person uses the thing.**
+**None of these had hurt anyone, because production has zero ledger rows. All
+of them would have landed on the first day more than one person used the thing.**
 
 ---
 
