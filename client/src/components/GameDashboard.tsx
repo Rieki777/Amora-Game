@@ -1,4 +1,5 @@
 import { fetchGameMe, GameMe } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { ArrowRight, CheckCircle2, Circle, Compass, Heart, Sparkles } from "lucide-react";
@@ -15,7 +16,7 @@ const CLAIM_STATUS: Record<string, { label: string; cls: string }> = {
 
 export default function GameDashboard() {
   const [me, setMe] = useState<GameMe | null>(null);
-  const [currency, setCurrency] = useState("Gratitude");
+  const currency = useTokenName("Recognition");
   /**
    * The advance to celebrate, or null.
    *
@@ -34,10 +35,6 @@ export default function GameDashboard() {
       const fresh = next?.lastAdvance;
       if (fresh && claimMoment(`stage:${fresh.toStage}:${fresh.at}`)) setAdvance(fresh);
     });
-    fetch("/api/game/config")
-      .then((r) => r.json())
-      .then((c) => setCurrency(c?.currency?.name ?? "Gratitude"))
-      .catch(() => { /* silent */ });
   }, []);
 
   if (!me) return null;

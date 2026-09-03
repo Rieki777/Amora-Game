@@ -44,17 +44,17 @@ authority; the `data/` volume holds only uploads and archived JSON
 | `server/index.ts` | The one Express server: auth, boot, and the routes not yet extracted. **31,119 lines, 485 route registrations**, measured 2026-08-31 by `scripts/check-server-index-size.mjs`, which ratchets both numbers downward. This row said "~8,400 lines" from some earlier era until that guard existed, and then said 545 routes when the script said 544; do not hand-edit these figures, run the script and copy `scripts/server-index-size-baseline.json`. |
 | `server/routes/*` | Route modules, one per domain, each exporting `register(app, deps)`. Where new routes go. |
 | `server/lib/*` | Domain libraries: ledger, modules, payments, exchange, notify, scheduler, events, secrets, identity, launch, feedback, exit, health, member tokens, the admin-gate marker, `appDeps` … |
-| `server/db/` | `migrate.ts` (the engine), `testDb.ts` (S5 harness), `schema.ts` |
+| `server/db/` | `migrate.ts` (the engine), `testDb.ts` (S5 harness), `pool.ts` (the connection). There is no schema.ts here: the schema is the numbered SQL in `drizzle/`. |
 | `server/repos/` | `store-db.ts` (MySQL-authoritative, memory-cached, write-through stores), `users.ts`, `quests.ts`, `gratitude.ts` |
 | `server/seeds/` | Fork-onboarding seeds (content, quests) — a declared brand home |
 | `shared/` | Isomorphic registries: `modules.ts`, `capabilities.ts`, `gameVariables.ts`, `gameConfig.ts`, `launchRequirements.ts`, `hypha.ts`, `lunar.ts` |
-| `client/src/` | React 19 + Vite + wouter SPA; `modules/ModuleProvider.tsx` is the client's one module-truth source |
+| `client/src/` | React 19 + Vite + wouter SPA; `client/src/modules/ModuleProvider.tsx` is the client's one module-truth source |
 | `drizzle/` | Numbered SQL migrations `0001`–`0031`, applied by the custom runner |
 | `scripts/` | `check-brand-refs.mjs` (the ratchet), `run-migration.ts`, `smoke-all-modules.mjs`, `enable-all-modules.mjs` |
 | `docs/` | This file, `FORK_RUNBOOK.md`, `FEEDBACK_HUB_CONTRACT.md`, per-module design docs |
 
 **Request path.** SPA → `/api/*` → (1) the raw-body Stripe webhook, mounted
-*before* `express.json()` (`server/index.ts:2167`) → (2) `express.json`
+*before* `express.json()` (`server/index.ts:2167`) → (2) `express.json()`
 (1 MB cap) → (3) automatic admin audit middleware — any non-GET under
 `/api/admin` that succeeds writes an attributed audit event
 (`server/index.ts:2186-2202`) → (4) CORS → (5) `requireModule(id)` for
@@ -131,7 +131,7 @@ twice).
 accounts that must already exist — a typo'd system id is an error, not a new
 account. Faucets may run negative and their negative balance IS
 issued-to-date supply: `sys:gratitude-pool`, `sys:cycle-pool` (seeded by
-`drizzle/0009`), `sys:mint` (0011), `sys:library-mint` (0024). Deliberately
+`drizzle/0009_ledger_accounts_and_transfers.sql`), `sys:mint` (0011), `sys:library-mint` (0024). Deliberately
 NOT faucets: `sys:treasury` (an ordinary vault — selling more than was
 stocked *fails*, out of stock is never a mint), `sys:exit-settlement`
 (0027), `sys:library-escrow/pool/sink` (0024). Conservation is therefore
@@ -467,7 +467,7 @@ Built once (S32), consumed by every fiat module. Three responsibilities:
    `ceilMinor` what the member pays, `floorTokens` what the member receives;
    the property test asserts no round trip extracts value.
 2. **Settlement + reversal.** ONE raw-body webhook
-   (`POST /api/webhooks/stripe`, mounted before `express.json`,
+   (`POST /api/webhooks/stripe`, mounted before `express.json()`,
    `server/index.ts:2167`). Signature verification is a manual HMAC of
    Stripe's v1 scheme over the RAW body with a 5-minute replay tolerance and
    `timingSafeEqual` (payments.ts:97–117). **Fail closed:** a missing

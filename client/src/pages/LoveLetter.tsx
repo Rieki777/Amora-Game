@@ -5,6 +5,7 @@ import { useState } from "react";
 import { authToken, useVillageLinks } from "@/lib/gameApi";
 import { useVillageContent } from "@/hooks/useVillageContent";
 import { useVillageName } from "@/hooks/useVillageName";
+import { useTokenName } from "@/hooks/useTokenNames";
 
 /**
  * S2 brochure lane, 2026-08-30: this page used to state, nine times, that
@@ -91,6 +92,7 @@ export default function LoveLetter() {
   const { content: legal } = useVillageContent<LegalContent>("legal");
   const { content: covenant } = useVillageContent<CovenantContent>("covenant");
   const villageName = useVillageName();
+  const tokenName = useTokenName("recognition");
   const commitments = buildCommitments(villageName);
   const membership = legal?.membership;
   // The village's own name alone when no entity is published: a name, not a
@@ -322,7 +324,7 @@ export default function LoveLetter() {
 
             <p className="mb-6 text-muted-foreground">
               In return, you become a full member of {entityName}, gaining access
-              to community spaces, governance participation, Gratitude economy, and the opportunity to
+              to community spaces, governance participation, {tokenName} economy, and the opportunity to
               deepen your involvement through roles, residency, or business creation.
             </p>
 

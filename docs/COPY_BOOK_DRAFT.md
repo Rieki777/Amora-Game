@@ -1,7 +1,7 @@
 # The Copy Book - draft for the founder's pass
 
 First pass applied on branch `wt/r5-copy`, 2026-08-22, from
-`COPY_CENSUS_2026-08-21.md` (416 rows) under the R45 style ruling: explain
+COPY_CENSUS_2026-08-21.md (416 rows, a working file never committed here) under the R45 style ruling: explain
 plainly first, in short declarative sentences a first-time visitor trusts; the
 enchantment lives in the map's existing metaphors, never in vagueness.
 

@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchGameMe, QuestClaim, useGameConfig } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
 import QuestActions from "@/components/QuestActions";
 import QuestCrews from "@/components/QuestCrews";
 import QuestCard, { difficultyColors, iconFor, QuestPoster } from "@/components/QuestCard";
@@ -34,7 +35,7 @@ export default function QuestDetail() {
   const [, params] = useRoute("/quests/:id");
   const questId = params?.id ?? "";
   const cfg = useGameConfig();
-  const currencyName = cfg?.currency?.name ?? "Gratitude";
+  const currencyName = useTokenName("Recognition");
   const stages = cfg?.stages ?? [];
   const { user } = useAuth();
   const [quest, setQuest] = useState<BoardQuest | null>(null);

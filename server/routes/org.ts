@@ -67,6 +67,7 @@ import {
 import {
   addChange,
   createDraft,
+  draftChangeCap,
   listDrafts,
   previewDraft,
   publishDraft,
@@ -157,13 +158,20 @@ export function register(app: Express, deps: Deps): void {
 
   app.post("/api/admin/org/drafts", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const id = await createDraft(getPool(), {
+    // `createDraft` answers a result rather than an id since 0143, because it
+    // can now refuse: a machine-sourced draft meets a volume cap. A HUMAN
+    // TYPING IN THE ADMIN PANEL IS NEVER CAPPED, which is what `openCap: null`
+    // says here, so this route behaves exactly as it did.
+    const made = await createDraft(getPool(), {
       title: String(req.body?.title ?? ""),
       rationale: req.body?.rationale ?? null,
       threadId: req.body?.threadId ?? null,
       createdBy: (await authedUser(req))?.id ?? null,
+      sourceKind: "human",
+      openCap: null,
     });
-    res.json({ success: true, id });
+    if (!made.ok) return res.status(409).json({ error: made.error });
+    res.json({ success: true, id: made.id });
   });
 
   app.post("/api/admin/org/drafts/:id/changes", async (req, res) => {
@@ -207,10 +215,20 @@ export function register(app: Express, deps: Deps): void {
     res.json({ success: true });
   });
 
+  /*
+   * THE ONE DOOR ONTO `publishDraft`, and `visionNeverApplies.test.ts` holds
+   * it to that. It reads the 400 characters BEFORE the call and asserts this
+   * route's path is in them, so a comment written between the two breaks a
+   * true test with a false failure. Reasoning goes here, above the handler,
+   * and the handler stays tight. `draftChangeCap` in orgDrafts.ts carries the
+   * argument for the cap: it applies only to a draft a machine proposed, and a
+   * founder typing in the admin panel is never capped by it.
+   */
   app.post("/api/admin/org/drafts/:id/publish", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = await authedUser(req);
-    const r = await publishDraft(getPool(), req.params.id, actor?.id ?? null);
+    const roster = ((await members.all()) as any[]).length;
+    const r = await publishDraft(getPool(), req.params.id, actor?.id ?? null, draftChangeCap(roster));
     if (!r.ok) return res.status(409).json({ error: r.error });
     // One journal line per seat the draft touched, so a reorganisation shows up
     // in the history of every node it moved rather than only in a draft list

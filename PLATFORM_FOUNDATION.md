@@ -81,7 +81,7 @@ platform bug.
 | `GET /api/game/config` | Public config: project, currency, paths, stages, current season |
 | `GET /api/game/me` (auth) | Player state: stage, ladder position, gratitude balance + budget, quest claims, next-best-action |
 | `POST /api/game/journey/sync` (auth) | Mirrors journey/training step completion into the player record |
-| `GET /api/quests` + admin CRUD | Quest library (seeded from `data/quests-seed.json`) |
+| `GET /api/quests` + admin CRUD | Quest library (seeded from `server/seeds/quests-seed.json`) |
 | `POST /api/game/quests/:id/claim` / `submit` (auth) | Claim a quest, submit evidence (artifact link + note) |
 | `GET /api/admin/quest-claims` + `POST .../consent` | Team consent queue; consent credits the reward and emits a pulse event |
 | `POST /api/game/gratitude/send` (auth) | Monthly budget (stage-multiplied), message required, once per recipient per cycle |
@@ -97,12 +97,12 @@ Stage computation: `computeStage()` interprets the declarative rules in
 
 ### Client components (platform)
 
-- `components/GameDashboard.tsx` — profile: next-best-action, stage ladder, gratitude, quests
-- `components/QuestActions.tsx` — claim/submit UI on quest cards
-- `components/SeasonBanner.tsx` — homepage season strip
-- `components/VillagePulse.tsx` — homepage activity feed
-- `pages/GratitudeWall.tsx` — public wall + send form (`/gratitude`)
-- `lib/gameApi.ts` — auth fetch + types
+- `client/src/components/GameDashboard.tsx` — profile: next-best-action, stage ladder, gratitude, quests
+- `client/src/components/QuestActions.tsx` — claim/submit UI on quest cards
+- `client/src/components/SeasonBanner.tsx` — homepage season strip
+- `client/src/components/VillagePulse.tsx` — homepage activity feed
+- `client/src/pages/GratitudeWall.tsx` — public wall + send form (`/gratitude`)
+- `client/src/lib/gameApi.ts` — auth fetch + types
 
 ### Admin (The Game section)
 
@@ -138,7 +138,7 @@ technical steps. That covers most projects.
   the API layer means a database can replace it later without client changes.
 - The auth token is unsigned base64 (pre-existing). Fine for a community site at
   this trust level; upgrade to signed tokens before scale.
-- Legacy field: the player balance is stored as `heartsBalance` in `users.json`
+- Legacy field: the player balance is stored as `heartsBalance` on the user row (`server/repos/users.ts`)
   (predates the Gratitude rename); the API exposes it as `gratitude.balance`.
 - Not yet built (next phases): Living Village map (milestones rendered on an
   illustrated map of the land), Season Harvest recap page, journey-page step sync

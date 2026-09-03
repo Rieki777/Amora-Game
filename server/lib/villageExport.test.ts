@@ -45,6 +45,10 @@ const seating = (orgRoleId: string, over: Partial<A> = {}): A => ({
   displayName: "Ada Vance", holderKey: "u-ada", focus: null, note: null,
   seasonId: null, termEndsAt: null, startedAt: new Date("2026-01-01"),
   endedAt: null, endedReason: null, isExample: false,
+  // 0142. See the note on the same line in server/lib/orgLoad.test.ts: a
+  // seating always has an answer for this in the schema, so the fixture does
+  // too.
+  isAgent: false,
   ...over,
 });
 
