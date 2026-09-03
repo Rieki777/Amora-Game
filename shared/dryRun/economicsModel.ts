@@ -20,17 +20,32 @@
  * file's import graph and fails if anything under `server/` or `mysql2` ever
  * becomes reachable from here.
  *
+ * The one arithmetic this file does NOT mirror is the share of the whole that
+ * one member holds. That lives in `shared/governanceShare.ts`, it is imported,
+ * and a second implementation of it here is exactly what that file was split
+ * out to prevent.
+ *
  * ── IT DESCRIBES WHAT THE CODE DOES, NOT WHAT ANYONE INTENDED ──────────────
  *
  * Three places where those differ, all of them found by reading and all of
  * them modelled the way the code actually behaves:
  *
- *   1. `mintForConfirmedClaim` (server/lib/economy.ts:1117) NEVER CALLS
- *      `clampToCeiling`. Nothing in the shipped server does: the only caller
- *      of that function anywhere is `server/economy.test.ts`. A fixed-amount
- *      rule therefore pays its amount every single time it fires, and its
- *      `ceiling` column bounds nothing at all. So this model does not clamp
- *      either, and it raises a flag saying the cap is decorative.
+ *   1. THE CEILING BOUNDS ONE OCCURRENCE, never a cycle and never a member.
+ *      `mint_rules.amount` and `mint_rules.ceiling` are both `decimal(18,4)`
+ *      on the same row, so the clamp is in the rule's own human units and it
+ *      happens BEFORE `toLedgerUnits`. A fixed-amount rule pays
+ *      `min(amount, ceiling)`; a from_source rule pays `min(posted, ceiling)`;
+ *      exactly at the ceiling pays; a ceiling of zero REFUSES, out loud, into
+ *      the same `unpayable` list `ruleCannotPay` feeds; an amount of zero with
+ *      a positive ceiling pays zero in silence, because that one is the
+ *      village's own off switch.
+ *      Eleven quests at 25 under a ceiling of 250 therefore issue 275, and
+ *      that is correct: the cap is on the occurrence.
+ *      `ceilingOutcome` (server/lib/economy.ts:590) is the one pure function
+ *      that decides it, and this file MIRRORS it by table instead of importing
+ *      it, because nothing here may name anything under `server/`. The table
+ *      is in `economicsModel.test.ts` and it is the same eight rows that
+ *      function's own test asserts.
  *   2. `runSettlement` (server/lib/economy.ts:1297) does NOTHING with the
  *      cycle pool. It pays `role.cycle` rules to seat holders and stops. The
  *      value pool is released by `POST /api/admin/cycles/close`
@@ -41,6 +56,19 @@
  *      rule's `recipient` column: it always pays the claimant. Both are
  *      modelled as written.
  *
+ * ── WHO OWNS WHAT ON THE STATE ─────────────────────────────────────────────
+ *
+ * THE ENGINE OWNS `atIso` AND `cycle`. `runPass` stamps the cycle's own start
+ * before a model steps and re-stamps it afterwards, so a model that advanced
+ * the instant would be writing a value the engine discards. This model reads
+ * the clock to say what cycle it is running and where the next boundary falls,
+ * and it writes neither field.
+ *
+ * THE MODEL OWNS `models.economics`. That is the bag the contract gives each
+ * model for what it remembers, keyed by model name so two models cannot
+ * collide. `cloneState` shallow copies the bag per recorded cycle, so this
+ * model REPLACES its entry every cycle and never edits one in place.
+ *
  * ── MINOR UNITS AND bigint ─────────────────────────────────────────────────
  *
  * Every amount here is a `bigint` in minor units, because the ledger stores
@@ -50,21 +78,35 @@
  *
  * ── WAVE 2 ─────────────────────────────────────────────────────────────────
  *
- * Two flags are deliberately absent and there is no hook for either.
- * CONCENTRATION needs `shareOfTotal` from `shared/governanceShare.ts`, which
- * is not on this branch. DECAY has no setting in the variables registry to
- * read. Both belong to the wave that lands those two files.
+ * DECAY is still absent and there is still no hook for it, because there is no
+ * setting in the variables registry to read. It belongs to the wave that adds
+ * one.
  */
 import { clockFor } from "../cycleClock";
 import { VARIABLES_BY_KEY, parseVariable } from "../gameVariables";
-import type { DomainModel, Flag, MemberSpec, MintRuleSpec, Rng, SimState, TokenSpec, Violation } from "./types";
+import { shareOfTotal, topShares } from "../governanceShare";
+import type {
+  DomainModel,
+  Flag,
+  MemberSpec,
+  MintRuleSpec,
+  QuestsSummary,
+  Rng,
+  SimState,
+  TokenSpec,
+  Violation,
+} from "./types";
 import {
   DEFAULT_ECONOMICS_ASSUMPTIONS,
   describeAssumptions,
+  parseEconomicsAssumptions,
   type EconomicsAssumptions,
 } from "./economicsAssumptions";
 
 // ── What the engine knows, mirrored by name ─────────────────────────────────
+
+/** The key this model keeps its memo and its assumptions under. */
+export const ECONOMICS_KEY = "economics";
 
 /**
  * The only sources that may drive a NON-FAUCET account below zero.
@@ -73,12 +115,15 @@ import {
  * out here because this file may not import it. This model never posts either
  * of these sources, so in practice any negative non-faucet balance it produces
  * is a violation. The set is still written down so the check reads as the
- * ledger's rule and not as "negative is always wrong".
+ * ledger's rule and never as "negative is always wrong".
  */
 export const ALLOW_NEGATIVE_SOURCES = ["stay_night", "payment_reversal"];
 
 /** The recognition token's slug (`HEARTS`, server/lib/economy.ts:78). */
 export const RECOGNITION_SLUG = "gratitude";
+
+/** The village's own voice token (`VILLAGE_VOICE`, economy.ts:80). */
+export const VOICE_SLUG = "village-voice";
 
 /** The trigger a confirmed quest fires (server/lib/economy.ts:1141). */
 export const QUEST_TRIGGER = "quest.completed";
@@ -100,6 +145,126 @@ export function spendSinkFor(tokenSlug: string): string {
   return tokenSlug === STAY_CREDIT_SLUG ? MINT_FAUCET : TREASURY;
 }
 
+/**
+ * WHAT THE CEILING LETS ONE OCCURRENCE POST.
+ *
+ * A MIRROR BY TABLE, never by import. `ceilingOutcome` in
+ * server/lib/economy.ts:590 is the one pure function that decides this, and
+ * `shared/dryRun/` may not name anything under `server/`, so this copy is held
+ * to the engine's by the same eight rows its own test asserts. The table lives
+ * in `economicsModel.test.ts`, and a drift between the two shows up there
+ * rather than in a comment.
+ *
+ * WHAT IT BOUNDS, and this is the part that is easy to get wrong: ONE
+ * OCCURRENCE. Not a cycle, not a member, no running total, no window.
+ * `mint_rules.amount` and `mint_rules.ceiling` are both `decimal(18,4)` on the
+ * same row, so the clamp is in the rule's own human units and it lands before
+ * `toLedgerUnits`. Eleven quests at 25 under a ceiling of 250 legitimately
+ * issue 275.
+ */
+export interface CeilingRuleLike {
+  /** The fixed amount, or null when the amount rides on the source. */
+  amount: number | null;
+  /** The most one occurrence may pay. */
+  ceiling: number;
+  /** The token, for the refusal's sentence. */
+  tokenSlug: string;
+}
+
+/** What the ceiling lets one occurrence post, and why it let it post nothing. */
+export interface CeilingOutcome {
+  /** What may be posted, in the rule's own human units. 0 posts nothing. */
+  paid: number;
+  /** Why the CEILING stopped it, in a founder's words, or null. */
+  refusal: string | null;
+}
+
+/** Mirrors `clampToCeiling` (server/lib/economy.ts:534). */
+export function clampToCeiling(posted: number, rule: CeilingRuleLike): number {
+  const asked = rule.amount !== null ? Number(rule.amount) : Number(posted);
+  if (!Number.isFinite(asked) || asked <= 0) return 0;
+  const ceiling = Number(rule.ceiling);
+  if (!Number.isFinite(ceiling) || ceiling < 0) return 0;
+  return Math.min(asked, ceiling);
+}
+
+/** Mirrors `ceilingOutcome` (server/lib/economy.ts:590), row for row. */
+export function ceilingOutcome(rule: CeilingRuleLike, posted: number, tokenName?: string): CeilingOutcome {
+  const name = tokenName ?? rule.tokenSlug;
+  const ceiling = Number(rule.ceiling);
+  // The CEILING alone decides the refusal, never the clamp's answer: a
+  // from_source rule's payable amount depends on what the work posted, so
+  // reading a clamped zero as a broken ceiling would call every from_source
+  // rule broken on every occurrence that posted nothing.
+  if (!Number.isFinite(ceiling) || ceiling <= 0) {
+    return {
+      paid: 0,
+      refusal:
+        `this rule's ceiling is ${rule.ceiling}, so it can pay no ${name} at all. ` +
+        "Raise the ceiling or pause the rule",
+    };
+  }
+  return { paid: clampToCeiling(posted, rule), refusal: null };
+}
+
+/**
+ * The same decision in MINOR UNITS, which is what a `MintRuleSpec` carries.
+ *
+ * Clamping in minor units and clamping in human units answer the same number,
+ * because `toLedgerUnits` is `Math.round(human * 10 ** decimals)` and rounding
+ * is monotone: `round(min(a, c) * s)` equals `min(round(a * s), round(c * s))`.
+ * So the model may clamp on the bigints it already holds and still be the
+ * engine's answer.
+ *
+ * WHAT IT CANNOT SEE, said out loud: `MintRuleSpec` carries `amountRaw` and no
+ * `ceilingRaw`, so a ceiling written BELOW the token's own resolution (0.0004
+ * on a whole-unit token) reaches this model as zero minor units and is read as
+ * the engine's refusal case, where the engine would read 0.0004 and clamp. The
+ * column is `NOT NULL DEFAULT 0` and every seeded ceiling is a whole number, so
+ * that shape needs a village to type it. It is reported to the governance
+ * session as the one field this mirror is missing.
+ *
+ * `ceiling: null` on the spec means NO CAP, which is a shape the engine cannot
+ * produce (the column is NOT NULL), so it clamps nothing and refuses nothing.
+ */
+export function ceilingOutcomeMinor(
+  rule: MintRuleSpec,
+  postedMinor: bigint,
+  decimals: number,
+): { paid: bigint; refusal: string | null } {
+  const asked = rule.amount !== null ? rule.amount : postedMinor;
+  if (rule.ceiling === null) return { paid: asked > BigInt(0) ? asked : BigInt(0), refusal: null };
+  if (rule.ceiling <= BigInt(0)) {
+    // The engine quotes the column's own human figure. `humanUnits` gives the
+    // scaled text and `Number` drops the trailing zeros a whole number would
+    // otherwise carry, so "0.000" reads as the "0" the engine prints.
+    const written = String(Number(humanUnits(rule.ceiling, decimals)));
+    return {
+      paid: BigInt(0),
+      refusal:
+        `this rule's ceiling is ${written}, so it can pay no ${rule.tokenSlug} at all. ` +
+        "Raise the ceiling or pause the rule",
+    };
+  }
+  if (asked <= BigInt(0)) return { paid: BigInt(0), refusal: null };
+  return { paid: asked < rule.ceiling ? asked : rule.ceiling, refusal: null };
+}
+
+/**
+ * The share of the village's Voice above which the concentration flag speaks.
+ *
+ * A third, because a third of the weight is the point at which one holder can
+ * block anything needing two thirds, and because a number a reader can check
+ * beats a number tuned to look calm. There is no variable for this in the
+ * registry, so the threshold is stated in the sentence the flag raises and a
+ * founder can argue with it.
+ *
+ * The flag is a WARNING and it never blocks. The founder's ruling is that
+ * transparency is the protection: a preview that refused to run because one
+ * person held too much would be a preview that hid the fact.
+ */
+export const CONCENTRATION_THRESHOLD = 1 / 3;
+
 // ── The memo the model keeps between step and flags ─────────────────────────
 
 /** One rule's activity in one cycle, so the ceiling flags have something to read. */
@@ -109,6 +274,8 @@ export interface RuleActivity {
   minted: bigint;
   ceiling: bigint | null;
   fired: number;
+  /** What the ceiling took off this cycle, summed over the occurrences. */
+  clampedAway: bigint;
 }
 
 /** A rule that was enabled, in force, and paid nobody. Mirrors `ruleCannotPay`. */
@@ -118,14 +285,19 @@ export interface UnpayableRule {
   reason: string;
 }
 
+/** One member's share of the village's Voice, after the cycle. */
+export interface VoiceShare {
+  memberId: string;
+  minor: bigint;
+  share: number;
+}
+
 /**
  * WHAT THE MODEL REMEMBERS ABOUT THE CYCLE IT JUST RAN.
  *
- * `SimState` has no room for any of this, so the memo rides on the state as an
- * extra field. See the report to the governance session: `simulate`'s
- * `cloneState` rebuilds the state field by field, so the memo survives every
- * spread inside a pass and is dropped from the recorded `CycleResult.state`.
- * `flags` is called on the live state, so it always sees it.
+ * Kept under `state.models.economics`, which is the bag the contract gives
+ * each model. Replaced whole every cycle and never edited in place, because
+ * `cloneState` copies the bag and cannot copy what is inside it.
  */
 export interface EconomicsMemo {
   /** Which cycle this memo describes. */
@@ -135,11 +307,18 @@ export interface EconomicsMemo {
   /** The cycle's own bounds, from `clock.boundsFor`. */
   startsAt: string;
   endsAt: string;
-  /** Where the state's instant moved to, from `clock.nextBoundaryAfter`. */
+  /** Where the next cycle begins, from `clock.nextBoundaryAfter`. The ENGINE
+   *  moves the instant; this is here so a reader can see the boundary. */
   nextBoundaryAt: string;
+  /** The assumptions this cycle actually ran under, resolved and printable. */
+  assumptions: EconomicsAssumptions;
+  /** What the village was measured doing, carried for the same reason. */
+  quests: QuestsSummary;
+  /** Whether the village may issue at all, from `SimState.launched`. */
+  launched: boolean;
   /** How many two-account moves this cycle made. */
   postings: number;
-  /** Quests the assumptions said were confirmed this cycle. */
+  /** Quests confirmed this cycle, after the rate multiplier. */
   questsConfirmed: number;
   /** Allowance granted this cycle, summed over the roll, in minor units. */
   allowanceTotal: bigint;
@@ -161,21 +340,38 @@ export interface EconomicsMemo {
   unpayable: UnpayableRule[];
   /** The last posting source that DEBITED each account, for the negative check. */
   lastDebitSource: Record<string, string>;
-  /** Faucet postings the closed-issuance gate refused. */
+  /** Faucet postings the closed-Game gate refused. */
   issuanceRefusals: number;
   /** Member stages with no `progression.multiplier.<stage>` in the registry. */
   stagesWithoutMultiplier: string[];
-}
-
-/** A state carrying the economics memo. `step` returns one of these. */
-export interface EconomicsSimState extends SimState {
-  economics: EconomicsMemo;
+  /** Voice minted against each seat, cumulative over the run. */
+  seatVoice: Record<string, bigint>;
+  /** Every member's share of the village's Voice after this cycle. */
+  voiceShares: VoiceShare[];
+  /** The total Voice held across the roll, in minor units. */
+  voiceTotal: bigint;
 }
 
 /** The memo on this state, or null when nothing has stepped it yet. */
 export function readEconomicsMemo(state: SimState): EconomicsMemo | null {
-  const memo = (state as Partial<EconomicsSimState>).economics;
-  return memo && typeof memo === "object" ? memo : null;
+  const bag = state.models;
+  if (!bag || typeof bag !== "object") return null;
+  const memo = bag[ECONOMICS_KEY];
+  return memo && typeof memo === "object" ? (memo as EconomicsMemo) : null;
+}
+
+/**
+ * The assumptions a state's run is using.
+ *
+ * `SimState.assumptions` is the one place an activity assumption lives and the
+ * engine hands every state the same object the caller wrote. `fallback` is
+ * what the model's own constructor was given, so a caller supplying half an
+ * object gets the model's numbers for the other half.
+ */
+export function assumptionsFor(state: SimState, fallback: EconomicsAssumptions): EconomicsAssumptions {
+  const bag = state.assumptions;
+  const mine = bag && typeof bag === "object" ? bag[ECONOMICS_KEY] : undefined;
+  return parseEconomicsAssumptions(mine, fallback);
 }
 
 // ── Reading the registry the way the server reads it ────────────────────────
@@ -215,7 +411,7 @@ interface Book {
   lastDebitSource: Record<string, string>;
   postings: number;
   issuanceRefusals: number;
-  issuanceOpen: boolean;
+  launched: boolean;
 }
 
 function balanceOf(book: Book, account: string, slug: string): bigint {
@@ -230,13 +426,22 @@ function setBalance(book: Book, account: string, slug: string, value: bigint): v
   book.balances[account] = row;
 }
 
+/** Ten to the power n as a bigint. Written as a loop because the build target
+ *  refuses the exponent operator on a bigint (TS2791). */
+function powTen(n: number): bigint {
+  let out = BigInt(1);
+  const places = Math.max(0, Math.trunc(n));
+  for (let i = 0; i < places; i += 1) out *= BigInt(10);
+  return out;
+}
+
 /**
  * The one check that has to hold after EVERY posting, not only at the end.
  *
  * A run that summed to zero at the end could still have passed through a state
  * it could never have reached, and a preview derived from an impossible state
  * is worse than no preview. It throws, because a broken posting is a defect in
- * this model and not news about the village.
+ * this model and never news about the village.
  */
 export function assertConserved(
   balances: Record<string, Record<string, bigint>>,
@@ -262,9 +467,11 @@ export function assertConserved(
  *
  * Mirrors `validateLeg` and `postTransfer` (server/lib/ledger.ts:243 and 368):
  * a positive amount, two different accounts, issuance closed until the village
- * starts its Game, and no non-faucet account below zero unless the source is
- * in the allow-negative set. Returns false when the ledger would have refused,
- * which is what makes an unaffordable spend a smaller spend instead of a lie.
+ * starts its Game (`issuanceRefusal`, server/lib/gameStart.ts:150, asked on
+ * every faucet leg at ledger.ts:416), and no non-faucet account below zero
+ * unless the source is in the allow-negative set. Returns false when the
+ * ledger would have refused, which is what makes an unaffordable spend a
+ * smaller spend instead of a lie.
  */
 function post(
   book: Book,
@@ -277,7 +484,7 @@ function post(
   if (amount <= BigInt(0)) return false;
   if (!from || !to || from === to) return false;
   const fromIsFaucet = book.faucets[from] === true;
-  if (fromIsFaucet && !book.issuanceOpen) {
+  if (fromIsFaucet && !book.launched) {
     book.issuanceRefusals += 1;
     return false;
   }
@@ -294,15 +501,6 @@ function post(
 
 // ── Mirrors of the engine's refusals ────────────────────────────────────────
 
-/** Ten to the power n as a bigint. Written as a loop because the build target
- *  refuses the exponent operator on a bigint (TS2791). */
-function powTen(n: number): bigint {
-  let out = BigInt(1);
-  const places = Math.max(0, Math.trunc(n));
-  for (let i = 0; i < places; i += 1) out *= BigInt(10);
-  return out;
-}
-
 function tokenBySlug(tokens: TokenSpec[], slug: string): TokenSpec | null {
   for (let i = 0; i < tokens.length; i += 1) {
     if (tokens[i].slug === slug) return tokens[i];
@@ -313,17 +511,71 @@ function tokenBySlug(tokens: TokenSpec[], slug: string): TokenSpec | null {
 /**
  * Why this rule cannot pay, or null when it can.
  *
- * Mirrors `ruleCannotPay` (server/lib/economy.ts:1059) in the order the engine
- * hits the refusals. `TokenSpec` carries no `active` flag and no `governance`
- * column, so two of the engine's four reasons are read off what the snapshot
- * does carry: a `kind` of `equity` or `voice` on a token with no faucet is a
- * Hypha mirror, and the faucet test catches it either way.
+ * All four of the engine's refusals, in the order `ruleCannotPay`
+ * (server/lib/economy.ts:1059) hits them: a slug that is in no registry, a
+ * token governed somewhere else, a token retired from the registry, and a
+ * token with no faucet. `TokenSpec` now carries `governance` and `active`, so
+ * the mirror is complete and a preview can no longer promise a payout the
+ * engine would refuse.
  */
 export function ruleCannotPay(tokens: TokenSpec[], slug: string): string | null {
   const def = tokenBySlug(tokens, slug);
   if (!def) return `there is no token called "${slug}" in this village's registry`;
+  if (def.governance !== "platform") {
+    return `${slug} is governed on Hypha and only mirrored here, so this village cannot issue it`;
+  }
+  if (!def.active) return `${slug} has been retired from the registry`;
   if (!def.faucet) return `${slug} has no faucet, so the engine has nowhere to issue it from`;
   return null;
+}
+
+// ── The written amount, against the amount that pays ────────────────────────
+
+/** What a rule was written as, and what the ledger can actually carry. */
+export interface WrittenAmount {
+  /** The decimal text the column holds, trimmed. Empty when the column is NULL. */
+  raw: string;
+  /** True when the written figure is a whole number of this token's minor units. */
+  exact: boolean;
+  /** The written figure in minor units, rounded the way `toLedgerUnits` rounds. */
+  rounded: bigint;
+  /** True when the written figure is above zero. */
+  positive: boolean;
+}
+
+/**
+ * Read `mint_rules.amount` exactly, from its own text.
+ *
+ * `amount` on the spec is already in minor units and cannot say whether the
+ * village wrote a deliberate zero or wrote 0.0004 and watched it round away.
+ * `amountRaw` is the `decimal(18,4)` column's own text and can. The scaling is
+ * done on the STRING, never through a double, because reading a money column
+ * through IEEE is the defect this whole file is careful about.
+ *
+ * The rounding mirrors `toLedgerUnits` (server/lib/economy.ts:154), which is
+ * `Math.round(human * 10 ** decimals)`: half goes up.
+ */
+export function writtenAmount(raw: string, decimals: number): WrittenAmount | null {
+  const text = String(raw ?? "").trim();
+  if (!/^-?[0-9]*(\.[0-9]*)?$/.test(text) || text === "" || text === "." || text === "-") return null;
+  const negative = text.charAt(0) === "-";
+  const body = negative ? text.slice(1) : text;
+  const dot = body.indexOf(".");
+  const whole = dot < 0 ? body : body.slice(0, dot);
+  const frac = dot < 0 ? "" : body.slice(dot + 1);
+  const places = Math.max(0, Math.trunc(decimals));
+  const kept = (frac + "0000000000000000000000").slice(0, places);
+  const extra = frac.slice(places);
+  let scaled = BigInt(whole === "" ? "0" : whole) * powTen(places) + BigInt(kept === "" ? "0" : kept);
+  const exact = /^0*$/.test(extra);
+  if (!exact && extra.charAt(0) >= "5") scaled += BigInt(1);
+  const positive = !negative && /[1-9]/.test(body);
+  return {
+    raw: text,
+    exact,
+    rounded: negative ? -scaled : scaled,
+    positive,
+  };
 }
 
 // ── Copying a state without structuredClone ─────────────────────────────────
@@ -377,6 +629,7 @@ function activityFor(list: RuleActivity[], rule: MintRuleSpec): RuleActivity {
     minted: BigInt(0),
     ceiling: rule.ceiling,
     fired: 0,
+    clampedAway: BigInt(0),
   };
   list.push(fresh);
   return fresh;
@@ -389,10 +642,20 @@ function noteUnpayable(list: UnpayableRule[], rule: MintRuleSpec, reason: string
   list.push({ ruleId: rule.id, tokenSlug: rule.tokenSlug, reason });
 }
 
-/** How many quests this member confirms this cycle, fractional part seeded. */
-function questsThisCycle(rate: number, rng: Rng): number {
-  const whole = Math.floor(rate);
-  const fraction = rate - whole;
+/**
+ * How many quests the village confirms this cycle.
+ *
+ * The OBSERVED rate (`QuestsSummary.confirmedPerCycle`, read off the tables at
+ * the snapshot instant) multiplied by the one thing the snapshot cannot say,
+ * which is whether that rate holds. A fractional result is resolved by the
+ * engine's own seeded generator, so half a quest a cycle is an honest half and
+ * the same seed answers the same thing.
+ */
+function confirmationsThisCycle(quests: QuestsSummary, multiplier: number, rng: Rng): number {
+  const projected = Math.max(0, Number(quests.confirmedPerCycle) || 0) * Math.max(0, multiplier);
+  if (!Number.isFinite(projected)) return 0;
+  const whole = Math.floor(projected);
+  const fraction = projected - whole;
   if (fraction <= 0) return whole;
   return rng.next() < fraction ? whole + 1 : whole;
 }
@@ -436,6 +699,50 @@ function shareCapFor(state: SimState, allowanceTotal: bigint): bigint {
 }
 
 /**
+ * WHO HOLDS THE VILLAGE'S VOICE, after a representative's seat is attributed.
+ *
+ * Voice is minted to the member who HOLDS a seat (`runSettlement` pays
+ * `seat.user_id`, server/lib/economy.ts:1355). `MemberSpec` says separately
+ * that somebody answers on a seat's behalf, and a preview of concentration
+ * that ignored that would understate what a representative actually carries
+ * into a room. So the Voice a seat has accrued over the run moves from the
+ * holder to the representative, bounded by what the holder still has.
+ *
+ * The share arithmetic itself is `shareOfTotal` from
+ * `shared/governanceShare.ts`, imported and never restated. A second copy of
+ * that division is exactly what that file was split out to prevent.
+ */
+function voiceWeights(
+  members: MemberSpec[],
+  balances: Record<string, Record<string, bigint>>,
+  seatVoice: Record<string, bigint>,
+): Map<string, bigint> {
+  const held = new Map<string, bigint>();
+  const holderOfSeat: Record<string, string> = {};
+  for (let i = 0; i < members.length; i += 1) {
+    const m = members[i];
+    const row = balances[m.accountId] ?? {};
+    const own = row[VOICE_SLUG];
+    held.set(m.id, own === undefined ? BigInt(0) : own);
+    const seats = m.seats ?? [];
+    for (let s = 0; s < seats.length; s += 1) holderOfSeat[seats[s]] = m.id;
+  }
+  for (let i = 0; i < members.length; i += 1) {
+    const rep = members[i];
+    if (rep.isRepresentative !== true || !rep.representsSeatId) continue;
+    const holderId = holderOfSeat[rep.representsSeatId];
+    if (!holderId || holderId === rep.id) continue;
+    const accrued = seatVoice[rep.representsSeatId] ?? BigInt(0);
+    const holderHas = held.get(holderId) ?? BigInt(0);
+    const moved = accrued < holderHas ? accrued : holderHas;
+    if (moved <= BigInt(0)) continue;
+    held.set(holderId, holderHas - moved);
+    held.set(rep.id, (held.get(rep.id) ?? BigInt(0)) + moved);
+  }
+  return held;
+}
+
+/**
  * ONE CYCLE, in the order the engine does it.
  *
  * Pure. It reads the state it is handed, mutates nothing in it, and returns a
@@ -447,8 +754,9 @@ function stepCycle(
   state: SimState,
   cycle: number,
   rng: Rng,
-  assumptions: EconomicsAssumptions,
-): EconomicsSimState {
+  fallback: EconomicsAssumptions,
+): SimState {
+  const assumptions = assumptionsFor(state, fallback);
   const clock = clockFor(state.clock ? state.clock.mode : "lunar");
   const at = new Date(state.atIso);
   const bounds = clock.boundsFor(at);
@@ -457,6 +765,7 @@ function stepCycle(
   const tokens = state.tokens ?? [];
   const members = state.members ?? [];
   const recognition = tokenBySlug(tokens, RECOGNITION_SLUG);
+  const previous = readEconomicsMemo(state);
 
   const book: Book = {
     balances: copyBalances(state.balances ?? {}),
@@ -464,12 +773,20 @@ function stepCycle(
     lastDebitSource: {},
     postings: 0,
     issuanceRefusals: 0,
-    issuanceOpen: assumptions.issuanceOpen,
+    // `SimState.launched` and no assumption. `issuanceRefusal`
+    // (server/lib/gameStart.ts:150) refuses every faucet posting until the
+    // launch vote carries, and the snapshot now carries that fact.
+    launched: state.launched === true,
   };
 
   const ruleActivity: RuleActivity[] = [];
   const unpayable: UnpayableRule[] = [];
   const stagesWithoutMultiplier: string[] = [];
+  const seatVoice: Record<string, bigint> = {};
+  if (previous) {
+    const seats = Object.keys(previous.seatVoice ?? {});
+    for (let i = 0; i < seats.length; i += 1) seatVoice[seats[i]] = previous.seatVoice[seats[i]];
+  }
 
   // ── 1. Confirmed quests fire the quest.completed rules ────────────────────
   //
@@ -479,52 +796,56 @@ function stepCycle(
   // any token but recognition, it stays quiet about a rule set to zero, it
   // reports a rule the engine cannot honour, and it pays the CLAIMANT whatever
   // the rule's `recipient` column says.
+  //
+  // HOW MANY, AND FOR WHOM. The count is the observed rate times the assumed
+  // multiple. WHO confirmed them is a fact the snapshot does not carry, so the
+  // confirmations are spread evenly over the roll, which is the least-assuming
+  // distribution there is and is said here rather than buried.
   const questRules = rulesForTrigger(state.mintRules ?? [], QUEST_TRIGGER);
-  let questsConfirmed = 0;
-  for (let m = 0; m < members.length; m += 1) {
-    const member = members[m];
-    const quests = questsThisCycle(assumptions.questsConfirmedPerMemberPerCycle, rng);
-    questsConfirmed += quests;
-    for (let q = 0; q < quests; q += 1) {
-      // The recognition a confirmed quest pays comes from the quest's own
-      // advertised range, which the snapshot holds no copy of. Zero unless the
-      // village supplied a figure, and `describeAssumptions` says so.
-      if (assumptions.gratitudePerConfirmedQuest > BigInt(0) && recognition && recognition.faucet) {
-        post(
-          book,
-          recognition.faucet,
-          member.accountId,
-          RECOGNITION_SLUG,
-          assumptions.gratitudePerConfirmedQuest,
-          "quest_consent",
+  const questsConfirmed = confirmationsThisCycle(state.quests, assumptions.questRateMultiplier, rng);
+  const perQuestRecognition = state.quests ? state.quests.gratitudePerConfirmation : BigInt(0);
+  for (let q = 0; q < questsConfirmed && members.length > 0; q += 1) {
+    const member = members[q % members.length];
+    // The recognition a confirmed quest pays, observed as an average off the
+    // tables. `server/index.ts:20616` posts it as a bare `postTransfer` with
+    // no `gratitude_log` row, which is why it never reaches the pool split
+    // below.
+    if (perQuestRecognition > BigInt(0) && recognition && recognition.faucet) {
+      post(book, recognition.faucet, member.accountId, RECOGNITION_SLUG, perQuestRecognition, "quest_consent");
+    }
+    for (let r = 0; r < questRules.length; r += 1) {
+      const rule = questRules[r];
+      if (rule.tokenSlug === RECOGNITION_SLUG) continue;
+      const activity = activityFor(ruleActivity, rule);
+      if (rule.amount === null) {
+        noteUnpayable(
+          unpayable,
+          rule,
+          "this rule reads its amount from the work, and a quest posts no amount in this token",
         );
+        continue;
       }
-      for (let r = 0; r < questRules.length; r += 1) {
-        const rule = questRules[r];
-        if (rule.tokenSlug === RECOGNITION_SLUG) continue;
-        const activity = activityFor(ruleActivity, rule);
-        if (rule.amount === null) {
-          noteUnpayable(
-            unpayable,
-            rule,
-            "this rule reads its amount from the work, and a quest posts no amount in this token",
-          );
-          continue;
-        }
-        if (rule.amount <= BigInt(0)) continue;
-        const problem = ruleCannotPay(tokens, rule.tokenSlug);
-        if (problem) {
-          noteUnpayable(unpayable, rule, problem);
-          continue;
-        }
-        const faucet = tokenBySlug(tokens, rule.tokenSlug)!.faucet!;
-        // No clamp. `mintForConfirmedClaim` never calls `clampToCeiling`, so a
-        // fixed amount pays in full however high the total climbs. See the
-        // header, and the ceiling flags below.
-        if (post(book, faucet, member.accountId, rule.tokenSlug, rule.amount, "quest_consent")) {
-          activity.minted += rule.amount;
-          activity.fired += 1;
-        }
+      if (rule.amount <= BigInt(0)) continue;
+      const problem = ruleCannotPay(tokens, rule.tokenSlug);
+      if (problem) {
+        noteUnpayable(unpayable, rule, problem);
+        continue;
+      }
+      // THE CEILING BINDS HERE, per occurrence, exactly where
+      // `mintForConfirmedClaim` binds it (server/lib/economy.ts:1365). A
+      // ceiling of zero refuses into the same `unpayable` list, and every
+      // other ceiling clamps.
+      const capped = ceilingOutcomeMinor(rule, rule.amount, decimalsOf(tokens, rule.tokenSlug));
+      if (capped.refusal) {
+        noteUnpayable(unpayable, rule, capped.refusal);
+        continue;
+      }
+      if (capped.paid < rule.amount) activity.clampedAway += rule.amount - capped.paid;
+      if (capped.paid <= BigInt(0)) continue;
+      const faucet = tokenBySlug(tokens, rule.tokenSlug)!.faucet!;
+      if (post(book, faucet, member.accountId, rule.tokenSlug, capped.paid, "quest_consent")) {
+        activity.minted += capped.paid;
+        activity.fired += 1;
       }
     }
   }
@@ -538,16 +859,16 @@ function stepCycle(
   let allowanceTotal = BigInt(0);
   let gratitudeGiven = BigInt(0);
   // Recognition RECEIVED THIS CYCLE THROUGH A GIFT, keyed by account. It is
-  // this figure and not the account's balance that the cycle close splits the
-  // pool by, and the difference is load-bearing twice over. A balance carries
-  // every earlier cycle's recognition, and the close reads `gratitude_log`
-  // rows inside the cycle window (`settleCycle`, server/lib/gratitude-cycles.ts:202
-  // by way of server/index.ts:21399). And ONLY THE GIVING PATH WRITES THAT
-  // TABLE: `writeGratitudeRow` is called from `give` (economy.ts:954) and
-  // `sendGratitude` (gratitude.ts:144) and from nowhere else, so the
-  // recognition a confirmed quest mints (server/index.ts:20616, a bare
-  // `postTransfer`) never reaches the split. A village whose recognition comes
-  // mostly from quests routes almost none of its value pool.
+  // this figure and never the account's balance that the cycle close splits
+  // the pool by, and the difference is load-bearing twice over. A balance
+  // carries every earlier cycle's recognition, and the close reads
+  // `gratitude_log` rows inside the cycle window (`settleCycle`,
+  // server/lib/gratitude-cycles.ts:202 by way of server/index.ts:21399). And
+  // ONLY THE GIVING PATH WRITES THAT TABLE: `writeGratitudeRow` is called from
+  // `give` (economy.ts:954) and `sendGratitude` (gratitude.ts:144) and from
+  // nowhere else, so the recognition a confirmed quest mints never reaches the
+  // split. A village whose recognition comes mostly from quests routes almost
+  // none of its value pool.
   const receivedThisCycle: Record<string, bigint> = {};
   for (let m = 0; m < members.length; m += 1) {
     const giver = members[m];
@@ -610,20 +931,40 @@ function stepCycle(
       noteUnpayable(unpayable, rule, problem);
       continue;
     }
+    // A ceiling of zero is reported ONCE for the whole rule and never once per
+    // seat, exactly as `runSettlement` reports it (server/lib/economy.ts:1515),
+    // and only when the rule claims to pay something.
+    const capped = ceilingOutcomeMinor(rule, rule.amount ?? BigInt(0), decimalsOf(tokens, rule.tokenSlug));
+    if ((rule.amount ?? BigInt(0)) > BigInt(0) && capped.refusal) {
+      noteUnpayable(unpayable, rule, capped.refusal);
+      continue;
+    }
     payableRoleRules.push(rule);
   }
   for (let m = 0; m < members.length; m += 1) {
     const member = members[m];
     const seats = member.seats ?? [];
     for (let s = 0; s < seats.length; s += 1) {
+      const seatId = seats[s];
       for (let r = 0; r < payableRoleRules.length; r += 1) {
         const rule = payableRoleRules[r];
         if (rule.amount === null || rule.amount <= BigInt(0)) continue;
         const activity = activityFor(ruleActivity, rule);
+        // Clamped per seat, like the quest path and for the same reason: the
+        // ceiling is what the village voted on and the amount is what it typed
+        // first (server/lib/economy.ts:1560).
+        const paid = ceilingOutcomeMinor(rule, rule.amount, decimalsOf(tokens, rule.tokenSlug)).paid;
+        if (paid < rule.amount) activity.clampedAway += rule.amount - paid;
+        if (paid <= BigInt(0)) continue;
         const faucet = tokenBySlug(tokens, rule.tokenSlug)!.faucet!;
-        if (post(book, faucet, member.accountId, rule.tokenSlug, rule.amount, "role_cycle")) {
-          activity.minted += rule.amount;
+        if (post(book, faucet, member.accountId, rule.tokenSlug, paid, "role_cycle")) {
+          activity.minted += paid;
           activity.fired += 1;
+          // What this SEAT has accrued, so a representative's attribution has
+          // something to move. Cumulative over the run.
+          if (rule.tokenSlug === VOICE_SLUG) {
+            seatVoice[seatId] = (seatVoice[seatId] ?? BigInt(0)) + paid;
+          }
         }
       }
     }
@@ -666,12 +1007,26 @@ function stepCycle(
   // The number is kept here so the flag can report it.
   const gratitudeExpired = allowanceTotal - gratitudeGiven;
 
+  // ── 6. Who holds the Voice ────────────────────────────────────────────────
+  const weights = voiceWeights(members, book.balances, seatVoice);
+  const shares = shareOfTotal(weights);
+  const voiceShares: VoiceShare[] = [];
+  let voiceTotal = BigInt(0);
+  weights.forEach((minor, memberId) => {
+    voiceTotal += minor;
+    voiceShares.push({ memberId, minor, share: shares.get(memberId) ?? 0 });
+  });
+  voiceShares.sort((a, b) => (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0));
+
   const memo: EconomicsMemo = {
     cycle,
     cycleId: bounds.id,
     startsAt: bounds.startsAt.toISOString(),
     endsAt: bounds.endsAt.toISOString(),
     nextBoundaryAt: nextBoundary.toISOString(),
+    assumptions,
+    quests: { ...state.quests },
+    launched: book.launched,
     postings: book.postings,
     questsConfirmed,
     allowanceTotal,
@@ -687,11 +1042,20 @@ function stepCycle(
     lastDebitSource: book.lastDebitSource,
     issuanceRefusals: book.issuanceRefusals,
     stagesWithoutMultiplier,
+    seatVoice,
+    voiceShares,
+    voiceTotal,
   };
 
+  // THE ENGINE OWNS `atIso` AND `cycle`, so neither moves here. The memo is a
+  // WHOLE NEW OBJECT under a WHOLE NEW bag, because `cloneState` copies the
+  // bag and cannot copy what is inside it: editing a memo in place would
+  // rewrite a cycle that was already recorded.
   return {
-    atIso: nextBoundary.toISOString(),
-    cycle,
+    atIso: state.atIso,
+    cycle: state.cycle,
+    launched: state.launched,
+    quests: { ...state.quests },
     clock: { mode: state.clock.mode, timezone: state.clock.timezone },
     tokens: tokens.map((t) => ({ ...t, sinks: (t.sinks ?? []).slice() })),
     balances: book.balances,
@@ -704,7 +1068,8 @@ function stepCycle(
       landedPaths: state.governance.landedPaths.slice(),
       revertedPaths: state.governance.revertedPaths.slice(),
     },
-    economics: memo,
+    models: { ...state.models, [ECONOMICS_KEY]: memo },
+    assumptions: state.assumptions,
   };
 }
 
@@ -786,11 +1151,16 @@ function decimalsOf(tokens: TokenSpec[], slug: string): number {
   return def ? Math.max(0, Math.trunc(def.decimals)) : 0;
 }
 
-function flagsOf(state: SimState, cycle: number, assumptions: EconomicsAssumptions): Flag[] {
+function percent(share: number): string {
+  return `${(share * 100).toFixed(1)}%`;
+}
+
+function flagsOf(state: SimState, cycle: number, fallback: EconomicsAssumptions): Flag[] {
   const out: Flag[] = [];
   const tokens = state.tokens ?? [];
   const memo = readEconomicsMemo(state);
   const members = state.members ?? [];
+  const assumptions = assumptionsFor(state, fallback);
 
   // (g) A faucet account the snapshot holds no row for. An absent account and
   // a zero balance are the same number and a different fact: the ledger
@@ -808,9 +1178,9 @@ function flagsOf(state: SimState, cycle: number, assumptions: EconomicsAssumptio
     });
   }
 
-  // (a) A rule that can never pay, and (b) an amount that reaches this preview
-  // as nothing. Both are read off the rules themselves, so they answer even
-  // before a cycle has run.
+  // (a) A rule that can never pay, and (b) an amount that pays something other
+  // than what was written. Both are read off the rules themselves, so they
+  // answer even before a cycle has run.
   const rules = state.mintRules ?? [];
   for (let i = 0; i < rules.length; i += 1) {
     const rule = rules[i];
@@ -822,7 +1192,7 @@ function flagsOf(state: SimState, cycle: number, assumptions: EconomicsAssumptio
         severity: "warning",
         cycle,
         sentence: `The rule on ${rule.trigger} promises ${rule.tokenSlug} and pays nobody, because ${problem}.`,
-        actionable: `Turn this rule off, or give ${rule.tokenSlug} a faucet. Every surface in the village currently advertises a payout that never arrives.`,
+        actionable: `Turn this rule off, or give ${rule.tokenSlug} a faucet the village can issue from. Every surface in the village currently advertises a payout that never arrives.`,
       });
       continue;
     }
@@ -832,24 +1202,34 @@ function flagsOf(state: SimState, cycle: number, assumptions: EconomicsAssumptio
         severity: "warning",
         cycle,
         sentence: `The rule on ${rule.trigger} reads its amount from the work, and a quest posts no amount in ${rule.tokenSlug}, so it can never pay on any quest.`,
-        actionable: `Give this rule a fixed amount, or turn it off. Only the recognition a quest advertises rides on the work itself.`,
+        actionable: "Give this rule a fixed amount, or turn it off. Only the recognition a quest advertises rides on the work itself.",
       });
       continue;
     }
-    if (rule.amount !== null && rule.amount <= BigInt(0)) {
+    // (b) EXACT, from `amountRaw`. `amount` alone cannot tell a village that
+    // wrote a deliberate zero from one that wrote 0.0004 and watched it round
+    // away, and those are different facts. The column's own text can.
+    const decimals = decimalsOf(tokens, rule.tokenSlug);
+    const written = writtenAmount(rule.amountRaw, decimals);
+    if (written && written.positive && !written.exact) {
+      const pays = rule.amount === null ? written.rounded : rule.amount;
       out.push({
         code: "econ_amount_rounds_away",
-        severity: "warning",
+        severity: pays <= BigInt(0) ? "warning" : "notice",
         cycle,
-        sentence: `The rule on ${rule.trigger} is enabled and reaches this preview as zero minor units of ${rule.tokenSlug}, so it pays nobody.`,
-        actionable: `Either the village set this to zero on purpose, or the amount it holds is smaller than ${rule.tokenSlug} can carry and was lost on the way in. The column holds four decimal places and the token holds ${decimalsOf(tokens, rule.tokenSlug)}, so check the rule against what you meant to type.`,
+        sentence: `The rule on ${rule.trigger} is written as ${written.raw} ${rule.tokenSlug}, and ${rule.tokenSlug} holds ${decimals} decimal place(s), so what actually pays is ${humanUnits(pays, decimals)}.`,
+        actionable:
+          pays <= BigInt(0)
+            ? `This rule is enabled and pays nobody. Write an amount of at least ${humanUnits(BigInt(1), decimals)}, or turn the rule off.`
+            : `Write the amount the token can hold, so the rule says what it pays. The column keeps four decimal places and ${rule.tokenSlug} keeps ${decimals}.`,
       });
     }
   }
 
-  // (i) Issuance closed. Nothing can be minted at all until the launch vote
-  // carries, so a preview of a village in that state is a preview of nothing.
-  if (!assumptions.issuanceOpen) {
+  // (i) The Game has not started. Nothing can be minted at all until the
+  // launch vote carries, so a preview of a village in that state is a preview
+  // of nothing. Read off the snapshot now, never assumed.
+  if (state.launched !== true) {
     out.push({
       code: "econ_issuance_closed",
       severity: "warning",
@@ -874,14 +1254,14 @@ function flagsOf(state: SimState, cycle: number, assumptions: EconomicsAssumptio
     }
   }
 
-  // (j) The recognition a confirmed quest pays is not in the snapshot.
-  if (memo && memo.questsConfirmed > 0 && assumptions.gratitudePerConfirmedQuest === BigInt(0)) {
+  // (j) The village was measured confirming quests that pay no recognition.
+  if (memo && memo.questsConfirmed > 0 && memo.quests.gratitudePerConfirmation === BigInt(0)) {
     out.push({
       code: "econ_quest_recognition_unmodelled",
       severity: "notice",
       cycle,
-      sentence: `${memo.questsConfirmed} quest(s) were confirmed this cycle and this preview shows no recognition for them, because a quest pays the range it advertises on itself and the snapshot holds no copy of any quest.`,
-      actionable: "Tell the preview what a typical quest pays, and the recognition, the value pool it routes, and the totals below all move with it.",
+      sentence: `${memo.questsConfirmed} quest(s) were confirmed this cycle and none of them paid any recognition, because the village was measured paying nothing per confirmation.`,
+      actionable: "Check what this village's quests advertise. Recognition is what routes the value pool, so quests that pay none route none of it.",
     });
   }
 
@@ -927,36 +1307,86 @@ function flagsOf(state: SimState, cycle: number, assumptions: EconomicsAssumptio
         code: "econ_pool_in_whole_tokens",
         severity: "danger",
         cycle,
-        sentence: `The value pool is set to ${String(memo.poolSize)} ${memo.poolToken}, and ${memo.poolToken} holds ${poolDecimals} decimal places, so the close releases ${humanUnits(memo.poolSize, poolDecimals)} of it and not ${String(memo.poolSize)}.`,
+        sentence: `The value pool is set to ${String(memo.poolSize)} ${memo.poolToken}, and ${memo.poolToken} holds ${poolDecimals} decimal places, so the close releases ${humanUnits(memo.poolSize, poolDecimals)} of it and never ${String(memo.poolSize)}.`,
         actionable: `Point gratitude.pool_token at a token with no decimal places, or set gratitude.pool_per_cycle to ${String(memo.poolSize * powTen(poolDecimals))} to release what the dial reads.`,
       });
     }
   }
 
-  // (f) Ceilings: never reached, or reached and not honoured.
-  if (memo && memo.cycle === cycle) {
-    for (let i = 0; i < memo.rules.length; i += 1) {
-      const activity = memo.rules[i];
-      const ceiling = activity.ceiling;
-      if (ceiling === null || ceiling <= BigInt(0)) continue;
-      const decimals = decimalsOf(tokens, activity.tokenSlug);
-      if (activity.minted >= ceiling) {
-        out.push({
-          code: "econ_ceiling_always_hit",
-          severity: "warning",
-          cycle,
-          sentence: `The rule on ${activity.tokenSlug} paid ${humanUnits(activity.minted, decimals)} this cycle against a ceiling of ${humanUnits(ceiling, decimals)}, and the engine issued all of it, because nothing in the mint path reads that ceiling.`,
-          actionable: `Lower the amount itself. The ceiling column bounds only the rules that read their amount from the work, and this one does not.`,
-        });
-      } else if (activity.minted > BigInt(0) && activity.minted * BigInt(10) < ceiling) {
-        out.push({
-          code: "econ_ceiling_never_reached",
-          severity: "notice",
-          cycle,
-          sentence: `The rule on ${activity.tokenSlug} paid ${humanUnits(activity.minted, decimals)} this cycle against a ceiling of ${humanUnits(ceiling, decimals)}, which is more than ten times what it pays.`,
-          actionable: "A cap this far above the payout tells a reader nothing about what the rule can cost. Bring it near what the village expects to issue.",
-        });
-      }
+  // (f) THE CEILING, read the way the schema means it: one occurrence.
+  //
+  // The flag that used to live here measured a CYCLE TOTAL against the ceiling
+  // and called a rule broken when the total passed it. That reading was wrong.
+  // `ceilingOutcome` (server/lib/economy.ts:590) bounds one occurrence, so
+  // eleven quests at 25 under a ceiling of 250 legitimately issue 275 and there
+  // is nothing to say about it. What IS worth saying is when the row
+  // contradicts itself, and there are exactly two ways it can.
+  //
+  // `econ_ceiling_never_reached` went with it. Per occurrence a ceiling either
+  // bites or it does not, and a ceiling comfortably above the amount is the
+  // ordinary healthy case, so a flag about it would be noise.
+  for (let i = 0; i < rules.length; i += 1) {
+    const rule = rules[i];
+    if (!rule.enabled) continue;
+    if (ruleCannotPay(tokens, rule.tokenSlug)) continue;
+    const decimals = decimalsOf(tokens, rule.tokenSlug);
+    // A ceiling of zero pays nobody, and the engine says so in a sentence that
+    // lands in the same `unpayable` list `ruleCannotPay` feeds. Quoted here so
+    // the founder reads the same words in the preview and in the panel.
+    if (rule.ceiling !== null && rule.ceiling <= BigInt(0)) {
+      const refusal = ceilingOutcomeMinor(rule, rule.amount ?? BigInt(0), decimals).refusal;
+      out.push({
+        code: "econ_rule_ceiling_zero",
+        severity: "warning",
+        cycle,
+        sentence: `The rule on ${rule.trigger} is enabled and pays nobody: ${refusal}.`,
+        actionable: `Raise the ceiling on this rule above zero, or turn the rule off. A ceiling of zero means zero, and the engine refuses every occurrence of it.`,
+      });
+      continue;
+    }
+    // The row says it pays one number and caps at a smaller one, so every
+    // occurrence pays the cap. That is the shape a ballot leaves behind when it
+    // lowers only the ceiling.
+    if (rule.amount !== null && rule.ceiling !== null && rule.amount > rule.ceiling) {
+      out.push({
+        code: "econ_rule_contradicts_ceiling",
+        severity: "warning",
+        cycle,
+        sentence: `The rule on ${rule.trigger} says it pays ${humanUnits(rule.amount, decimals)} ${rule.tokenSlug} and caps one occurrence at ${humanUnits(rule.ceiling, decimals)}, so every occurrence pays ${humanUnits(rule.ceiling, decimals)}.`,
+        actionable: `Raise the ceiling to ${humanUnits(rule.amount, decimals)}, or lower the amount to ${humanUnits(rule.ceiling, decimals)}, so the row says what it pays.`,
+      });
+    }
+  }
+
+  // (k) CONCENTRATION. Who holds the village's Voice, and how much of it.
+  //
+  // The founder's ruling is that transparency is the protection, so this is a
+  // warning and it never blocks: the preview says the number and the village
+  // decides. The shares come from `shareOfTotal` in shared/governanceShare.ts,
+  // never from a second copy of that division living here.
+  if (memo && memo.cycle === cycle && memo.voiceTotal > BigInt(0)) {
+    const weights = new Map<string, bigint>();
+    for (let i = 0; i < memo.voiceShares.length; i += 1) {
+      weights.set(memo.voiceShares[i].memberId, memo.voiceShares[i].minor);
+    }
+    const top = topShares(weights, 3);
+    if (top.length > 0 && top[0].share >= CONCENTRATION_THRESHOLD) {
+      const decimals = decimalsOf(tokens, VOICE_SLUG);
+      const named = top
+        .map((h) => `${h.id} holds ${percent(h.share)}`)
+        .join(", ");
+      const weightMode = stringVariable(state, "governance.weight_mode") ?? "equal";
+      const weightToken = stringVariable(state, "governance.weight_token") ?? "";
+      const alsoVotes = weightMode === "token" && weightToken === VOICE_SLUG;
+      out.push({
+        code: "econ_voice_concentration",
+        severity: "warning",
+        cycle,
+        sentence: `${top[0].id} holds ${percent(top[0].share)} of this village's ${VOICE_SLUG} after cycle ${cycle}, which is above the third of the whole this preview calls out. The three largest holders are ${named}, out of ${humanUnits(memo.voiceTotal, decimals)} held across the roll.`,
+        actionable: alsoVotes
+          ? `The weight mode is token and the weight token is ${VOICE_SLUG}, so this share is also voting power. Spread the seats, lower the seat payout, or move governance.weight_mode off token.`
+          : `Nothing here blocks, and nothing here is wrong on its own. Watch it: spread the seats the role.cycle rules pay, or lower what a seat pays, if the village wants Voice spread wider.`,
+      });
     }
   }
 
@@ -969,10 +1399,13 @@ function flagsOf(state: SimState, cycle: number, assumptions: EconomicsAssumptio
       severity: "danger",
       cycle,
       sentence: `An account that is not a faucet is holding a negative balance. ${violations[i].detail}`,
-      actionable: "Only a faucet may go negative, and its negative balance is that token's issued supply. A negative anywhere else means value was moved that never existed.",
+      actionable: "Only a faucet may go below zero, and its negative balance is that token's issued supply. A negative anywhere else means value was moved that never existed.",
     });
   }
 
+  // Nothing to do with `assumptions` beyond reading them, and reading them is
+  // what keeps `flags` and `step` answering about the same run.
+  void assumptions;
   return out;
 }
 
@@ -981,26 +1414,36 @@ function flagsOf(state: SimState, cycle: number, assumptions: EconomicsAssumptio
 /** The economics model, plus the assumptions it ran under, for printing. */
 export interface EconomicsModel extends DomainModel {
   name: "economics";
+  /** The assumptions this model was constructed with, which are the fallback. */
   assumptions: EconomicsAssumptions;
-  /** One plain sentence per assumption, for printing beside the seed. */
-  describeAssumptions(): string[];
+  /**
+   * One plain sentence per assumption, for printing beside the seed.
+   *
+   * WITH A STATE it prints what that run ACTUALLY used, resolved from
+   * `state.assumptions.economics` over this model's own numbers, and adds the
+   * observations the run started from. Without one it prints the fallback.
+   */
+  describeAssumptions(state?: SimState): string[];
 }
 
 /**
  * The economics model, ready to hand to `simulate` beside the governance one.
  *
- * `assumptions` is optional and defaults to the cautious village. When the
- * engine starts carrying `SimInput.assumptions.economics`, the wiring is
- * `economicsModel(parseEconomicsAssumptions(input.assumptions?.economics))`
- * and nothing in this file changes.
+ * `assumptions` is optional. Whatever it is given becomes the PER-FIELD
+ * FALLBACK, and `SimInput.assumptions.economics` beats it field by field, so a
+ * caller supplying half an object gets this model's numbers for the other half
+ * and the result echoes exactly what was supplied.
  */
 export function economicsModel(assumptions?: Partial<EconomicsAssumptions>): EconomicsModel {
   const settled: EconomicsAssumptions = { ...DEFAULT_ECONOMICS_ASSUMPTIONS, ...(assumptions ?? {}) };
   return {
     name: "economics",
     assumptions: settled,
-    describeAssumptions(): string[] {
-      return describeAssumptions(settled);
+    describeAssumptions(state?: SimState): string[] {
+      if (!state) return describeAssumptions(settled);
+      const memo = readEconomicsMemo(state);
+      const used = memo ? memo.assumptions : assumptionsFor(state, settled);
+      return describeAssumptions(used, memo ? memo.quests : state.quests, state.launched);
     },
     step(state: SimState, cycle: number, rng: Rng): SimState {
       return stepCycle(state, cycle, rng, settled);
