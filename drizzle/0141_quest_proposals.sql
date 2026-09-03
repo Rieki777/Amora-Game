@@ -1,4 +1,4 @@
--- 0128: a proposed quest is its own table, because a quest cannot be a draft.
+-- 0141: a proposed quest is its own table, because a quest cannot be a draft.
 --
 -- ── WHY THIS CANNOT BE A STATUS VALUE ON `quests` ────────────────────────
 --
@@ -50,7 +50,7 @@
 -- draft queue follows and it is the reason neither queue is a second write
 -- path into the domain.
 --
--- ── DEDUPE, SAME SHAPE AS 0127 ──────────────────────────────────────────
+-- ── DEDUPE, SAME SHAPE AS 0140 ──────────────────────────────────────────
 --
 -- NOT NULL and unique, because MySQL unique indexes exempt NULLs and a
 -- nullable dedupe column admits unlimited duplicates. Computed from the
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS `quest_proposals` (
   `id` varchar(64) NOT NULL,
   `village_id` varchar(64) NOT NULL,
 
-  -- The integration that proposed it, for the same revocation reason as 0127.
+  -- The integration that proposed it, for the same revocation reason as 0140.
   -- 'local' for a proposal the village's own assistant wrote.
   `module_id` varchar(64) NOT NULL DEFAULT 'local',
   `batch_id` varchar(64) NOT NULL,

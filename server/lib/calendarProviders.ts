@@ -230,7 +230,7 @@ export async function mirrorCalendarSources(pool: Pool, ctx: MirrorContext): Pro
   // Seat terms: a live seating with a term end.
   if (await tableExists(pool, "org_role_assignments")) {
     await runSource("org", async (write) => {
-      // AGENTS ARE EXCLUDED (0129). A term end is a date the village agreed
+      // AGENTS ARE EXCLUDED (0142). A term end is a date the village agreed
       // to revisit an arrangement with a person, and the whole value of the
       // column is that it turns removal into non-renewal. An agent's seating
       // has nobody to have that conversation with, so a calendar entry saying

@@ -138,7 +138,7 @@ export interface OrgAssignment {
   /** A standing-example seating (0046), seeded for an empty village to read. */
   isExample: boolean;
   /**
-   * A software agent holds this seat (0129).
+   * A software agent holds this seat (0142).
    *
    * THE MODEL, in one place so no reader has to reconstruct it. An agent is
    * `holderKind: "documented"` with a `holderKey` of `agent:<slug>`, never a
@@ -181,7 +181,7 @@ const ASSIGN_COLS =
   // so every read handed back demo seatings that nothing downstream could tell
   // from real ones. The public export is the first reader that must not.
   "id, org_role_id, holder_kind, user_id, display_name, holder_key, focus, note, season_id, term_ends_at, started_at, ended_at, ended_reason, is_example, " +
-  // 0129. Same reasoning `is_example` carries above: a flag that does not ride
+  // 0142. Same reasoning `is_example` carries above: a flag that does not ride
   // through every SELECT is a flag downstream cannot act on, and the surfaces
   // that must not count an agent are exactly the ones furthest from here.
   "is_agent";
@@ -412,7 +412,7 @@ export function agentKeySlug(name: string): string {
 }
 
 /**
- * The holders who are people (0129). THE ONE FILTER EVERY COVERAGE READ USES.
+ * The holders who are people (0142). THE ONE FILTER EVERY COVERAGE READ USES.
  *
  * A coverage read answers "is there somebody carrying this". An agent holding
  * a seat is a real thing and belongs on the chart, and it is not an answer to
@@ -439,7 +439,7 @@ export interface HolderLoad {
   /** A claimed member, or a name written on a card nobody has claimed yet. */
   isMember: boolean;
   /**
-   * A software agent (0129). Reported and never hidden: an agent carrying a
+   * A software agent (0142). Reported and never hidden: an agent carrying a
    * third of the seats is a real dependency and the village should see it.
    * What it is kept out of is `humanSeatingsLive` and
    * `seatsHeldOnlyByAgents` below, which answer a different question.
@@ -471,7 +471,7 @@ export interface StructuralLoad {
   /** Active seats with nobody current on them at all. */
   unheldSeats: number;
   /**
-   * Live seatings held by a person (0129). `seatingsLive` counts every holder
+   * Live seatings held by a person (0142). `seatingsLive` counts every holder
    * including agents, which is the right denominator for a share of the chart
    * and the wrong one for "how much of this is carried by people".
    */
@@ -601,7 +601,7 @@ export function structuralLoad(
 
   const unheldSeats = Array.from(seatById.values()).filter((r) => !(byRole.get(r.id) ?? []).length).length;
 
-  // 0129. A seat with holders, every one of them an agent, is held and
+  // 0142. A seat with holders, every one of them an agent, is held and
   // uncarried. See the field comment: this is the reading that was wrong.
   const seatsHeldOnlyByAgents = Array.from(seatById.values()).filter((r) => {
     const held = byRole.get(r.id) ?? [];
@@ -612,7 +612,7 @@ export function structuralLoad(
   // The same human under two keys. Compared by slug on BOTH sides so a member
   // named "Ada Vance" matches the card that says "ada vance".
   //
-  // AGENTS ARE SKIPPED ON BOTH SIDES (0129). A member called Ada Vance and an
+  // AGENTS ARE SKIPPED ON BOTH SIDES (0142). A member called Ada Vance and an
   // agent called Ada Vance are two different holders on purpose, and reporting
   // them as one human under two keys would invite somebody to merge a person
   // into a piece of software.

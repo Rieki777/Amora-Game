@@ -5765,7 +5765,7 @@ async function startServer() {
     const rows = await expiringSeatings(getPool(), lapseContext(), 14);
     let told = 0;
     for (const a of rows) {
-      // Agents excluded, inherited (0129): there is nobody to ask whether they
+      // Agents excluded, inherited (0142): there is nobody to ask whether they
       // want to carry on. server/lib/calendarProviders.ts filters its twin.
       if (a.holderKind !== "member" || !a.userId) continue;
       const ended = !!a.lapsed;
@@ -10426,7 +10426,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
                 name: h.holderKind === "member" && h.userId ? nameOf(h.userId) : h.displayName,
                 kind: h.holderKind,
                 // An agent is a documented holder, so `kind` alone reads the
-                // same for a machine and for a person with no account (0129).
+                // same for a machine and for a person with no account (0142).
                 isAgent: h.isAgent,
                 focus: h.focus,
                 lapsed: !!h.lapsed,
@@ -11118,7 +11118,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           circleId: string | null;
         }> = [];
         for (const a of assignments) {
-          // Agents excluded, inherited (0129): this builds introductions
+          // Agents excluded, inherited (0142): this builds introductions
           // between PEOPLE, and the member filter already does it.
           if (a.holderKind !== "member" || !a.userId || a.isExample) continue;
           const role = byId.get(a.orgRoleId);
@@ -26953,7 +26953,7 @@ ${inner}
      * and this is the door their full name would otherwise leave by.
      */
     const publicHolder = (h: OrgAssignment) => ({
-      // AN AGENT PUBLISHES NO NAME (0129). Its display name is a vendor's
+      // AN AGENT PUBLISHES NO NAME (0142). Its display name is a vendor's
       // product name, and the rule is that nothing about which commercial
       // services a village uses goes out on a public surface. A generic word
       // keeps this row consistent with the seat's own holderCount, which does
@@ -27215,7 +27215,7 @@ ${inner}
     }
     // Counting moved to server/lib/orgDrafts.ts, beside VISION_METRICS, which
     // is the vocabulary it counts. Agent-held seats do not count toward
-    // seats_filled and that file says why (0129).
+    // seats_filled and that file says why (0142).
     const measured = await measureVisionMetrics(getPool(), wanted, {
       lapseContext,
       allMembers: async () => (await members.all()) as any[],
@@ -27541,7 +27541,7 @@ ${inner}
     capabilityCtx, lapseContext, currentPatternId, seasonState, notify,
   });
 
-  // The steward review surface (0127-0128). Mounted here beside the org
+  // The steward review surface (0140-0141). Mounted here beside the org
   // routes because it reads the same seat and draft planes and shares their
   // gates. NOT under /api/admin: a steward who is not an admin is exactly who
   // this is for, so it is capability-gated all the way down.

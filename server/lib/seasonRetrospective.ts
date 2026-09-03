@@ -99,7 +99,7 @@ export async function buildRetrospective(
   // ── Seats ────────────────────────────────────────────────────────────────
   const [seats]: any = await pool.query(
     `SELECT r.id, r.name, r.seats, r.accountabilities, r.criticality,
-            -- AGENTS DO NOT COUNT IN EITHER OF THESE (0129). Every other
+            -- AGENTS DO NOT COUNT IN EITHER OF THESE (0142). Every other
             -- site in this audit merely reads wrong; this one does visible
             -- harm. A held seat with no events against its
             -- holder produces the observation "Held all season, with nothing

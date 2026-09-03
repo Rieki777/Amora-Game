@@ -203,23 +203,36 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   section exists to catch.
 - **governance build, 2026-09-02: RESERVES 0132 to 0139.** A reservation that lives only in one
   session's head is not a reservation, so it is written down here.
-- **bridge-primitives lane, 2026-09-02: claims 0127, 0128, 0129 and 0130** for the platform
+- **bridge-primitives lane, 2026-09-02: claims 0140, 0141, 0142 and 0143** for the platform
   primitives under the Amora x Saberra integration. All four are additive only.
-  `0127_external_proposals.sql` adds `external_proposals` (the vendor proposal queue, with a
+  `0140_external_proposals.sql` adds `external_proposals` (the vendor proposal queue, with a
   NOT NULL unique `dedupe_key` computed here and never taken from the wire) and
   `external_proposal_drops` (a content-free counter, so an empty queue can be told apart from
-  a queue where everything was refused). `0128_quest_proposals.sql` adds `quest_proposals`,
+  a queue where everything was refused). `0141_quest_proposals.sql` adds `quest_proposals`,
   which deliberately carries NO reward or gate column: a quest cannot exist unpublished
   (`GET /api/quests` is public and unfiltered and the claim route never reads status), and the
-  five columns a machine must never write are absent rather than guarded. `0129` adds
+  five columns a machine must never write are absent rather than guarded. `0142` adds
   `is_agent` to `org_role_assignments`, with no enum ALTER: an agent is
   `holder_kind='documented'`, which is already excluded from the settlement job and from the
-  0083 declare door by filters that exist. `0130` adds `origin_module_id` to `health_events`
+  0083 declare door by filters that exist. `0143` adds `origin_module_id` to `health_events`
   (0052 added `actor_kind` and said revocation-by-integration was the reason; the module id it
   needed was never there, and `actor_kind` itself was written and read by nothing) plus
-  provenance and `cites` to `org_drafts`. Verified before claiming: 0126 is the highest number
-  in any local ref, any remote ref, and on disk across every worktree on this machine, so the
-  "next free: 0123" line above was four generations stale and is corrected. Both migration
+  provenance and `cites` to `org_drafts`.
+- **The same lane, hours later: RENUMBERED from 0127-0130 to 0140-0143, and why that was safe.**
+  I took 0127-0130 when 0126 was the ceiling. While the pull request sat open, main landed the
+  housing lane's 0131, and `check-migration-numbers.mjs` then refuses on a merge: its rule is that
+  a migration added since the base ref must be numbered ABOVE everything that ref already reached,
+  and after the merge the base reached 0131. The gate said "Renumber to 0132 or above" and it was
+  right. 0132-0139 are governance's, so 0140.
+  **Renumbering is normally forbidden and this is the one case where it is correct.** The ban
+  exists because `_migrations_applied` keys on FILENAME: an instance that has run `0127_x.sql`
+  records that name, so a renamed file never runs there while a fresh instance gets it, and the two
+  databases diverge with no error anywhere. That danger begins the moment a file has RUN somewhere.
+  These four had never left this branch and had only ever run in scratch test schemas that are
+  dropped per run. **Renumber before landing; never after.**
+  Verified before claiming: measured all three ways at the time of the renumber, 0131 held by
+  housing on main, 0133/0134/0137 on disk in the governance band, so 0140 was the first free
+  number. Both migration
   gates green, `check-migration-compat` applied all 113 previous-release migrations against a
   populated database, seeded rows in all three tables these files name, applied the four, and
   confirmed a second run applies zero.

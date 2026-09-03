@@ -619,7 +619,7 @@ export function buildOrgExport(input: OrgExportInput): OrgExport {
         whyItMatters: r.whyItMatters,
         seats: r.seats,
         // AGENTS COUNT HERE, and that is the decision rather than an oversight
-        // (0129). This is a DISPLAY read: it says how many hold each seat, and
+        // (0142). This is a DISPLAY read: it says how many hold each seat, and
         // a seat an agent sits in is held. The coverage question, "is somebody
         // carrying this", is asked elsewhere with `peopleOnly`, and it is a
         // different question with a different answer.

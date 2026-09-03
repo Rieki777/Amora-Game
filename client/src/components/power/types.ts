@@ -28,7 +28,7 @@ export interface PowerHolder {
   name: string | null;
   kind?: "member" | "documented";
   /**
-   * A software agent holds this seat (0129). SEPARATE FROM `kind` and not a
+   * A software agent holds this seat (0142). SEPARATE FROM `kind` and not a
    * third value in it: an agent IS a documented holder, and modelling it as a
    * third enum member would have meant a live enum ALTER, which this platform
    * names as its forbidden migration class. So `kind` says what the seating

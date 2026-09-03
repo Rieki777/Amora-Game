@@ -158,7 +158,7 @@ export function register(app: Express, deps: Deps): void {
 
   app.post("/api/admin/org/drafts", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    // `createDraft` answers a result rather than an id since 0130, because it
+    // `createDraft` answers a result rather than an id since 0143, because it
     // can now refuse: a machine-sourced draft meets a volume cap. A HUMAN
     // TYPING IN THE ADMIN PANEL IS NEVER CAPPED, which is what `openCap: null`
     // says here, so this route behaves exactly as it did.

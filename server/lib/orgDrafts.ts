@@ -65,7 +65,7 @@ export interface Draft {
   /** The vision block (0083, P1, N2), or null for a draft without one. */
   vision: VisionBlock | null;
   /**
-   * WHO OR WHAT WROTE THIS (0130).
+   * WHO OR WHAT WROTE THIS (0143).
    *
    * `created_by` is a member id and nothing else, so before this column a
    * draft an outside service proposed was indistinguishable from one a
@@ -255,7 +255,7 @@ function rowToChange(r: any): DraftChange {
  * returned map means "not measured", which `visionProgress` reads as unknown
  * rather than as zero.
  *
- * ── AGENTS DO NOT COUNT TOWARD `seats_filled` (0129) ─────────────────────
+ * ── AGENTS DO NOT COUNT TOWARD `seats_filled` (0142) ─────────────────────
  *
  * The most consequential of the per-site decisions in that audit, because
  * this metric is a TRIGGER and not a display. A vision whose objective is
@@ -498,7 +498,7 @@ export async function previewDraft(
     index += 1;
 
     /*
-     * ── THE MACHINE RULES (0130) ──────────────────────────────────────────
+     * ── THE MACHINE RULES (0143) ──────────────────────────────────────────
      *
      * Four blocks that apply to every op, and only to a draft a machine wrote.
      * A founder typing in the admin panel meets none of them, because a

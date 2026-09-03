@@ -273,7 +273,7 @@ describe.skipIf(!DB_CONFIGURED)("a steward who is not an admin", () => {
     expect(names).not.toContain(replaced);
     expect(names.filter((n) => n.startsWith("Proposed Seat"))).toHaveLength(11);
 
-    // The provenance 0130 added, on the draft a month from now.
+    // The provenance 0143 added, on the draft a month from now.
     const [[draft]] = await pool.query<any[]>( // module-review-ok: same
       "SELECT source_kind, source_module_id, source_proposal_id, cites FROM org_drafts WHERE id = ?",
       [accepted.json.draftId],

@@ -1,4 +1,4 @@
--- 0127: where a vendor's proposals land, before a human has looked at them.
+-- 0140: where a vendor's proposals land, before a human has looked at them.
 --
 -- WHAT THIS IS FOR. An outside service extracts structure from a village's own
 -- meetings and emails, and proposes it: roles, circles, tasks, observed risks.

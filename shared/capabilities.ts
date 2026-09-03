@@ -67,7 +67,7 @@ export type Capability =
   | "library.keep" // keep the shared library: what comes in, what goes out
   | "story.tell" // say what the village is, in its own words, in public
   | "dial.set" // turn the village's own dials, within the open ring
-  // ── The proposal key (0128) ──────────────────────────────────────────────
+  // ── The proposal key (0141) ──────────────────────────────────────────────
   //
   // `quest.propose` was retired for gating nothing, and this is not it coming
   // back. That key named the act of SUGGESTING a quest, which goes through the

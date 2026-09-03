@@ -206,7 +206,7 @@ export const ACCOUNT_MENU: readonly NavLink[] = [
   // account menu rather than under Village because it answers a question a
   // member asks about themselves as often as about the place: who do I ask.
   { href: "/powers", label: "What we look after" },
-  // 0127. What an outside service has proposed, waiting for somebody to read
+  // 0140. What an outside service has proposed, waiting for somebody to read
   // it. Deliberately carries NO `roles` filter, which is the whole point of
   // the page: it is capability-gated so that a steward who is not an admin can
   // keep this queue, and a menu entry only admins could see would put the

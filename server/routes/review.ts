@@ -334,7 +334,7 @@ export function register(app: Express, deps: Deps): void {
       title: String(firstPayload.title ?? `Proposed by ${first.moduleId}`).slice(0, 200),
       rationale: org.length === 1 ? String(firstPayload.rationale ?? "") || null : null,
       createdBy: actor,
-      // The provenance 0130 added. A steward opening this draft next month can
+      // The provenance 0143 added. A steward opening this draft next month can
       // see that a machine wrote it and which one, which is what makes
       // revocation by integration mean anything.
       sourceKind: "agent",

@@ -158,7 +158,7 @@ export async function gatherWeeklyBrief(
   try {
     const [roles, assignments] = await Promise.all([listOrgRoles(pool), listOrgAssignments(pool)]);
     const held = new Map<string, number>();
-    // AGENTS DO NOT COUNT HERE (0129). This is a COVERAGE read: the brief
+    // AGENTS DO NOT COUNT HERE (0142). This is a COVERAGE read: the brief
     // tells the village which seats still need somebody, and a seat carried
     // only by a piece of software still needs somebody. Counting an agent
     // would quietly take that seat off the list the village reads on a

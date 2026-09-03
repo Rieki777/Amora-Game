@@ -1,4 +1,4 @@
--- 0129: an agent can hold a seat, and the chart says so out loud.
+-- 0142: an agent can hold a seat, and the chart says so out loud.
 --
 -- ── THE MODEL ALREADY EXISTED AND THIS FILE ADDS ONE COLUMN ──────────────
 --

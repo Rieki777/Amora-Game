@@ -1,5 +1,5 @@
 /**
- * The vendor proposal inbox (0127), and the four behaviours the work order
+ * The vendor proposal inbox (0140), and the four behaviours the work order
  * names as its acceptance test.
  *
  * Post a payload twice: the second is a no-op on the dedupe key. Post it

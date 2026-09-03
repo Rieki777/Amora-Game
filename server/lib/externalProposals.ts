@@ -1,5 +1,5 @@
 /**
- * The vendor proposal inbox (0127).
+ * The vendor proposal inbox (0140).
  *
  * An outside service proposes structure. A steward reads it, edits it, and
  * accepts it. Nothing here is a fact about this village until that happens,

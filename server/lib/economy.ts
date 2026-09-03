@@ -1320,7 +1320,7 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
   // Live seatings held by real accounts. `active_holder_key` is NULL once a
   // seating ends, and examples are not people.
   //
-  // AGENTS ARE ALREADY EXCLUDED HERE (0129) and no clause was added for them.
+  // AGENTS ARE ALREADY EXCLUDED HERE (0142) and no clause was added for them.
   // An agent is `holder_kind = 'documented'` with no `user_id`, so it fails
   // two of the four conditions below. THIS IS THE POINT: the exclusion is
   // INHERITED rather than invented, and an inherited exclusion cannot drift
@@ -1785,7 +1785,7 @@ export async function mintView(pool: Pool): Promise<MintView> {
 
   // The mint PREVIEW, and it must agree exactly with the settlement filter
   // above or the preview promises a payout the run will not make. Agents are
-  // excluded by the same inherited clauses and for the same reason (0129).
+  // excluded by the same inherited clauses and for the same reason (0142).
   const [seats] = await pool.query<RowDataPacket[]>(
     "SELECT COUNT(*) AS n FROM `org_role_assignments` " +
       "WHERE `active_holder_key` IS NOT NULL AND `holder_kind` = 'member' AND `user_id` IS NOT NULL AND `is_example` = 0",

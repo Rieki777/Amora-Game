@@ -1,5 +1,5 @@
 /**
- * A proposed quest, and the one line a machine may never cross (0128).
+ * A proposed quest, and the one line a machine may never cross (0141).
  *
  * ── THE LINE ─────────────────────────────────────────────────────────────
  *
@@ -23,7 +23,7 @@
  * The board renderer never reads status, and neither does
  * `POST /api/game/quests/:id/claim`. So a row inserted as a draft would sit
  * publicly on the board and be claimable, and consenting to that claim mints
- * from the faucet. 0128's header carries the same three facts.
+ * from the faucet. 0141's header carries the same three facts.
  *
  * ── ACCEPT CALLS `questsRepo.add` ────────────────────────────────────────
  *
@@ -133,7 +133,7 @@ function part(v: unknown): string {
 }
 
 /**
- * The dedupe key, on the same discipline as 0127: NOT NULL, unique, and
+ * The dedupe key, on the same discipline as 0140: NOT NULL, unique, and
  * computed from the proposal's own content. Never a vendor timestamp, because
  * a re-extraction of the same meeting emits the same quest under a new one.
  */

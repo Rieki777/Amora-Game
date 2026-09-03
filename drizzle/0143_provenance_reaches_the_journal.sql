@@ -1,4 +1,4 @@
--- 0130: name which integration did it, and where an org draft came from.
+-- 0143: name which integration did it, and where an org draft came from.
 --
 -- ── PART ONE: `health_events.origin_module_id` ───────────────────────────
 --
@@ -42,7 +42,7 @@
 --
 -- ── WHY `source_kind` IS varchar AND `source_module_id` IS NOT A KEY ─────
 --
--- Same argument as 0127. An unknown provenance must be refusable in code on
+-- Same argument as 0140. An unknown provenance must be refusable in code on
 -- the day it appears, not after a migration reaches thirteen instances. And a
 -- foreign key onto the module registry would make a draft undeletable-by-
 -- proxy once its module was removed, which inverts what the column is for.
@@ -70,7 +70,7 @@ ALTER TABLE `org_drafts`
   ADD COLUMN `source_module_id` varchar(64) NULL;
 
 -- The row in `external_proposals` this draft was built from, when there was
--- one. Not a foreign key, for the reason 0127 gives about landing tables.
+-- one. Not a foreign key, for the reason 0140 gives about landing tables.
 ALTER TABLE `org_drafts`
   ADD COLUMN `source_proposal_id` varchar(64) NULL;
 
