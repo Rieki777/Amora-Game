@@ -67,6 +67,7 @@ import {
 import {
   addChange,
   createDraft,
+  draftChangeCap,
   listDrafts,
   previewDraft,
   publishDraft,
@@ -157,13 +158,20 @@ export function register(app: Express, deps: Deps): void {
 
   app.post("/api/admin/org/drafts", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const id = await createDraft(getPool(), {
+    // `createDraft` answers a result rather than an id since 0130, because it
+    // can now refuse: a machine-sourced draft meets a volume cap. A HUMAN
+    // TYPING IN THE ADMIN PANEL IS NEVER CAPPED, which is what `openCap: null`
+    // says here, so this route behaves exactly as it did.
+    const made = await createDraft(getPool(), {
       title: String(req.body?.title ?? ""),
       rationale: req.body?.rationale ?? null,
       threadId: req.body?.threadId ?? null,
       createdBy: (await authedUser(req))?.id ?? null,
+      sourceKind: "human",
+      openCap: null,
     });
-    res.json({ success: true, id });
+    if (!made.ok) return res.status(409).json({ error: made.error });
+    res.json({ success: true, id: made.id });
   });
 
   app.post("/api/admin/org/drafts/:id/changes", async (req, res) => {
@@ -210,7 +218,11 @@ export function register(app: Express, deps: Deps): void {
   app.post("/api/admin/org/drafts/:id/publish", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = await authedUser(req);
-    const r = await publishDraft(getPool(), req.params.id, actor?.id ?? null);
+    // The cap is measured against the village's own size and applies only to a
+    // draft a machine proposed; `draftChangeCap` says why, and a draft a
+    // founder typed is never capped by it.
+    const roster = ((await members.all()) as any[]).length;
+    const r = await publishDraft(getPool(), req.params.id, actor?.id ?? null, draftChangeCap(roster));
     if (!r.ok) return res.status(409).json({ error: r.error });
     // One journal line per seat the draft touched, so a reorganisation shows up
     // in the history of every node it moved rather than only in a draft list

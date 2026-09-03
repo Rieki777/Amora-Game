@@ -28,6 +28,11 @@ const seat = (orgRoleId: string, holderKey: string, over: Partial<OrgAssignment>
   displayName: holderKey, holderKey, focus: null, note: null, seasonId: null,
   termEndsAt: null, startedAt: new Date("2026-01-01"), endedAt: null, endedReason: null,
   isExample: false,
+  // 0129. Explicit rather than optional on the type: `is_agent` is NOT NULL
+  // with a default in the schema, so a seating always has an answer, and a
+  // fixture that could leave it undefined would let a coverage read be tested
+  // against a state the database cannot produce.
+  isAgent: false,
   ...over,
 });
 

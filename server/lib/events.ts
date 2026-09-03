@@ -17,13 +17,25 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
  * integration it was and revoke exactly that one. Defaults to 'human', which is
  * what every existing call site correctly means.
  */
-export type ActorKind = "human" | "agent" | "system" | "peer";
+export const ACTOR_KINDS = ["human", "agent", "system", "peer"] as const;
+export type ActorKind = (typeof ACTOR_KINDS)[number];
 
 export interface EventInput {
   kind: string;
   text: string;
   actorUserId?: string | null;
   actorKind?: ActorKind;
+  /**
+   * WHICH INTEGRATION did this, when `actorKind` is 'agent'.
+   *
+   * `actor_kind` alone answers "a machine did this" and stops there. A village
+   * running three integrations that dislikes one of them needs the next
+   * question answered too, and revocation works on the module id: turning a
+   * module off is the lever a village actually has. Null for a human, and null
+   * for an agent whose caller did not name itself, which reads as unattributed
+   * rather than as any particular module.
+   */
+  originModuleId?: string | null;
   entityType?: string | null;
   entityRef?: string | null;
   audience?: "public" | "admin";
@@ -34,6 +46,14 @@ export interface EventRow {
   kind: string;
   text: string;
   actorUserId: string | null;
+  /**
+   * Written since 0052 and, until now, never read: `EventRow` omitted it and
+   * both readers named their columns, so the one fact that tells a village a
+   * machine acted could not reach a screen. Revocation by integration is not
+   * real until somebody can see which rows an integration wrote.
+   */
+  actorKind: ActorKind;
+  originModuleId: string | null;
   entityType: string | null;
   entityRef: string | null;
   audience: "public" | "admin";
@@ -43,14 +63,15 @@ export interface EventRow {
 export async function recordEvent(pool: Pool, e: EventInput): Promise<void> {
   try {
     await pool.query(
-      "INSERT INTO health_events (id, kind, text, actor_user_id, actor_kind, entity_type, entity_ref, audience) " +
-        "VALUES (?,?,?,?,?,?,?,?)",
+      "INSERT INTO health_events (id, kind, text, actor_user_id, actor_kind, origin_module_id, entity_type, entity_ref, audience) " +
+        "VALUES (?,?,?,?,?,?,?,?,?)",
       [
         `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         e.kind,
         e.text,
         e.actorUserId ?? null,
         e.actorKind ?? "human",
+        e.originModuleId ?? null,
         e.entityType ?? null,
         e.entityRef ?? null,
         e.audience ?? "public",
@@ -67,6 +88,8 @@ function rowToEvent(r: RowDataPacket): EventRow {
     kind: String(r.kind),
     text: String(r.text),
     actorUserId: r.actor_user_id ?? null,
+    actorKind: ACTOR_KINDS.includes(r.actor_kind as ActorKind) ? (r.actor_kind as ActorKind) : "human",
+    originModuleId: r.origin_module_id ?? null,
     entityType: r.entity_type ?? null,
     entityRef: r.entity_ref ?? null,
     audience: r.audience === "admin" ? "admin" : "public",
@@ -84,7 +107,7 @@ export async function recentEvents(
     // Example events are illustrative, not history. This spine feeds the
     // public Pulse and the feed's "village happenings", so an unfiltered read
     // presents seeded copy as things that actually happened here.
-    "SELECT id, kind, text, actor_user_id, entity_type, entity_ref, audience, at " +
+    "SELECT id, kind, text, actor_user_id, actor_kind, origin_module_id, entity_type, entity_ref, audience, at " +
       "FROM health_events WHERE audience = ? AND is_example = 0 ORDER BY at DESC, id DESC LIMIT ?",
     [audience, Math.max(1, Math.min(500, limit))],
   );

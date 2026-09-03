@@ -23,7 +23,7 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
 import { civilParts, zonedTimeToUtc } from "../../shared/lunar";
 import { listCalendarItems } from "./calendar";
 import { attachWaitlistInfo, whoIsHere, type WhoIsHere } from "./calendarCommunity";
-import { listOrgAssignments, listOrgRoles } from "./orgChart";
+import { listOrgAssignments, listOrgRoles, peopleOnly } from "./orgChart";
 
 // ── The L7 seam ──────────────────────────────────────────────────────────────
 
@@ -158,7 +158,12 @@ export async function gatherWeeklyBrief(
   try {
     const [roles, assignments] = await Promise.all([listOrgRoles(pool), listOrgAssignments(pool)]);
     const held = new Map<string, number>();
-    for (const a of assignments) held.set(a.orgRoleId, (held.get(a.orgRoleId) ?? 0) + 1);
+    // AGENTS DO NOT COUNT HERE (0129). This is a COVERAGE read: the brief
+    // tells the village which seats still need somebody, and a seat carried
+    // only by a piece of software still needs somebody. Counting an agent
+    // would quietly take that seat off the list the village reads on a
+    // Monday, which is the one list this whole section exists to produce.
+    for (const a of peopleOnly(assignments)) held.set(a.orgRoleId, (held.get(a.orgRoleId) ?? 0) + 1);
     const open = roles.filter((r) => r.active && !r.isExample && (held.get(r.id) ?? 0) < Math.max(1, r.seats));
     openSeats = { count: open.length, names: open.slice(0, 5).map((r) => r.name) };
   } catch (e) {

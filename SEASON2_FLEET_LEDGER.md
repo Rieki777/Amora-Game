@@ -175,9 +175,35 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
 ## 3 - Resource registry
 
 - **Migration numbers.** Highest taken across all local refs, remote refs and 140+ worktrees:
-  **0122**. Next free: **0123**. Gaps at 0111 and 0115-0119 are BURNED, never reuse them
+  **0130**. Next free: **0131**. Gaps at 0111 and 0115-0119 are BURNED, never reuse them
   (the applied-ledger keys on filename and would replay).
 - **Claim a number here before creating the file.**
+- **This line was stale by four for a week.** It said "highest 0122, next free 0123" while
+  `origin/main` carried 0123 through 0126, and two sessions read it and believed it. A number
+  written in a document is a claim about a moment. Measure before you claim: `ls drizzle/`
+  under-reports, so run all three scans (the directory, `git ls-tree` over every remote AND
+  local ref, and every `drizzle/*.sql` on disk across the worktrees), then
+  `node scripts/check-migration-numbers.mjs --next` to confirm.
+- **bridge-primitives lane, 2026-09-02: claims 0127, 0128, 0129 and 0130** for the platform
+  primitives under the Amora x Saberra integration. All four are additive only.
+  `0127_external_proposals.sql` adds `external_proposals` (the vendor proposal queue, with a
+  NOT NULL unique `dedupe_key` computed here and never taken from the wire) and
+  `external_proposal_drops` (a content-free counter, so an empty queue can be told apart from
+  a queue where everything was refused). `0128_quest_proposals.sql` adds `quest_proposals`,
+  which deliberately carries NO reward or gate column: a quest cannot exist unpublished
+  (`GET /api/quests` is public and unfiltered and the claim route never reads status), and the
+  five columns a machine must never write are absent rather than guarded. `0129` adds
+  `is_agent` to `org_role_assignments`, with no enum ALTER: an agent is
+  `holder_kind='documented'`, which is already excluded from the settlement job and from the
+  0083 declare door by filters that exist. `0130` adds `origin_module_id` to `health_events`
+  (0052 added `actor_kind` and said revocation-by-integration was the reason; the module id it
+  needed was never there, and `actor_kind` itself was written and read by nothing) plus
+  provenance and `cites` to `org_drafts`. Verified before claiming: 0126 is the highest number
+  in any local ref, any remote ref, and on disk across every worktree on this machine, so the
+  "next free: 0123" line above was four generations stale and is corrected. Both migration
+  gates green, `check-migration-compat` applied all 113 previous-release migrations against a
+  populated database, seeded rows in all three tables these files name, applied the four, and
+  confirmed a second run applies zero.
 - **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
   new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
   makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the

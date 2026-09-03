@@ -89,6 +89,9 @@ export default function HolderCard({
         ? howChosen.label
         : null;
 
+  // An agent is already excluded by `kind !== "documented"`, since that is
+  // what an agent is seated as. Left inherited rather than restated: a second
+  // clause here would be a guard that can drift away from the model (0129).
   const contactable = seat.holders.find((h) => h.kind !== "documented" && h.userId) ?? null;
 
   const contact = (toUserId: string) => {
@@ -181,6 +184,11 @@ export default function HolderCard({
                 </span>
               )}
               {h.name}
+              {/* Said out loud, next to the name (0129). A village should be
+                  able to see at a glance which of its seats a person holds and
+                  which a machine does, and this is the only place the two are
+                  side by side. */}
+              {h.isAgent && <span className="text-muted-foreground">· an agent</span>}
               {h.focus && <span className="text-muted-foreground">· {h.focus}</span>}
               {/* `lapsed` covers a term that reached its date AND a seating
                   made in a season that has since turned. One word has to be

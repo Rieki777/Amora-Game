@@ -315,6 +315,12 @@ export async function planRoll(
   // ── Seats whose holdings lapse ───────────────────────────────────────────
   const lapsing: RollPlan["lapsing"] = [];
   if (opts.cadence !== "never") {
+    // AGENTS COUNT HERE (0129), and this one is worth the sentence because it
+    // reads like a coverage number and is not. The roll plan says which seats
+    // have holdings that lapse when the season turns, so a founder can see
+    // what is about to need re-deciding. An agent's seating lapses like any
+    // other, and hiding it would leave a founder rolling a season with a seat
+    // they did not know a machine was sitting in.
     const [rows]: any = await pool.query(
       `SELECT r.id, r.name, COUNT(a.id) n
          FROM org_roles r

@@ -36,6 +36,8 @@
  * is lossy, and an archive may not be.
  */
 import type { Pool, PoolConnection } from "mysql2/promise";
+import { stageIndex } from "../../shared/gameConfig";
+import { listOrgAssignments, listOrgRoles, peopleOnly, seatState, type LapseContext, type OrgAssignment } from "./orgChart";
 
 export type DraftOp = "create_seat" | "update_seat" | "rest_seat" | "seat_holder" | "end_holding";
 export type DraftStatus = "open" | "published" | "reverted" | "withdrawn";
@@ -62,6 +64,24 @@ export interface Draft {
   changes: DraftChange[];
   /** The vision block (0083, P1, N2), or null for a draft without one. */
   vision: VisionBlock | null;
+  /**
+   * WHO OR WHAT WROTE THIS (0130).
+   *
+   * `created_by` is a member id and nothing else, so before this column a
+   * draft an outside service proposed was indistinguishable from one a
+   * founder typed. The whole confirm-then-own architecture rests on being
+   * able to tell those apart, and one of the guards below refuses on it.
+   *
+   * 'human' for everything that existed before this column, which is the true
+   * answer: nothing except the admin panel has ever been able to write here.
+   */
+  sourceKind: string;
+  /** Which integration, when it was one. The grain revocation works on. */
+  sourceModuleId: string | null;
+  /** The row in `external_proposals` this was built from, when there was one. */
+  sourceProposalId: string | null;
+  /** The evidence, as `assistant_drafts.cites` already carries it. */
+  cites: string[];
 }
 
 // ── The vision block (0083, P1, N2) ─────────────────────────────────────────
@@ -220,6 +240,90 @@ function rowToChange(r: any): DraftChange {
   };
 }
 
+/**
+ * What each measured metric stands at right now.
+ *
+ * MOVED HERE FROM server/index.ts, where it sat inline inside the
+ * `/api/org/vision` handler. The vocabulary (`VISION_METRICS`,
+ * `VISION_METRIC_PREFIXES`, `visionMetricKnown`) has always lived in this
+ * file, and the code that counts them lived 19,000 lines away in the one big
+ * file, so adding a metric meant editing two places and only one of them was
+ * findable from the other.
+ *
+ * Measured LAZILY: only the metric families the open visions actually name
+ * are counted, so a village with no visions pays nothing. Absent from the
+ * returned map means "not measured", which `visionProgress` reads as unknown
+ * rather than as zero.
+ *
+ * ── AGENTS DO NOT COUNT TOWARD `seats_filled` (0129) ─────────────────────
+ *
+ * The most consequential of the per-site decisions in that audit, because
+ * this metric is a TRIGGER and not a display. A vision whose objective is
+ * "twelve seats filled" prompts a human to publish a whole reorganisation
+ * when it is met. Counting agent-held seats would let a village reach the
+ * number without reaching the thing the number was standing for, and the
+ * prompt it fires is the one that changes the org chart.
+ *
+ * `seatState` itself is deliberately NOT changed. It answers "is this seat
+ * held", the map and the public export both ask it, and a seat an agent holds
+ * IS held. The filter belongs here, where the question is "is this seat
+ * carried by somebody".
+ */
+export async function measureVisionMetrics(
+  pool: Pool,
+  wanted: ReadonlySet<string>,
+  deps: {
+    lapseContext(): LapseContext;
+    allMembers(): Promise<any[]>;
+    consentedCounts(): Promise<Map<string, number>>;
+    isExampleUser(u: any): boolean;
+    computeStage(u: any, consented: number): string;
+    seasonsCompleted(): number;
+  },
+): Promise<Map<string, number>> {
+  const measured = new Map<string, number>();
+  const asked = Array.from(wanted);
+
+  if (asked.some((m) => m === "seats_filled" || m.startsWith("seats_filled_in:"))) {
+    const [roles, assignments] = await Promise.all([
+      listOrgRoles(pool),
+      listOrgAssignments(pool, deps.lapseContext()),
+    ]);
+    const bySeat = new Map<string, OrgAssignment[]>();
+    // See the header. `peopleOnly` is the one filter every coverage read uses.
+    for (const a of peopleOnly(assignments)) {
+      if (a.isExample) continue;
+      bySeat.set(a.orgRoleId, [...(bySeat.get(a.orgRoleId) ?? []), a]);
+    }
+    const live = roles.filter((r) => r.active && !r.isExample);
+    const filled = live.filter((r) => seatState(r, bySeat.get(r.id) ?? []) === "filled");
+    measured.set("seats_filled", filled.length);
+    for (const m of asked) {
+      if (!m.startsWith("seats_filled_in:")) continue;
+      const circleId = m.slice("seats_filled_in:".length);
+      measured.set(m, filled.filter((r) => r.circleId === circleId).length);
+    }
+  }
+
+  if (asked.some((m) => m.startsWith("members_at_stage:"))) {
+    const [allMembers, consented] = await Promise.all([deps.allMembers(), deps.consentedCounts()]);
+    const real = allMembers.filter((u) => !deps.isExampleUser(u));
+    for (const m of asked) {
+      if (!m.startsWith("members_at_stage:")) continue;
+      const floor = stageIndex(m.slice("members_at_stage:".length));
+      if (floor < 0) continue;
+      measured.set(
+        m,
+        real.filter((u) => stageIndex(deps.computeStage(u, Number(consented.get(u.id) ?? 0))) >= floor).length,
+      );
+    }
+  }
+
+  if (wanted.has("seasons_completed")) measured.set("seasons_completed", deps.seasonsCompleted());
+
+  return measured;
+}
+
 export async function listDrafts(pool: Pool): Promise<Draft[]> {
   const [drafts]: any = await pool.query("SELECT * FROM org_drafts ORDER BY created_at DESC");
   const [changes]: any = await pool.query("SELECT * FROM org_draft_changes ORDER BY sort_order, id");
@@ -234,20 +338,85 @@ export async function listDrafts(pool: Pool): Promise<Draft[]> {
     revertedAt: d.reverted_at ? new Date(d.reverted_at).toISOString() : null,
     changes: byDraft.get(d.id) ?? [],
     vision: (asJson(d.vision) as VisionBlock | null) ?? null,
+    sourceKind: String(d.source_kind ?? "human"),
+    sourceModuleId: d.source_module_id ? String(d.source_module_id) : null,
+    sourceProposalId: d.source_proposal_id ? String(d.source_proposal_id) : null,
+    cites: Array.isArray(d.cites)
+      ? (d.cites as unknown[]).map((c) => String(c))
+      : (() => {
+          try {
+            const parsed = JSON.parse(String(d.cites ?? "[]"));
+            return Array.isArray(parsed) ? parsed.map((c: unknown) => String(c)) : [];
+          } catch {
+            return [];
+          }
+        })(),
   }));
+}
+
+/**
+ * How many changes one draft may carry, and how many open drafts may stand.
+ *
+ * Same shape and same reasoning as `roleBatchCap` in drafts.ts, whose comment
+ * names seeding aspirational structure as the harm on the platform's
+ * never-build list. A meeting extractor emitting role updates per meeting is
+ * that machine, running weekly. Twenty-four seats over eight people is a chart
+ * nobody maintains, and forty open drafts is a review queue nobody opens.
+ *
+ * The floor of 3 exists so a village of one founder can still be given
+ * somewhere to start. A HUMAN IS NOT CAPPED: a founder reorganising their own
+ * village is doing the thing this table was built for, and the cap answers a
+ * machine proposing structure faster than a village can read it.
+ */
+export function draftChangeCap(activeMembers: number): number {
+  return Math.max(3, activeMembers * 3);
+}
+
+export function openDraftCap(activeMembers: number): number {
+  return Math.max(3, activeMembers);
 }
 
 export async function createDraft(
   pool: Pool,
-  body: { title: string; rationale?: string | null; threadId?: string | null; createdBy?: string | null },
-): Promise<string> {
+  body: {
+    title: string;
+    rationale?: string | null;
+    threadId?: string | null;
+    createdBy?: string | null;
+    /** 'human' unless a machine proposed it. See the Draft interface. */
+    sourceKind?: string | null;
+    sourceModuleId?: string | null;
+    sourceProposalId?: string | null;
+    cites?: string[] | null;
+    /**
+     * How many open drafts a machine-sourced draft may stand beside. Omitted
+     * means no cap, which is the right answer for a human and the wrong one
+     * for anything else, so the caller has to decide out loud.
+     */
+    openCap?: number | null;
+  },
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const sourceKind = String(body.sourceKind ?? "human");
+  if (sourceKind !== "human" && body.openCap !== null && body.openCap !== undefined) {
+    const [[open]] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM org_drafts WHERE status = 'open' AND source_kind <> 'human'",
+    );
+    if (Number(open?.n ?? 0) >= body.openCap) {
+      return {
+        ok: false,
+        error: `There are already ${body.openCap} proposed reorganisations waiting. Decide on some before more arrive.`,
+      };
+    }
+  }
   const id = newId("draft");
   await pool.query(
-    "INSERT INTO org_drafts (id, title, rationale, thread_id, created_by) VALUES (?,?,?,?,?)",
+    "INSERT INTO org_drafts (id, title, rationale, thread_id, created_by, source_kind, source_module_id, " +
+      "source_proposal_id, cites) VALUES (?,?,?,?,?,?,?,?,?)",
     [id, String(body.title || "Untitled reorganisation").slice(0, 200), body.rationale ?? null,
-      body.threadId ?? null, body.createdBy ?? null],
+      body.threadId ?? null, body.createdBy ?? null, sourceKind, body.sourceModuleId ?? null,
+      body.sourceProposalId ?? null, JSON.stringify(body.cites ?? [])],
   );
-  return id;
+  return { ok: true, id };
 }
 
 export async function addChange(
@@ -288,7 +457,15 @@ export interface PreviewLine {
  * "bulk structural apply" in this codebase: preview everything, refuse the
  * WHOLE thing if any single change is blocked, and never half-apply.
  */
-export async function previewDraft(pool: Pool, draftId: string): Promise<{ lines: PreviewLine[]; blocked: number }> {
+export async function previewDraft(
+  pool: Pool,
+  draftId: string,
+  /**
+   * The volume cap, from `draftChangeCap`. Applied only to a machine-sourced
+   * draft; omitted means no cap, which is the right answer for a human.
+   */
+  changeCap?: number | null,
+): Promise<{ lines: PreviewLine[]; blocked: number }> {
   const drafts = await listDrafts(pool);
   const draft = drafts.find((d) => d.id === draftId);
   if (!draft) return { lines: [], blocked: 0 };
@@ -297,16 +474,60 @@ export async function previewDraft(pool: Pool, draftId: string): Promise<{ lines
   const byId = new Map((roles as any[]).map((r) => [String(r.id), r]));
   const [circles]: any = await pool.query("SELECT id FROM circles WHERE is_example = 0");
   const circleIds = new Set((circles as any[]).map((c) => String(c.id)));
+  // Live seat names, lowercased, for the duplicate-structure check below.
+  const liveNames = new Map<string, string>();
+  for (const r of roles as any[]) {
+    if (r.is_example || !r.active) continue;
+    liveNames.set(String(r.name ?? "").trim().toLowerCase(), String(r.id));
+  }
+  // A machine-sourced draft is held to more than a human one, and the extra
+  // rules are all below. `machine` is the switch.
+  const machine = draft.sourceKind !== "human";
+  const cap = changeCap ?? Infinity;
   // Seats this draft creates count as existing for the changes after them, so
   // a draft can create a seat and then put somebody in it.
   const willExist = new Set(draft.changes.filter((c) => c.op === "create_seat").map((c) => c.orgRoleId));
 
   const lines: PreviewLine[] = [];
+  let index = 0;
   for (const c of draft.changes) {
     const existing = byId.get(c.orgRoleId);
     const name = existing?.name ?? c.payload?.name ?? c.orgRoleId;
     let blocked: string | null = null;
     let reads = "";
+    index += 1;
+
+    /*
+     * ── THE MACHINE RULES (0130) ──────────────────────────────────────────
+     *
+     * Four blocks that apply to every op, and only to a draft a machine wrote.
+     * A founder typing in the admin panel meets none of them, because a
+     * founder reorganising their own village is the thing this table is for.
+     *
+     * A HOLDER IS THE ONE A MISTAKE CANNOT BE UNDONE FROM. Structure yes,
+     * occupancy no: filling a seat is a human act performed by a human in the
+     * game, and a proposal naming a holder would write a person's name into
+     * the org chart on a machine's say-so. `SEAT_FIELDS` already keeps
+     * `represents_circle` out by construction; this keeps the WHOLE op out.
+     *
+     * THE VOLUME CAP is the other one worth reading twice. Seeding
+     * aspirational structure is on the platform's never-build list and a
+     * weekly meeting extractor is that machine. The cap is on the DRAFT rather
+     * than on the table, so a village can still accept many drafts over time
+     * and cannot be handed one carrying forty seats at once.
+     */
+    if (machine && (c.op === "seat_holder" || c.op === "end_holding")) {
+      blocked = "A proposal never names who holds a seat. Structure can be proposed; occupancy is a human act";
+    } else if (machine && index > cap) {
+      blocked = `This proposal is past this village's limit of ${cap} changes in one reorganisation`;
+    } else if (machine && c.op === "rest_seat") {
+      blocked = "A proposal never rests an existing seat. Removing a seat from the chart is a human decision";
+    }
+
+    if (blocked) {
+      lines.push({ changeId: c.id, op: c.op, orgRoleId: c.orgRoleId, reads: `${c.op} on ${name}`, blocked });
+      continue;
+    }
 
     if (c.op === "create_seat") {
       reads = `Create the seat "${c.payload?.name ?? c.orgRoleId}"`;
@@ -314,13 +535,62 @@ export async function previewDraft(pool: Pool, draftId: string): Promise<{ lines
       if (c.payload?.circleId && !circleIds.has(String(c.payload.circleId))) {
         blocked = "That circle does not exist. A draft cannot create circles";
       }
+      /*
+       * ── THE SHAPE RULES, which the old block list did not have ──────────
+       *
+       * Every one of these was reachable before. The list checked id
+       * collision, unknown circle, seat existence and example rows, which is
+       * the right list for a human who typed the form and the wrong one for a
+       * model's output: a nameless seat, a seat named the same as a live one,
+       * and a seat asking for four hundred holders all previewed as fine and
+       * applied.
+       *
+       * A NAME COLLISION IS BLOCKED AND AN ID COLLISION IS TOO, and they are
+       * different failures. Two seats can legally carry the same name in this
+       * schema, and two seats carrying the same name is how a village ends up
+       * with an org chart nobody can navigate. It is blocked rather than
+       * renamed, because renaming somebody's proposal to make it fit is the
+       * one thing a preview must never do quietly.
+       */
+      const proposed = String(c.payload?.name ?? "").trim();
+      if (!blocked && proposed === "") blocked = "A seat needs a name";
+      if (!blocked && proposed.length > 120) blocked = "That seat name is longer than a seat name can be";
+      if (!blocked && liveNames.has(proposed.toLowerCase())) {
+        blocked = `This village already has a live seat called "${proposed}"`;
+      }
+      const seats = c.payload?.seats;
+      if (!blocked && seats !== undefined && seats !== null) {
+        const n = Number(seats);
+        if (!Number.isInteger(n) || n < 1 || n > 50) blocked = "A seat holds between 1 and 50 people";
+      }
+      const crit = c.payload?.criticality;
+      if (!blocked && crit !== undefined && crit !== null && !["normal", "high"].includes(String(crit))) {
+        blocked = "Criticality is normal or high";
+      }
     } else {
       if (!existing && !willExist.has(c.orgRoleId)) blocked = "That seat no longer exists";
       // Standing examples are inert everywhere else and must be here too, or a
       // draft becomes the one door that edits demo data into the real chart.
       else if (existing?.is_example) blocked = "That is a standing example seat";
 
-      if (c.op === "update_seat") reads = `Edit ${name}`;
+      if (c.op === "update_seat") {
+        reads = `Edit ${name}`;
+        // A change naming nothing this village can apply is not a change. It
+        // previewed as "Edit <seat>", applied as an UPDATE with an empty SET
+        // list, and left a reader believing something happened.
+        const touched = Object.keys(c.payload ?? {}).filter((k) => k in SEAT_FIELDS);
+        if (!blocked && touched.length === 0) {
+          blocked = "This names no field this village can change on a seat";
+        }
+        const n2 = c.payload?.seats;
+        if (!blocked && n2 !== undefined && n2 !== null) {
+          const v = Number(n2);
+          if (!Number.isInteger(v) || v < 1 || v > 50) blocked = "A seat holds between 1 and 50 people";
+        }
+        if (!blocked && c.payload?.circleId && !circleIds.has(String(c.payload.circleId))) {
+          blocked = "That circle does not exist. A draft cannot create circles";
+        }
+      }
       if (c.op === "rest_seat") reads = `Rest ${name}, so it stops appearing on the chart`;
       if (c.op === "seat_holder") reads = `Put ${c.payload?.displayName ?? "a member"} in ${name}`;
       if (c.op === "end_holding") reads = `End a holding on ${name}`;
@@ -340,8 +610,21 @@ export async function publishDraft(
   pool: Pool,
   draftId: string,
   publishedBy: string | null,
+  /**
+   * The volume cap, from `draftChangeCap`, passed through to the preview.
+   *
+   * THIS PARAMETER IS THE DIFFERENCE BETWEEN A GATE AND A SUGGESTION. Publish
+   * refuses a draft with any blocked line, and the machine rules that produce
+   * those lines are derived from the draft's own `source_kind` inside
+   * `previewDraft`, so the one that matters most (a proposal never names who
+   * holds a seat) already holds here whether or not a caller passes this. The
+   * numeric cap is the one thing the preview cannot work out on its own,
+   * because it depends on how many people the village has. Omitted means no
+   * cap, which is the right answer for a draft a founder typed.
+   */
+  changeCap?: number | null,
 ): Promise<{ ok: true; applied: number } | { ok: false; error: string }> {
-  const preview = await previewDraft(pool, draftId);
+  const preview = await previewDraft(pool, draftId, changeCap);
   if (!preview.lines.length) return { ok: false, error: "This draft has no changes in it" };
   if (preview.blocked > 0) {
     const first = preview.lines.find((l) => l.blocked);

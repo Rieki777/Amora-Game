@@ -1,0 +1,66 @@
+-- 0129: an agent can hold a seat, and the chart says so out loud.
+--
+-- ── THE MODEL ALREADY EXISTED AND THIS FILE ADDS ONE COLUMN ──────────────
+--
+-- `org_role_assignments.holder_kind` is enum('member','documented') from 0049,
+-- where `documented` means a real holder with no account behind them: a name
+-- written on a card. An agent is exactly that, so an agent seat holder is
+-- `holder_kind = 'documented'` with `holder_key = 'agent:<slug>'`, and NO
+-- ENUM ALTER IS NEEDED. That matters more than it looks: this repository
+-- names a live enum ALTER as its forbidden migration class, because thirteen
+-- founder instances apply drizzle/*.sql at boot with no approval step.
+--
+-- ── WHAT `documented` BUYS, WHICH IS TWO CLOSED DOORS FOR FREE ───────────
+--
+-- THE MONEY. The hourly settlement job selects seats
+-- `WHERE active_holder_key IS NOT NULL AND holder_kind = 'member'
+-- AND user_id IS NOT NULL AND is_example = 0` (server/lib/economy.ts). A
+-- documented holder fails three of those four clauses. So an agent is
+-- excluded from recognition payouts BY A FILTER THAT ALREADY EXISTS, and no
+-- new money guard is added here on purpose: an exclusion that is inherited
+-- cannot drift away from the thing it is protecting, and one that is invented
+-- beside it can.
+--
+-- THE ONE PERMISSION DOOR. Since 0083 a live, non-example holder of a seat
+-- flagged `represents_circle` may redeclare how that one circle decides,
+-- through PUT /api/org/circles/:id/decides. It is the only bridge in the
+-- platform from the seat plane into an authorization decision. It tests that
+-- the holder's user id matches the requesting user and short-circuits when
+-- there is none, so a documented holder can never open it. An agent with a
+-- member account could. That single rule closes the money path and the
+-- declare path at once, which is why an agent is never seated as a member and
+-- never given an account.
+--
+-- ── WHY A COLUMN AND NOT A KEY PREFIX ────────────────────────────────────
+--
+-- `holder_key LIKE 'agent:%'` would answer the question without this column,
+-- and it is the wrong answer for two reasons.
+--
+-- It makes rendering INFERRED. Every surface that wants to mark an agent
+-- differently would carry its own copy of the prefix test, and this codebase
+-- has already paid for that shape: a hand-kept map beside a server value goes
+-- stale silently and renders nothing where a sentence belonged.
+--
+-- And a prefix is not a fact, it is a naming convention. A village that seats
+-- a documented human called "Agent Smith" slugifies to `doc:agent-smith`, not
+-- `agent:...`, so the prefix test happens to be right today. `is_agent` is a
+-- thing somebody asserted at seating time, which is what a renderer should
+-- read and what an audit should be able to trust.
+--
+-- ── EXPAND, NEVER CONTRACT ───────────────────────────────────────────────
+--
+-- NOT NULL with a DEFAULT of 0 on a NEW column is the safe half of the rule:
+-- the previous release keeps writing rows that do not name it and gets 0,
+-- which is the true answer for every seating that exists today. `org_roles`
+-- and `org_role_assignments` are raw SQL rather than a dbCollection, so the
+-- DEFAULT genuinely applies here; the trap where store-db.ts names every
+-- spec'd column and turns an omission into an explicit NULL does not reach
+-- this table.
+
+ALTER TABLE `org_role_assignments`
+  ADD COLUMN `is_agent` tinyint(1) NOT NULL DEFAULT 0;
+
+-- Seat coverage reads ask "how many live seats are held, and by what". They
+-- filter on `ended_at IS NULL` and now want to split by this column, so the
+-- two travel together.
+CREATE INDEX `org_role_assignments_agent_idx` ON `org_role_assignments` (`is_agent`, `ended_at`);
