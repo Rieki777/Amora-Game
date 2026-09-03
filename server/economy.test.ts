@@ -46,7 +46,7 @@ import {
   villageId,
   type MintRule,
 } from "./lib/economy";
-import { balanceOf, CYCLE_POOL_FAUCET, loadTokenRegistry, memberAccount, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
+import { balanceOf, checkLedgerInvariants, CYCLE_POOL_FAUCET, loadTokenRegistry, memberAccount, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
 import { loadVariables } from "./lib/variables";
 import { cycleBoundsFor } from "../shared/lunar";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
@@ -375,6 +375,159 @@ describe.skipIf(!configured)("the village economy engine", () => {
     });
     expect(res.ok && res.duplicate).toBe(false);
     expect(await balanceOf(pool, memberAccount(u), HEARTS)).toBe(5);
+  });
+
+  /**
+   * Rows read straight out of the database, because a return value is the one
+   * witness that cannot contradict the code under test.
+   */
+  async function readRows<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {
+    const [out] = await pool.query(sql, params);
+    return out as unknown as T[];
+  }
+
+  /** Every account and every faucet, one token. Double entry says zero. */
+  async function conserved(token: string): Promise<number> {
+    const [row] = await readRows<{ s: string | number }>(
+      "SELECT COALESCE(SUM(`balance`), 0) AS s FROM `token_balances` WHERE `token_type` = ?",
+      [token],
+    );
+    return Number(row?.s ?? 0);
+  }
+
+  interface LedgerRow {
+    from_account: string;
+    to_account: string;
+    token_type: string;
+    amount: number;
+  }
+
+  const ledgerRow = async (key: string): Promise<LedgerRow | undefined> =>
+    (
+      await readRows<LedgerRow>(
+        "SELECT `from_account`, `to_account`, `token_type`, `amount` FROM `token_ledger` WHERE `idempotency_key` = ?",
+        [key],
+      )
+    )[0];
+
+  it("refuses a reversal for an amount the posting never moved", async () => {
+    // THE ATTACK THIS FUNCTION WAS REWRITTEN FOR. An audit reversed a 25
+    // credit posting into a 1,000,000 credit payment to the same member and
+    // every invariant stayed green, because a mirror that invents its own
+    // numbers still balances. The numbers come off the row now, and a caller
+    // value that disagrees refuses the whole reversal before any write.
+    const u = await makeMember("econ-rev-attack");
+    const key = keys.questCompleted(villageId(), "q-attack", "c-attack", u);
+    await mint(pool, {
+      toUserId: u, tokenSlug: CREDITS, amount: 25,
+      from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
+    });
+    expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(25);
+
+    const inflated = await reverse(pool, key, {
+      from: memberAccount(u), to: CYCLE_POOL_FAUCET, tokenSlug: CREDITS, amount: 1_000_000,
+    });
+    expect(inflated.ok).toBe(false);
+    expect(inflated.ok === false && inflated.error).toMatch(/amount 1000000/);
+    // Refused BEFORE the write, which is the only refusal worth having.
+    expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(25);
+
+    // The same attack pointed the other way: a "reversal" that pays the member
+    // a second time instead of taking the first payment back.
+    const paidAgain = await reverse(pool, key, {
+      from: CYCLE_POOL_FAUCET, to: memberAccount(u), tokenSlug: CREDITS, amount: 25,
+    });
+    expect(paidAgain.ok).toBe(false);
+    expect(paidAgain.ok === false && paidAgain.error).toMatch(/from/);
+    expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(25);
+
+    // A wrong token is refused on the same footing.
+    const wrongToken = await reverse(pool, key, { tokenSlug: HEARTS });
+    expect(wrongToken.ok).toBe(false);
+    expect(wrongToken.ok === false && wrongToken.error).toMatch(/tokenSlug/);
+
+    // Zero is a claim, not an absence: a caller that computed nothing is asking
+    // for a refund it cannot describe, and gets a refusal rather than a mirror
+    // derived behind its back.
+    const zero = await reverse(pool, key, { amount: 0 });
+    expect(zero.ok).toBe(false);
+    expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(25);
+
+    // And the true reversal, which is now the only reversal there is.
+    const honest = await reverse(pool, key, { note: "withdrawn" });
+    expect(honest.ok).toBe(true);
+    expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(0);
+
+    const mirrors = await readRows(
+      "SELECT `id` FROM `token_ledger` WHERE `source` = 'reversal' AND `source_ref` = ?",
+      [key],
+    );
+    expect(mirrors.length).toBe(1);
+    expect(await conserved(CREDITS)).toBe(0);
+  });
+
+  it("derives the mirror from the row when the caller says only a note", async () => {
+    const u = await makeMember("econ-rev-derive");
+    const key = keys.questCompleted(villageId(), "q-derive", "c-derive", u);
+    await mint(pool, {
+      toUserId: u, tokenSlug: CREDITS, amount: 25,
+      from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
+    });
+    expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(25);
+
+    const out = await reverse(pool, key, { note: "nothing else supplied" });
+    expect(out.ok).toBe(true);
+    expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(0);
+
+    // Read both rows. The mirror is the original with its two accounts swapped,
+    // the same token, and the same number of minor units: no conversion, no
+    // caller, no rounding.
+    const original = await ledgerRow(key);
+    const mirror = await ledgerRow(keys.reversal(villageId(), key));
+    expect(original).toBeTruthy();
+    expect(mirror).toBeTruthy();
+    expect(mirror!.from_account).toBe(original!.to_account);
+    expect(mirror!.to_account).toBe(original!.from_account);
+    expect(mirror!.token_type).toBe(original!.token_type);
+    expect(Number(mirror!.amount)).toBe(Number(original!.amount));
+    expect(Number(mirror!.amount)).toBe(25);
+    expect(await conserved(CREDITS)).toBe(0);
+  });
+
+  it("claws back value the member already spent, and says so with a negative balance", async () => {
+    // The refusal this replaces was the dishonest one: the member spent the 25,
+    // so taking it back cannot leave them at zero, and refusing the clawback
+    // would leave the ledger insisting a withdrawn payment still stands.
+    const spender = await makeMember("econ-rev-spent");
+    const other = await makeMember("econ-rev-spent-to");
+    const key = keys.questCompleted(villageId(), "q-spent", "c-spent", spender);
+    await mint(pool, {
+      toUserId: spender, tokenSlug: CREDITS, amount: 25,
+      from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
+    });
+    // Onward, member to member, through the same guarded post every other
+    // movement uses. The credits are gone from the first member's hands.
+    const spent = await mint(pool, {
+      toUserId: other, tokenSlug: CREDITS, amount: 25,
+      from: memberAccount(spender), source: "test_spend",
+      idempotencyKey: `test.spend:${villageId()}:${spender}`,
+    });
+    expect(spent.ok).toBe(true);
+    expect(await balanceOf(pool, memberAccount(spender), CREDITS)).toBe(0);
+    expect(await balanceOf(pool, memberAccount(other), CREDITS)).toBe(25);
+
+    const back = await reverse(pool, key, { note: "quest withdrawn after the spend" });
+    expect(back.ok).toBe(true);
+    // The truthful state: the member owes the village 25.
+    expect(await balanceOf(pool, memberAccount(spender), CREDITS)).toBe(-25);
+
+    // Lawful, not merely permitted: the boot invariant exempts an account that
+    // holds a debit from an ALLOW_NEGATIVE_SOURCES source, and `reversal` is
+    // one, so this village still comes up.
+    const report = await checkLedgerInvariants(pool);
+    expect(report.problems.filter((p) => p.includes(memberAccount(spender)))).toEqual([]);
+    expect(report.problems.filter((p) => p.includes("is negative"))).toEqual([]);
+    expect(await conserved(CREDITS)).toBe(0);
   });
 
   // ── Two-party consent ────────────────────────────────────────────────────

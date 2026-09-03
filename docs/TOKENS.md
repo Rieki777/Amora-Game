@@ -226,7 +226,7 @@ One more way value enters, outside the rule engine: an administrator can stock t
 
 The ledger is double-entry. Every movement is a transfer from one account to another, and for every token the balances of all accounts add up to zero. Faucet accounts are allowed to run negative, and a faucet's negative balance is that token's issued supply. That is what makes issuance a number anyone can check rather than a claim anyone has to trust.
 
-An ordinary account cannot go below zero. Two sources are excepted today, in `ALLOW_NEGATIVE_SOURCES`: `stay_night` and `payment_reversal`. Both are honest states rather than conveniences: a stay burnt inside its grace window, and the reversal leg after a refund.
+An ordinary account cannot go below zero. Three sources are excepted today, in `ALLOW_NEGATIVE_SOURCES`: `stay_night`, `payment_reversal` and `reversal`. Each is an honest state rather than a convenience: a stay burnt inside its grace window, the leg after a payment refund and the clawback a reversal posts against value a member already spent.
 
 There is no setting for how far a balance may go below zero. Ruling 2 below describes the one the founder asked for, and the generator stops the build if a dial that looks like one ever appears, so this sentence cannot go stale quietly.
 
@@ -511,7 +511,8 @@ The same facts, for anything that would rather parse than read. Regenerated with
   ],
   "allowNegativeSources": [
     "stay_night",
-    "payment_reversal"
+    "payment_reversal",
+    "reversal"
   ],
   "dials": {
     "gratitude.pool_token": {

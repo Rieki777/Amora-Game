@@ -1353,10 +1353,28 @@ export function render(f) {
       "claim anyone has to trust.",
   );
   p();
+  // The count, the list and the reasons are all DERIVED. This sentence typed
+  // "Two sources" and "Both are" until `reversal` joined the set on 2026-09-03,
+  // and a hand-typed number inside a generated document is the exact failure
+  // this generator exists to prevent. "Each is" replaces "Both are" so the
+  // shape holds at two entries or at ten, and a source with no reason on file
+  // still lists correctly instead of dropping out of the sentence.
+  const negReason = {
+    stay_night: "a stay burnt inside its grace window",
+    payment_reversal: "the leg after a payment refund",
+    reversal: "the clawback a reversal posts against value a member already spent",
+  };
+  const andList = (items) =>
+    items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  const negCount = f.allowNegative.length;
+  const negWords = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+  const negCounted = `${negWords[negCount] ?? negCount} source${negCount === 1 ? " is" : "s are"}`;
   p(
-    `An ordinary account cannot go below zero. Two sources are excepted today, in \`ALLOW_NEGATIVE_SOURCES\`: ` +
-      `${f.allowNegative.map((s) => `\`${s}\``).join(" and ")}. Both are honest states rather than conveniences: a stay ` +
-      "burnt inside its grace window, and the reversal leg after a refund.",
+    `An ordinary account cannot go below zero. ${negCounted} excepted today, in \`ALLOW_NEGATIVE_SOURCES\`: ` +
+      `${andList(f.allowNegative.map((s) => `\`${s}\``))}. Each is an honest state rather than a convenience: ` +
+      `${andList(
+        f.allowNegative.map((s) => negReason[s] ?? `a \`${s}\` posting, which the ledger records instead of refusing`),
+      )}.`,
   );
   p();
   p(

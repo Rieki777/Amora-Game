@@ -248,13 +248,22 @@ export interface TransferInput {
 }
 
 /**
- * The only sources that may legally drive a non-faucet account negative
- * (with allowNegative set): stay-night burns inside the grace window, and
- * mechanical reversal legs after a refund/dispute. Static ON PURPOSE —
- * extending it is a one-line reviewed change to the keystone, not a runtime
- * registration that can race the boot invariant check.
+ * The only sources that may legally drive a non-faucet account negative (with
+ * allowNegative set): stay-night burns inside the grace window, the mechanical
+ * legs after a payment refund or dispute, and `reversal`, which is every
+ * clawback `reverse()` posts.
+ *
+ * `reversal` is here because a clawback has to be able to FINISH against a
+ * member who already spent what it takes back. Refusing it leaves the ledger
+ * asserting a payment both parties know was undone, while -25 is simply what
+ * the member now owes. `checkLedgerInvariants` reads this same set and exempts
+ * an account holding a debit from one of these sources, so that balance is
+ * lawful at boot rather than a refusal to serve.
+ *
+ * Static ON PURPOSE: extending it is a one-line reviewed change to the
+ * keystone, not a runtime registration that can race the boot invariant check.
  */
-export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal"]);
+export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal", "reversal"]);
 
 export interface TransferResult {
   ok: boolean;

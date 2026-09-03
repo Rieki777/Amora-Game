@@ -67,8 +67,11 @@ describe("webhook signature verification", () => {
 });
 
 describe("the allow-negative whitelist stays tight", () => {
-  it("holds exactly the two debt-creating sources", () => {
+  it("holds exactly the three debt-creating sources", () => {
     // Growing this set is a deliberate keystone change, never a side effect.
-    expect(Array.from(ALLOW_NEGATIVE_SOURCES).sort()).toEqual(["payment_reversal", "stay_night"]);
+    // `reversal` joined on 2026-09-03 so that a clawback of value the member
+    // has already spent completes and reads negative, which is the truthful
+    // state, instead of being refused (PLAN_TO_A.md section 1 item 5).
+    expect(Array.from(ALLOW_NEGATIVE_SOURCES).sort()).toEqual(["payment_reversal", "reversal", "stay_night"]);
   });
 });
