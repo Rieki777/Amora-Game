@@ -2276,7 +2276,9 @@ arrived; 19I carries them and settles both:
   ledger posting to a sink (conservation holds) and never a rewrite of a balance. The digest shows
   it as voice that waned this moon.
 
-### 19I. Rulings of 2026-09-03, afternoon, in the founder's words as quoted by the economics session
+### 19I. Rulings of 2026-09-03, afternoon, in the founder's words as quoted by the economics session, confirmed to this session
+
+> "Yes, Voice is buyable and decays 1% per cycle by default." (to this session, 2026-09-03)
 
 The economics session quoted him verbatim, which is the rule for a ruling travelling between
 sessions; 19H's two relayed items are settled by these.
