@@ -1855,6 +1855,127 @@ early voter cannot be read off the tally. Choices stay hidden. A village setting
 voting, where choices show. Ledger ruling R9 is superseded by this. The people-and-weight sentence
 (section 5) is unaffected: counts and shares of weight are always shown.
 
+### 19B. Rulings of 2026-09-02, late evening: the second round of answers
+
+He answered the plan message. His words, then what each one changes. These supersede section 19
+and section 20 where they differ, and one of them (Q7) reverses a default the dispatcher lane was
+given; section 20.7 records how that is handled.
+
+**Q1, settled.**
+
+> "Yes village-voice is the Voice"
+
+**Voice for other beings is exposed from the first day, with a representative.**
+
+> "You expose catalysts at the beginning (even with 3 people) the concept of giving voice to nature
+> and inviting them to consider it by either a human or AI agent taking the perspective - or even
+> talking directly if they have the human ability to the nature beings)"
+
+What it changes: the founding screen presents the concept to the catalysts on day one, whatever
+their number, and lets them declare a non-human governance role (a mountain, a river, the trees,
+the fauna and flora) with a REPRESENTATIVE who takes its perspective: a human member, or an AI
+agent, or a person who speaks with that being directly. The 144-player line from section 19 Q2
+becomes a recommendation shown on the screen ("most villages grow into this") rather than a lock;
+the representative may be given Voice through the same founding allocation and ballots as anyone.
+Coordinator's reading; flagged for him in section 20.7.
+
+**Q7, reversed: approval executes at once.**
+
+> "Q7 No whenever a steward approves it instantly executes"
+
+What it changes: a steward's approval is the moment of effect. There is no waiting for the moon
+after an approval and no rolling to the following boundary. The "lands at the next cycle start"
+rule of section 12 applies to the path with NO steward in it: a subject the village has moved to
+auto-execute lands at the next boundary through `applyDueGovernance`. So a village with training
+wheels on gets changes when a steward says yes, and a village that has taken them off gets changes
+at the new moon. Coordinator's reconciliation; flagged for him in section 20.7.
+
+**Q9, confirmed, with the reason.**
+
+> "Q9 yes the highest floor among them which discourages people to adjust those settings knowing the
+> storytelling required for higher changes."
+
+**Every setting shows its cost; catalysts set the initial amounts; a threshold changes at its own
+bar.**
+
+> "Yes every setting says what it costs and these are all editable from the start by catalysts to
+> set the initial amounts. but they also can be changed by reaching the same amount they are set at
+> can change their threshold again."
+
+What it changes: the criticality tier and its quorum and unity are themselves settings a catalyst
+edits before the Birthing. After it, changing a setting's threshold requires meeting that setting's
+CURRENT threshold: a dial at 97 and 97 needs 97 and 97 to move, up or down. That is the "thresholds
+for thresholds" rule, and it replaces any fixed list.
+
+**The governance dashboard is a first-class experience.**
+
+> "Love the governance dashboard! Super cool and an important piece to help players see and navigate
+> the game of governance and to take action and guide their choices. Make it an engaging experience
+> that's about empowerment and co-creating our game! IT's really cool!"
+
+What it changes: the read-back on the front of the Game Mechanics section is a Phase 2 lane of its
+own, designed as an invitation to act, not a status page: which Hypha corner the dials describe,
+concentration of voice, participation over three moons, whether a steward holds the seat, what is
+open to vote on now, what lands at the next moon, and a door to propose.
+
+**Stalemate protection, with an abuse guard.**
+
+> "I think so on the stalemate protections but we have to do this in a way where they can't be
+> abused by people who don't like the outcome of a vote."
+
+What it changes: the re-run is offered ONLY when a frozen seat has provably left the village (a
+membership change recorded in the ledger, never a self-declared absence) and ONLY while the ballot
+is open and mathematically unable to reach its quorum. A closed ballot is never re-run. The re-run
+freezes a new roll from the current membership and links to the ballot it replaces, so the record
+shows why. Nobody who dislikes an outcome gets a second vote out of it.
+
+**The first governance actions are quests, with this framing.**
+
+> "Yes absolutely first governance as quests that describes how this is how we empower ourselves,
+> evolve the game, make sure we're always making it better, more fun, more empowering, more capable,
+> as we co-create new realities and civilizations together and take this task seriously."
+
+**The bridge to the hub is another session's, with a prompt from this one.**
+
+> "The bridge to the hub can be a prompt you give me at the end for another session after yours."
+
+**Two Voices, one shown at a time, and the graduation to Hypha.**
+
+> "Village Voice is the voice unless they're running on Hypha then it changes, but only show one at
+> the beginning, either they're using the platform or Hypha to vote. What we have is a sort of
+> 'graduation' to Hypha when you complete a crowdpool and you want to accept all those
+> contributions and have a secure vehicle with easy liquidity (an actual DAO on Base using
+> Coinbase's liquidity) then you're using those actual tokens and mirroring your village game with
+> Hypha updates (like every month or season) you would actually go to Hypha and vote to sync up the
+> Games there. Then you would show both types of Voice if they're using both Tools but they should
+> be in balance with every sync."
+
+What it changes: a village shows ONE Voice. On the platform it is `village-voice`. A village
+graduates to Hypha when it completes a crowdpool and wants a secure vehicle with liquidity (a real
+DAO on Base); from then on the on-Base token is the vote, the village Game mirrors Hypha, and every
+month or season the village goes to Hypha and votes to sync the two. A village using both tools
+shows both Voices, and the sync keeps them in balance. The generated document says exactly this
+under "Voting weight", and `docs/TOKENS.md`'s two-token section is rewritten to match. The sync
+itself is the hub session's work (the prompt at the end).
+
+**Merge #140, and a lane on the module image row.**
+
+> "Merge PR #140 if it's good to go! You can also put a lane on the governance module image row to
+> do that too!"
+
+### 20.7 What the second round changes in the build
+
+- **The dispatcher lane was briefed with the old Q7 default** (late approval rolls to the following
+  boundary). The correction is small and contained: on approval, execute now; `lands_at_cycle` is
+  stamped only for subjects in the auto-execute map. A follow-up lane applies it after Phase 1's
+  verify, and the resume script carries the corrected prompt so a re-run gets it right.
+- **Thresholds-for-thresholds** joins the thresholds lane's scope in Phase 2 (the tier settings are
+  editable by catalysts before the Birthing; after it, a tier change is priced at the tier's own
+  current bar).
+- **Two coordinator readings flagged for him:** that non-human roles with a representative are
+  available from day one and the 144 line is shown as guidance; and that "lands at the next cycle"
+  now describes the auto-execute path only, with steward approval executing at once.
+
 ### The mandate that follows
 
 > "your role now is to respond to my ideas for improvement with a final execution plan. Then you're
