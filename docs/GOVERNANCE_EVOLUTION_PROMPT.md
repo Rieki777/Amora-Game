@@ -2380,6 +2380,31 @@ cycle-mode landing precondition); `docgen-refresh` regenerates against the merge
 widened scope (sections 3, 4, 5, 12, 19 to 19E, withdrawn sentences as struck history). Then Merge
 B, verify, fix.
 
+### 20.10 The coordination document's governance row (PLAN_TO_A.md, main at 6e441d7)
+
+`PLAN_TO_A.md` landed on `main` on 2026-09-03 as the repository's coordination document. Its
+governance row is owned by this build. Its five items and where each lands:
+
+1. **A carried `role_seat` ballot seats a member who left the village mid-ballot** (critical, found
+   by grading). The dispatcher's two-phase apply re-validates every element at landing time, and
+   the seat executor refuses a subject who is no longer a member, naming them; a test deletes the
+   subject mid-ballot, closes, and asserts no seat and a loud refusal. Lane: `dispatcher`
+   (Phase 1b fix round if it misses the wave).
+2. **Separate what is built from what is written.** `docs/GOVERNANCE.md` states per feature whether
+   it is in code, half built, or only written, with the ruling's date. Lane: `docgen-refresh`.
+3. **The close dispatcher executes nothing for an unknown subject, and nobody is told.** A binding
+   ballot may not be opened on a subject type with no closer (advisory excepted); the refusal names
+   the subject and the practice-vote door. Lane: `dispatcher`.
+4. **Prove the frozen roll and weights.** `ballots.test.ts` pins it; the verify lane re-proves it on
+   the merged tree with a member joining, leaving and gaining voice mid-ballot.
+5. **Concentration visible where a voter sees it before voting.** The vote widget shows the voter's
+   own share of total voice and the top holders' shares before the choice. Lane: `ballot-surfaces`.
+
+Two of its coordination rules join section 20.1: **the ratchet baselines are shared state**
+(`server-index-size`, `image-budget`, `tailwind-gray`, `theme-literals`, the identity guard's
+pending list); whoever merges re-measures the combined tree rather than taking either side. And
+**before the landing push, re-check that `main` has not moved.**
+
 ---
 
 ## 21. Eight additions, specified (2026-09-03)
