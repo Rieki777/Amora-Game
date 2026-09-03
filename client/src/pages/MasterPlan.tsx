@@ -39,6 +39,35 @@ const statShapes = [
   { key: "appraisal", label: "Appraised Value", icon: Building },
 ];
 
+/*
+ * THE UNIT ON THE LAND TILE BELONGS TO THE VILLAGE TOO.
+ *
+ * The figure moved into Settings and the UNIT stayed hardcoded here, which is
+ * how the same defect survived its own fix. Settings asks for the size of the
+ * land in one box and, in the box beside it, the unit: its placeholder reads
+ * "acres, hectares, manzanas". This tile threw that box away and printed
+ * "Total Acres" over whatever number arrived. A village measuring in hectares
+ * published its land at 40% of its real size, on the page it shows investors,
+ * by filling the screen in exactly as the screen asked. The repo's own fork
+ * test carried that payload as a fixture: `acres: { value: "40", note:
+ * "hectares" }`.
+ *
+ * The unit a village typed is the unit the page states. NOTHING IS CONVERTED.
+ * 40 hectares publishes as 40, under the word hectares. Multiplying it up to
+ * 98.8 acres would put a number on an investor page that nobody at the village
+ * ever wrote, which is a worse thing to publish than the bug.
+ *
+ * A blank unit still reads "Total Acres". A village that typed a bare number
+ * back when acres was the only thing this tile could say keeps the page it has
+ * today, unchanged. Fresh installs get "acres" already sitting in that box
+ * (DEFAULT_SETTINGS, server/index.ts), so the word about to be published is on
+ * screen while the founder types the number, and changing it is one edit.
+ */
+function withStatedUnit<T extends { key: string; label: string; note: string }>(stat: T): T {
+  if (stat.key !== "acres") return stat;
+  return { ...stat, label: `Total ${stat.note || "Acres"}` };
+}
+
 const villageZones = (villageName: string) => [
   {
     title: "Village Center",
@@ -79,7 +108,7 @@ export default function MasterPlan() {
   const zones = villageZones(villageName);
   const brand = useBrandImages();
   const settings = useVillageSettings();
-  const stats = statedFacts(settings, statShapes);
+  const stats = statedFacts(settings, statShapes).map(withStatedUnit);
   // Same rule as the investor page: null is "not loaded", never "nothing to
   // say". A village with a valuation must not be told it has none while its
   // own settings are still in flight.
