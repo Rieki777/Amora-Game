@@ -10,7 +10,7 @@ import { fileURLToPath } from "url";
 import crypto from "crypto";
 import multer from "multer";
 import bcrypt from "bcrypt";
-import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
+import { claimPaths, GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { recognitionNameCheck } from "../shared/launchRequirements";
 import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { sceneStopsFor } from "../shared/questScenes";
@@ -56,6 +56,7 @@ import { register as registerGovernanceWizardRoutes } from "./routes/governanceW
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
 import { register as registerHousingRoutes } from "./routes/housing";
 import { register as registerJourneyRoutes } from "./routes/journey";
+import { register as registerProfileRoutes } from "./routes/profile";
 import { register as registerPlacesRoutes } from "./routes/places";
 import { register as registerMapSceneRoutes } from "./routes/mapScene";
 import { register as registerBadgesRoutes } from "./routes/badges";
@@ -1809,7 +1810,6 @@ async function uniqueHandle(base: string, ownId?: string): Promise<string> {
   }
   return `${base}-${Date.now().toString(36)}`;
 }
-const HANDLE_RE = /^[a-z0-9][a-z0-9-_]{2,29}$/;
 
 /*
  * Member session tokens and set-password claim tokens moved to
@@ -3780,7 +3780,7 @@ function publicUser(u: any) {
   return {
     ...rest,
     prefs: rest.prefs ? { ...rest.prefs, googleLink: undefined } : rest.prefs,
-    paths: u.paths ?? [],
+    paths: Array.isArray(u.paths) ? u.paths.filter((p: unknown) => typeof p === "string") : [],
     contributions: u.contributions ?? [],
     quests: u.quests ?? [],
     recognitionBalance: u.recognitionBalance ?? 0,
@@ -8364,6 +8364,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!name || !email || !password || !paths || !Array.isArray(paths)) {
       return res.status(400).json({ error: "Missing required fields" });
     }
+    // The other door onto a member's paths, and the one a stranger can open.
+    const chosen = claimPaths(paths);
+    if (!chosen.ok) return res.status(400).json({ error: chosen.error });
     if (await members.existsByEmail(email)) {
       return res.status(409).json({ error: "Email already exists" });
     }
@@ -8374,7 +8377,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       email,
       passwordHash: await hashPassword(password),
       handle: await uniqueHandle(slugifyHandle(name)),
-      paths,
+      paths: chosen.paths ?? [],
       contributions: [],
       quests: [],
       recognitionBalance: 0,
@@ -18285,69 +18288,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
     });
   });
 
-  // Auth: Get Profile
-  app.get("/api/profile", async (req, res) => {
-    // Through requireUser like everything else (S1): a second decode path here
-    // silently bypassed the tokenVersion revocation check.
-    const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "auth_required" });
-    res.json(publicUser(user));
-  });
-
-  // Auth: Update Profile
-  app.put("/api/profile", async (req, res) => {
-    const authed = await authedUser(req);
-    if (!authed) return res.status(401).json({ error: "auth_required" });
-    const { name, bio, avatar, paths, handle } = req.body;
-    let wanted: string | undefined;
-    if (handle !== undefined) {
-      wanted = String(handle).toLowerCase().trim();
-      if (!HANDLE_RE.test(wanted)) {
-        return res.status(400).json({ error: "Handles are 3-30 characters: letters, numbers, dashes" });
-      }
-      const clash = (await members.all()).some(
-        (u: any) => u.id !== authed.id && String(u.handle ?? "").toLowerCase() === wanted,
-      );
-      if (clash) return res.status(409).json({ error: "That handle is taken" });
-    }
-    const updated = await members.update(authed.id, (u: any) => {
-      if (name) u.name = name;
-      if (bio !== undefined) u.bio = bio;
-      if (avatar !== undefined) u.avatar = avatar;
-      if (paths) u.paths = paths;
-      if (wanted !== undefined) u.handle = wanted;
-    });
-    if (!updated) return res.status(404).json({ error: "User not found" });
-    res.json(publicUser(updated));
-  });
-
-  // Auth: Log Contribution
-  app.post("/api/profile/contribution", async (req, res) => {
-    const authed = await authedUser(req);
-    if (!authed) return res.status(401).json({ error: "auth_required" });
-    const { type, description } = req.body;
-    if (!type || !description) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-    // A JOURNAL ENTRY, never a payment. This route used to add a
-    // caller-supplied `recognitionEarned` straight onto the member's
-    // balance — self-service minting, off-ledger, breaking the conservation
-    // proof. Value only ever moves through postTransfer behind a human
-    // consent gate (quest consent, gratitude send, admin mint). The note
-    // itself is still worth keeping: it is the member's own record.
-    const contribution = {
-      id: `contrib-${Date.now()}`,
-      type: String(type).slice(0, 120),
-      description: String(description).slice(0, 2000),
-      date: new Date().toISOString(),
-    };
-    const updated = await members.update(authed.id, (u: any) => {
-      u.contributions = u.contributions ?? [];
-      u.contributions.push(contribution);
-    });
-    if (!updated) return res.status(404).json({ error: "User not found" });
-    res.json({ success: true, contribution });
-  });
+  // A member's own account record: read, update, and the contribution journal.
+  // Registered at exactly the point those three routes used to sit.
+  registerProfileRoutes(app, { authedUser, members, publicUser });
 
   // Journey to Launch: the founding team's own tracker, read and written
   // through the admin gate. Registered at exactly the point it used to sit.

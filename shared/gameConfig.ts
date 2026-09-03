@@ -493,3 +493,54 @@ export function getStage(id: string | null | undefined): GameStage {
 export function stageIndex(id: string): number {
   return GAME_CONFIG.stages.findIndex((s) => s.id === id);
 }
+
+/**
+ * The answer from `claimPaths`. `paths` is undefined when the caller sent no
+ * `paths` key at all, which means "leave my paths alone" and is not an error.
+ */
+export type PathClaim =
+  | { ok: true; paths: string[] | undefined }
+  | { ok: false; error: string };
+
+/**
+ * VALIDATE A SUBMITTED PATH LIST. Paths are an enum on the wire, and the one
+ * route a member can reach used to write whatever JSON arrived: a bare string,
+ * an object, an array of ids nothing has ever defined. Registration already
+ * demanded an array, so the door a member could open twice a day was the
+ * looser of the two.
+ *
+ * `held` is the member's CURRENT list, and every id in it stays claimable even
+ * when this build's config no longer names it. A village that renames or
+ * retires a path would otherwise lock every member holding the old id out of
+ * the control completely: their own stored value would fail validation and
+ * take the whole request down with it, including the part that drops the dead
+ * id. The profile states the same rule for rendering, where an id this build
+ * does not know is read and never dropped. Dropping stays possible either way,
+ * because dropping means leaving the id out of the array.
+ *
+ * Duplicates collapse and order is the caller's. Nothing reads path order, so
+ * echoing back what was sent is what makes a round trip legible.
+ *
+ * `held` is typed `unknown` and checked rather than trusted, because the rows
+ * this guard exists to stop already exist. The unvalidated route wrote a bare
+ * string and an object into that column for as long as it stood, the users
+ * repo's `fromJsonCol` returns whatever JSON it finds without asking for an
+ * array, and a `held.map` on one of those would answer a member's first claim
+ * with a 500. A stored value that is not a list of ids adds nothing to the
+ * claimable set, which leaves the member able to claim anything on offer.
+ */
+export function claimPaths(input: unknown, held: unknown = []): PathClaim {
+  if (input === undefined) return { ok: true, paths: undefined };
+  if (!Array.isArray(input)) return { ok: false, error: "Paths must be a list of path ids" };
+  const claimable = new Set<string>([
+    ...GAME_CONFIG.paths.map((p) => p.id),
+    ...(Array.isArray(held) ? held.filter((p): p is string => typeof p === "string") : []),
+  ]);
+  const paths: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== "string") return { ok: false, error: "Every path is named by its id" };
+    if (!claimable.has(raw)) return { ok: false, error: `No such path: ${raw}` };
+    if (!paths.includes(raw)) paths.push(raw);
+  }
+  return { ok: true, paths };
+}
