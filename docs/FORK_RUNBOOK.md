@@ -278,6 +278,22 @@ two from the admin panel and almost never touches the first.
   file already small, a browser whose canvas ignores the WebP mime and hands
   back PNG). That turns an 8 MB phone photo into a few hundred KB before it
   reaches the wire, which is minutes on the links this platform is built for.
+- **Character portraits also live in the volume** (0147). A member may keep one
+  picture per character class, from an upload or from a forge, stored as
+  `portrait-*.webp` by `server/lib/characterPortraits.ts` and served from
+  `/api/uploads/`. Every one is cropped to a fixed 3:4 at 900x1200 and
+  re-encoded before it is written, so the per-file cost is bounded and one
+  member can hold at most one file per class plus one undecided candidate.
+  **They are PRIVATE until the member publishes them**, which is a rule the
+  database enforces (`published_at IS NOT NULL` in the query a stranger's
+  request runs), and it is why this surface has no moderation queue: an
+  unpublished portrait has an audience of one. No env var, no seed and no
+  provisioning step; the volume and the backup token above already cover it.
+  Portrait FORGING needs an image provider and there is none in this build.
+  `server/lib/assistantProviders.ts` is text-only, so the forge answers a
+  readable refusal, hands back any grant it took, and the upload path works on
+  its own. A village that wants forging installs a provider through
+  `installPortraitForge`; nothing else has to change.
   The server still re-encodes what arrives, so the two are belt and braces.
 
 ## Token naming (Gate D)

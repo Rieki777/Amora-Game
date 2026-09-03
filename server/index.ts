@@ -66,6 +66,7 @@ import { register as registerStaysRoutes } from "./routes/stays";
 import { register as registerSitePullRoutes } from "./routes/sitePull";
 import { register as registerBrandPreviewRoutes } from "./routes/brandPreview";
 import { register as registerBrandUploadRoutes } from "./routes/brandUploads";
+import { register as registerCharacterPortraitRoutes } from "./routes/characterPortraits";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -20918,6 +20919,8 @@ ${inner}
     res.json(await publicSupply(getPool()));
   });
 
+  registerCharacterPortraitRoutes(app, { authedUser, getPool, uploadsDir: UPLOADS_DIR });
+
   /** The five classes, as this village names them. Public: it is the front door. */
   app.get("/api/archetypes", async (_req, res) => {
     res.json(await listArchetypes(getPool(), villageId()));
@@ -20936,7 +20939,7 @@ ${inner}
       ...loaded.view,
       standing: await loadStanding(getPool(), user.id),
       gratitude: await loadGratitude(getPool(), villageId(), user.id, startsAt),
-      party: await partyFor(getPool(), villageId(), user.id),
+      party: await partyFor(getPool(), villageId(), user.id, user.id),
       allowance: await gratitudeAllowance(user),
       voice: await claimReadiness(getPool(), user.id),
     });
@@ -21016,11 +21019,11 @@ ${inner}
       gratitude: await loadGratitude(getPool(), villageId(), targetId, startsAt),
     };
     if (viewer?.id === targetId) {
-      return res.json({ ...full, party: await partyFor(getPool(), villageId(), targetId) });
+      return res.json({ ...full, party: await partyFor(getPool(), villageId(), targetId, viewer?.id ?? null) });
     }
     res.json({
       ...publicView(full, loaded.privacy),
-      party: await partyFor(getPool(), villageId(), targetId),
+      party: await partyFor(getPool(), villageId(), targetId, viewer?.id ?? null),
     });
   });
 
@@ -21032,7 +21035,7 @@ ${inner}
   app.get("/api/me/characters", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
-    res.json({ party: await partyFor(getPool(), villageId(), user.id) });
+    res.json({ party: await partyFor(getPool(), villageId(), user.id, user.id) });
   });
 
   /**
@@ -21057,7 +21060,7 @@ ${inner}
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const ok = await setPrimary(getPool(), villageId(), user.id, req.params.id);
     if (!ok) return res.status(404).json({ error: "Not one of your characters" });
-    res.json({ success: true, party: await partyFor(getPool(), villageId(), user.id) });
+    res.json({ success: true, party: await partyFor(getPool(), villageId(), user.id, user.id) });
   });
 
   /** Leave a path. Removing the primary hands the crown on in the same breath. */
@@ -21066,7 +21069,7 @@ ${inner}
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const removed = await removeCharacter(getPool(), villageId(), user.id, req.params.id);
     if (!removed) return res.status(404).json({ error: "Not one of your characters" });
-    res.json({ success: true, party: await partyFor(getPool(), villageId(), user.id) });
+    res.json({ success: true, party: await partyFor(getPool(), villageId(), user.id, user.id) });
   });
 
   /**
