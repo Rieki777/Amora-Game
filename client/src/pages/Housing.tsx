@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { useVillageLinks } from "@/lib/gameApi";
+import { homeChoices, type PublicHome } from "@/lib/housingForm";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useVillageContent } from "@/hooks/useVillageContent";
@@ -19,44 +21,36 @@ interface LegalContent {
   landShareTransferNote?: string;
 }
 
-// `key` is the home type the reservation form and the server both use (0077).
-// It travels as ?type= so a card click lands on the form with that home
-// already chosen. The keys are the contract, so renaming a title is safe and
-// renaming a key is not.
-const housingTypes = [
-  {
-    key: "tiny-home",
-    title: "Tiny Home",
-    size: "200-400 sq ft",
-    price: "$80,000 - $150,000",
-    description: "Efficient, sustainable living spaces perfect for individuals or couples seeking simplicity.",
-    features: ["Off-grid capable", "Eco-friendly materials", "Community garden access"],
-  },
-  {
-    key: "casita",
-    title: "Casita",
-    size: "400-800 sq ft",
-    price: "$150,000 - $250,000",
-    description: "Cozy homes with room to breathe, ideal for small families or those wanting extra space.",
-    features: ["Private outdoor space", "Full kitchen", "Covered patio"],
-  },
-  {
-    key: "family-home",
-    title: "Family Home",
-    size: "800-1,500 sq ft",
-    price: "$250,000 - $450,000",
-    description: "Spacious homes designed for families, with multiple bedrooms and living areas.",
-    features: ["Multiple bedrooms", "Large kitchen", "Private garden"],
-  },
-  {
-    key: "villa",
-    title: "Luxury Villa",
-    size: "1,500+ sq ft",
-    price: "$1,000,000+",
-    description: "Premium homes with exceptional finishes, views, and amenities for discerning residents.",
-    features: ["Premium finishes", "Panoramic views", "Private pool option"],
-  },
-];
+/*
+ * THE FOUR TIERS THAT USED TO LIVE HERE ARE GONE (0131), and this comment is
+ * the record of why, so nobody reinstates them as sensible defaults.
+ *
+ * They were a module constant: four names, four square-footage bands and four
+ * dollar price bands, each with a "Reserve this home" button under it.
+ * ReserveHome.tsx carried a second copy of the same four sizes, worded
+ * differently for the same homes. `/housing` is not module-gated, so EVERY
+ * village that deploys this platform published those American figures under
+ * its own name, to prospective residents, and no admin field anywhere could
+ * change one of them. Read live on 2026-09-02 at a Costa Rican village
+ * publishing dollars and square feet nobody there chose. The figures as they
+ * shipped are recorded in drizzle/0131_a_village_names_its_own_homes.sql;
+ * they are deliberately not repeated in this file, because
+ * client/src/lib/housingForm.test.ts fails on any of them appearing here and
+ * that guard is worth more than the quotation.
+ *
+ * The homes now come from the village's own table (0131,
+ * `GET /api/housing/public` -> `homes`, written in Admin, Housing), every
+ * field free text, and they ship EMPTY. A village that has not described its
+ * homes shows no tier section at all: no heading, no empty grid, no
+ * placeholder card. Seeding the old numbers as defaults to spare an existing
+ * village a blank section would put the defect straight back, so it was not
+ * done and must not be.
+ *
+ * The KEYS survive, in server/lib/housing.ts's HOME_TYPES, because they are
+ * the contract: a key travels as ?type= to the reservation form, and the
+ * server refuses a homeType outside that list. A founder renames a home by
+ * typing a name; the key underneath does not move.
+ */
 
 const landFeatures = [
   {
@@ -96,6 +90,29 @@ export default function Housing() {
   const { content: legal } = useVillageContent<LegalContent>("legal");
   const transferNote = legal?.landShareTransferNote?.trim();
   /*
+   * The homes this village has published, and nothing else (0131). `null`
+   * until the read lands; `homeChoices` is where the three answers live, so
+   * this page and /reserve cannot disagree about what an empty list means.
+   *
+   * A failed read settles to an empty list, which draws no tier section. Fail
+   * closed: a network blip must never publish a figure, and there is no
+   * figure to publish when the list is empty.
+   */
+  const [homes, setHomes] = useState<PublicHome[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/housing/public")
+      .then((r) => (r.ok ? r.json() : { homes: [] }))
+      .then((d) => {
+        if (alive) setHomes(Array.isArray(d?.homes) ? d.homes : []);
+      })
+      .catch(() => alive && setHomes([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const choices = homeChoices(homes);
+  /*
    * FORWARD the hamlet, if this page was handed one (0077). A card click
    * would otherwise drop it and the person would have to say where they want
    * to live a second time. Read at render; the query string does not change
@@ -132,10 +149,17 @@ export default function Housing() {
               <h1 className="font-display text-4xl md:text-6xl font-bold mb-6">
                 Housing at {villageName}
               </h1>
+              {/* This paragraph used to open "From tiny homes to luxury
+                  villas", naming four tiers the page can no longer promise
+                  are there, and to state that all homes are built with
+                  sustainable materials, which is a claim about one village's
+                  construction. Both went with the constant. What is left
+                  holds for any village running this platform, because the
+                  Land Share structure it names is the one this page already
+                  explains further down for everybody. */}
               <p className="text-xl text-white/80 leading-relaxed">
-                From tiny homes to luxury villas, find your perfect place in our 
-                regenerative village. All homes are built with sustainable materials 
-                and designed to harmonize with the land.
+                Find your place here. Homes sit on land the community holds together,
+                and a Land Share Agreement is how you take one.
               </p>
             </motion.div>
           </div>
@@ -170,65 +194,92 @@ export default function Housing() {
         </div>
       </section>
 
-      {/* Housing Types */}
-      <section className="py-20 bg-background">
-        <div className="container">
-          <div className="text-center mb-12">
-            <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Housing Options
-            </h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">
-              We're building 10 show homes of various sizes and styles. 
-              Prices are estimates and will vary based on finishes and location.
-            </p>
-          </div>
+      {/* Housing Options.
+          THE WHOLE SECTION, HEADING AND ALL, OR NOTHING. Hiding only the grid
+          leaves "Housing Options" standing over a gap, which reads as a page
+          that failed to load rather than as a village that has not described
+          its homes yet, and an empty heading is exactly the scaffolding this
+          change exists to stop drawing.
 
-          <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-            {housingTypes.map((type, index) => (
-              <motion.div
-                key={type.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.1 }}
-                className="bg-card rounded-2xl shadow-sm"
-              >
-                <Link
-                  href={reserveHref(type.key)}
-                  className="block p-8 rounded-2xl hover:shadow-md transition-shadow"
+          It also stays away while the read is in flight (`unknown`), so a
+          village that HAS published homes never flashes a missing section on
+          the way to showing them.
+
+          The sentence that used to sit under the heading, "We're building 10
+          show homes of various sizes and styles. Prices are estimates and
+          will vary based on finishes and location", went with the tiers: a
+          count of one project's show homes and a caveat about one project's
+          pricing, published under every fork's name. A village that wants to
+          say either can say it in a home's own description, in its own
+          words. */}
+      {choices.kind === "some" && (
+        <section className="py-20 bg-background">
+          <div className="container">
+            <div className="text-center mb-12">
+              <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">
+                Housing Options
+              </h2>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+              {choices.homes.map((home, index) => (
+                <motion.div
+                  key={home.homeType}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: index * 0.1 }}
+                  className="bg-card rounded-2xl shadow-sm"
                 >
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="font-display text-2xl font-bold text-foreground">
-                        {type.title}
-                      </h3>
-                      <p className="text-sm text-muted-foreground">{type.size}</p>
+                  <Link
+                    href={reserveHref(home.homeType)}
+                    className="block p-8 rounded-2xl hover:shadow-md transition-shadow"
+                  >
+                    {/* Every line below prints exactly what the founder
+                        typed. No unit is appended, no currency symbol is
+                        supplied, no figure is reformatted, and a field left
+                        blank draws nothing rather than an empty badge. */}
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div>
+                        <h3 className="font-display text-2xl font-bold text-foreground">
+                          {home.name}
+                        </h3>
+                        {home.size && (
+                          <p className="text-sm text-muted-foreground">{home.size}</p>
+                        )}
+                      </div>
+                      {home.price && (
+                        <span className="px-3 py-1 bg-teal/10 text-teal text-sm font-medium rounded-lg shrink-0">
+                          {home.price}
+                        </span>
+                      )}
                     </div>
-                    <span className="px-3 py-1 bg-teal/10 text-teal text-sm font-medium rounded-lg">
-                      {type.price}
+                    {home.description && (
+                      <p className="text-muted-foreground mb-4 whitespace-pre-line">
+                        {home.description}
+                      </p>
+                    )}
+                    {home.features.length > 0 && (
+                      <ul className="space-y-2 mb-5">
+                        {home.features.map((feature) => (
+                          <li key={feature} className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <div className="w-1.5 h-1.5 rounded-full bg-teal shrink-0" />
+                            {feature}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <span className="inline-flex items-center gap-2 text-teal font-medium">
+                      Reserve this home
+                      <ArrowRight className="w-4 h-4" />
                     </span>
-                  </div>
-                  <p className="text-muted-foreground mb-4">
-                    {type.description}
-                  </p>
-                  <ul className="space-y-2 mb-5">
-                    {type.features.map((feature) => (
-                      <li key={feature} className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <div className="w-1.5 h-1.5 rounded-full bg-teal" />
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-                  <span className="inline-flex items-center gap-2 text-teal font-medium">
-                    Reserve this home
-                    <ArrowRight className="w-4 h-4" />
-                  </span>
-                </Link>
-              </motion.div>
-            ))}
+                  </Link>
+                </motion.div>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Land Share Info */}
       <section className="py-20 bg-teal/10">
