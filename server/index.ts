@@ -56,6 +56,7 @@ import { register as registerGovernanceWizardRoutes } from "./routes/governanceW
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
 import { register as registerHousingRoutes } from "./routes/housing";
 import { register as registerJourneyRoutes } from "./routes/journey";
+import { register as registerSitePullRoutes } from "./routes/sitePull";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -21504,6 +21505,7 @@ ${inner}
     res.json(await latestRates(getPool()));
   });
 
+  registerSitePullRoutes(app, { isAdmin, adminActor, overLimit, clientIp, uploadsDir: UPLOADS_DIR });
   // Brand overlay: the Setup Wizard reads/writes this to white-label the site live.
   app.get("/api/admin/brand", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
