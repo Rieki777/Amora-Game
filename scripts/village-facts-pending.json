@@ -1,6 +1,6 @@
 {
   "note": "Village facts welded into client copy, recorded per file and per rule. This list only ever shrinks. Read scripts/check-village-facts.mjs before editing it, and lower PENDING_CEILING in that file to match the total here.",
-  "total": 36,
+  "total": 35,
   "rules": {
     "money": {
       "what": "a currency amount in display text",
@@ -37,7 +37,6 @@
     "client/src/pages/CoCreatorsGuide.tsx::token-name": 2,
     "client/src/pages/Contribute.tsx::money": 1,
     "client/src/pages/InvestorJourney.tsx::money": 1,
-    "client/src/pages/InvestorJourney.tsx::person-name": 1,
     "client/src/pages/LoveLetter.tsx::money": 6,
     "client/src/pages/MasterPlan.tsx::unit": 1,
     "client/src/pages/Opportunities.tsx::money": 8,
@@ -75,10 +74,6 @@
     },
     "client/src/pages/InvestorJourney.tsx::money": {
       "since": "2026-09-03"
-    },
-    "client/src/pages/InvestorJourney.tsx::person-name": {
-      "since": "2026-09-03",
-      "note": "The form success message at line 285 names a real person, so a fork promises a stranger that somebody else's colleague will call them. Name a role or a shared inbox."
     },
     "client/src/pages/LoveLetter.tsx::money": {
       "since": "2026-09-03",

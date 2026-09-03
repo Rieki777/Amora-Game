@@ -282,7 +282,7 @@ export default function InvestorJourney() {
         })
       });
       if (response.ok) {
-        setFormSuccess("Thank you! Jess will be in touch within 48 hours.");
+        setFormSuccess("Thank you! Our team will be in touch within 48 hours.");
         setShowCallForm(false);
         setCallFormData({ name: "", email: "", preferredTime: "", message: "" });
         setTimeout(() => setFormSuccess(null), 5000);
