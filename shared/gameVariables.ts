@@ -823,6 +823,45 @@ export const VARIABLES: VariableDef[] = [
     unit: "%",
     criticality: "constitutional",
   },
+  /*
+   * ── WHOSE WEIGHT THE QUORUM COUNTS (19G, 2026-09-03) ──────────────────────
+   *
+   * The founder brought voice for other beings from the first day of a village,
+   * and 19F made quorum pure token weight. Put together with no third rule, a
+   * river holding a share of the Voice sits in every quorum denominator whether
+   * or not anybody ever speaks for it, and a handful of quiet seats puts the
+   * top tier permanently out of reach with no door.
+   *
+   * These two dials are the door, and they are arithmetic telling the truth
+   * about a bar. No threshold moves, and a village that misses quorum still
+   * misses it. Both carry the constitutional tier, because a dial that moves
+   * the denominator has the same power over an outcome as one that moves the
+   * bar, and `isMetaSetting` in shared/ballotSubjects.ts names both so neither
+   * can be tried for a moon at a lower price.
+   */
+  {
+    key: "governance.nonhuman_in_quorum",
+    category: "Governance",
+    label: "Seats speaking for other beings count toward quorum",
+    criticality: "constitutional",
+    description:
+      "Your village can seat a voice for a being that is not a person: a mountain, a river, the trees, the wolves. A member or a bot holds that seat and casts its vote. This says whether the weight on such a seat is part of the count that decides whether enough of the village turned up. Off, which is how it ships, leaves that weight out of the count on both sides of the sum, and a vote cast from the seat still counts toward agreement. On counts it like any member's, and weight that provably cannot answer drops out of the count instead.",
+    type: "boolean",
+    default: "false",
+  },
+  {
+    key: "governance.absent_cycles",
+    category: "Governance",
+    label: "Cycles of silence before a seat leaves the count",
+    criticality: "constitutional",
+    description:
+      "When seats speaking for other beings do count toward quorum, this is how many cycles of casting nothing it takes before such a seat's weight drops out of the count. A seat nobody holds drops out straight away. The weight is always shown beside the people count, so the village can see how much of its Voice is silent. Nothing here changes a threshold: it changes what the threshold is measured against.",
+    type: "integer",
+    default: "3",
+    min: 1,
+    max: 24,
+    unit: "cycles",
+  },
   {
     key: "membership.vouch_threshold",
     category: "Governance",

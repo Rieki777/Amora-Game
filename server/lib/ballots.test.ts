@@ -24,13 +24,15 @@ import {
   openBallot,
   ruleObjection,
   headsFor,
+  noQuorumStreak,
+  quorumFactsFor,
   standingObjectionCount,
   talliesFor,
   withdrawBallot,
   type OpenBallotInput,
 } from "./ballots";
 import { setWeight, weightsFor, weightChangeProblem, allWeights } from "./governanceWeights";
-import { VILLAGE_LAUNCH } from "../../shared/ballotSubjects";
+import { NO_QUORUM_ENDED, VILLAGE_LAUNCH } from "../../shared/ballotSubjects";
 
 const configured = testDbConfigured();
 
@@ -588,5 +590,275 @@ describe.skipIf(!configured)("ballots (MySQL)", () => {
     // delegations to one person are not three people starting a Game.
     expect(closed.outcome).toBe("no_quorum");
     expect(closed.quorum).toBeCloseTo(100 / 3, 5);
+  });
+});
+
+/**
+ * -- VOICE FOR OTHER BEINGS, AND THE QUORUM IT SITS IN (19G) ----------------
+ *
+ * Red before this: a seat speaking for a river sat in every quorum
+ * denominator, so a village that gave a quarter of its Voice to the land it
+ * lives on made its own top tier unreachable and nothing said why.
+ *
+ * The flag is a column the founding step writes (`roles.represents_being`).
+ * This lane writes no migration, so the fixture adds the column the way the
+ * birthing lane will, and the first case proves the honest answer on a
+ * database that does not have it yet.
+ */
+describe.skipIf(!configured)("the quorum a being's seat sits outside of (MySQL)", () => {
+  let db: TestDb;
+  let pool: mysql.Pool;
+
+  beforeAll(async () => {
+    db = await provisionTestDb();
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 8 }); // module-review-ok: the S5 scratch-schema harness pool, the crews.test.ts shape
+  });
+
+  afterAll(async () => {
+    await pool?.end();
+    await db?.drop();
+  });
+
+  const expire = async (ballotId: string) =>
+    pool.query("UPDATE ballots SET closes_at = DATE_SUB(NOW(), INTERVAL 1 HOUR) WHERE id = ?", [ballotId]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+
+  const seatABeing = async (userId: string) => {
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "ALTER TABLE roles ADD COLUMN `represents_being` tinyint(1) NOT NULL DEFAULT 0",
+    );
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO roles (id, name, description, capabilities, sort_order, represents_being) VALUES (?,?,?,?,?,1)",
+      ["the-river", "The river", "The water that borders this land", JSON.stringify([]), 1],
+    );
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO role_holders (id, role_id, user_id) VALUES (?,?,?)",
+      ["rh-river", "the-river", userId],
+    );
+  };
+
+  it("says it could not tell while the flag is not on this database, and excludes nothing", async () => {
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "gmp-being-unknown",
+      title: "Before the flag exists",
+      docMarkdown: "# Before the flag exists",
+      method: "custom",
+      weightMode: "custom",
+      unityPct: 80,
+      quorumPct: 30,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [
+        { userId: "u-a", weight: 1 },
+        { userId: "u-b", weight: 1 },
+        { userId: "u-river", weight: 8 },
+      ],
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const facts = await quorumFactsFor(pool, opened.ballot);
+    expect(facts.known).toBe(false);
+    expect(facts.reduced).toBe(false);
+    expect(facts.base.baseWeight).toBe(10);
+    expect(facts.base.excludedWeight).toBe(0);
+  });
+
+  it("takes the seat's weight out of the count on both sides, and keeps its vote in the agreement", async () => {
+    await seatABeing("u-river");
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "gmp-being-counted",
+      title: "A quarter of the Voice speaks for the water",
+      docMarkdown: "# A quarter of the Voice speaks for the water",
+      method: "custom",
+      weightMode: "custom",
+      unityPct: 80,
+      quorumPct: 30,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [
+        { userId: "u-a", weight: 1 },
+        { userId: "u-b", weight: 1 },
+        { userId: "u-river", weight: 8 },
+      ],
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const id = opened.ballot.id;
+
+    expect((await castVote(pool, id, "u-a", "yes")).ok).toBe(true);
+    const facts = await quorumFactsFor(pool, opened.ballot);
+    expect(facts.known).toBe(true);
+    expect(facts.reduced).toBe(true);
+    expect(facts.base.excludedWeight).toBe(8);
+    expect(facts.base.speaksForABeing).toBe(1);
+    expect(facts.arithmetic).toEqual({ answeredWeight: 1, baseWeight: 2 });
+
+    // One yes of ten is 10% and misses a 30% bar. One yes of the two seats in
+    // the count is 50% and clears it, which is the whole ruling in one row.
+    await expire(id);
+    const closed = await closeBallot(pool, {
+      ballotId: id,
+      closedBy: "u-clock",
+      outcomeNote: "Closed on the clock.",
+      closerMayCloseEarly: false,
+    });
+    expect(closed.ok).toBe(true);
+    if (!closed.ok) return;
+    expect(closed.outcome).toBe("passed");
+    expect(closed.quorum).toBe(50);
+    expect(closed.quorumBase.excludedWeight).toBe(8);
+  });
+
+  it("counts the being's own vote toward agreement, so its no still decides", async () => {
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "gmp-being-objects",
+      title: "The water says no",
+      docMarkdown: "# The water says no",
+      method: "custom",
+      weightMode: "custom",
+      unityPct: 80,
+      quorumPct: 30,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [
+        { userId: "u-a", weight: 1 },
+        { userId: "u-b", weight: 1 },
+        { userId: "u-river", weight: 8 },
+      ],
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const id = opened.ballot.id;
+    expect((await castVote(pool, id, "u-a", "yes")).ok).toBe(true);
+    expect((await castVote(pool, id, "u-river", "no")).ok).toBe(true);
+    await expire(id);
+    const closed = await closeBallot(pool, {
+      ballotId: id,
+      closedBy: "u-clock",
+      outcomeNote: "Closed on the clock.",
+      closerMayCloseEarly: false,
+    });
+    expect(closed.ok).toBe(true);
+    if (!closed.ok) return;
+    // Quorum is met on the two seats in the count; unity is 1 against 8.
+    expect(closed.outcome).toBe("failed");
+    expect(closed.quorum).toBe(50);
+    expect(closed.unity).toBeCloseTo(11.11, 1);
+  });
+});
+
+/**
+ * -- THREE CYCLES WITHOUT QUORUM, COUNTED FROM THE RECORD (19F, 20.11) ------
+ *
+ * Red before this: the founder's sentence had no counter anywhere, so the
+ * close said the same thing on the ninth miss as on the first.
+ */
+describe.skipIf(!configured)("the no-quorum counter (MySQL)", () => {
+  let db: TestDb;
+  let pool: mysql.Pool;
+
+  beforeAll(async () => {
+    db = await provisionTestDb();
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 8 }); // module-review-ok: the S5 scratch-schema harness pool, the crews.test.ts shape
+  });
+
+  afterAll(async () => {
+    await pool?.end();
+    await db?.drop();
+  });
+
+  const expire = async (ballotId: string) =>
+    pool.query("UPDATE ballots SET closes_at = DATE_SUB(NOW(), INTERVAL 1 HOUR) WHERE id = ?", [ballotId]); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+
+  /** Open a ballot on one subject, let it expire with nobody voting, close it. */
+  const missQuorum = async (ref: string) => {
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: ref,
+      title: `Nobody came, ${ref}`,
+      docMarkdown: "# Nobody came",
+      method: "custom",
+      weightMode: "equal",
+      unityPct: 80,
+      quorumPct: 90,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [
+        { userId: "u-a", weight: 1 },
+        { userId: "u-b", weight: 1 },
+        { userId: "u-c", weight: 1 },
+      ],
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error(opened.error);
+    await expire(opened.ballot.id);
+    return closeBallot(pool, {
+      ballotId: opened.ballot.id,
+      closedBy: "u-clock",
+      outcomeNote: "Closed on the clock, nobody voted.",
+      closerMayCloseEarly: false,
+    });
+  };
+
+  it("counts the misses, warns on the second and ends it on the third with one door", async () => {
+    const first = await missQuorum("gmp-miss");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.outcome).toBe("no_quorum");
+    expect(first.quorumMiss?.state).toBe("clear");
+    expect(await noQuorumStreak(pool, "mechanics", "gmp-miss")).toBe(1);
+
+    const second = await missQuorum("gmp-miss");
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.quorumMiss?.state).toBe("warned");
+    expect(second.quorumMiss?.sentence).toContain("ends this one for good");
+
+    const third = await missQuorum("gmp-miss");
+    expect(third.ok).toBe(true);
+    if (!third.ok) return;
+    expect(third.quorumMiss?.state).toBe("ended");
+    expect(third.quorumMiss?.terminalState).toBe(NO_QUORUM_ENDED);
+    expect(third.quorumMiss?.door).toContain("Withdraw it and write it again");
+    expect(await noQuorumStreak(pool, "mechanics", "gmp-miss")).toBe(3);
+  });
+
+  it("says nothing about the rule on a close that reached quorum, and starts the count again", async () => {
+    await missQuorum("gmp-reached");
+    expect(await noQuorumStreak(pool, "mechanics", "gmp-reached")).toBe(1);
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "gmp-reached",
+      title: "Everybody came",
+      docMarkdown: "# Everybody came",
+      method: "custom",
+      weightMode: "equal",
+      unityPct: 80,
+      quorumPct: 20,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [
+        { userId: "u-a", weight: 1 },
+        { userId: "u-b", weight: 1 },
+        { userId: "u-c", weight: 1 },
+      ],
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect((await castVote(pool, opened.ballot.id, "u-a", "yes")).ok).toBe(true);
+    await expire(opened.ballot.id);
+    const closed = await closeBallot(pool, {
+      ballotId: opened.ballot.id,
+      closedBy: "u-clock",
+      outcomeNote: "Closed on the clock.",
+      closerMayCloseEarly: false,
+    });
+    expect(closed.ok).toBe(true);
+    if (!closed.ok) return;
+    expect(closed.outcome).toBe("passed");
+    expect(closed.quorumMiss).toBeUndefined();
+    expect(await noQuorumStreak(pool, "mechanics", "gmp-reached")).toBe(0);
   });
 });

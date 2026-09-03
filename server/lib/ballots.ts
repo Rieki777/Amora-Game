@@ -52,7 +52,25 @@ import {
   revokeDelegation,
   type OwnVoteFacts,
 } from "./delegation";
-import { delegatedRowsCountOn, evaluationRulesFor } from "../../shared/ballotSubjects";
+import {
+  consecutiveNoQuorum,
+  delegatedRowsCountOn,
+  evaluationRulesFor,
+  quorumMissReading,
+  type QuorumMissReading,
+} from "../../shared/ballotSubjects";
+// THRESHOLDS LANE (19G): whose weight the quorum counts, and the seat facts
+// that answer it. The clock turns "silent for N cycles" into an instant.
+import {
+  quorumBaseOf,
+  quorumPctOn,
+  type AbstainPolicy,
+  type QuorumArithmetic,
+  type QuorumBase,
+} from "../../shared/governanceEngine";
+import { clockFor } from "../../shared/cycleClock";
+import { quorumPolicyFrom, seatFacts, ABSENT_CYCLES_DEFAULT } from "./nonHumanSeats";
+import { numberVar, stringVar } from "./variables";
 // Dispatcher lane: the proposal timing 0135 freezes onto the ballot at open.
 import { defaultTimingFor, kindOfSubject, noCloserRefusal, timingOf, type ProposalTiming } from "../../shared/governanceKinds";
 import type { WeightMode } from "./governanceWeights";
@@ -585,6 +603,119 @@ export async function objectionsFor(pool: Pool, ballotId: string) {
   }));
 }
 
+/**
+ * ── THE QUORUM FRACTION WHEN PART OF THE ROLL IS OUTSIDE IT (19G) ───────────
+ *
+ * THRESHOLDS LANE, minimal named edit. A village that has seated a voice for a
+ * being that is not a person decides, through
+ * `governance.nonhuman_in_quorum`, whether that seat's weight is part of the
+ * count. Off is the shipped answer, and it takes the weight out of BOTH sides
+ * of the fraction: numerator and denominator move together, because taking it
+ * out of one alone would either report more than 100% turnout or ask the
+ * remaining seats to carry weight nobody can cast.
+ *
+ * Unity is untouched, so the being's cast vote still counts toward agreement.
+ * That is 19G's own sentence and it is why the exclusion cannot simply be a
+ * zero weight on the frozen electorate row.
+ *
+ * WHAT THIS READS LIVE, AND WHY IT IS SAID OUT LOUD. The frozen roll and its
+ * weights come from `ballot_electorate` and are as immutable as ever. Which
+ * seats speak for a being, and the village's own setting, are read at close,
+ * because neither `ballots` nor `ballot_electorate` has a column to freeze
+ * them into and this lane writes no migration. A lane that does should freeze
+ * the quorum base on the ballot row at open and this function should read it;
+ * until then, a village that seats a being mid-ballot changes that ballot's
+ * denominator, which is a smaller drift than the snapshot law usually allows
+ * and is recorded here so nobody has to rediscover it.
+ */
+export interface QuorumFacts {
+  arithmetic: QuorumArithmetic;
+  base: QuorumBase;
+  /**
+   * Whether the roles plane could answer at all. False means the flag is not
+   * on this database yet, which is "could not tell" and never "no seat speaks
+   * for a being".
+   */
+  known: boolean;
+  /** True when some of the frozen weight is outside the count. */
+  reduced: boolean;
+}
+
+export async function quorumFactsFor(
+  pool: Pool,
+  ballot: BallotRow,
+  abstainPolicy: AbstainPolicy = "counts_toward_quorum",
+): Promise<QuorumFacts> {
+  const [rollRows] = await pool.query<RowDataPacket[]>( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
+    "SELECT user_id, weight FROM ballot_electorate WHERE ballot_id = ?",
+    [ballot.id],
+  );
+  const roll = rollRows.map((r) => ({ userId: String(r.user_id), weight: Number(r.weight) || 0 }));
+  const policy = quorumPolicyFrom((key) => stringVar(key));
+  const facts = await seatFacts(pool, {
+    roll,
+    absentCycles: Number(numberVar("governance.absent_cycles")) || ABSENT_CYCLES_DEFAULT,
+    clock: clockFor(stringVar("cycle.mode")),
+  });
+  const base = quorumBaseOf(facts.seats, policy);
+  const excluded = new Set(
+    facts.seats
+      .filter((seat) => (seat.nonHuman && !policy.nonHumanInQuorum) || seat.canVote === false)
+      .map((seat) => seat.userId),
+  );
+  let answeredWeight = 0;
+  if (base.excludedWeight > 0) {
+    const countsDelegated = delegatedRowsCountOn({
+      subjectType: ballot.subjectType,
+      unityPct: ballot.unityPct,
+    });
+    const [voteRows] = await pool.query<RowDataPacket[]>( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
+      "SELECT v.user_id, v.choice, e.weight FROM ballot_votes v " +
+        "JOIN ballot_electorate e ON e.ballot_id = v.ballot_id AND e.user_id = v.user_id " +
+        "WHERE v.ballot_id = ?" +
+        (countsDelegated ? "" : " AND v.followed_user_id IS NULL"),
+      [ballot.id],
+    );
+    for (const r of voteRows) {
+      if (excluded.has(String(r.user_id))) continue;
+      if (abstainPolicy === "no_answer" && r.choice === "abstain") continue;
+      answeredWeight += Math.max(0, Number(r.weight) || 0);
+    }
+  }
+  return {
+    arithmetic: { answeredWeight, baseWeight: base.baseWeight },
+    base,
+    known: facts.known,
+    reduced: base.excludedWeight > 0,
+  };
+}
+
+/**
+ * ── HOW MANY TIMES IN A ROW THIS SUBJECT MISSED QUORUM (19F, 20.11) ─────────
+ *
+ * THRESHOLDS LANE, minimal named edit. The founder's sentence, "if there is 3
+ * cycles without quorum it just doesn't pass", needed a counter and had none.
+ * The closes are already on the record, so the counter is a read of them:
+ * every ballot ever opened on this subject, newest close first, counted until
+ * one of them was decided.
+ *
+ * `open_key` is rewritten at close to free the subject, so the pair that
+ * identifies a subject across its ballots is (`subject_type`, `subject_ref`),
+ * which is what `ballotsFor` already keys on.
+ */
+export async function noQuorumStreak(
+  pool: Pool,
+  subjectType: string,
+  subjectRef: string,
+): Promise<number> {
+  const [rows] = await pool.query<RowDataPacket[]>( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
+    "SELECT status FROM ballots WHERE subject_type = ? AND subject_ref = ? " +
+      "ORDER BY COALESCE(closed_at, opens_at) DESC, id DESC",
+    [subjectType, subjectRef],
+  );
+  return consecutiveNoQuorum(rows.map((r) => ({ status: String(r.status) })));
+}
+
 export interface CloseBallotInput {
   ballotId: string;
   closedBy: string;
@@ -594,7 +725,24 @@ export interface CloseBallotInput {
 }
 
 export type CloseBallotResult =
-  | { ok: true; outcome: BallotOutcome; ballot: BallotRow; tallies: BallotTallies; unity: number; quorum: number }
+  | {
+      ok: true;
+      outcome: BallotOutcome;
+      ballot: BallotRow;
+      tallies: BallotTallies;
+      unity: number;
+      quorum: number;
+      /**
+       * THRESHOLDS LANE (19G): the weight outside the quorum count, so a
+       * surface can say it beside the people count without asking again.
+       */
+      quorumBase: QuorumBase;
+      /**
+       * THRESHOLDS LANE (19F, 20.11): where this subject stands against the
+       * three-misses rule, present only on a close that missed quorum.
+       */
+      quorumMiss?: QuorumMissReading;
+    }
   | { ok: false; error: string; alreadyClosed?: BallotRow };
 
 /**
@@ -643,6 +791,13 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
       error: "The voting period is still running. Before it ends, only a proposal.decide holder or an admin may close a ballot",
     };
   }
+  /*
+   * THRESHOLDS LANE (19G). The quorum fraction, worked out over the seats this
+   * village counts. A ballot with nothing excluded gets `reduced: false` and
+   * the engine falls back to the frozen total, so every existing village's
+   * arithmetic is byte for byte what it was.
+   */
+  const quorumFacts = await quorumFactsFor(pool, ballot, subjectRules.abstainPolicy);
   const outcome = evaluateBallot({
     method: ballot.method,
     unityPct: ballot.unityPct,
@@ -653,6 +808,7 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
     abstainPolicy: subjectRules.abstainPolicy,
     minYesHeads: subjectRules.minYesHeads,
     heads,
+    quorum: quorumFacts.reduced ? quorumFacts.arithmetic : undefined,
   });
   if (!expired && outcome === "passed") {
     /*
@@ -684,15 +840,34 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
     return { ok: false, error: "Someone else closed this ballot first", alreadyClosed: current ?? undefined };
   }
   const closed = await ballotById(pool, ballot.id);
+  /*
+   * THRESHOLDS LANE (19F, 20.11). The three-misses rule needs the count AFTER
+   * this close is on the record, so it is read here and never before the
+   * UPDATE. A close that reached quorum says nothing about it, because the
+   * counter measures a bar nobody can reach and this one was reached.
+   */
+  const quorumMiss =
+    outcome === "no_quorum"
+      ? quorumMissReading({
+          subjectType: ballot.subjectType,
+          misses: await noQuorumStreak(pool, ballot.subjectType, ballot.subjectRef),
+          quorumPct: ballot.quorumPct,
+        })
+      : undefined;
   return {
     ok: true,
     outcome,
     ballot: closed!,
     tallies,
     unity: unityPctOf(tallies),
-    // The same abstain policy the outcome was decided under, so the number
-    // the close reports and the number that decided are one number.
-    quorum: quorumPctOf(tallies, ballot.totalWeight, subjectRules.abstainPolicy),
+    // The same abstain policy the outcome was decided under, and the same
+    // quorum base, so the number the close reports and the number that
+    // decided are one number.
+    quorum: quorumFacts.reduced
+      ? quorumPctOn(quorumFacts.arithmetic)
+      : quorumPctOf(tallies, ballot.totalWeight, subjectRules.abstainPolicy),
+    quorumBase: quorumFacts.base,
+    quorumMiss,
   };
 }
 
