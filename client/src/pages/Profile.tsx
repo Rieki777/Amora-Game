@@ -9,6 +9,7 @@ import OnchainCard from "@/components/OnchainCard";
 import WalletCard from "@/components/WalletCard";
 import SendTokensCard from "@/components/SendTokensCard";
 import { useAuth } from "@/contexts/AuthContext";
+import { useGameConfig } from "@/lib/gameApi";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Heart,
@@ -16,7 +17,6 @@ import {
   Users,
   Sprout,
   Home,
-  TrendingUp,
   Calendar,
   Award,
   Edit2,
@@ -64,6 +64,42 @@ export default function Profile() {
   const [bioText, setBioText] = useState(user?.bio || "");
   const [savingBio, setSavingBio] = useState(false);
   const [bioError, setBioError] = useState("");
+  const [savingPath, setSavingPath] = useState<string | null>(null);
+  const [pathError, setPathError] = useState("");
+  const config = useGameConfig();
+
+  /**
+   * Take a path or let one go.
+   *
+   * The tile never draws its own conclusion. `updateProfile` reads the
+   * Response, throws on a refusal, and replaces the member from the body the
+   * server sent, so the tile above is showing what was SAVED and not what was
+   * clicked. A 400 from claimPaths lands in `pathError` and the tile stays as
+   * it was, which is the honest picture of a claim that did not land.
+   */
+  const togglePath = async (pathId: string) => {
+    if (savingPath || !user) return;
+    setSavingPath(pathId);
+    setPathError("");
+    const next = user.paths.includes(pathId)
+      ? user.paths.filter((p) => p !== pathId)
+      : [...user.paths, pathId];
+    try {
+      await updateProfile({ paths: next });
+    } catch (e: any) {
+      // `updateProfile` rethrows the server's own `error` field, and one of
+      // them is a machine code: a revoked or expired token answers
+      // "auth_required", which was reaching the member verbatim. The 400 from
+      // claimPaths is already a sentence and is shown as it stands.
+      setPathError(
+        e?.message === "auth_required"
+          ? "Your session ended. Sign in again to change your paths."
+          : e?.message || "Could not save, try again",
+      );
+    } finally {
+      setSavingPath(null);
+    }
+  };
 
   const saveBio = async () => {
     setSavingBio(true);
@@ -101,6 +137,22 @@ export default function Profile() {
   });
 
   const recentContributions = (user.contributions ?? []).slice(-5).reverse();
+
+  /**
+   * Every path this member can act on: what the village offers, then anything
+   * they already hold that the offer no longer names. `config` is null until
+   * /api/game/config answers, and null means UNKNOWN: the offer is left out
+   * until it arrives instead of being guessed at from PATH_INFO, so a fork's
+   * own paths are never briefly overwritten by this build's four.
+   */
+  const offerKnown = config !== null;
+  const offeredPaths = config?.paths ?? [];
+  const pathTiles = [
+    ...offeredPaths.map((p) => ({ id: p.id, label: p.label, role: p.role, offered: true })),
+    ...user.paths
+      .filter((id) => !offeredPaths.some((p) => p.id === id))
+      .map((id) => ({ id, label: PATH_INFO[id]?.label ?? id, role: "", offered: false })),
+  ];
 
   return (
     <Layout>
@@ -228,32 +280,103 @@ export default function Profile() {
                   transition={{ delay: 0.2 }}
                   className="bg-white rounded-2xl shadow-lg p-8"
                 >
-                  <h2 className="text-2xl font-display font-bold text-teal-deep mb-6">
+                  <h2 className="text-2xl font-display font-bold text-teal-deep mb-2">
                     Your Paths
                   </h2>
+                  {user.paths.length === 0 ? (
+                    /*
+                      The empty state this card never had. It rendered the
+                      array straight into an unconditional grid, so somebody
+                      with no paths got a heading over nothing, and there were
+                      two whole populations in that state with no way out:
+                      anyone who signed up through Google (authGoogle.ts hands
+                      the new account `paths: []`) and the founder the
+                      bootstrap creates. Registration demands a path and
+                      nothing else in the product had ever offered one.
+
+                      Written the way the Contributions empty state below is:
+                      name the mechanic, then point at the one door. The door
+                      here is the row of claim buttons underneath, so the
+                      sentence hands the reader straight to it.
+                    */
+                    <p className="text-gray-600 mb-6">
+                      No paths yet. A path says which part of village life you are here for,
+                      and each one you take opens its own section on this page. Claim one
+                      below. You can change them whenever you want.
+                    </p>
+                  ) : (
+                    <p className="text-gray-600 mb-6">
+                      What you are here for. Claim a path or drop one whenever it changes.
+                    </p>
+                  )}
                   <div className="grid md:grid-cols-2 gap-4">
                     {/* A path this build has not been taught is READ, never
                         dropped. `if (!pathInfo) return null` took the whole
                         tile away, so a member who had walked a path a newer
                         server knows about saw their own paths list come up
-                        short with nothing saying why. The block further down
-                        this same page already renders the raw id
-                        (`PATH_INFO[path]?.label || path`); these two now
-                        agree. */}
-                    {user.paths.map((pathId) => {
-                      const pathInfo = PATH_INFO[pathId];
+                        short with nothing saying why.
+
+                        The same rule is why this list is a UNION and not just
+                        the village's offer: an id the member holds that the
+                        offer no longer names still gets a tile, so they can
+                        see it and let it go. The server agrees, and says so
+                        in claimPaths (shared/gameConfig.ts): an id you
+                        already hold stays claimable however the offer moves.
+
+                        The offer itself comes off the wire, never off
+                        PATH_INFO. PATH_INFO carries icons and colours for the
+                        four ids this build ships with; the list of paths a
+                        village actually offers is its own, so a fork that
+                        renames or retires one gets the right buttons here
+                        without touching this file. */}
+                    {pathTiles.map((tile) => {
+                      const pathInfo = PATH_INFO[tile.id];
+                      const claimed = user.paths.includes(tile.id);
+                      const busy = savingPath === tile.id;
                       return (
-                        <motion.div
-                          key={pathId}
-                          whileHover={{ scale: 1.05 }}
-                          className={`${pathInfo?.bgColor ?? "bg-gray-100"} border-2 border-current p-4 rounded-lg ${pathInfo?.color ?? "text-gray-700"} font-semibold flex items-center gap-3`}
+                        <motion.button
+                          key={tile.id}
+                          type="button"
+                          whileHover={{ scale: savingPath ? 1 : 1.03 }}
+                          onClick={() => togglePath(tile.id)}
+                          disabled={savingPath !== null}
+                          aria-pressed={claimed}
+                          className={`p-4 rounded-lg border-2 text-left flex items-start gap-3 transition-colors disabled:opacity-60 ${
+                            claimed
+                              ? `${pathInfo?.bgColor ?? "bg-gray-100"} border-current ${pathInfo?.color ?? "text-gray-700"}`
+                              : "bg-white border-dashed border-gray-300 text-gray-500 hover:border-gray-400 hover:bg-gray-50"
+                          }`}
                         >
-                          {pathInfo?.icon}
-                          {pathInfo?.label ?? pathId}
-                        </motion.div>
+                          <span className="mt-0.5">{pathInfo?.icon}</span>
+                          <span className="flex-1">
+                            <span className="font-semibold block">{tile.label}</span>
+                            {tile.role && (
+                              <span className="text-xs font-normal opacity-75 block">{tile.role}</span>
+                            )}
+                            {/* Only once the offer has actually ARRIVED. Until
+                                then `offeredPaths` is empty and every path the
+                                member holds looks retired, so an unguarded
+                                line here told a steward their own path was
+                                gone for as long as the fetch took. Null means
+                                unknown, and unknown says nothing. */}
+                            {offerKnown && !tile.offered && (
+                              <span className="text-xs font-normal opacity-75 block">
+                                No longer offered here
+                              </span>
+                            )}
+                            <span className="text-xs font-medium block mt-1">
+                              {busy ? "Saving…" : claimed ? "Claimed. Tap to drop" : "Tap to claim"}
+                            </span>
+                          </span>
+                        </motion.button>
                       );
                     })}
                   </div>
+                  {pathError && (
+                    <p role="alert" className="text-sm text-red-600 mt-4">
+                      {pathError}
+                    </p>
+                  )}
                 </motion.div>
 
                 {/* Path-Specific Sections */}
@@ -502,35 +625,15 @@ export default function Profile() {
                   <p className="text-amber-100 text-sm">Total earned across all contributions</p>
                 </motion.div>
 
-                {/* Journey Progress */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="bg-white rounded-2xl shadow-lg p-8"
-                >
-                  <h3 className="text-lg font-display font-bold text-teal-deep mb-6 flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5" />
-                    Journey Progress
-                  </h3>
-                  {user.paths.length === 0 ? (
-                    <p className="text-gray-600 text-sm">No paths selected yet</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {user.paths.map((path) => (
-                        <div key={path} className="flex items-center gap-3">
-                          <div className={`p-1.5 rounded-lg ${PATH_INFO[path]?.bgColor || "bg-gray-100"}`}>
-                            {PATH_INFO[path]?.icon}
-                          </div>
-                          <p className={`text-sm font-semibold ${PATH_INFO[path]?.color || "text-gray-700"}`}>
-                            {PATH_INFO[path]?.label || path}
-                          </p>
-                        </div>
-                      ))}
-                      <p className="text-xs text-gray-500 pt-1">Journey details tracked as you participate</p>
-                    </div>
-                  )}
-                </motion.div>
+                {/* "Journey Progress" stood here and was the Your Paths card
+                    a second time: the same user.paths array, the same
+                    PATH_INFO icons, the same labels, in a smaller box. The
+                    only thing it added was the line "Journey details tracked
+                    as you participate", which is a promise about a surface
+                    that does not exist. There is no per-path progress data
+                    anywhere in this product; a path is a bare string on the
+                    member. Your Paths is now the one that can be acted on, so
+                    it is the one that survived. */}
 
                 {/* Quick Links */}
                 <motion.div
