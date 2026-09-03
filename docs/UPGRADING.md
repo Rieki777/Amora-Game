@@ -137,6 +137,30 @@ docker run -d --name village -p 3000:3000 \
   ghcr.io/rieki777/village-os:1.2.0
 ```
 
+**Carry over EVERY environment variable your village already had, not just the
+two shown above.** The command above is shortened to keep the upgrade steps
+readable, and the two it names are only the ones that will not work at all if
+you get them wrong. This server reads 35. Running with three of them starts
+cleanly and answers `/health` with `ok`, and then:
+
+- without `VILLAGE_SECRETS_KEY`, every integration secret your village sealed
+  can no longer be decrypted,
+- without `FOUNDER_EMAILS`, nobody can be granted the founder role, which the
+  changelog for this very release may be telling you to do,
+- without `FRONTEND_URL`, `EMAIL_FROM`, `SCHEDULER_ENABLED` and the rest, links,
+  email and the nightly jobs go quiet.
+
+None of that reports an error naming the cause. The reliable way to do this is
+to copy the running container's full environment before you destroy it:
+
+```sh
+docker inspect village --format '{{range .Config.Env}}{{println .}}{{end}}' > village-env.txt
+```
+
+Then pass every line of that file back to `docker run` with `--env-file`, or
+list them out again by hand. `docs/FORK_RUNBOOK.md` has the table of what each
+one is for.
+
 Keep `AUTH_TOKEN_SECRET` the same as before. Changing it signs every member
 out.
 
@@ -199,6 +223,11 @@ docker run -d --name village -p 3000:3000 \
   -v village-data:/app/data \
   ghcr.io/rieki777/village-os:1.1.0
 ```
+
+**Carry over every environment variable here too**, exactly as in step 5. Going
+back with three variables loses the same settings as going forward with three,
+and it loses them at the worst moment, when you are already recovering from
+something. Use the `village-env.txt` you saved before the upgrade.
 
 **You do not restore the database to go back.** The old version is built to
 keep working over the newer database shape.
