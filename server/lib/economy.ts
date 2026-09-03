@@ -55,7 +55,8 @@ import {
 } from "../../shared/mintRuleKeys";
 import { issuanceRefusal } from "./gameStart";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
-import { numberVar } from "./variables";
+import { openExitFor } from "./exit";
+import { numberVar, stringVar } from "./variables";
 import {
   memberAccount,
   postTransfer,
@@ -109,6 +110,22 @@ export function recognitionName(): string {
 export const VOICE_MINT = "sys:voice-mint";
 /** Not a faucet: voice held against an open claim came from a member. */
 export const VOICE_BRIDGE = "sys:voice-bridge";
+/**
+ * Where Voice goes when it wanes. Seeded by 0148, and NOT a faucet.
+ *
+ * A faucet's negative balance IS that token's issued supply, so a faucet flag
+ * here would let this account go negative, and a negative balance here would
+ * say the waning account had ISSUED Voice. This account only ever receives:
+ * its balance is positive and rising and that number is all the Voice that has
+ * waned in this village to date. The flag is also what `postTransfer` reads for
+ * the launch gate (`server/lib/gameStart.ts`), and putting waning behind the
+ * issuance gate would be backwards.
+ *
+ * Nothing spends it. What a village may later do with what has gathered here
+ * is not ruled, and turning waning into a redistribution is a different
+ * economy that needs the founder's word.
+ */
+export const VOICE_DECAY = "sys:voice-decay";
 
 /**
  * The village voice token, registered at boot the way stays and library
@@ -229,6 +246,24 @@ export const keys = {
     `journey.stage_reached:${v}:${journeyId}:${stage}:${userId}`,
   welcomeAboard: (v: string, questNo: number | string, userId: string) =>
     `welcome_aboard.quest:${v}:${questNo}:${userId}`,
+  /**
+   * One member's Voice waning at one cycle close.
+   *
+   * THE CYCLE KEY IS WHAT MAKES AN HOURLY JOB TAKE ONCE A MOON, and it carries
+   * the same warning `roleCycle` carries above: changing its spelling wanes
+   * every balance a second time in an open cycle. Spell it with
+   * `cycleWindow(at).key` and never a second formatter.
+   *
+   * The USER id and not the account id, because every other key here names a
+   * user and `memberAccount()` derives from it.
+   *
+   * The TOKEN SLUG, even though only one token wanes today. One occurrence that
+   * moves two tokens needs the segment or the second collides with the first
+   * and reads as a duplicate, which is the lesson `mintForConfirmedClaim`
+   * learned: a second waning token would otherwise silently wane only one.
+   */
+  voiceDecay: (v: string, cycleKey: string, userId: string, tokenSlug: string) =>
+    `voice.decay:${v}:${cycleKey}:${userId}:${tokenSlug}`,
   transfer: (v: string, transferRowId: string) => `transfer:${v}:${transferRowId}`,
   reversal: (v: string, eventKey: string) => `reversal:${v}:${eventKey}`,
   voiceClaim: (v: string, claimRowId: string) => `voice-claim:${v}:${claimRowId}`,
@@ -1357,26 +1392,276 @@ export interface SettlementResult {
    * tokens used to be indistinguishable from one that paid all three.
    */
   unpayable: Array<{ token: string; reason: string }>;
+  /**
+   * What waned this cycle. ALWAYS PRESENT, zeros and all.
+   *
+   * An optional field would let a reader mistake "waning did not run" for
+   * "nothing waned", and those are two different facts about a village: the
+   * first says the engine never reached the step, the second says it reached
+   * the step and found every member exempt or too small. A caller reading
+   * `holders` beside `pct` can tell them apart, and a caller reading
+   * `decay?.holders` could not.
+   */
+  decay: VoiceDecaySummary;
+}
+
+/** What one cycle's waning did, in the token's own minor units. */
+export interface VoiceDecaySummary {
+  /** The token that wanes. `village-voice` today, and the only one. */
+  slug: string;
+  /** The rate this run read off the dial, as a percent. */
+  pct: number;
+  /** Units posted to the sink by this run, in minor units of `slug`. */
+  total: number;
+  /** Members whose Voice actually waned in this run. */
+  holders: number;
+  /** Members whose share of the rate floored to nothing at this precision. */
+  skippedTooSmall: number;
+  /** Members with an open exit, left alone until they have settled. */
+  skippedExiting: number;
+  /** The lunation this waning is keyed on. */
+  cycleKey: string;
+}
+
+/**
+ * WHAT WANES AT THE CLOSE OF A MOON (R3, R15).
+ *
+ * The founder's ruling: Voice can decay, it starts at 1 percent a lunar cycle,
+ * a village may set any percent, and the waning is uniform over Voice that was
+ * bought and Voice that was earned alike.
+ *
+ * IT IS A POSTING AND NEVER A REWRITE. Waning moves units from `mem:<user>` to
+ * `sys:voice-decay` through `postTransfer` like every other movement in this
+ * platform, so per token SUM(balance) is still 0 afterwards, a member can read
+ * the row that took it, and a ballot's frozen weights read whatever the ledger
+ * held when they opened. Editing a balance row would have broken all three at
+ * once, and `token_balances` is a cache that is recomputed rather than
+ * incremented in any case.
+ *
+ * THE ARITHMETIC IS IN MINOR UNITS AND IT FLOORS. `Math.floor(balanceUnits *
+ * pct / 100)`, computed on the ledger's own integers. Floor and not round is
+ * the load-bearing half: rounding up takes MORE than the dial says, and a
+ * taking that exceeds its published rate is the one direction that must never
+ * happen. Floor also makes "too small to wane" an explicit, counted fact
+ * instead of a unit quietly costed to somebody. At VOICE_DECIMALS = 3 and 1
+ * percent, 5 Voice is 5000 units and wanes 50; 0.05 Voice is 50 units and
+ * wanes nothing at all. A zero posting is never attempted, because
+ * `postTransfer` refuses it and a refusal inside a loop reads as an error.
+ * That count is reported for the reason `reportUnpayable` exists: a rule that
+ * reaches nobody while looking alive is the hardest failure to notice.
+ *
+ * WHO IS EXEMPT, and both exemptions are argued rather than convenient.
+ *
+ *  - Every system account, INHERITED from `kind = 'member'` and never written
+ *    as a special case. `sys:voice-bridge` holds Voice against an open claim,
+ *    debited from the member the moment they ask, and every ending that is not
+ *    a confirmation gives it back by REVERSING that debit. Waning the bridge
+ *    would change the amount arriving at the far end of a crossing that has
+ *    already been quoted, and the later refund would then hand back a
+ *    different number than was taken. `sys:voice-settled` is the same story.
+ *  - A member with an open exit. Their balances are already on the way to
+ *    `sys:exit-settlement` and a notice period has been quoted to them, so
+ *    moving the number mid departure changes what they settle at after they
+ *    were told. `openExitFor` is the reader, so this cannot drift from what
+ *    the exit process itself calls open.
+ *
+ * AN ABSENT MEMBER WANES LIKE ANYBODY ELSE, and that is the entire mechanism.
+ * There is no absent flag in this path and exempting absence would leave the
+ * dial with nothing to do.
+ *
+ * NOBODY IS NAMED IN THE ROW. R65 and R66 rule that no party may strip
+ * another's earned voice, and a row naming an admin would read as exactly that
+ * act. The word is "waned" because the ruling turns on the distinction.
+ */
+export async function decayVoice(
+  pool: Pool,
+  at: Date = new Date(),
+  /*
+   * Where a refusal goes. `postTransfer` RETURNS `ok: false` for a missing
+   * system account rather than throwing, so a village whose `sys:voice-decay`
+   * row never landed would otherwise wane nothing, silently, forever. That
+   * belongs in the settlement's own report beside an unpayable rule: it is the
+   * same class of failure, a mechanism that looks alive and reaches nobody.
+   *
+   * NOT a boot invariant, deliberately. Refusing to start a village over a
+   * report line is a worse outcome than the thing being reported, and the
+   * account is seeded by a migration that a fresh village always runs.
+   */
+  unpayable: Array<{ token: string; reason: string }> = [],
+): Promise<VoiceDecaySummary> {
+  const { key: cycleKey } = cycleWindow(at);
+  const out: VoiceDecaySummary = {
+    slug: VILLAGE_VOICE,
+    pct: 0,
+    total: 0,
+    holders: 0,
+    skippedTooSmall: 0,
+    skippedExiting: 0,
+    cycleKey,
+  };
+
+  // A dial nobody has touched reads its DEFAULT of 1, and a dial somebody set
+  // to 0 reads 0. `parseVariable` falls back to the def's default only when
+  // there is no override row, so an unset dial and a real zero are different
+  // facts here and neither is guessed.
+  const pct = numberVar("economy.voice_decay_pct");
+  out.pct = pct;
+  if (!(pct > 0)) return out;
+
+  /*
+   * The basis dial ships with ONE value, and the reason is written into its
+   * own description: a member's balance already IS their unspent Voice.
+   * Voice leaves a member account through a voice claim and through an exit
+   * sweep, and both have already taken it out of the balance by the time this
+   * reads it, so there is no second number for an `unspent` basis to mean.
+   *
+   * Anything other than `all` therefore wanes NOTHING rather than guessing at
+   * a rule nobody wrote. `validateVariable` cannot store an unknown value, so
+   * the only way here is a hand-written row, and failing closed in the taking
+   * direction is the only safe way to fail.
+   */
+  if (stringVar("economy.voice_decay_basis") !== "all") return out;
+
+  /*
+   * `kind = 'member'` is what exempts every system account, and writing the
+   * read this way rather than listing the accounts to skip is the whole point:
+   * a system account added later is exempt by construction instead of by
+   * somebody remembering to add it to a list.
+   */
+  const [holders] = await pool.query<RowDataPacket[]>(
+    "SELECT b.`account_id`, a.`user_id`, b.`balance` FROM `token_balances` b " +
+      "JOIN `ledger_accounts` a ON a.`id` = b.`account_id` " +
+      "WHERE b.`token_type` = ? AND a.`kind` = 'member' AND a.`user_id` IS NOT NULL " +
+      "AND b.`balance` > 0",
+    [VILLAGE_VOICE],
+  );
+
+  /*
+   * Each DISTINCT refusal once, for the reason the seat loop gives two hundred
+   * lines below: a missing sink account refuses every member in the village,
+   * and four hundred identical lines in a settlement report is a report nobody
+   * reads. The sentence names the account, because "the transfer failed" sends
+   * a reader looking in the wrong place.
+   */
+  const problems = new Map<string, string>();
+  const refuse = (reason: string) => problems.set(reason, reason);
+
+  for (const row of holders) {
+    const userId = String(row.user_id);
+    const balanceUnits = Number(row.balance);
+
+    /*
+     * The exit is asked FIRST, ahead of the cheaper arithmetic, so that a
+     * leaver holding dust is reported as a leaver. The two counts are read by
+     * a human deciding whether a village's waning is working, and "2 members
+     * are in the middle of leaving" is the sentence that answers them; folding
+     * one of those into "too small" would undercount the exemption that was
+     * actually argued for. One query per Voice-holding member per run is the
+     * price, and it buys the exit process's own definition of open instead of
+     * a second copy of the status list here.
+     */
+    if (await openExitFor(pool, userId)) {
+      out.skippedExiting += 1;
+      continue;
+    }
+
+    const units = Math.floor((balanceUnits * pct) / 100);
+    if (units <= 0) {
+      out.skippedTooSmall += 1;
+      continue;
+    }
+
+    const key = keys.voiceDecay(villageId(), cycleKey, userId, VILLAGE_VOICE);
+    const tooLong = keyTooLong(key);
+    if (tooLong) {
+      // Loud and skipped. A truncated key would collide with another
+      // occurrence and read as a duplicate, and the member it belonged to
+      // would simply never wane while the books said they had.
+      refuse(`Voice could not wane into "${VOICE_DECAY}": ${tooLong}`);
+      continue;
+    }
+
+    const res = await postTransfer(pool, {
+      from: memberAccount(userId),
+      to: VOICE_DECAY,
+      tokenType: VILLAGE_VOICE,
+      amount: units,
+      source: "voice_decay",
+      // NOT in ALLOW_NEGATIVE_SOURCES, and it must never be: a waning that
+      // could drive a member below zero would be a debt nobody incurred.
+      sourceRef: cycleKey,
+      description: "Voice that waned this moon",
+      idempotencyKey: key,
+    });
+    if (res.ok && !res.duplicate) {
+      out.holders += 1;
+      out.total += units;
+    } else if (!res.ok) {
+      refuse(`Voice could not wane into "${VOICE_DECAY}": ${res.error ?? "the ledger refused the posting"}`);
+    }
+  }
+
+  for (const reason of Array.from(problems.values())) {
+    unpayable.push({ token: VILLAGE_VOICE, reason });
+    // `console.error` and not `.log`, for the reason `reportUnpayable` gives:
+    // a published rate that reaches nobody is a promise the village is making
+    // and the engine is not keeping, and somebody should find it while
+    // grepping for what went wrong.
+    console.error(`[economy] waning ${cycleKey}: ${reason}`);
+  }
+
+  return out;
 }
 
 /**
  * Close one lunation.
  *
- * What it does: thanks everyone holding a seat, per the `role.cycle` rules.
- * What it deliberately does NOT do: reset an allowance, which needs no reset
- * because it was never stored, and close a gratitude cycle, which the
- * scheduler has been forbidden from doing since it was written. Settlement
- * releasing value is a human act; this job only pays what the rules already
- * promised for work already held.
+ * What it does: wanes each member's Voice by `economy.voice_decay_pct` into
+ * `sys:voice-decay`, and thanks everyone holding a seat per the `role.cycle`
+ * rules.
+ *
+ * THE CONTRACT WIDENED WHEN WANING LANDED and this paragraph widened with it.
+ * This function used to say it "only pays what the rules already promised for
+ * work already held", and that is no longer the whole of it: waning TAKES.
+ * What it still does not do is reset an allowance, which needs no reset
+ * because it was never stored, or close a gratitude cycle, which the scheduler
+ * has been forbidden from doing since it was written. Releasing value is a
+ * human act; taking a published percentage of a balance is not a release and
+ * must not wait on a human, or a village whose admin is away would silently
+ * stop waning while its dial said otherwise.
  *
  * A re-run is a no-op and a resumed partial run finishes, both for the same
- * reason: every mint is keyed on (cycle, seat, holder), so the ledger itself
- * remembers what was paid. There is no "has this cycle run" flag to get out of
- * step with what actually happened.
+ * reason: every mint is keyed on (cycle, seat, holder) and every waning on
+ * (cycle, member, token), so the ledger itself remembers what happened. There
+ * is no "has this cycle run" flag to get out of step with what actually did.
+ *
+ * WANING SITS AHEAD OF THE NO-RULES EARLY RETURN AND BEHIND `economyReady`,
+ * and the two are separate decisions. A village whose only rule is
+ * `quest.completed` has no `role.cycle` rule to pay, and it must still wane or
+ * its dial reads 1 percent and does nothing. A village with no enabled rules
+ * at all has an engine that is not running, and taking value in a village that
+ * is not yet issuing any is not something anybody agreed to. That is also the
+ * answer for the founding allocation: it begins to wane when the village votes
+ * its Game into existence, and not before.
  */
 export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<SettlementResult> {
   const { key: cycleKey } = cycleWindow(at);
-  const out: SettlementResult = { cycleKey, stewardsThanked: 0, minted: [], alreadyRun: false, unpayable: [] };
+  const out: SettlementResult = {
+    cycleKey,
+    stewardsThanked: 0,
+    minted: [],
+    alreadyRun: false,
+    unpayable: [],
+    decay: {
+      slug: VILLAGE_VOICE,
+      pct: 0,
+      total: 0,
+      holders: 0,
+      skippedTooSmall: 0,
+      skippedExiting: 0,
+      cycleKey,
+    },
+  };
 
   const ready = await economyReady(pool);
   if (!ready.ready) return out;
@@ -1387,6 +1672,31 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
   // deferral working backwards.
   await applyPendingRules(pool, at);
 
+  /*
+   * WANING GOES HERE, AHEAD OF THE RULES READ, AND THE POSITION IS THE POINT.
+   *
+   * Two lines below is `if (!rules.length) return out;`, and that return is
+   * the trap. A village whose only enabled rule is `quest.completed` has no
+   * seat to pay and every reason to wane, and waning written after that line
+   * would leave its dial reading 1 percent while nothing ever moved: no error,
+   * no log line, a mechanism that is simply not there.
+   *
+   * It also means THIS MOON'S SEAT PAYOUT DOES NOT WANE THIS MOON. A balance
+   * wanes after it has sat through a cycle, which is what makes the published
+   * arithmetic true: an accrual of `a` a moon against a rate `d` settles at
+   * `a / d` and stands at `a * (1 - (1 - d)^n) / d` after n moons from zero.
+   * Waning after the seat loop would settle at `a * (1 - d) / d` instead, one
+   * whole cycle of accrual lower, and every ceiling a founder is shown beside
+   * the dial would be wrong by that much.
+   *
+   * Any problem it hits rides home on `out.unpayable`, the same channel an
+   * unpayable rule uses, because a missing sink account is a settlement
+   * warning a village can read and act on. It is deliberately NOT a boot
+   * invariant: taking a village offline over a report line is a worse failure
+   * than the failure.
+   */
+  out.decay = await decayVoice(pool, at, out.unpayable);
+
   const rules = await rulesFor(pool, "role.cycle", cycleBoundsFor(at).cycleNumber);
   if (!rules.length) return out;
 
@@ -1394,10 +1704,15 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
   // is a fact about the rule, and reporting it per seat would turn one
   // misconfiguration into forty identical lines. Payable rules go on to the
   // loop; the rest are named here and never reach a mint call.
+  //
+  // Collected into their OWN array rather than read back off `out.unpayable`,
+  // which waning may already have written to: `reportUnpayable` prints "the
+  // rule on X paid nobody", and a missing sink account is not a rule.
+  const ruleProblems: Array<{ token: string; reason: string }> = [];
   const payable = rules.filter((r) => {
     const problem = ruleCannotPay(r.tokenSlug);
     if (problem) {
-      out.unpayable.push({ token: r.tokenSlug, reason: problem });
+      ruleProblems.push({ token: r.tokenSlug, reason: problem });
       return false;
     }
     // An amount that rounds to nothing in this token's minor units is the
@@ -1405,7 +1720,7 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
     // report: a rule of 0.1 on a whole-unit token posts zero.
     const human = r.amount ?? 0;
     if (human > 0 && toLedgerUnits(r.tokenSlug, human) <= 0) {
-      out.unpayable.push({
+      ruleProblems.push({
         token: r.tokenSlug,
         reason: `${human} is smaller than the smallest amount this token can hold`,
       });
@@ -1413,7 +1728,8 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
     }
     return true;
   });
-  reportUnpayable(`settlement ${cycleKey}`, out.unpayable);
+  out.unpayable.push(...ruleProblems);
+  reportUnpayable(`settlement ${cycleKey}`, ruleProblems);
 
   // Live seatings held by real accounts. `active_holder_key` is NULL once a
   // seating ends, and examples are not people.
@@ -1601,10 +1917,26 @@ export async function publicRules(pool: Pool): Promise<Array<{ trigger: string; 
  *
  * Each faucet's NEGATIVE balance is that token's issued supply, which is why
  * conservation being provable is what makes this feed possible at all.
+ *
+ * WHY `waned` IS HERE AND WHY `circulating` IS DERIVED FROM IT.
+ *
+ * `issued` counts what came OUT of a faucet, and nothing ever puts it back:
+ * waning moves Voice from a member to `sys:voice-decay`, which is not a
+ * faucet, so `issued` keeps climbing while every wallet in the village
+ * shrinks. Reporting that number alone would have the public books saying
+ * more Voice is out there every moon while members watched their own chips
+ * fall, which is the reading that makes a village stop trusting its own
+ * ledger. So the sink's balance is published beside the faucet's, and
+ * `circulating` is the subtraction, done here once rather than by every
+ * reader.
+ *
+ * `mintView` is deliberately left alone: it answers where Voice came FROM,
+ * and waning is not a source.
  */
-export async function publicSupply(
-  pool: Pool,
-): Promise<{ cycleKey: string; tokens: Array<{ token: string; issued: number; decimals: number }> }> {
+export async function publicSupply(pool: Pool): Promise<{
+  cycleKey: string;
+  tokens: Array<{ token: string; issued: number; waned: number; circulating: number; decimals: number }>;
+}> {
   const { key } = cycleWindow();
   // `sys:cycle-pool` belongs here and was missing. It is the faucet every
   // village credit has ever come out of, so leaving it off meant the public
@@ -1619,13 +1951,28 @@ export async function publicSupply(
       "GROUP BY b.`token_type`, t.`name`, t.`decimals` HAVING issued > 0 ORDER BY t.`sort_order`, t.`slug`",
     faucets,
   );
+
+  // The sink, per token. One row today and the query does not assume it: a
+  // second waning token later needs no change here.
+  const [waned] = await pool.query<RowDataPacket[]>(
+    "SELECT `token_type` AS slug, `balance` FROM `token_balances` WHERE `account_id` = ?",
+    [VOICE_DECAY],
+  );
+  const wanedBySlug = new Map(waned.map((r) => [String(r.slug), Number(r.balance ?? 0)]));
+
   return {
     cycleKey: key,
-    tokens: rows.map((r) => ({
-      token: String(r.name ?? r.slug),
-      issued: Number(r.issued ?? 0),
-      decimals: Number(r.decimals ?? 0),
-    })),
+    tokens: rows.map((r) => {
+      const issued = Number(r.issued ?? 0);
+      const gone = wanedBySlug.get(String(r.slug)) ?? 0;
+      return {
+        token: String(r.name ?? r.slug),
+        issued,
+        waned: gone,
+        circulating: issued - gone,
+        decimals: Number(r.decimals ?? 0),
+      };
+    }),
   };
 }
 
