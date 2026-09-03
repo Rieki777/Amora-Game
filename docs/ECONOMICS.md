@@ -437,6 +437,22 @@ decimals 0, 3 and 4, because a test reading only the ledger row stays green over
 an admin toast that says 300000, and a test reading only the toast stays green
 over a settlement multiplied by ten thousand.
 
+**Seat fees are the worked example of where the answer goes, and of the second
+question it drags with it.** `server/lib/eventSeats.ts` posts three legs and only
+one of them carries a human number: the fee a host typed into `events.seat_price`.
+`seatPriceFor` converts it once, so the pay leg, the refund and the settle all
+move minor units and the last two replay the first without touching it. The
+conversion cannot sit at the `postTransfer` call, because the same number is also
+stored in `event_seat_charges.amount`, and `seatEscrowDrift` compares the sum of
+that column against `token_balances.balance`. **That column is a mirror of a
+posted leg, so it moves to MINOR units with the ledger**, which means the flip
+migration has to rescale every `held` row by the same factor it applies to
+`token_ledger`. Leave it human and the reconciliation reports drift on every open
+charge; convert only the post and it reports the same drift from the other side.
+`heldSeatValue` is the read that had to change shape as well as scale: one
+`SUM(amount)` over the whole table added tokens at different scales together, so
+it groups by token and divides by each token's own.
+
 **One token is already inconsistent with itself, at zero decimals, today.** Village
 Voice has 3 decimals now, and the two ways it can be issued disagree:
 
