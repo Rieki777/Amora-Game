@@ -9,7 +9,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { GAME_CONFIG } from "@shared/gameConfig";
-import { SETUP_STEPS, measureSetup, setupIsComplete, type BrandLike } from "./setupProgress";
+import {
+  SETUP_STEPS,
+  measureSetup,
+  setupCounts,
+  setupIsComplete,
+  type BrandLike,
+} from "./setupProgress";
 
 const ALL_TICKED = { identity: true, images: true, numbers: true, content: true, map: true, technical: true };
 
@@ -83,21 +89,129 @@ describe("measureSetup", () => {
     expect(row(brand, "identity").done).toBe(true);
   });
 
-  it("still reports the four self-reported rows from their boxes", () => {
+  it("carries a ticked box, and says it was a founder who said so", () => {
     const brand = emptyBrand();
     for (const key of ["numbers", "content", "map", "technical"]) {
-      expect(row(brand, key)).toMatchObject({ measured: false, done: true, total: 0 });
+      expect(row(brand, key)).toMatchObject({
+        measured: false,
+        source: "declared",
+        state: "done",
+        done: true,
+        declaredDone: true,
+        // Nothing was counted, so nothing is reported as counted. A zero here
+        // would read as "none of them are set".
+        filled: null,
+        total: null,
+      });
     }
-    brand.setup = { ...ALL_TICKED, map: false };
-    expect(row(brand, "map").done).toBe(false);
   });
 
-  it("reads a missing record as nothing seen rather than throwing", () => {
-    for (const brand of [null, undefined, {}]) {
-      expect(row(brand, "identity")).toMatchObject({ done: false, filled: 0, total: 5 });
-      expect(row(brand, "numbers").done).toBe(false);
+  it("reads an untouched box as nobody having looked, not as unfinished", () => {
+    // The two are different facts. An empty box means the founder has not made
+    // a note; it never means this screen went and checked.
+    const brand = emptyBrand();
+    brand.setup = { ...ALL_TICKED, map: false };
+    expect(row(brand, "map")).toMatchObject({
+      state: "unknown",
+      done: false,
+      declaredDone: false,
+      filled: null,
+      total: null,
+    });
+  });
+
+  it("reads a record that never arrived as unknown, and counts nothing", () => {
+    // THE SILENT ZERO. Before this, `measureSetup(null)` answered
+    // "0 of 9 filled in" for the pictures row, which is what a village with
+    // nine empty slots is told. A document nobody has read says nothing.
+    for (const brand of [null, undefined]) {
+      expect(row(brand, "identity")).toMatchObject({
+        state: "unknown",
+        done: false,
+        filled: null,
+        total: null,
+      });
+      expect(row(brand, "images")).toMatchObject({ state: "unknown", filled: null, total: null });
+      expect(row(brand, "numbers")).toMatchObject({ state: "unknown", declaredDone: false });
       expect(setupIsComplete(brand)).toBe(false);
+      expect(setupCounts(brand)).toMatchObject({ done: 0, todo: 0, unknown: 6 });
     }
+  });
+
+  it("reads an empty record as counted and empty, which is a different fact", () => {
+    // `{}` is a document that arrived carrying nothing. That IS the outage
+    // state and it must still count to zero out loud.
+    expect(row({}, "identity")).toMatchObject({ state: "todo", filled: 0, total: 5 });
+    expect(row({}, "images")).toMatchObject({ state: "todo", filled: 0, total: 9 });
+    expect(setupIsComplete({})).toBe(false);
+  });
+});
+
+describe("observations, for the steps whose values live elsewhere", () => {
+  it("takes the reading over the box when the reading says done", () => {
+    const brand = emptyBrand();
+    brand.setup = { ...ALL_TICKED, numbers: false };
+    const rows = measureSetup(brand, {
+      numbers: { state: "done", filled: 3, total: 3, detail: "3 figures stated" },
+    });
+    expect(rows.find((r) => r.key === "numbers")).toMatchObject({
+      source: "measured",
+      state: "done",
+      done: true,
+      declaredDone: false,
+      filled: 3,
+      total: 3,
+      detail: "3 figures stated",
+    });
+  });
+
+  it("lets a founder carry a step the reading calls unfinished, visibly", () => {
+    // A blank is sometimes the real answer: a village states its own land
+    // figures or states none. The tick still carries the step, and the row says
+    // whose word carried it.
+    const brand = emptyBrand();
+    const rows = measureSetup(brand, { numbers: { state: "todo", filled: 0, total: 7 } });
+    expect(rows.find((r) => r.key === "numbers")).toMatchObject({
+      source: "declared",
+      state: "done",
+      done: true,
+      declaredDone: true,
+      measured: false,
+    });
+  });
+
+  it("reports the reading when the founder has not ticked", () => {
+    const brand = emptyBrand();
+    brand.setup = { ...ALL_TICKED, numbers: false };
+    const rows = measureSetup(brand, { numbers: { state: "todo", filled: 1, total: 7 } });
+    expect(rows.find((r) => r.key === "numbers")).toMatchObject({
+      source: "measured",
+      state: "todo",
+      done: false,
+      declaredDone: false,
+      filled: 1,
+      total: 7,
+    });
+  });
+
+  it("ignores an observation for a record that never arrived", () => {
+    // Nothing was read, so a reading of one step cannot make the screen
+    // knowledgeable about it.
+    const rows = measureSetup(null, { numbers: { state: "done" } });
+    expect(rows.every((r) => r.state === "unknown")).toBe(true);
+  });
+});
+
+describe("setupCounts", () => {
+  it("tells still-to-do apart from nobody-has-looked", () => {
+    const counts = setupCounts(emptyBrand());
+    // Two counted rows sit empty; the four boxes are all ticked.
+    expect(counts).toEqual({ done: 4, todo: 2, unknown: 0, declared: 4, total: 6 });
+  });
+
+  it("counts a finished village as finished", () => {
+    expect(setupCounts(filledBrand())).toMatchObject({ done: 6, todo: 0, unknown: 0 });
+    expect(setupIsComplete(filledBrand())).toBe(true);
   });
 });
 
