@@ -347,6 +347,24 @@ export function register(app: Express, deps: Deps): void {
     });
     if (!made.ok) return { ok: false, error: made.error };
 
+    /*
+     * EVERY CHANGE FIRST, THEN EVERY DECISION. The two loops are not one loop,
+     * and the order is the whole reason.
+     *
+     * Interleaved, a failure partway through leaves some proposals marked
+     * accepted against a draft that does not describe them and the rest still
+     * waiting, which is a state no screen can explain and no button can undo.
+     * Separated, the worst case is an open draft with fewer changes than it
+     * should have and NOT ONE PROPOSAL DECIDED: the steward sees the batch
+     * still in the queue, tries again, and the draft they can see is the only
+     * thing to tidy.
+     *
+     * `addChange` refuses only a draft that is not open, and this one was
+     * created two lines up, so this is defensive rather than expected. It is
+     * written this way because the cost of the ordering is nothing and the
+     * cost of being wrong about "cannot happen" is a queue nobody can reason
+     * about.
+     */
     let seats = 0;
     for (const p of org) {
       const payload = edits[p.id] ?? p.payload;
@@ -360,6 +378,8 @@ export function register(app: Express, deps: Deps): void {
         });
         if (!r.ok) return { ok: false, error: r.error };
       }
+    }
+    for (const p of org) {
       await markProposalDecided(getPool(), {
         id: p.id,
         status: "accepted",
