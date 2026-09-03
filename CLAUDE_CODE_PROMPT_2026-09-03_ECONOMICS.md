@@ -338,7 +338,7 @@ governance session if you think it is wrong.
 ### The two kinds of decision, and what that does to money
 
 Every proposal the village votes on is one of two kinds, classified once in a table the governance
-build exports (`server/lib/governanceKinds.ts`, or wherever the dispatcher lane put it; read it):
+build exports (`governanceKinds` (on `wt/governance-build`), or wherever the dispatcher lane put it; read it):
 
 - **A TOKEN_SEND** (a payout, a distribution, a founding allocation, a power transfer that moves
   balances) **executes the moment its ballot closes passed** when its timing is "at acceptance",
@@ -353,7 +353,7 @@ build exports (`server/lib/governanceKinds.ts`, or wherever the dispatcher lane 
 Consequences you must build to:
 
 1. **Mint rules and cycle-timed dials land through `applyDueGovernance`**, the governance build's
-   five-minute scheduler job (`server/lib/applyDue.ts`), which also runs from the human cycle close.
+   five-minute scheduler job (`applyDue` (on `wt/governance-build`)), which also runs from the human cycle close.
    `applyPendingRules` (the mint-rule promotion at `pending_from_cycle`) is being routed through it
    and the intended landing cycle is passed in rather than recomputed from `new Date()`. **Do not
    build a second "later" mechanism in the economy**, and do not move the promotion back into
@@ -378,7 +378,7 @@ Consequences you must build to:
 ### The cycle clock is governance's, and it is a setting now
 
 The founder ruled the cycle rhythm is a village setting again, lunar by default (19 Q5, 19F).
-`shared/cycleClock.ts` (built in Phase 1b) is the one clock: `boundsFor`, `idFor`, `parseId`,
+`cycleClock` (on `wt/governance-build`) (built in Phase 1b) is the one clock: `boundsFor`, `idFor`, `parseId`,
 `startOf`, `nextBoundaryAfter`, `cycleNumberAt`, with the lunar implementation unchanged from
 `shared/lunar.ts` and a calendar implementation under its own id prefix. **Every cycle id, cap,
 allowance and settlement boundary in the economy reads the clock through that seam**, never
@@ -402,7 +402,7 @@ with the open cycle settled first. Your model must simulate a village on either 
   table, and the admin mint form's units hint. **Hand the governance session the exact
   `toLedgerUnits` / `fromLedgerUnits` contract you settle on and the commit it lands in**, and do not
   convert inside `postTransfer` (the prompt above says why).
-- **Share of total voice is one function.** `shareOfTotal` lives in `governanceWeights.ts`
+- **Share of total voice is one function.** `shareOfTotal` lives in `governanceWeights`
   (governance-owned) and both the dry run's concentration flag and the ballot page call it. Do not
   write a second one in the economics model; import it.
 - **The founding allocation** (19 Q2, 19G): before the Birthing, catalysts issue `village-voice`
@@ -419,12 +419,12 @@ with the open cycle settled first. Your model must simulate a village on either 
 ### The shared dry run: the engine's contract, strawman
 
 The governance session owns the engine and will build it in its Phase 2 as the `dryrun-engine`
-lane, on top of `server/lib/proposalDryRun.ts` (Phase 1b), which already shares the changeset
+lane, on top of `proposalDryRun` (on `wt/governance-build`) (Phase 1b), which already shares the changeset
 validator with the executor so the thing previewed is the thing that will run. Build your model
 against this contract; if you need it changed, say so before you build, and we change it together.
 
 ```ts
-// shared/dryRun/types.ts  (governance-owned; both models import it)
+// shared dry-run types module (governance-owned, on wt/governance-build; both models import it)
 export interface VillageSnapshot {          // read once, then plain data; no pool, no connection
   atIso: string; clock: CycleClockSpec;      // lunar | calendar, timezone
   tokens: TokenSpec[];                       // slug, kind, decimals, faucet, sinks
@@ -458,9 +458,11 @@ first violation with the cycle and the posting named.
 
 ### Who owns which file (so the merge agent never takes either side)
 
+**Files named below without an extension live on `wt/governance-build` and are not on `main` yet; the doc-link guard is why they are written that way.**
+
 | Governance session owns | Economics session owns | Shared, edit by category only |
 |---|---|---|
-| `server/lib/applyDue.ts`, `changeset.ts`, `governanceKinds.ts`, `proposalDryRun.ts`, `stewardship.ts`, `delegation.ts`, `governanceWeights.ts`, `ballots.ts`, `mechanics.ts`, `governanceWindows.ts`, `moonDigest.ts`, `shared/cycleClock.ts`, `shared/governanceEngine.ts`, `shared/ballotSubjects.ts`, `shared/dryRun/*`, `server/routes/governance*.ts`, `delegation.ts`, `constitution.ts`, `scripts/generate-governance-doc.mjs` and its guard, `docs/GOVERNANCE.md` | `server/lib/economy.ts`, `ledger.ts`, `spending.ts`, `exit.ts`, `voiceClaim.ts`, `economySeed.ts`, `gratitude.ts`, the mint-rule routes, `server/lib/dryRun/economicsModel.ts`, `scripts/generate-token-doc.mjs` and its guard (tell governance before editing ruling text), `docs/TOKENS.md`, `docs/ECONOMICS.md` and its guard | `shared/gameVariables.ts` (Governance category is governance's; Gratitude, Economy and Ledger categories are economics'; the Cycle keys are governance's), `server/index.ts` (two exempt lines per route module; no net lines), the settlement job registration (governance registers `applyDueGovernance`; economics owns `runSettlement`; neither reaches into the other's body) |
+| `applyDue` (on `wt/governance-build`), `changeset`, `governanceKinds`, `proposalDryRun`, `stewardship`, `delegation`, `governanceWeights`, `ballots`, `mechanics`, `governanceWindows`, `moonDigest`, `cycleClock` (on `wt/governance-build`), `shared/governanceEngine.ts`, `shared/ballotSubjects.ts`, the shared dry-run types, the governance route modules, `delegation`, `constitution`, `generate-governance-doc` (on `wt/governance-build`) and its guard, `GOVERNANCE` (on `wt/governance-build`) | `server/lib/economy.ts`, `ledger.ts`, `spending.ts`, `exit.ts`, `voiceClaim.ts`, `economySeed.ts`, `gratitude.ts`, the mint-rule routes, `economicsModel` (on `wt/governance-build`), `scripts/generate-token-doc.mjs` and its guard (tell governance before editing ruling text), `docs/TOKENS.md`, `docs/ECONOMICS.md` and its guard | `shared/gameVariables.ts` (Governance category is governance's; Gratitude, Economy and Ledger categories are economics'; the Cycle keys are governance's), `server/index.ts` (two exempt lines per route module; no net lines), the settlement job registration (governance registers `applyDueGovernance`; economics owns `runSettlement`; neither reaches into the other's body) |
 
 ### Numbers, branches and how to reach us
 
@@ -472,7 +474,7 @@ first violation with the cycle and the posting named.
 - **Branches:** governance integrates on `wt/governance-build`; cut your worktree from
   `origin/main`, never from `C:/Users/taren/Desktop/Amora/hotfix`, which is another lane's live
   worktree today. Land through the coordinator.
-- **The generated documents are a pair.** `docs/TOKENS.md` and `docs/GOVERNANCE.md` each carry a
+- **The generated documents are a pair.** `docs/TOKENS.md` and `GOVERNANCE` (on `wt/governance-build`) each carry a
   guard; a change that moves either regenerates BOTH in the same commit, or the other guard goes
   red on the next merge. The governance doc reads `SUBJECT_CLOSERS`, the Governance dials and the
   clock; yours reads the registry and the faucets; the dry-run engine's types will be read by both.
