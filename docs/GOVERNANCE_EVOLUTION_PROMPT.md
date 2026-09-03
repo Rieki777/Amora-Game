@@ -15,6 +15,7 @@ This brief now has three layers, and the later ones win where they disagree with
   founder's quotes there are still his rulings. Three of its claims are superseded, named below.
 - **Section 12** is the founder's fuller vision, stated 2026-09-02, in his words. It is the target
   the document must describe.
+- **Section 19** is his answer to section 15, given the same evening, and the mandate to build.
 - **Sections 13 to 18** are what fourteen readers measured against the repository on 2026-09-02,
   each reader's citations re-opened by a second, adversarial agent. Where section 13 contradicts
   sections 1 to 11, section 13 is right. The full reports, with evidence tables, are outside the
@@ -1679,3 +1680,189 @@ rhythm); move the five named flakes into `scripts/known-flakes.json`.
 - **Sources the founder gave:** `hypha_slides.txt`, `hypha_gdoc.txt` (Handbook V0.3),
   `yt_transcript.txt` (the talk, auto captions), and `session63dc_user_turns.txt` (his own words
   from the session that wrote sections 1 to 11), all in `governance-sources\`.
+
+---
+
+## 19. Rulings of 2026-09-02, evening: the founder answers section 15
+
+He answered the shaping questions in one message. His words first, then what each one changes.
+Where he wrote "explain", the coordinator's explanation and the default it proceeds on follow.
+These supersede section 15's recommendations where they differ.
+
+### Q1, which token is Voice: no objection raised
+
+He did not answer Q1 separately and wrote "Love them all" of the recommendations. **Proceed:**
+`village-voice` is THE Voice; the Base mirror `voice` is "Voice claimed across";
+`governance.weight_token` defaults to `village-voice`; the custom allocation table becomes the
+"founding allocation" and survives until the Game starts.
+
+### Q2, pre-launch Voice, plus a new idea: voice for other beings, and clans
+
+> "part of step 2 is to encourage to name non-human governance roles in your Game (other beings who
+> live on the land) to be part of governance. - For example giving voice to nature (a mountain your
+> project is on a river it borders, the trees and fauna and flora that shares that piece of earth
+> with us) - this creates another idea where a governance function of 'clans' (which groups can name
+> whatever they like and change this name in admin) but groups within the village that anchor on
+> living beings. The water group would tend to the waters the earth group to the land the air group
+> to the air, etc the wolf group would tend to restoring this apex predator - which requires
+> restoring the whole pyramid underneath the beaver clan, etc. etc all clans are namable in admin as
+> well. But these other actors can be given voice - though this is considered a mature feature to
+> build into the Game once you hit 144+ people."
+
+What it changes: the founding-allocation act stands (Q2's recommendation), and the founding step
+should INVITE the catalysts to name non-human governance roles: a mountain, a river, the trees, the
+fauna and flora that share the land. **Clans** are a new governance object: groups within the
+village, each anchored on a living being or element (water, earth, air, wolf, beaver), each tending
+what it is named for, every name editable in the Game Mechanics section. **Non-human actors may be
+given Voice**, and that is a MATURE feature, unlocked at 144 or more players. Version 1.0 documents
+clans and non-human voice as staged, names the unlock, and builds the naming surface only.
+
+### Q3, the start vote: a Birthing, unanimous, and the word Catalyst
+
+> "No we need 100% saying yes as a collective 'Birthing' moment where you reveal the game, it's at
+> LEAST 3 but could be many more people who then activate a new game before they all switch to
+> being 'players' instead of just the catalysts (we say Catalyst instead of founder for those who
+> play the game this way."
+
+What it changes: **every frozen seat must vote YES**; an abstention does not carry a launch. The
+launch is called the **Birthing** and its proposal reveals the Game. Three is the floor, never the
+target. **The word is Catalyst, never founder**, in every surface a player reads; `users.role =
+founder` stays as the storage value with the display name changed, because the slug is history's
+identity (section 7). After the Birthing, catalysts become players like everyone else.
+
+### Q4, what "the start of the next cycle" means: explained, and the default
+
+He wrote: "I don't understand this fully."
+
+The question, in plain words. Today the moon turns on its own, but the Game only notices when an
+administrator presses "close the cycle" on the admin page. That press can come a day late or a week
+late, and if two moons have passed it closes both at once. So "a passed proposal takes effect at
+the next new moon" can mean two different things:
+
+- **the moment of the new moon itself**, which needs the server to apply the change on its own, on
+  a timer, with no person in the loop at that instant; or
+- **the moment somebody presses close**, which is a human act but can land days after the moon.
+
+The engine already does the first for one thing: a new minting rule voted in during a moon takes
+effect automatically at the next new moon, by a job that runs every hour. **Default the
+coordinator proceeds on:** the new moon itself. A passed proposal is stamped with the cycle it
+lands in, one routine applies everything that is due, and both the hourly job and the human close
+call that routine, so whichever runs first applies it and the other finds nothing left to do. A
+member sees "lands at cycle 331" on the proposal from the moment it passes.
+
+### Q5, the cycle as a setting: yes
+
+> "Yes the cycle structure can be changed."
+
+What it changes: the rhythm setting returns, lunar by default, with the seam section 13.7 requires:
+one `CycleClock` interface every consumer reads through, a calendar implementation with its own id
+prefix, past cycles frozen with the ids they closed under, the switch itself launch-grade and
+boundary-timed. Seasons, claims week and the governance window read the same clock.
+
+### Q6, stewards: accepted, and the end state named
+
+> "Sure and it's perfectly fine to have no stewards and for the game to have self/executing
+> agreements - Stewards are like the 'training wheels' to the game to help them start - not a
+> desirable endstate. Except one where we're all stewards in our own way."
+
+What it changes: section 15's Q6 recommendation stands in full (permission plane with terms, one
+seat per catalyst, any one steward approves, proposals queue when the seat is empty, the steward is
+named, a refusal returns the proposal with its reason). And the document must say plainly that a
+village with no steward and self-executing agreements is a HEALTHY state, the one the training
+wheels come off into. Never render an empty steward seat as a warning once a village has chosen it.
+
+### Q7, late approval: explained, and the default
+
+He wrote: "explain?"
+
+The situation: a proposal passes on the 20th of the moon. The steward is away and approves it on
+the 2nd of the next moon, after the new moon has already come and gone. Three things could happen:
+(a) it takes effect the instant the steward approves, mid-moon, which breaks the promise that
+changes land at cycle starts; (b) it waits for the NEXT new moon after the approval, so the promise
+holds and the proposal shows its new landing date; (c) it expires because the steward missed the
+moon, which punishes the village for a steward's absence. **Default the coordinator proceeds on:**
+(b). The proposal rolls to the following new moon and the page says so.
+
+### Q8, the vote mode leaves the founder ring: yes
+
+> "yes"
+
+What it changes: `governance.weight_mode` becomes proposable through its own subject type,
+`governance_mode`, with a launch-grade floor, timed to the cycle boundary, with a record. The
+ordinary mechanics path keeps refusing it so a dial change cannot carry it by the side door.
+
+### Q9, multi-element proposals: explained, and the default
+
+He wrote: "explain"
+
+Two things hide in one question. First, **the threshold.** Each kind of change carries its own
+floor: a minting rule needs 50% quorum, the Birthing needs 100 and 100, a small dial needs the
+village's ordinary 20 and 80. When one proposal bundles a mode switch (a big change) with a Voice
+distribution (a ledger act), which floor does the ballot use? **Default:** the highest floor among
+its elements. A bundle is as hard to pass as its hardest part, so nobody can smuggle a big change
+under a small one. This also fits the Q11 ruling: the most critical element sets the bar.
+
+Second, **what happens when part of it fails.** Seven changes pass as one proposal. When the moon
+turns and the Game applies them, the fourth one is refused, say because a module it turns on was
+deleted last week. Two choices: apply the six that work and report one failure, or apply nothing
+and report which one blocked. **Default:** nothing applies, and the proposal shows exactly which
+element blocked it and why, so the proposer can withdraw, fix, and resubmit. A proposal that
+half-applies leaves a village in a state nobody voted for.
+
+### Q10, the Game Mechanics section, always public
+
+> "yes, no PII exposed, but all the admin sections I'm able to see now as I'm making the Game. So
+> truly there's no reason to ever hide these behind admin. Instead name them the 'Game Mechanics'
+> section that's always public."
+
+What it changes, and it is large: **the admin panel's game tabs are renamed the Game Mechanics
+section and are PUBLIC, always, before and after the Birthing.** Before the Birthing, catalysts
+edit directly and everyone can watch the Game being made. After it, every control becomes
+"propose this change" for every player, and the edits collect into one proposal. Personal data
+(rosters with emails, addresses, payment records) and operator matters (secrets, credentials,
+integrations, uploads, deletion) are never exposed; they are not part of the Game Mechanics
+section and stay with whoever runs the deployment.
+
+### Q11, nothing is un-votable; criticality raises the bar; 97 is the recommended ceiling
+
+> "Everything can be! But the more critical it is, the higher percentage of quorum you need (hard
+> to get quorum) such that changing the most critical things would require a max high of 97%
+> quorum where only 3% of the whole network would be able to not be informed and have 97% approval
+> (max heights - we don't recommend more than those though they can exceed them (if they do we
+> warn them) because the closer you get to 100% the chances of you getting a stalemate increase
+> where the Game breaks even though a massive majority want to continue they can't because someone
+> died suddenly or stopped playing the Game, etc."
+
+What it changes: **there is no never-votable list.** Every setting carries a criticality tier, and
+the tier sets the quorum and unity the change needs. The most critical tier asks 97% quorum and
+97% approval. A village may set its dials above 97 and the Game WARNS it, in words, that the closer
+to 100 it goes the likelier a stalemate becomes, because one player dying or drifting away can
+freeze a Game a massive majority wants to continue. Section 13.2's floors that live in code move
+into settings behind the same tiers. The Birthing stays at 100 and 100 because it is the one vote
+where everyone is present by definition.
+
+### Q12, voter identity: participation visible, choices hidden, faces after half
+
+> "How about the name who participates is visible but by default we hide how they voted (and we
+> only expose faces once 50% of the required vote count happens (so you can't really tell who
+> voted what) but we don't say what they voted by default - but in settings this can be changed to
+> public voting."
+
+What it changes: by default, **who has voted is visible and how they voted is hidden.** The names
+of those who have voted appear only once half of the required vote count has been reached, so an
+early voter cannot be read off the tally. Choices stay hidden. A village setting switches to public
+voting, where choices show. Ledger ruling R9 is superseded by this. The people-and-weight sentence
+(section 5) is unaffected: counts and shares of weight are always shown.
+
+### The mandate that follows
+
+> "your role now is to respond to my ideas for improvement with a final execution plan. Then you're
+> going to oversee Agents who are running on Opus or lower for what you need and only you are the
+> Fable model as the swarm coordinator to oversee building this whole plan. You'll only complete
+> once you've done a QA test as a fake account going through all governance actions and
+> interacting with the site. You'll continue with QA passes building in a better Game and
+> experience as they 'Play the Game'."
+
+The coordinating session runs on Fable; every building agent runs on Opus or lower. Completion
+means a fake account has walked every governance action end to end on the site and the walk was
+good enough to keep playing. Section 20 is the plan.
