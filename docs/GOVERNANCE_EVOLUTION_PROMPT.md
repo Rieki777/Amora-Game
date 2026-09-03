@@ -2261,8 +2261,8 @@ The economics session reports these rulings from the founder the same day. The d
 what sections 21.1 and 22 specify and are taken as settled: dry-run warnings never block a launch
 and stay attached to the proposal so stewards see them at vote time; any member may run a dry run;
 expired gratitude is shown as underutilisation; a trial moon's payouts stay paid; the preview is
-binding. Two change governance arithmetic and are recorded as RELAYED until the founder says them
-here:
+binding. Two change governance arithmetic and were recorded as RELAYED until the founder's own words
+arrived; 19I carries them and settles both:
 
 - **Every token, Voice included, is buyable through a money contribution.** Section 7 records the
   opposite as a closed hole (exploit 2: a purchasable voice-kind token reproduced as a weight token
@@ -2275,6 +2275,36 @@ here:
   by settlement is the balance quorum reads, with no change to the engine, provided decay is a
   ledger posting to a sink (conservation holds) and never a rewrite of a balance. The digest shows
   it as voice that waned this moon.
+
+### 19I. Rulings of 2026-09-03, afternoon, in the founder's words as quoted by the economics session
+
+The economics session quoted him verbatim, which is the rule for a ruling travelling between
+sessions; 19H's two relayed items are settled by these.
+
+> "Yes an investment of money is a contribution and does (by default) issue voice. though this can
+> be changed of course by each village and each proposal being 100% editable."
+
+> "Yes decay is uniform."
+
+And, in the economics session's summary of his further words: tokens are paid as contributions
+land with no vesting schedule by default (cash today pays all tokens today; a role paid over
+thirteen moons pays one thirteenth per moon), so the founding allocation is a contribution ledger
+rather than a vesting table; dry-run warnings stay on the proposal for stewards and never block.
+
+**What changes.**
+
+- **Money in mints Voice by default**, through a mint rule like any other contribution, overridable
+  per village and per proposal. The 2026-08-31 guard that refuses a purchasable voice-kind token as
+  the weight token (`weightTokenProblem` in `server/lib/governanceWeights.ts`, section 7's exploit
+  2) is relaxed DELIBERATELY: the refusal becomes a warning sentence on the control, every ballot
+  and the Birthing document show each holder's share, and the generated document says in plain
+  words that Voice can be bought and that transparency is the protection. Lane: `ballot-surfaces`
+  for the shares, `birthing` for the document, a named task in Phase 2 for the guard.
+- **Decay is uniform**: bought and earned Voice wane alike, posted to a sink at cycle close by
+  settlement, never a balance rewrite; the frozen weights at a ballot's open read the decayed
+  balance with no engine change. The digest shows it as voice that waned this moon.
+- **No vesting by default.** The founding allocation is entries in the contribution ledger, each
+  with its share of the total, and nothing in governance holds tokens back over time.
 
 ### The mandate that follows
 
