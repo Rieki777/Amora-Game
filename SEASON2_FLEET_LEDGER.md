@@ -174,10 +174,68 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
 
 ## 3 - Resource registry
 
-- **Migration numbers.** Highest taken across all local refs, remote refs and 140+ worktrees:
-  **0122**. Next free: **0123**. Gaps at 0111 and 0115-0119 are BURNED, never reuse them
-  (the applied-ledger keys on filename and would replay).
+- **Migration numbers. THIS SECTION DELIBERATELY CARRIES NO "NEXT FREE" FIGURE.** It carries the
+  METHOD and the CURRENT HOLDERS, and nothing else, because a next-free number is wrong the moment
+  another lane creates a file and a wrong one here is read and believed.
+- **A READING EXPIRES IN MINUTES, NOT HOURS.** On 2026-09-02 I measured all three ways at 17:40,
+  got 0130, and told three lanes that 0131 was free. The housing lane created
+  `drizzle/0131_a_village_names_its_own_homes.sql` at 21:18 and pushed it. A correct reading went
+  wrong in under four hours with roughly ten lanes live. **Re-measure immediately before you create
+  the file, never at the point you plan it, and treat a number another lane hands you, including
+  one from this file, as needing its own fresh check.** The line further down about this section
+  being stale by four for a week is the slow version of the same failure; this is the fast one, and
+  it is why the figure is gone rather than corrected.
+- **A RESERVED BLOCK IS INVISIBLE TO EVERY SWEEP.** There is no file and no ref to find, so the
+  holder list below is the ONLY way anyone learns a range is spoken for. If you reserve a block,
+  write it here in the same breath.
+- Gaps at 0111 and 0115-0119 are BURNED, never reuse them (the applied-ledger keys on filename and
+  would replay).
 - **Claim a number here before creating the file.**
+- **This line was stale by four for a week.** It said "highest 0122, next free 0123" while
+  `origin/main` carried 0123 through 0126, and two sessions read it and believed it. A number
+  written in a document is a claim about a moment. Measure before you claim: `ls drizzle/`
+  under-reports, so run all three scans (the directory, `git ls-tree` over every remote AND
+  local ref, and every `drizzle/*.sql` on disk across the worktrees), then
+  `node scripts/check-migration-numbers.mjs --next` to confirm.
+- **housing lane, 2026-09-02: holds 0131** for `drizzle/0131_a_village_names_its_own_homes.sql`.
+  Recorded here by the bridge lane rather than by its author, because it was created on a worktree
+  and pushed hours after the surrounding numbers were measured, which is exactly the case this
+  section exists to catch.
+- **governance build, 2026-09-02: RESERVES 0132 to 0139.** A reservation that lives only in one
+  session's head is not a reservation, so it is written down here.
+- **bridge-primitives lane, 2026-09-02: claims 0140, 0141, 0142 and 0143** for the platform
+  primitives under the Amora x Saberra integration. All four are additive only.
+  `0140_external_proposals.sql` adds `external_proposals` (the vendor proposal queue, with a
+  NOT NULL unique `dedupe_key` computed here and never taken from the wire) and
+  `external_proposal_drops` (a content-free counter, so an empty queue can be told apart from
+  a queue where everything was refused). `0141_quest_proposals.sql` adds `quest_proposals`,
+  which deliberately carries NO reward or gate column: a quest cannot exist unpublished
+  (`GET /api/quests` is public and unfiltered and the claim route never reads status), and the
+  five columns a machine must never write are absent rather than guarded. `0142` adds
+  `is_agent` to `org_role_assignments`, with no enum ALTER: an agent is
+  `holder_kind='documented'`, which is already excluded from the settlement job and from the
+  0083 declare door by filters that exist. `0143` adds `origin_module_id` to `health_events`
+  (0052 added `actor_kind` and said revocation-by-integration was the reason; the module id it
+  needed was never there, and `actor_kind` itself was written and read by nothing) plus
+  provenance and `cites` to `org_drafts`.
+- **The same lane, hours later: RENUMBERED from 0127-0130 to 0140-0143, and why that was safe.**
+  I took 0127-0130 when 0126 was the ceiling. While the pull request sat open, main landed the
+  housing lane's 0131, and `check-migration-numbers.mjs` then refuses on a merge: its rule is that
+  a migration added since the base ref must be numbered ABOVE everything that ref already reached,
+  and after the merge the base reached 0131. The gate said "Renumber to 0132 or above" and it was
+  right. 0132-0139 are governance's, so 0140.
+  **Renumbering is normally forbidden and this is the one case where it is correct.** The ban
+  exists because `_migrations_applied` keys on FILENAME: an instance that has run `0127_x.sql`
+  records that name, so a renamed file never runs there while a fresh instance gets it, and the two
+  databases diverge with no error anywhere. That danger begins the moment a file has RUN somewhere.
+  These four had never left this branch and had only ever run in scratch test schemas that are
+  dropped per run. **Renumber before landing; never after.**
+  Verified before claiming: measured all three ways at the time of the renumber, 0131 held by
+  housing on main, 0133/0134/0137 on disk in the governance band, so 0140 was the first free
+  number. Both migration
+  gates green, `check-migration-compat` applied all 113 previous-release migrations against a
+  populated database, seeded rows in all three tables these files name, applied the four, and
+  confirmed a second run applies zero.
 - **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
   new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
   makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the

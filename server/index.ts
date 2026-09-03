@@ -51,6 +51,7 @@ import { register as registerPulseRoutes } from "./routes/pulse";
 import { register as registerPlayersRoutes } from "./routes/players";
 import { register as registerOrgSeatingRoutes } from "./routes/orgSeatings";
 import { register as registerOrgRoutes } from "./routes/org";
+import { register as registerReviewRoutes } from "./routes/review";
 import { register as registerGovernanceWeightRoutes } from "./routes/governanceWeights";
 import { register as registerGovernanceWizardRoutes } from "./routes/governanceWizard";
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
@@ -514,10 +515,7 @@ import {
   type Candidate,
 } from "./lib/map";
 import { ensureInstanceIdentity, instanceIdentity, PLATFORM_VERSION } from "./lib/identity";
-import {
-  listDrafts,
-  visionProgress,
-} from "./lib/orgDrafts";
+import { listDrafts, measureVisionMetrics, visionProgress } from "./lib/orgDrafts";
 import { DECIDES_BY, DOMAINS, HOW_CHOSEN, SHAPES } from "../shared/power";
 import { displayCurrencyProblem } from "../shared/money";
 import { latestRates, refreshDailyRates } from "./lib/fxRates";
@@ -5767,6 +5765,8 @@ async function startServer() {
     const rows = await expiringSeatings(getPool(), lapseContext(), 14);
     let told = 0;
     for (const a of rows) {
+      // Agents excluded, inherited (0142): there is nobody to ask whether they
+      // want to carry on. server/lib/calendarProviders.ts filters its twin.
       if (a.holderKind !== "member" || !a.userId) continue;
       const ended = !!a.lapsed;
       const r = await notify({
@@ -10425,6 +10425,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
                 // so there is a name to show and no profile to link to.
                 name: h.holderKind === "member" && h.userId ? nameOf(h.userId) : h.displayName,
                 kind: h.holderKind,
+                // An agent is a documented holder, so `kind` alone reads the
+                // same for a machine and for a person with no account (0142).
+                isAgent: h.isAgent,
                 focus: h.focus,
                 lapsed: !!h.lapsed,
                 avatar: h.userId ? (avatarByUser.get(h.userId) ?? null) : null,
@@ -11115,6 +11118,8 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
           circleId: string | null;
         }> = [];
         for (const a of assignments) {
+          // Agents excluded, inherited (0142): this builds introductions
+          // between PEOPLE, and the member filter already does it.
           if (a.holderKind !== "member" || !a.userId || a.isExample) continue;
           const role = byId.get(a.orgRoleId);
           if (!role || !role.active || role.isExample) continue;
@@ -26947,7 +26952,16 @@ ${inner}
      * and this is the door their full name would otherwise leave by.
      */
     const publicHolder = (h: OrgAssignment) => ({
-      name: h.holderKind === "member" && h.userId ? nameOf(h.userId) : firstName(h.displayName ?? ""),
+      // AN AGENT PUBLISHES NO NAME (0142). Its display name is a vendor's
+      // product name, and the rule is that nothing about which commercial
+      // services a village uses goes out on a public surface. A generic word
+      // keeps this row consistent with the seat's own holderCount, which does
+      // count the agent, so the two cannot disagree at the anonymous tier.
+      name: h.isAgent
+        ? "An agent"
+        : h.holderKind === "member" && h.userId
+          ? nameOf(h.userId)
+          : firstName(h.displayName ?? ""),
     });
 
     const byRole = new Map<string, OrgAssignment[]>();
@@ -27198,46 +27212,20 @@ ${inner}
     for (const d of drafts) {
       for (const o of d.vision?.objectives ?? []) if (o.source === "measured" && o.metric) wanted.add(o.metric);
     }
-    const measured = new Map<string, number>();
-    if (Array.from(wanted).some((m) => m === "seats_filled" || m.startsWith("seats_filled_in:"))) {
-      const [roles, assignments] = await Promise.all([
-        listOrgRoles(getPool()),
-        listOrgAssignments(getPool(), lapseContext()),
-      ]);
-      const bySeat = new Map<string, OrgAssignment[]>();
-      for (const a of assignments) {
-        if (a.isExample) continue;
-        bySeat.set(a.orgRoleId, [...(bySeat.get(a.orgRoleId) ?? []), a]);
-      }
-      const live = roles.filter((r) => r.active && !r.isExample);
-      const filled = live.filter((r) => seatState(r, bySeat.get(r.id) ?? []) === "filled");
-      measured.set("seats_filled", filled.length);
-      for (const m of Array.from(wanted)) {
-        if (!m.startsWith("seats_filled_in:")) continue;
-        const circleId = m.slice("seats_filled_in:".length);
-        measured.set(m, filled.filter((r) => r.circleId === circleId).length);
-      }
-    }
-    if (Array.from(wanted).some((m) => m.startsWith("members_at_stage:"))) {
-      const [allMembers, consented] = await Promise.all([members.all(), claimsRepo.consentedCounts()]);
-      const real = (allMembers as any[]).filter((u) => !isExampleUser(u));
-      for (const m of Array.from(wanted)) {
-        if (!m.startsWith("members_at_stage:")) continue;
-        const floor = stageIndex(m.slice("members_at_stage:".length));
-        if (floor < 0) continue;
-        measured.set(
-          m,
-          real.filter((u) => stageIndex(computeStage(u, Number(consented.get(u.id) ?? 0))) >= floor).length,
-        );
-      }
-    }
-    if (wanted.has("seasons_completed")) {
-      const s = seasonState();
-      measured.set(
-        "seasons_completed",
-        s.seasons.filter((x: any) => x.endsOn && x.endsOn <= s.today).length,
-      );
-    }
+    // Counting moved to server/lib/orgDrafts.ts, beside VISION_METRICS, which
+    // is the vocabulary it counts. Agent-held seats do not count toward
+    // seats_filled and that file says why (0142).
+    const measured = await measureVisionMetrics(getPool(), wanted, {
+      lapseContext,
+      allMembers: async () => (await members.all()) as any[],
+      consentedCounts: () => claimsRepo.consentedCounts(),
+      isExampleUser,
+      computeStage,
+      seasonsCompleted: () => {
+        const st = seasonState();
+        return st.seasons.filter((x: any) => x.endsOn && x.endsOn <= st.today).length;
+      },
+    });
     const measure = (m: string) => (measured.has(m) ? measured.get(m)! : null);
 
     res.json({
@@ -27550,6 +27538,14 @@ ${inner}
   registerOrgRoutes(app, {
     isAdmin, authedUser, guardCapability, getPool, members, firstName,
     capabilityCtx, lapseContext, currentPatternId, seasonState, notify,
+  });
+
+  // The steward review surface (0140-0141). Mounted here beside the org
+  // routes because it reads the same seat and draft planes and shares their
+  // gates. NOT under /api/admin: a steward who is not an admin is exactly who
+  // this is for, so it is capability-gated all the way down.
+  registerReviewRoutes(app, {
+    isAdmin, authedUser, guardCapability, mayAct, adminActor, getPool, members, questsRepo,
   });
 
   // ── Season patterns (0050) ───────────────────────────────────────────────
