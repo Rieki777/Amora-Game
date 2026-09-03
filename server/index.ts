@@ -221,7 +221,7 @@ import {
   currentMintRuleValue,
   mintRuleLabel,
   rowToProposal,
-  validateChangeSet,
+  priceChangeSet, validateChangeSet,
   type MintRuleValues,
 } from "./lib/mechanics";
 import { buildMechanicsHandoff } from "./lib/hypha-bridge";
@@ -283,6 +283,7 @@ import {
 import {
   dialsForSubject,
   methodForSubject,
+  thresholdSettingsFrom,
   rollProblem,
   thresholdsForSubject,
   LAUNCH_SUBJECT_REF,
@@ -14778,9 +14779,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
       "",
       "## What this vote asks",
       "",
-      `Everyone on the roll votes, and everyone who takes a side agrees: ${dials.quorumPct}% participation and ${dials.unityPct}% agreement. ${electorate.length} people hold a voice today, and this vote is frozen to those ${electorate.length}.`,
+      `Everyone on the roll votes yes: ${dials.quorumPct}% participation and ${dials.unityPct}% agreement. ${electorate.length} people hold a voice today, and this vote is frozen to those ${electorate.length}.`,
       "",
-      "An abstention counts toward participation and takes no side on the agreement.",
+      // The one subject where an abstention is not an answer. The reason is
+      // on the village_launch entry in shared/ballotSubjects.ts.
+      "An abstention is not a yes here, and neither is a vote nobody cast. If somebody takes no side, this vote closes short of participation and the village can ask again.",
       "",
       // How weight was assigned when this froze, in the document itself. The
       // roll and the dials are already frozen here; the rule that turned
@@ -23461,8 +23464,9 @@ ${inner}
          * recorded and waiting", which is the truth about a queued rule.
          *
          * `applied` and `queued` are never both filled on one proposal, because
-         * `validateChangeSet` refuses a set that mixes dials and minting rules.
-         * So "nothing has moved yet" is never said over a dial that did move.
+         * `validateChangeSet` refuses that mix while the apply is not one act.
+         * So "nothing has moved yet" is never said over a dial that did move,
+         * and the lane that makes the apply atomic owns both halves.
          */
         if (applyResult.queued.length > 0) {
           out.held =
@@ -24787,36 +24791,32 @@ ${inner}
     /*
      * WHICH SUBJECT THIS IS, READ OFF THE CHANGE SET (R81, R84).
      *
-     * A change set names game dials or minting rules, never both:
-     * `validateChangeSet` refuses the mix, and the reason is written there.
-     * So one look answers which subject the village is being asked about, and
-     * the subject is what carries the threshold.
+     * A change set names game dials or minting rules, never both while the
+     * apply runs them one after the other: `validateChangeSet` refuses that
+     * mix and the reason is there. The stamped subject is the one priced.
      *
-     * THIS IS THE OPT-IN, AND IT IS THE WHOLE POINT OF THE LINE BELOW. Of the
-     * six routes that open a village-wide ballot, five call `dialsForMethod`
-     * and never see the subject registry at all. A minting vote opened through
-     * one of those would conduct at the ordinary quorum, pass on a quiet week,
-     * and look completely correct doing it, because there is nothing on the
-     * ballot to say which threshold it should have had. `dialsForSubject`
-     * calls `dialsForMethod` itself and then raises it to the subject's floor,
-     * so this route answers for both kinds with one call and cannot forget.
+     * THIS IS THE OPT-IN. Of the six routes that open a village-wide ballot,
+     * five call `dialsForMethod` and never see the subject registry, so a
+     * minting vote opened through one of those would conduct at the ordinary
+     * quorum and look correct doing it. `priceChangeSet` calls
+     * `dialsForSubject`, which calls `dialsForMethod` and then raises it, so
+     * this route answers for every kind with one call and cannot forget.
      *
-     * ── A THIRD KIND OF RULE COSTS FOUR EDITS, NAMED HERE (R89) ────────────
-     *
-     * The end state is a village that votes on everything, so the next lane
-     * that wants a second kind of rule inside a change set needs: a key
-     * namespace of its own beside `shared/mintRuleKeys.ts`, an entry in
-     * `SUBJECT_THRESHOLDS`, a branch in `validateChangeSet`, and an apply in
-     * `applyMechanicsProposal`. This ternary becomes a lookup, and the
-     * one-vocabulary-per-proposal rule in `validateChangeSet` generalises with
-     * it: a proposal names one kind of rule, because the threshold is priced
-     * per subject and a proposal that is two subjects has no honest price.
+     * A THIRD KIND OF RULE COSTS ONE EDIT NOW (R89, and Q9). A change set is
+     * a list of TYPED items (`shared/ballotSubjects.ts`) priced at the
+     * highest floor among them, which is the founder's ruling that a bundle
+     * is as hard to pass as its hardest part. A new kind costs an entry in
+     * `SUBJECT_FOR_ITEM_KIND`, an executor, and its kind in
+     * `EXECUTABLE_ITEM_KINDS`. Nothing on this route changes for it.
      */
-    const subjectType = p.changeSet.some((c: any) => isMintRuleKey(c.key)) ? MINT_RULE : "mechanics";
-    const dials = dialsForSubject(subjectType, method, {
+    const priced = priceChangeSet(p.changeSet, method, {
       unityPct: Math.max(0, numberVar("governance.unity_pct")),
       quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
-    });
+    }, thresholdSettingsFrom((key) => numberVar(key)));
+    if (priced.conflict) return res.status(409).json({ error: priced.conflict });
+    // A subject may fix the method its own numbers are conducted by.
+    const { subjectType, dials } = priced;
+    const conducted: BallotMethod = priced.method ?? method;
     const snapshot = weightModeNow();
     if (snapshot.mode === "token") {
       const problem = weightTokenProblem(snapshot.token ?? "");
@@ -24852,14 +24852,14 @@ ${inner}
       subjectRef: p.id,
       title: p.title,
       docMarkdown: markdown,
-      method,
+      method: conducted,
       weightMode: snapshot.mode,
       weightToken: snapshot.token,
       unityPct: dials.unityPct,
       quorumPct: dials.quorumPct,
       durationDays: Math.max(
         1,
-        numberVar(method === "consent" ? "governance.consent_window_days" : "governance.vote_days"),
+        numberVar(conducted === "consent" ? "governance.consent_window_days" : "governance.vote_days"),
       ),
       openedBy: user.id,
       electorate,

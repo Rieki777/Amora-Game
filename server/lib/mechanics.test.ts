@@ -5,7 +5,28 @@
  * bridge phase will match on-chain events against.
  */
 import { describe, expect, it } from "vitest";
-import { parseHyphaProposalId, proposerStanding, validateChangeSet, proposalMarkdown, displayChangeValue, type MintRuleValues } from "./mechanics";
+import {
+  asChangeItem,
+  parseHyphaProposalId,
+  priceChangeSet,
+  pricingOf,
+  proposerStanding,
+  validateChangeSet,
+  proposalMarkdown,
+  displayChangeValue,
+  CHANGE_SET_CAP,
+  EXECUTABLE_ITEM_KINDS,
+  type ChangeItem,
+  type MintRuleValues,
+} from "./mechanics";
+import {
+  CHANGE_ITEM_KINDS,
+  GOVERNANCE_MODE,
+  MINT_RULE,
+  thresholdSettingsFrom,
+  TIER_SETTING_KEYS,
+} from "../../shared/ballotSubjects";
+import { TIER_FLOORS } from "../../shared/governanceEngine";
 import { mintRuleKey, type MintRuleField } from "../../shared/mintRuleKeys";
 import { VARIABLES_BY_KEY } from "../../shared/gameVariables";
 
@@ -209,7 +230,22 @@ describe("a change set that names a minting rule", () => {
     expect(normalized).toEqual([{ key: key(SEAT_GRATITUDE, "amount"), from: "20", to: "30" }]);
   });
 
-  it("REFUSES A MIXED SET, because two subjects have no one price", async () => {
+  /*
+   * REWRITTEN 2026-09-02. The refusal stands and its REASON has changed.
+   *
+   * It used to be a pricing refusal: "a ballot carries one threshold and a
+   * set that is two subjects has no honest price". `priceChangeSet` gives a
+   * mixed set an honest price now, which is the highest floor among its
+   * elements, so that reason is gone.
+   *
+   * What is left is the apply. A dial holds its new value the moment a
+   * proposal carries; a minting rule is queued and promoted at the next moon.
+   * `applyMechanicsProposal` runs the two one after the other, and the
+   * founder's Q9 ruling is that a proposal applies whole or not at all. So
+   * the mix stays refused until the apply is one act, and the sentence says
+   * that instead of a price.
+   */
+  it("still refuses a set that mixes dials with minting rules, on the reason that is still true", async () => {
     const { problems, normalized } = await validateChangeSet(
       noPool,
       [{ key: "gratitude.base_budget", to: "150" }, { key: key(SEAT_GRATITUDE, "amount"), to: "30" }],
@@ -219,6 +255,9 @@ describe("a change set that names a minting rule", () => {
     );
     expect(problems.length).toBe(1);
     expect(problems[0].problem).toContain("two proposals");
+    expect(problems[0].problem).toContain("one after the other");
+    expect(problems[0].problem).toContain("whole or not at all");
+    expect(problems[0].problem).not.toContain("threshold");
     expect(normalized).toEqual([]);
   });
 
@@ -316,5 +355,207 @@ describe("a change set that names a minting rule", () => {
     expect(md).toContain("takes effect at the next moon");
     // The frozen document must never promise that a carried mint is live.
     expect(md).not.toContain("applied exactly as listed");
+  });
+});
+
+
+/**
+ * THE TYPED ITEMS, AND THE PRICE OF A SET (Q9, 2026-09-02).
+ *
+ * A change set was a `{ key, to }` pair whose kind was read off a prefix. It
+ * is a discriminated union now, the untyped pair still reads into it because
+ * every stored change set on disk is one, and a set is priced at the highest
+ * floor among its elements.
+ */
+describe("typed change items", () => {
+  const village = { unityPct: 80, quorumPct: 20 };
+  const registry = thresholdSettingsFrom(() => 0);
+
+  it("reads an untyped pair into the union, the way the route used to inline", () => {
+    expect(asChangeItem({ key: "gratitude.base_budget", to: "150" })).toEqual({
+      kind: "dial",
+      key: "gratitude.base_budget",
+      to: "150",
+    });
+    expect(asChangeItem({ key: "mint:rule-a:amount", to: "5" })).toEqual({
+      kind: "mint_rule",
+      key: "mint:rule-a:amount",
+      to: "5",
+    });
+  });
+
+  it("leaves a typed item alone, so a caller that knows the kind is believed", () => {
+    const item: ChangeItem = { kind: "mode_switch", to: "token" };
+    expect(asChangeItem(item)).toBe(item);
+  });
+
+  it("prices a dial by the DIAL's own tier, never by the word mechanics", () => {
+    expect(pricingOf({ kind: "dial", key: "gratitude.base_budget", to: "1" })).toEqual({
+      subject: "mechanics",
+      criticality: "routine",
+    });
+    expect(pricingOf({ kind: "dial", key: "governance.quorum_pct", to: "30" })).toEqual({
+      subject: "mechanics",
+      criticality: "structural",
+    });
+    expect(pricingOf({ kind: "dial", key: "governance.weight_mode", to: "token" })).toEqual({
+      subject: "mechanics",
+      criticality: "constitutional",
+    });
+  });
+
+  it("prices a dial nobody has heard of as routine rather than throwing", () => {
+    expect(pricingOf({ kind: "dial", key: "not.a.dial", to: "1" }).criticality).toBe("routine");
+  });
+
+  it("prices a mode switch at the constitutional subject", () => {
+    expect(pricingOf({ kind: "mode_switch", to: "equal" })).toEqual({
+      subject: GOVERNANCE_MODE,
+      criticality: "constitutional",
+    });
+  });
+});
+
+describe("what a whole change set costs", () => {
+  const village = { unityPct: 80, quorumPct: 20 };
+  const registry = thresholdSettingsFrom(() => 0);
+
+  it("leaves an ordinary set of routine dials exactly where it was", () => {
+    const priced = priceChangeSet([{ key: "gratitude.base_budget", to: "150" }], "custom", village, registry);
+    expect(priced.subjectType).toBe("mechanics");
+    expect(priced.criticality).toBe("routine");
+    expect(priced.dials).toEqual(village);
+    expect(priced.conflict).toBeNull();
+  });
+
+  it("raises a structural dial to its tier, which is the whole point of tiers", () => {
+    const priced = priceChangeSet([{ key: "governance.quorum_pct", to: "30" }], "custom", village, registry);
+    expect(priced.criticality).toBe("structural");
+    expect(priced.dials).toEqual(TIER_FLOORS.structural);
+  });
+
+  it("prices a mixed bundle at its hardest element, so nothing rides in cheap", () => {
+    const priced = priceChangeSet(
+      [
+        { key: "gratitude.base_budget", to: "150" },
+        { kind: "mode_switch", to: "token" } as ChangeItem,
+      ],
+      "custom",
+      village,
+      registry,
+    );
+    expect(priced.criticality).toBe("constitutional");
+    expect(priced.dials).toEqual({ unityPct: 97, quorumPct: 97 });
+    expect(priced.subjectType).toBe(GOVERNANCE_MODE);
+  });
+
+  it("stamps the subject the price came from, and mechanics only when it won", () => {
+    const mint = priceChangeSet([{ key: "mint:rule-a:amount", to: "5" }], "custom", village, registry);
+    expect(mint.subjectType).toBe(MINT_RULE);
+    expect(mint.dials.quorumPct).toBe(50);
+  });
+
+  it("never lowers a village that asks for more than every floor in the set", () => {
+    const strict = { unityPct: 100, quorumPct: 100 };
+    const priced = priceChangeSet(
+      [{ key: "gratitude.base_budget", to: "150" }, { kind: "mode_switch", to: "equal" } as ChangeItem],
+      "custom",
+      strict,
+      registry,
+    );
+    expect(priced.dials).toEqual(strict);
+  });
+
+  it("reads the village's own raised tier rather than the shipped floor", () => {
+    const raised = thresholdSettingsFrom((k) => (k === TIER_SETTING_KEYS.structural.quorum ? 88 : 0));
+    const priced = priceChangeSet([{ key: "governance.quorum_pct", to: "30" }], "custom", village, raised);
+    expect(priced.dials.quorumPct).toBe(88);
+  });
+
+  it("prices an empty set as the village's own dials, and says so instead of guessing", () => {
+    const priced = priceChangeSet([], "custom", village, registry);
+    expect(priced.subjectType).toBe("mechanics");
+    expect(priced.dials).toEqual(village);
+    expect(priced.subjects).toEqual([]);
+  });
+});
+
+describe("which kinds this build will take to a vote", () => {
+  const effective = () => "100";
+
+  it("names the two it can carry out, and no more", () => {
+    expect(Array.from(EXECUTABLE_ITEM_KINDS).sort()).toEqual(["dial", "mint_rule"]);
+    for (const kind of CHANGE_ITEM_KINDS) {
+      if (kind === "dial" || kind === "mint_rule") continue;
+      expect(EXECUTABLE_ITEM_KINDS.has(kind), kind).toBe(false);
+    }
+  });
+
+  it("refuses a kind it cannot apply, rather than voting on it and doing nothing", async () => {
+    const { problems, normalized } = await validateChangeSet(
+      noPool,
+      [{ kind: "mode_switch", to: "token" } as ChangeItem],
+      effective,
+      0,
+    );
+    expect(problems.length).toBe(1);
+    expect(problems[0].problem).toContain("cannot yet carry out");
+    expect(problems[0].problem).toContain("mode_switch");
+    expect(normalized).toEqual([]);
+  });
+
+  it("accepts one once the executor exists, which is the one line that lifts it", async () => {
+    const { problems } = await validateChangeSet(
+      noPool,
+      [{ kind: "mode_switch", to: "token" } as ChangeItem],
+      effective,
+      0,
+      undefined,
+      { executableKinds: new Set(["mode_switch"] as const) },
+    );
+    // The kind is allowed through; nothing about it is a dial, so it falls to
+    // the dial branch and is refused by name rather than by kind. The
+    // dispatcher lane's executor lands with its own validation beside it.
+    expect(problems.map((p) => p.problem).join(" ")).not.toContain("cannot yet carry out");
+  });
+});
+
+describe("the door governance.weight_mode travels through", () => {
+  const effective = (key: string) => (key === "governance.weight_mode" ? "equal" : "");
+
+  it("refuses it inside an ordinary dial item, and names the door instead of a wall", async () => {
+    const { problems } = await validateChangeSet(
+      noPool,
+      [{ key: "governance.weight_mode", to: "token" }],
+      effective,
+      0,
+    );
+    expect(problems.length).toBe(1);
+    expect(problems[0].key).toBe("governance.weight_mode");
+    expect(problems[0].problem).toContain("mode switch");
+    expect(problems[0].problem).toContain("constitutional");
+  });
+
+  it("still refuses every other founder-held dial with the plain sentence", async () => {
+    const { problems } = await validateChangeSet(
+      noPool,
+      [{ key: "governance.weight_token", to: "village-voice" }],
+      effective,
+      0,
+    );
+    expect(problems.length).toBe(1);
+    expect(problems[0].problem).toContain("founder-held");
+  });
+});
+
+describe("the cap on how much one proposal may move", () => {
+  const effective = () => "1";
+
+  it("is still twelve, and says so in the sentence it refuses with", async () => {
+    expect(CHANGE_SET_CAP).toBe(12);
+    const thirteen = Array.from({ length: 13 }, (_, i) => ({ key: `made.up.${i}`, to: "2" }));
+    const { problems } = await validateChangeSet(noPool, thirteen, effective, 0);
+    expect(problems.length).toBe(1);
+    expect(problems[0].problem).toContain("at most 12");
   });
 });

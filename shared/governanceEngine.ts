@@ -40,10 +40,36 @@ export function unityPctOf(t: BallotTallies): number {
   return decided > 0 ? (t.yesW / decided) * 100 : 0;
 }
 
+/**
+ * What an abstention is, per subject (R68 tiering applied to the vote itself).
+ *
+ *   "counts_toward_quorum"  the Hypha rule, and the default for every subject:
+ *                           an abstention says "I am here, I take no side", so
+ *                           it helps a ballot reach quorum and is excluded
+ *                           from unity.
+ *   "no_answer"             the abstention is not an answer at all: it counts
+ *                           toward neither quorum nor unity. A subject asks
+ *                           for this when its own sentence is "everybody has
+ *                           to say yes", because on such a subject the kind
+ *                           reading of an abstention is that the question has
+ *                           not been answered yet, and a question not yet
+ *                           answered is a missed quorum rather than a refusal.
+ *
+ * The policy is a per-subject FACT, never a village dial, for the same reason
+ * a method fixes what its own sentence fixes: the sentence "every seat votes
+ * yes" and the sentence "an abstention carries" cannot both be true.
+ */
+export type AbstainPolicy = "counts_toward_quorum" | "no_answer";
+
 /** Quorum as a percentage of the frozen total weight, 0-100. Abstain counts. */
-export function quorumPctOf(t: BallotTallies, totalWeight: number): number {
+export function quorumPctOf(
+  t: BallotTallies,
+  totalWeight: number,
+  policy: AbstainPolicy = "counts_toward_quorum",
+): number {
   if (!(totalWeight > 0)) return 0;
-  return ((t.yesW + t.noW + t.abstainW) / totalWeight) * 100;
+  const answered = t.yesW + t.noW + (policy === "no_answer" ? 0 : t.abstainW);
+  return (answered / totalWeight) * 100;
 }
 
 export interface EvaluateInput {
@@ -56,6 +82,42 @@ export interface EvaluateInput {
   tallies: BallotTallies;
   /** Consent mode: objections still standing `open`. Ignored elsewhere. */
   openObjections?: number;
+  /** What an abstention is on this subject. Absent = the Hypha rule. */
+  abstainPolicy?: AbstainPolicy;
+  /**
+   * How many people must vote yes, as HEADS rather than as weight. `"all"`
+   * means every seat on the frozen roll. Absent means the subject asks
+   * nothing of heads and the weighted arithmetic is the whole rule.
+   */
+  minYesHeads?: number | "all";
+  /** The head counts, required whenever `minYesHeads` is set. */
+  heads?: HeadCounts;
+}
+
+/** Heads on a frozen roll: how many answered which way, and how many seats. */
+export interface HeadCounts {
+  yesHeads: number;
+  noHeads: number;
+  abstainHeads: number;
+  /** `ballots.electorate_count`: the seats frozen at open. */
+  electorateCount: number;
+}
+
+/**
+ * How many yes HEADS this input needs, or null when it asks for none.
+ *
+ * Exported because the surface that previews a threshold has to say the same
+ * number the close will check, and a second copy of this arithmetic on the
+ * page is how the page starts promising something the engine does not do.
+ */
+export function requiredYesHeads(
+  minYesHeads: number | "all" | undefined,
+  electorateCount: number | undefined,
+): number | null {
+  if (minYesHeads === undefined) return null;
+  if (minYesHeads === "all") return Math.max(0, Math.trunc(electorateCount ?? 0));
+  const n = Math.trunc(minYesHeads);
+  return n > 0 ? n : null;
 }
 
 /**
@@ -72,8 +134,27 @@ export interface EvaluateInput {
  *              objections remain open (S3.0: only objections block).
  */
 export function evaluateBallot(input: EvaluateInput): BallotOutcome {
-  const quorum = quorumPctOf(input.tallies, input.totalWeight);
+  const abstain = input.abstainPolicy ?? "counts_toward_quorum";
+  const quorum = quorumPctOf(input.tallies, input.totalWeight, abstain);
   if (quorum < input.quorumPct) return "no_quorum";
+  /*
+   * THE HEAD FLOOR, CHECKED IN THE ENGINE AND NOWHERE ELSE.
+   *
+   * Weight answers "how much of the village", heads answer "how many people",
+   * and the founder's Birthing rule is written in people: at least three
+   * different parties, and every one of them saying yes. A rule about heads
+   * that lived in the route would be a second place a ballot can pass or
+   * fail, and two places deciding one thing disagree eventually.
+   *
+   * A ballot that asks for heads and is handed none FAILS CLOSED rather than
+   * quietly skipping the rule, because the alternative is a subject whose
+   * stated rule is silently not conducted by the only function that decides.
+   */
+  const needYes = requiredYesHeads(input.minYesHeads, input.heads?.electorateCount);
+  if (needYes !== null) {
+    if (!input.heads) return "failed";
+    if (input.heads.yesHeads < needYes) return "failed";
+  }
   if (input.method === "consent") {
     return (input.openObjections ?? 0) === 0 ? "passed" : "failed";
   }
@@ -166,3 +247,97 @@ export const BALLOT_METHODS: readonly BallotMethod[] = ["majority", "custom", "c
 
 export const VOTE_CHOICES = ["yes", "no", "abstain"] as const;
 export type VoteChoice = (typeof VOTE_CHOICES)[number];
+
+/**
+ * ── CRITICALITY: HOW HARD A CHANGE IS TO MAKE, BY WHAT IT CHANGES ───────────
+ *
+ * The founder's ruling of 2026-09-02 (Q11): nothing is un-votable, and the
+ * more critical a thing is the more of the village has to show up and agree
+ * before it moves. So every setting carries a tier, and the tier names a pair
+ * of dials the change cannot be decided below.
+ *
+ * Three tiers, and the names say what they mean rather than how they feel:
+ *
+ *   routine         a number the village tunes while it plays. The floor is
+ *                   nothing, so the village's own unity and quorum decide, as
+ *                   they always have.
+ *   structural      it changes how the village decides or who belongs. 50 is
+ *                   this engine's own constant, already the quorum a minting
+ *                   rule asks for; 80 is the unity this platform inherited
+ *                   from Hypha and ships as the default.
+ *   constitutional  it changes the rules for changing the rules. 97 and 97
+ *                   are the founder's own numbers, and his stated reason for
+ *                   stopping at 97 is `stalemateWarning` below.
+ *
+ * These are FLOORS on the platform, exactly as `SUBJECT_THRESHOLDS` is: a
+ * village raises them by setting its own tier dials higher and can never
+ * lower them, because a village able to lower the bar for changing the bar
+ * has no bar.
+ */
+export type Criticality = "routine" | "structural" | "constitutional";
+
+/** Every tier, least demanding first. The order is the ladder. */
+export const CRITICALITIES: readonly Criticality[] = ["routine", "structural", "constitutional"];
+
+export const TIER_FLOORS: Readonly<Record<Criticality, MethodDials>> = {
+  routine: { unityPct: 0, quorumPct: 0 },
+  structural: { unityPct: 80, quorumPct: 50 },
+  constitutional: { unityPct: 97, quorumPct: 97 },
+};
+
+/**
+ * The highest tier in a list, or `routine` for an empty one.
+ *
+ * A change set is priced by its most critical element (Q9), so this is the
+ * one place that answers "which of these is the hardest", and the ladder it
+ * reads is `CRITICALITIES`.
+ */
+export function highestCriticality(tiers: readonly Criticality[]): Criticality {
+  let best: Criticality = "routine";
+  for (const t of tiers) {
+    if (CRITICALITIES.indexOf(t) > CRITICALITIES.indexOf(best)) best = t;
+  }
+  return best;
+}
+
+/** The pair a floor never lowers: the higher of each dial, taken separately. */
+export function raiseDials(base: MethodDials, floor: MethodDials): MethodDials {
+  return {
+    unityPct: Math.max(base.unityPct, floor.unityPct),
+    quorumPct: Math.max(base.quorumPct, floor.quorumPct),
+  };
+}
+
+/**
+ * THE RECOMMENDED CEILING, AND WHY IT IS 97 AND NOT 100.
+ *
+ * The founder's words, 2026-09-02: a village may set its dials above 97, and
+ * the Game warns it when it does, because the closer a threshold gets to 100
+ * the likelier a stalemate becomes. One player dying suddenly or drifting
+ * away can freeze a Game that a massive majority wants to continue, and the
+ * frozen roll makes that literal: a member who leaves after a ballot opens
+ * stays on the roll and cannot vote, so a 100% quorum is unreachable until
+ * the vote is asked again.
+ *
+ * It is a WARNING and never a refusal. The village decides; the Game says
+ * what it has seen.
+ */
+export const RECOMMENDED_CEILING_PCT = 97;
+
+/**
+ * The sentence shown beside a threshold set above the recommended ceiling, or
+ * null when the number is at or below it.
+ *
+ * One sentence, held here, because the admin control that edits the dial and
+ * the page that explains a subject both say it, and two copies of a warning
+ * disagree about what it warns of.
+ */
+export function stalemateWarning(pct: number): string | null {
+  if (!(Number(pct) > RECOMMENDED_CEILING_PCT)) return null;
+  return (
+    `Above ${RECOMMENDED_CEILING_PCT} the risk is a stalemate. ` +
+    "The closer a threshold gets to 100, the more likely it is that one player who dies, leaves or simply stops playing " +
+    "freezes a Game the rest of the village wants to continue, because the roll freezes when a vote opens and a member " +
+    `who has gone still counts as a seat that has not answered. ${RECOMMENDED_CEILING_PCT} is the highest number this platform recommends.`
+  );
+}

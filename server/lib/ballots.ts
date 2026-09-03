@@ -37,8 +37,10 @@ import {
   type BallotMethod,
   type BallotOutcome,
   type BallotTallies,
+  type HeadCounts,
   type VoteChoice,
 } from "../../shared/governanceEngine";
+import { evaluationRulesFor } from "../../shared/ballotSubjects";
 import type { WeightMode } from "./governanceWeights";
 
 export interface BallotRow {
@@ -554,6 +556,18 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
   const expired = Date.parse(ballot.closesAt) <= Date.now();
   const tallies = await talliesFor(pool, ballot.id);
   const openObjections = ballot.method === "consent" ? await standingObjectionCount(pool, ballot.id) : 0;
+  /*
+   * WHAT THIS SUBJECT ASKS BEYOND THE DIALS.
+   *
+   * The dials were frozen at open and the snapshot law protects them. These
+   * two are not dials: they are what the SUBJECT means by an abstention and
+   * by agreement, and they are read from the registry rather than the row
+   * because they are the platform's reading of the founder's sentence, not a
+   * number the village set. The Birthing asks every seat for a yes; every
+   * other subject keeps the Hypha rule and this changes nothing about it.
+   */
+  const subjectRules = evaluationRulesFor(ballot.subjectType);
+  const heads = subjectRules.minYesHeads === undefined ? undefined : await headsFor(pool, ballot);
   if (!expired && !input.closerMayCloseEarly) {
     return {
       ok: false,
@@ -567,6 +581,9 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
     totalWeight: ballot.totalWeight,
     tallies,
     openObjections,
+    abstainPolicy: subjectRules.abstainPolicy,
+    minYesHeads: subjectRules.minYesHeads,
+    heads,
   });
   if (!expired && ballot.method === "consent" && outcome === "passed") {
     // Silence only means consent once the whole window has had its say.
@@ -588,8 +605,44 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
     ballot: closed!,
     tallies,
     unity: unityPctOf(tallies),
-    quorum: quorumPctOf(tallies, ballot.totalWeight),
+    // The same abstain policy the outcome was decided under, so the number
+    // the close reports and the number that decided are one number.
+    quorum: quorumPctOf(tallies, ballot.totalWeight, subjectRules.abstainPolicy),
   };
+}
+
+/**
+ * The same question as `talliesFor`, counted in PEOPLE.
+ *
+ * Weight answers "how much of the village" and heads answer "how many of us",
+ * and the founder's Birthing rule is written in heads: at least three
+ * different parties, every one of them saying yes. `evaluateBallot` is the
+ * one place that decides an outcome, so it is handed both.
+ *
+ * `electorate_count` is already frozen on the ballot row at open, so the
+ * denominator needs no query and cannot drift from the roll the vote was
+ * asked of.
+ */
+export async function headsFor(pool: Pool, ballot: BallotRow): Promise<HeadCounts> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT v.choice, COUNT(*) AS n FROM ballot_votes v " +
+      "JOIN ballot_electorate e ON e.ballot_id = v.ballot_id AND e.user_id = v.user_id " +
+      "WHERE v.ballot_id = ? GROUP BY v.choice",
+    [ballot.id],
+  );
+  const heads: HeadCounts = {
+    yesHeads: 0,
+    noHeads: 0,
+    abstainHeads: 0,
+    electorateCount: Number(ballot.electorateCount) || 0,
+  };
+  for (const r of rows) {
+    const n = Number(r.n) || 0;
+    if (r.choice === "yes") heads.yesHeads = n;
+    else if (r.choice === "no") heads.noHeads = n;
+    else if (r.choice === "abstain") heads.abstainHeads = n;
+  }
+  return heads;
 }
 
 /** How many votes stand on a ballot. Cheap, and it decides who may withdraw. */
