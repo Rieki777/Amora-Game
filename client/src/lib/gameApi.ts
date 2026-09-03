@@ -1,5 +1,11 @@
 // Platform game API client. All project-specific naming comes from /api/game/config.
 import { useEffect, useState } from "react";
+// Both type-only, so neither module reaches the bundle. The server serves
+// these two unions verbatim, and re-typing their members here would be the
+// hand-kept mirror the house rules warn about: a branch added in `shared/`
+// and missed here renders nothing, with no error anywhere.
+import type { StageRule } from "@shared/gameConfig";
+import type { Capability } from "@shared/capabilities";
 
 /**
  * The ONE localStorage key for the session token. Exported so nothing else
@@ -77,7 +83,7 @@ export interface PublicGameConfig {
   };
   images: BrandImages;
   paths: { id: string; label: string; role: string; route: string }[];
-  stages: { id: string; name: string; description: string }[];
+  stages: GameStagePublic[];
   season: SeasonState;
 }
 
@@ -301,6 +307,14 @@ export interface GameStagePublic {
   id: string;
   name: string;
   description: string;
+  /**
+   * How this rung is earned, AS PLAYED. The server overlays the quests
+   * threshold from the variables registry before serving, so `min` is the
+   * number the gate compares against on this village and not the platform
+   * default. A rung with no numeric side ("granted", "membership") carries
+   * only its type.
+   */
+  rule: StageRule;
 }
 
 export interface GameMe {
@@ -312,6 +326,12 @@ export interface GameMe {
   journeys: Record<string, string[]>;
   membership: boolean;
   trainingComplete: boolean;
+  /**
+   * Consented quests to this member's name, which is what the one numeric
+   * rung counts. Read it against `stages[n].rule` to say how far along a
+   * quests rung somebody is; the two booleans above answer the other rungs.
+   */
+  consentedQuests: number;
   nextAction: { id: string; label: string; href: string };
   /**
    * The most recent rung this member crossed, and the capability keys it
@@ -319,6 +339,30 @@ export interface GameMe {
    * who has never advanced. The dashboard celebrates it once and never again.
    */
   lastAdvance: { fromStage: string; toStage: string; unlocked: string[]; at: string } | null;
+}
+
+/**
+ * ONE ROW OF THE CAPABILITY MAP, as `/api/game/progression` serves it.
+ *
+ * The payload used to carry only what a member HOLDS, which is a wall of
+ * chips with no direction in it. Every key this village runs is here now,
+ * closed ones included, each with the rung that opens it, so a profile can
+ * show where climbing leads. `key` is the shared union, so a capability
+ * added there and missed here is a type error and never a silent gap.
+ *
+ * `opens` is the EFFECTIVE rung, already resolved against this village's own
+ * unlock variables. `{ via: "appointment" }` means nobody climbs to it: a
+ * role, a badge or an admin grants it, and no amount of progress will.
+ *
+ * Keys of modules this village has switched off are absent entirely, because
+ * their routes stop mounting and a rung promising to open one would name a
+ * door with nothing behind it.
+ */
+export interface ProgressionCapability {
+  key: Capability;
+  label: string;
+  held: boolean;
+  opens: { via: "stage"; stage: string } | { via: "appointment" };
 }
 
 export interface QuestClaim {
