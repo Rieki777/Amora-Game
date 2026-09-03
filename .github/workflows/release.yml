@@ -169,6 +169,131 @@ jobs:
           fi
 
   # -------------------------------------------------------------------------
+  # Can a village go back?
+  #
+  # A village upgrades by starting a new image, and the image applies every
+  # pending migration AT BOOT, fail loud, with no approval gate. So the only
+  # lever anybody has when a release goes wrong is to put the PREVIOUS image
+  # back, and that lever only works if the previous release can still read and
+  # write the schema this release produced. scripts/check-migration-compat.mjs
+  # is what enforces that (expand, never contract); its header is the best
+  # explanation of the contract in this repository.
+  #
+  # WHY THIS IS NOT A COPY OF ci's GATE, which this file otherwise refuses to
+  # carry. ci runs the same guard on every push and compares each commit with
+  # THE COMMIT BEFORE IT. That is the right comparison for catching a bad
+  # migration as it lands. It is not the comparison a village makes: a village
+  # moves from one RELEASE to the next, across every commit in between.
+  #
+  # Those are different spans, and the gap between them is not theoretical.
+  # GitHub runs a workflow once per PUSH, not once per commit, so a push of
+  # twenty commits is checked at the twentieth and the other nineteen are
+  # checked by nothing. Measured 2026-09-02 over the 174 commits between v1.1.0
+  # and main: of 25 sampled with the same query the plan job uses, 3 had a
+  # green ci run, and ALL FIVE migrations added since 1.1.0 landed in commits
+  # with none. On that span the rollback promise had never once been tested.
+  #
+  # So this asks the one question that only exists at a release boundary,
+  # against a base ref that only exists at a release boundary. There is nowhere
+  # else it could be asked. docs/RELEASING.md has the by-hand form, which is
+  # worth running before tagging so a failure costs a command and not a run.
+  # -------------------------------------------------------------------------
+  rollback:
+    needs: plan
+    # Tag pushes only. :edge is not a release boundary and is explicitly not
+    # for villages, so there is no rollback promise attached to it.
+    if: needs.plan.outputs.publish == 'true' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      # Phase 3 of the guard replays the previous release's migrations onto a
+      # scratch schema, seeds representative rows, and only then applies the
+      # new ones. Same tmpfs trick ci.yml uses, for the same reason: this is
+      # almost all DDL and a scratch database has nothing to survive a crash
+      # for.
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: ci-rollback
+        ports:
+          - 3306:3306
+        options: >-
+          --tmpfs /var/lib/mysql:rw,size=4g
+          --health-cmd "mysqladmin ping -h localhost -pci-rollback"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      # New migrations plus no TEST_DATABASE_URL exits 1 rather than skipping,
+      # which is the polarity that makes this trustworthy.
+      TEST_DATABASE_URL: mysql://root:ci-rollback@127.0.0.1:3306/mysql
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          # The guard answers "what did the previous release have?" from git
+          # alone, and needs every tag and every commit in between to do it.
+          # The default fetch-depth of 1 cannot resolve a tag at all.
+          fetch-depth: 0
+
+      - name: Which release does this one have to be reversible to
+        id: prev
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          # Described from the PARENT, so the tag being cut right now cannot
+          # answer its own question. Prereleases are excluded because a village
+          # on :stable never ran one, so it is not the version a rollback from
+          # here would land on.
+          prev=$(git describe --tags --abbrev=0 \
+                   --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' \
+                   "${SHA}^" 2>/dev/null || true)
+          if [ -z "$prev" ]; then
+            echo "::notice::No earlier release tag is an ancestor of this commit, so there is no previous release to be reversible to. Passing."
+          else
+            echo "previous release: ${prev}"
+          fi
+          echo "tag=${prev}" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.prev.outputs.tag != ''
+
+      - uses: actions/setup-node@v4
+        if: steps.prev.outputs.tag != ''
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        if: steps.prev.outputs.tag != ''
+        run: pnpm install --frozen-lockfile
+
+      - name: Expand, never contract, across the whole release span
+        if: steps.prev.outputs.tag != ''
+        env:
+          PREV: ${{ steps.prev.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "Asking whether ${PREV} can still run over the schema this release produces."
+          node scripts/check-migration-compat.mjs --base "${PREV}"
+
+      - name: Say what was checked
+        if: always()
+        env:
+          PREV: ${{ steps.prev.outputs.tag }}
+        run: |
+          {
+            echo "### Rollback"
+            echo
+            if [ -z "${PREV:-}" ]; then
+              echo "No previous release tag. Nothing to be reversible to."
+            else
+              echo "A village on \`${PREV}\` can go back to it after taking this release: **${{ job.status }}**."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # -------------------------------------------------------------------------
   # Build, prove it boots, and only then push.
   #
   # One job on purpose. The obvious shape is build-and-push, then smoke the
@@ -180,8 +305,15 @@ jobs:
   # uploads rather than rebuilds.
   # -------------------------------------------------------------------------
   image:
-    needs: plan
-    if: needs.plan.outputs.publish == 'true'
+    needs: [plan, rollback]
+    # `!cancelled()` is load-bearing and is not decoration. A job whose `needs`
+    # were SKIPPED is skipped too unless its own `if` calls a status function,
+    # and `rollback` is skipped on the :edge path. Without it, wiring rollback
+    # in here would have silently stopped edge publishing altogether.
+    #
+    # `needs.plan.result == 'success'` is then required explicitly, because
+    # `!cancelled()` also stops a failed `plan` from blocking this job.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.publish == 'true' && needs.rollback.result != 'failure' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
