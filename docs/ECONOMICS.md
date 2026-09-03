@@ -533,6 +533,28 @@ charge; convert only the post and it reports the same drift from the other side.
 `SUM(amount)` over the whole table added tokens at different scales together, so
 it groups by token and divides by each token's own.
 
+**Stays answered it on the WRITE, and the answer is worth copying.** Four of the
+29 are stay credits, and a fix at each of the four would have repaired the debit
+and left the grace floor, the "nights left" figure and the refund still mixing
+units. So a posted token price converts once, where the number an admin typed
+enters the database (`priceToStored` in `server/lib/stays.ts`, called by the
+prices route), and `accommodation_prices.amount_minor` finally means for a token
+what it always meant for usd. `priceFor`, `stays.rate_snapshot_credits`, the
+nightly burn, the grace floor and `nightsRemaining` then all read one unit for
+free. `mintStayCredits` keeps the MINOR contract `postTransfer` states and
+converts nothing, because two of its four callers already hand it a minor number
+off that same price, and a conversion inside the wrapper would multiply those a
+second time on a token that is sold for money.
+**`stay_purchases.credits_granted` is MINOR**, the same unit as the ledger leg it
+produced: the settle mint, the admin refund and the chargeback clawback all read
+that one column and post it unconverted, and two of them share an idempotency key
+that no retry can correct, so the only safe contract is the one where none of the
+three converts. The figures a guest reads (the notification, the receipt field,
+the catalog price) divide back down at the edge. The flip migration therefore
+has to widen and backfill `accommodation_prices.amount_minor`,
+`stays.rate_snapshot_credits` and `stay_purchases.credits_granted`, all three
+still `int` from `0021`.
+
 **One token is already inconsistent with itself, at zero decimals, today.** Village
 Voice has 3 decimals now, and the two ways it can be issued disagree:
 
