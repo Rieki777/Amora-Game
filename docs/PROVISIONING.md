@@ -375,12 +375,12 @@ curl -s https://<your-domain>/.well-known/village.json | jq '.supports, .publicK
 This walkthrough provisions a live instance; it does not cover running the
 automated test suite. If you or a technical helper does run `pnpm test`
 locally, know this first: without `TEST_DATABASE_URL` set in a local `.env`,
-roughly a third of the suite (every database-backed test file) skips itself
-and the run still exits 0, with nothing on screen calling that out except
-the summary line's own skip count. A green `pnpm test` with that variable
-unset is not a passing suite; it is an unrun third of one. Set it before
-trusting any local test result, and read the actual pass and skip counts,
-not just the exit code.
+roughly a third of the suite (every database-backed test file, 91 of them)
+skips itself. The run now FAILS rather than exiting 0, and prints what it
+skipped and why, because a green result on an unrun third is not something
+anyone can tell apart from a real one. If you want the smaller suite anyway,
+run `ALLOW_NO_TEST_DB=1 pnpm test` and read the pass and skip counts as the
+result.
 
 ## Which version you are running, and how to hold still
 
