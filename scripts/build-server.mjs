@@ -87,9 +87,13 @@ const result = await build({
     // JSON.stringify, not a bare quote: an empty SHA must compile to a
     // valid empty string literal, and the server treats "" as "dev".
     __BUILD_SHA__: JSON.stringify(sha),
-    // Same contract as the SHA: an empty value compiles to a valid empty
-    // string literal and the server treats "" as "dev".
-    __BUILD_DATE__: JSON.stringify(commitDate),
+    // The marker is composed HERE, whole, rather than half here and half in
+    // server/index.ts. That split is what let the date go stale while the SHA
+    // stayed true. It also keeps the monolith ratchet happy: index.ts gets to
+    // shrink instead of carrying a second constant and its explanation.
+    __BUILD_MARKER__: JSON.stringify(
+      commitDate && sha ? commitDate + "-" + sha : (commitDate || sha || ""),
+    ),
   },
 });
 

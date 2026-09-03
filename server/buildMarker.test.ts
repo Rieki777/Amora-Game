@@ -17,8 +17,9 @@ import path from "node:path";
  * upstream as the identity of the deployment a bug came from. A marker that
  * lies makes every one of those lie in the same direction.
  *
- * So this test reads the source and refuses a hardcoded date, because the
- * failure was never in the value. It was in the value being writable by hand.
+ * So the marker is now composed WHOLE in scripts/build-server.mjs and injected.
+ * Splitting it across two files is what allowed one half to drift from the
+ * other, and this test reads the source to keep it undivided.
  */
 
 const ROOT = path.resolve(__dirname, "..");
@@ -30,24 +31,28 @@ describe("build marker", () => {
   const builder = fs.readFileSync(BUILDER, "utf8");
 
   it("reads the real files", () => {
-    // Control. Two empty strings contain no hardcoded date either.
+    // Control. Two empty strings contain no hardcoded date either, and would
+    // pass every assertion below by being empty rather than by being right.
     expect(server.length).toBeGreaterThan(1000);
     expect(builder.length).toBeGreaterThan(500);
   });
 
-  it("does not assign a hand-written date to BUILD_LABEL", () => {
-    const line = server.split("\n").find((l) => /^const BUILD_LABEL\s*=/.test(l.trim()));
-    expect(line, "BUILD_LABEL assignment not found").toBeTruthy();
-    expect(line, `BUILD_LABEL carries a literal date: ${line}`).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  it("assigns the marker no hand-written date", () => {
+    const line = server.split("\n").find((l) => /^const BUILD_MARKER\s*=/.test(l.trim()));
+    expect(line, "BUILD_MARKER assignment not found").toBeTruthy();
+    expect(line, `BUILD_MARKER carries a literal date: ${line}`).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 
-  it("derives both halves of the marker from the build", () => {
-    expect(server).toContain("__BUILD_DATE__");
-    expect(server).toContain("__BUILD_SHA__");
-    // And the builder must actually supply the date, or the server falls back
-    // to "dev" forever and nobody notices, which is the same shape of quiet
-    // wrongness this replaced.
-    expect(builder).toContain("__BUILD_DATE__");
-    expect(builder).toMatch(/format=%cs|committer date/i);
+  it("composes the marker in the builder rather than the server", () => {
+    // Half here and half there is exactly what let the date drift from the SHA.
+    expect(server).toContain("__BUILD_MARKER__");
+    expect(server, "BUILD_LABEL is back, and with it the split that caused this").not.toContain("BUILD_LABEL");
+  });
+
+  it("has the builder actually supply it, from the commit", () => {
+    // Without this the server falls back to "dev" forever and nobody notices,
+    // which is the same quiet wrongness this replaced, wearing a new coat.
+    expect(builder).toContain("__BUILD_MARKER__");
+    expect(builder, "the date must come from the commit, not the clock").toContain("format=%cs");
   });
 });
