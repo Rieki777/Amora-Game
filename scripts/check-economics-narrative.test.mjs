@@ -46,9 +46,21 @@ import {
   DOC,
   HUNK_FILES,
   MIGRATION_NAME_HINT,
-  SURFACE_FILES,
+  POSTING_CALLS,
+  POSTING_CALL_RE,
+  SURFACE_ALWAYS,
   SURFACE_MIGRATIONS,
+  derivedPostingFiles,
+  surfaceFiles,
 } from "./check-economics-narrative.mjs";
+
+// The surface is derived from the working tree, so the fixtures need the real
+// answer for this repository before they can stand anything up.
+const REAL_SURFACE = surfaceFiles(REPO_ROOT_FOR_SURFACE()).files;
+function REPO_ROOT_FOR_SURFACE() {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+}
+const SURFACE_FILES = REAL_SURFACE;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const GUARD = path.join(HERE, "check-economics-narrative.mjs");
@@ -76,6 +88,79 @@ check("every whole-file surface entry exists in this repository", () => {
         "list in check-economics-narrative.mjs) or it went (remove it deliberately).",
     );
   }
+});
+
+check("THE RULE: every file that posts is on the surface, derived not typed", () => {
+  // The failure this replaces: a typed list of nine that omitted five files
+  // which all post to the ledger, so four sweep lanes satisfied the guard
+  // without it looking at their change.
+  const derived = derivedPostingFiles(REPO_ROOT_FOR_SURFACE());
+  assert.ok(!derived.error, `the surface must be derivable: ${derived.error}`);
+  for (const rel of [
+    "server/lib/eventSeats.ts",
+    "server/lib/library.ts",
+    "server/lib/exchange.ts",
+    "server/lib/stays.ts",
+    "server/routes/stays.ts",
+  ]) {
+    assert.ok(derived.files.includes(rel), `${rel} posts to the ledger and must be derived onto the surface`);
+    assert.ok(SURFACE_FILES.includes(rel), `${rel} must be on the whole-file surface`);
+  }
+});
+
+check("THE PIN: no file calls a posting function without being on the surface", () => {
+  // The ratchet. If this ever goes red, a file that moves value is invisible
+  // to the guard, which is precisely the state this replaced. It is derived
+  // from the same rule the guard uses, re-walked here independently of the
+  // guard's own cache, so a broken derivation cannot pass by agreeing with
+  // itself.
+  const root = REPO_ROOT_FOR_SURFACE();
+  const callers = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(abs); continue; }
+      if (!e.name.endsWith(".ts") || e.name.includes(".test.") || e.name.includes(".spec.")) continue;
+      if (POSTING_CALL_RE.test(fs.readFileSync(abs, "utf8"))) {
+        callers.push(path.relative(root, abs).split(path.sep).join("/"));
+      }
+    }
+  };
+  walk(path.join(root, "server"));
+  assert.ok(callers.length >= 11, `expected at least 11 posting files, found ${callers.length}`);
+  const covered = new Set([...SURFACE_FILES, ...Object.keys(HUNK_FILES)]);
+  const missing = callers.filter((f) => !covered.has(f));
+  assert.deepStrictEqual(
+    missing,
+    [],
+    "these files call " + POSTING_CALLS.join("/") + " and are on neither the whole-file surface nor " +
+      "the hunk-matched list, so a change to them would not be seen",
+  );
+});
+
+check("THE RULE does not mistake a method of the same name for a posting", () => {
+  // `rows.reverse()` is not the ledger's reverse(). Without the lookbehind,
+  // every file in the repository that reverses an array would be an economy
+  // file and the guard would fire on all of them.
+  assert.ok(!POSTING_CALL_RE.test("const out = rows.reverse();"));
+  assert.ok(!POSTING_CALL_RE.test("log.filter((g) => g.ok).reverse()"));
+  assert.ok(!POSTING_CALL_RE.test("await repo.mint(x)"));
+  // And it does find the real calls, in the shapes they are written in.
+  assert.ok(POSTING_CALL_RE.test("await postTransfer(pool, {"));
+  assert.ok(POSTING_CALL_RE.test("const r = await mint(pool, {"));
+  assert.ok(POSTING_CALL_RE.test("return reverse(pool, key, {"));
+  assert.ok(POSTING_CALL_RE.test("await postTransferPair(pool, ["));
+});
+
+check("server/index.ts posts, and is STILL matched by hunk rather than whole", () => {
+  // It would be derived, and putting it on the whole-file surface would
+  // silently restore the matching that was deliberately rejected: it is the
+  // most-edited file in the repository and almost none of those edits are
+  // economic.
+  const derived = derivedPostingFiles(REPO_ROOT_FOR_SURFACE());
+  assert.ok(derived.files.includes("server/index.ts"), "it does post");
+  assert.ok(!SURFACE_FILES.includes("server/index.ts"), "and must not be on the whole-file surface");
+  assert.ok(HUNK_FILES["server/index.ts"], "it must stay hunk-matched");
 });
 
 check("every named token registry migration exists", () => {
@@ -141,12 +226,29 @@ function newRepo(label) {
   fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
   fs.copyFileSync(GUARD, path.join(root, "scripts", "check-economics-narrative.mjs"));
 
+  /*
+   * A posting file KEEPS ITS POSTING when a case rewrites it.
+   *
+   * The surface is derived from the calls, so a case that replaced
+   * server/lib/economy.ts with `export const x = 2` would take it off the
+   * fixture's surface entirely and then assert that changing it did not fire.
+   * The case would pass, for exactly the reason it was written to rule out.
+   * Rewriting a posting file therefore leaves the posting in place, which is
+   * also what a real change to one of these files does.
+   */
+  const POSTS = (rel) => SURFACE_FILES.includes(rel) && !SURFACE_ALWAYS.includes(rel);
   const write = (rel, body) => {
     const p = path.join(root, rel);
     fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, body);
+    fs.writeFileSync(p, POSTS(rel) && !POSTING_CALL_RE.test(body) ? `${body}await postTransfer(pool, {});\n` : body);
   };
   write(DOC, "# the document\n\nthe prose that has to be kept true\n");
+  /*
+   * A posting file's stub has to CONTAIN A POSTING, because the surface is
+   * derived from the calls rather than from a typed list. A stub that said
+   * only `export const x = 1` would not be on the fixture's surface at all,
+   * and every case below would pass for the wrong reason.
+   */
   for (const rel of SURFACE_FILES) write(rel, `// a stand-in for ${rel}\nexport const x = 1;\n`);
   write("server/index.ts", "// a stand-in\nconst a = 1;\nconst b = 2;\n");
   write("README.md", "not on the surface\n");

@@ -260,8 +260,8 @@ check("F7 READER: .concat, an env ternary, and .filter are all REFUSED", () => {
     assert.throws(
       () => frozenStringSet(setFixture(label, init), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES"),
       (err) => {
-        assert.match(String(err.message), /accepts exactly one shape/);
-        assert.match(String(err.message), /it found:/, "the refusal must print the shape it saw");
+        assert.match(String(err.message), /accepts exactly two shapes/);
+        assert.match(String(err.message), /It found:/, "the refusal must print the shape it saw");
         return true;
       },
       `${label} must be refused`,
@@ -274,19 +274,34 @@ check("F7 READER: a spread, a non-literal element, a second argument, and an emp
     spread: 'new Set([...BASE, "spend"])',
     identifier: 'new Set(["a", SOME_CONST])',
     notaset: '["a", "b"]',
-    frozen: 'Object.freeze(new Set(["a", "b"]))',
+    objectfreeze: 'Object.freeze(new Set(["a", "b"]))',
+    frozenConcat: 'frozenSet(["a", "b"].concat(["spend"]))',
+    frozenSpread: "frozenSet([...BASE])",
     empty: "new Set([])",
+    frozenEmpty: "frozenSet([])",
   };
   for (const [label, init] of Object.entries(attacks)) {
     assert.throws(
       () => frozenStringSet(setFixture(label, init), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES"),
-      /accepts exactly one shape/,
+      /accepts exactly two shapes/,
       `${label} must be refused`,
     );
   }
-  // `Object.freeze(...)` is refused DELIBERATELY and not as an oversight: when
-  // the keystone lane ships a frozen structure this goes red and names what it
-  // saw, which is the reviewable way for the accepted shape to change.
+  // `Object.freeze(new Set([...]))` is refused DELIBERATELY. The keystone lane
+  // seals these sets with `frozenSet`, which is accepted below; a different
+  // wrapper is a different decision and gets a reviewed one-line addition
+  // rather than being inferred.
+});
+
+check("F7 READER: frozenSet([...]) is ACCEPTED and reads the same list as new Set", () => {
+  // The keystone lane closes F14 by making these sets refuse mutation:
+  // frozenSet returns a Set whose add, delete and clear throw. It changes what
+  // the value can DO, not what it IS, so moving to it must not change a single
+  // line of either document.
+  const plain = frozenStringSet(setFixture("ok-plain", 'new Set(["a", "b"])'), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES");
+  const sealed = frozenStringSet(setFixture("ok-frozen", 'frozenSet(["a", "b"])'), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES");
+  assert.deepStrictEqual(sealed, ["a", "b"]);
+  assert.deepStrictEqual(sealed, plain, "sealing a set must not change the list either document prints");
 });
 
 check("F7 RUNTIME: the value under NODE_ENV=production equals the documented list", () => {
