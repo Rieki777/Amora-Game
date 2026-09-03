@@ -262,3 +262,136 @@ export function addHamlet(rows: readonly FounderRow[], raw: string): AddResult {
   }
   return { ok: true, structureKey, patch: {} };
 }
+
+/* ── THE HOMES A VILLAGE OFFERS (0131) ──────────────────────────────────────
+ *
+ * The hamlet half of this file is about counts. This half is about what a
+ * home IS: what this village calls it, how big it is, what it costs.
+ *
+ * It lives here for the reason the top of this file gives for everything
+ * else. The four tiers used to be a module constant inside
+ * client/src/pages/Housing.tsx with a second copy of their sizes inside
+ * client/src/pages/ReserveHome.tsx, and nothing in this repository imports
+ * anything under client/src/pages, so both copies were unguarded by
+ * construction: they drifted into different wording for the same home and no
+ * gate could see it. The decisions now sit in a module a `.test.ts` can run
+ * with no DOM and no React, and the surfaces are left holding markup.
+ *
+ * NOTHING BELOW PARSES, CONVERTS, ROUNDS OR APPENDS. No currency symbol is
+ * supplied, no unit is added, no range is normalised. A founder writes "0.5
+ * hectares" or "₡45,000,000" or "ask us" and that is what publishes. The only
+ * edit anywhere in this half is a trim, and the only reason for the trim is
+ * that an emptied box has to mean unset.
+ */
+
+/** A home as the public routes hand it over: only published ones arrive. */
+export interface PublicHome {
+  homeType: string;
+  name: string;
+  /** Blank when the village did not write one. Blank draws nothing. */
+  size: string;
+  price: string;
+  description: string;
+  features: string[];
+}
+
+/** A home type as the founder surface sees it, unfilled ones included. */
+export interface HomeTypeFounderRow {
+  homeType: string;
+  name: string | null;
+  size: string | null;
+  price: string | null;
+  description: string | null;
+  features: string | null;
+  /**
+   * THE SERVER'S OWN PREDICATE, carried. Never re-derived here. The hamlet
+   * half of this file records what re-deriving cost: a founder was shown a
+   * green badge on a row every visitor was being told was an example.
+   */
+  isPublished: boolean;
+  updatedBy: string | null;
+  updatedAt: string | null;
+}
+
+/** The five boxes, and the one list of them. */
+export const HOME_FIELDS = ["name", "size", "price", "description", "features"] as const;
+export type HomeField = (typeof HOME_FIELDS)[number];
+
+/** Only the fields being changed. Absent leaves alone, null clears. */
+export type HomeTypePatchBody = Partial<Record<HomeField, string | null>>;
+
+/**
+ * WHICH FIELD EACH BOX READS. A null column is an EMPTY BOX, never the word
+ * null and never a placeholder standing in for one: a founder must be able to
+ * tell "nothing here" from "something here", and a box showing a stand-in
+ * writes the stand-in the moment anybody tabs through it.
+ */
+export const homeFieldValue = (row: HomeTypeFounderRow, field: HomeField): string =>
+  row[field] ?? EMPTY;
+
+/**
+ * WHAT EACH BOX SENDS: itself, and nothing else.
+ *
+ * One field per patch, the same rule the hamlet controls follow, because a
+ * control that sends one field cannot revert the four it never mentioned. A
+ * founder editing a price on a stale copy of the row must not write that
+ * stale copy's name back over a rename somebody made a minute ago.
+ *
+ * An emptied box sends null, which CLEARS the column. That is the only way to
+ * unpublish a home, and it is deliberate that it is the same gesture as
+ * unsetting a hamlet's count.
+ */
+export function homePatch(field: HomeField, raw: string): HomeTypePatchBody {
+  const t = raw.trim();
+  return { [field]: t === EMPTY ? null : t } as HomeTypePatchBody;
+}
+
+/** Did this patch change anything? A blur on a box nobody edited saves nothing. */
+export function isHomeNoOp(row: HomeTypeFounderRow, patch: HomeTypePatchBody): boolean {
+  for (const field of HOME_FIELDS) {
+    const next = patch[field];
+    if (next === undefined) continue;
+    if ((next ?? null) !== (row[field] ?? null)) return false;
+  }
+  return true;
+}
+
+/**
+ * WHAT A PUBLIC SURFACE MAY SAY ABOUT THIS VILLAGE'S HOMES.
+ *
+ * Three answers, for the reason `hamletNumbers` above has three: the list
+ * arrives over the network, so before it lands the honest answer is "not
+ * known yet", and that is a different sentence from "this village has
+ * published no homes". A page that says the second while the first is true
+ * flashes "we have not priced our homes" at every visitor for the length of a
+ * round trip and then draws four cards.
+ *
+ * A FAILED read is NOT unknown. Both pages catch a failed fetch into an empty
+ * list, so an unreachable server settles to `none` and stays there. Fail
+ * closed: a network blip must never publish a figure, and there is no figure
+ * to publish when the list is empty. Only the in-flight window is `unknown`.
+ */
+export type HomeChoices =
+  | { kind: "unknown" }
+  | { kind: "none" }
+  | { kind: "some"; homes: readonly PublicHome[] };
+
+export function homeChoices(homes: readonly PublicHome[] | null): HomeChoices {
+  if (homes === null) return { kind: "unknown" };
+  if (homes.length === 0) return { kind: "none" };
+  return { kind: "some", homes };
+}
+
+/**
+ * The home a `?type=` in the link selects, or nothing.
+ *
+ * PRESENCE IN THE PUBLISHED LIST IS THE WHOLE PREDICATE, so a link to a home
+ * a founder has since cleared lands on the form with nothing chosen rather
+ * than on a home this village no longer offers. It also cannot resolve before
+ * the list arrives, which is why the reservation page holds the raw query
+ * value and runs this against the list instead of trusting the string.
+ */
+export function preselectedHome(homes: readonly PublicHome[] | null, raw: string): string {
+  if (homes === null) return EMPTY;
+  return homes.some((h) => h.homeType === raw) ? raw : EMPTY;
+}

@@ -9,13 +9,20 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  allHomeTypes,
   allRows,
   exceedsTotal,
+  homeFeatureLines,
+  HOME_TYPES,
+  isHomeType,
   openHomes,
   publicEntries,
+  publicHomeTypes,
   readAvailabilityPatch,
+  readHomeTypePatch,
   reservationStatusNotice,
   setAvailability,
+  setHomeType,
 } from "./housing";
 
 /**
@@ -714,5 +721,273 @@ describe("reservationStatusNotice", () => {
 
   it("refuses to speak for a status it does not know", () => {
     expect(reservationStatusNotice("maybe", rowan)).toBeNull();
+  });
+});
+
+/* ── THE HOMES A VILLAGE OFFERS (0131) ──────────────────────────────────────
+ *
+ * The four tiers were a module constant in client/src/pages/Housing.tsx with
+ * a second copy of their sizes in client/src/pages/ReserveHome.tsx, so every
+ * fork published one American village's dollars and square footage under its
+ * own name. These tests hold the two things that keeps from coming back: the
+ * predicate that decides whether a village has published a home at all, and
+ * the promise that whatever a founder typed is what publishes.
+ *
+ * BOTH DIRECTIONS, ALWAYS. A suite that only ever sees a filled-in village
+ * proves nothing about the state this whole change exists to produce, which
+ * is the empty one.
+ */
+
+/** A pool stub for the home-type queries. Unknown SQL still throws. */
+function homePool(homeTypes: any[]) {
+  return {
+    async query(sql: string) {
+      if (sql.includes("FROM housing_home_types")) return [homeTypes, []];
+      throw new Error(`unexpected query: ${sql}`);
+    },
+  } as any;
+}
+
+const homeRow = (over: Record<string, unknown> = {}) => ({
+  home_type: "casita",
+  name: "Casita",
+  size_text: "400 to 800 sq ft",
+  price_text: "$150,000 to $250,000",
+  description: null,
+  features: null,
+  updated_by: null,
+  updated_at: "2026-09-02 00:00:00",
+  ...over,
+});
+
+describe("a village that has published no homes", () => {
+  it("publishes nothing at all when the table is empty", async () => {
+    // THE STATE THIS CHANGE EXISTS TO PRODUCE. Every fork starts here, and
+    // the live village lands here the moment 0131 applies. /housing draws no
+    // tier section, /reserve says the homes are not listed yet.
+    expect(await publicHomeTypes(homePool([]))).toEqual([]);
+  });
+
+  it("still gives the founder all four rows to type into", async () => {
+    const rows = await allHomeTypes(homePool([]));
+    expect(rows.map((r) => r.homeType)).toEqual(["tiny-home", "casita", "family-home", "villa"]);
+    expect(rows.every((r) => r.isPublished)).toBe(false);
+    expect(rows.every((r) => r.name === null && r.size === null && r.price === null)).toBe(true);
+  });
+
+  it("does not publish a home that has only a name", async () => {
+    // A card with a heading and nothing under it is the empty scaffolding
+    // this change removes. It is not a home a village has described.
+    const pool = homePool([homeRow({ name: "Casita", size_text: null, price_text: null })]);
+    expect(await publicHomeTypes(pool)).toEqual([]);
+    expect((await allHomeTypes(pool)).find((r) => r.homeType === "casita")?.isPublished).toBe(false);
+  });
+
+  it("does not publish a size or a price with no name to attach it to", async () => {
+    const sized = homePool([homeRow({ name: null, price_text: null })]);
+    expect(await publicHomeTypes(sized)).toEqual([]);
+    const priced = homePool([homeRow({ name: null, size_text: null })]);
+    expect(await publicHomeTypes(priced)).toEqual([]);
+  });
+
+  it("reads an empty column as unset, never as a home called nothing", async () => {
+    // Blank and absent are the same state. A column holding "" must never
+    // publish a card with an empty heading.
+    const pool = homePool([homeRow({ name: "   ", size_text: "", price_text: "" })]);
+    expect(await publicHomeTypes(pool)).toEqual([]);
+    expect((await allHomeTypes(pool))[1]!.name).toBeNull();
+  });
+});
+
+describe("a village that HAS published its homes", () => {
+  it("publishes a home with a name and a size", async () => {
+    const pool = homePool([homeRow({ price_text: null })]);
+    const [home] = await publicHomeTypes(pool);
+    expect(home!.name).toBe("Casita");
+    expect(home!.size).toBe("400 to 800 sq ft");
+    // Not written, so nothing is drawn. Never a stand-in, never a zero.
+    expect(home!.price).toBe("");
+  });
+
+  it("publishes a home with a name and a price and no size", async () => {
+    const pool = homePool([homeRow({ size_text: null, price_text: "ask us" })]);
+    const [home] = await publicHomeTypes(pool);
+    expect(home!.price).toBe("ask us");
+    expect(home!.size).toBe("");
+  });
+
+  it("prints a non-imperial size and a non-USD price exactly as typed", async () => {
+    /*
+     * THE POINT OF THE WHOLE CHANGE. The platform has no opinion about a
+     * village's units or its currency. Nothing here converts, rounds,
+     * reformats, or appends a symbol, and a sibling lane paid for the mirror
+     * of this bug: a page asserting "Total Acres" over a figure a founder
+     * meant as hectares.
+     */
+    const pool = homePool([
+      homeRow({
+        home_type: "tiny-home",
+        name: "Cabina",
+        size_text: "0,5 hectáreas",
+        price_text: "₡45.000.000",
+      }),
+    ]);
+    const [home] = await publicHomeTypes(pool);
+    expect(home!.size).toBe("0,5 hectáreas");
+    expect(home!.price).toBe("₡45.000.000");
+    expect(home!.size).not.toContain("sq ft");
+    expect(home!.price).not.toContain("$");
+  });
+
+  it("lists homes in platform order, not in the order the database returned them", async () => {
+    // So the two pages agree, and so renaming a home does not reshuffle the
+    // page under a visitor who is reading it.
+    const pool = homePool([
+      homeRow({ home_type: "villa", name: "Villa" }),
+      homeRow({ home_type: "tiny-home", name: "Cabina" }),
+      homeRow({ home_type: "casita", name: "Casita" }),
+    ]);
+    expect((await publicHomeTypes(pool)).map((h) => h.homeType)).toEqual([
+      "tiny-home",
+      "casita",
+      "villa",
+    ]);
+  });
+
+  it("carries no identity fields, because this rides an uncredentialed route", async () => {
+    const [home] = await publicHomeTypes(homePool([homeRow()]));
+    expect(Object.keys(home!).sort()).toEqual([
+      "description",
+      "features",
+      "homeType",
+      "name",
+      "price",
+      "size",
+    ]);
+  });
+
+  it("carries updatedBy to the founder view, which is why that one is gated", async () => {
+    const rows = await allHomeTypes(homePool([homeRow({ updated_by: "user-1" })]));
+    expect(rows.find((r) => r.homeType === "casita")?.updatedBy).toBe("user-1");
+  });
+});
+
+describe("features are a list because a founder typed one per line", () => {
+  it("splits on newlines and nothing else", async () => {
+    // A comma inside a feature is part of the feature. Splitting on commas
+    // would cut "Kitchen, bathroom and a covered porch" into three.
+    const pool = homePool([
+      homeRow({ features: "Covered patio\nKitchen, bathroom and a covered porch\n\n  Solar ready  " }),
+    ]);
+    const [home] = await publicHomeTypes(pool);
+    expect(home!.features).toEqual([
+      "Covered patio",
+      "Kitchen, bathroom and a covered porch",
+      "Solar ready",
+    ]);
+  });
+
+  it("is an empty list when the village wrote none, so no bullets are drawn", async () => {
+    const [home] = await publicHomeTypes(homePool([homeRow({ features: null })]));
+    expect(home!.features).toEqual([]);
+    expect(homeFeatureLines(null)).toEqual([]);
+    expect(homeFeatureLines("   ")).toEqual([]);
+  });
+});
+
+describe("the home-type patch: absent leaves, null clears, nothing is converted", () => {
+  it("reads only the fields it was sent", () => {
+    const read = readHomeTypePatch({ price: "ask us" });
+    expect(read.ok && read.patch).toEqual({ price: "ask us" });
+  });
+
+  it("clears on an explicit null and on an emptied box alike", () => {
+    // The Admin boxes send "" when a founder empties one, and "the founder
+    // cleared this" is the same state as "the founder never wrote this".
+    const cleared = readHomeTypePatch({ name: null });
+    expect(cleared.ok && cleared.patch).toEqual({ name: null });
+    const emptied = readHomeTypePatch({ name: "   " });
+    expect(emptied.ok && emptied.patch).toEqual({ name: null });
+  });
+
+  it("keeps a currency symbol, a unit and a range exactly as typed", () => {
+    const read = readHomeTypePatch({
+      size: "0,5 hectáreas",
+      price: "₡45.000.000 a ₡60.000.000",
+    });
+    expect(read.ok && read.patch).toEqual({
+      size: "0,5 hectáreas",
+      price: "₡45.000.000 a ₡60.000.000",
+    });
+  });
+
+  it("keeps the newlines inside features, because they ARE the list", () => {
+    const read = readHomeTypePatch({ features: "  One\nTwo, with a comma\n  " });
+    expect(read.ok && read.patch).toEqual({ features: "One\nTwo, with a comma" });
+  });
+
+  it("refuses a value that is not text rather than coercing it", () => {
+    // A coercion here would turn a caller's mistake into a stored string that
+    // reads like a founder's own words.
+    expect(readHomeTypePatch({ price: 150000 }).ok).toBe(false);
+    expect(readHomeTypePatch({ features: ["a", "b"] }).ok).toBe(false);
+  });
+
+  it("treats an empty body as a legal no-change patch", () => {
+    const read = readHomeTypePatch({});
+    expect(read.ok && read.patch).toEqual({});
+  });
+});
+
+describe("the home-type write path keeps what it was not told to change", () => {
+  it("writes only the column it was given", async () => {
+    const { calls, pool } = recordingPool();
+    await setHomeType(pool, { homeType: "casita", price: "ask us", updatedBy: "user-1" });
+    const update = calls[0]!.sql.slice(calls[0]!.sql.indexOf("ON DUPLICATE KEY UPDATE"));
+    expect(update).toContain("price_text = VALUES(price_text)");
+    expect(update).not.toContain("name = VALUES(name)");
+    expect(update).not.toContain("size_text = VALUES(size_text)");
+    expect(update).not.toContain("description = VALUES(description)");
+    expect(update).not.toContain("features = VALUES(features)");
+    // Every call is a write, so this one is always stamped.
+    expect(update).toContain("updated_by = VALUES(updated_by)");
+  });
+
+  it("writes a null when the founder cleared a box, which unpublishes the home", async () => {
+    const { calls, pool } = recordingPool();
+    await setHomeType(pool, { homeType: "villa", name: null, updatedBy: "user-1" });
+    const update = calls[0]!.sql.slice(calls[0]!.sql.indexOf("ON DUPLICATE KEY UPDATE"));
+    expect(update).toContain("name = VALUES(name)");
+    expect(paramFor(calls[0]!.sql, calls[0]!.params, "name")).toBeNull();
+  });
+
+  it("creates an unfilled row on an empty patch and changes nothing else", async () => {
+    const { calls, pool } = recordingPool();
+    await setHomeType(pool, { homeType: "tiny-home", updatedBy: "user-1" });
+    const update = calls[0]!.sql.slice(calls[0]!.sql.indexOf("ON DUPLICATE KEY UPDATE"));
+    expect(update).toBe("ON DUPLICATE KEY UPDATE updated_by = VALUES(updated_by)");
+    expect(paramFor(calls[0]!.sql, calls[0]!.params, "home_type")).toBe("tiny-home");
+  });
+
+  it("stores the founder's text with no symbol, unit or rounding added", async () => {
+    const { calls, pool } = recordingPool();
+    await setHomeType(pool, {
+      homeType: "casita",
+      size: "45 m2",
+      price: "₡45.000.000",
+      updatedBy: "user-1",
+    });
+    expect(paramFor(calls[0]!.sql, calls[0]!.params, "size_text")).toBe("45 m2");
+    expect(paramFor(calls[0]!.sql, calls[0]!.params, "price_text")).toBe("₡45.000.000");
+  });
+});
+
+describe("a home a founder can describe is a home a visitor can ask for", () => {
+  it("keys home types on the same list the reservation route validates against", async () => {
+    // Two lists would let a founder publish a home whose Reserve button the
+    // POST refuses, and the person would meet a 400 on the last click.
+    const rows = await allHomeTypes(homePool([]));
+    for (const r of rows) expect(isHomeType(r.homeType)).toBe(true);
+    expect(rows).toHaveLength(HOME_TYPES.length);
   });
 });
