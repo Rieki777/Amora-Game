@@ -56,6 +56,7 @@ import { register as registerGovernanceWizardRoutes } from "./routes/governanceW
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
 import { register as registerHousingRoutes } from "./routes/housing";
 import { register as registerJourneyRoutes } from "./routes/journey";
+import { register as registerBrandPreviewRoutes } from "./routes/brandPreview";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -21179,6 +21180,7 @@ ${inner}
 
   registerMilestonesRoutes(app, { isAdmin, guardCapability, milestonesRepo });
   registerLandRoutes(app, { isAdmin, authedUser, guardCapability, getPool, uploadsDir: UPLOADS_DIR });
+  registerBrandPreviewRoutes(app, { isAdmin, getPool, brandRepo });
 
   // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
