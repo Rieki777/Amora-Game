@@ -22,6 +22,12 @@
  *    after `closes_at` the proposer joins the closers; while the ballot is
  *    still running only a `proposal.decide` holder or an admin may close
  *    early, and a consent ballot never passes before its window ends.
+ *  - A GOVERNANCE WINDOW GATES THE OPENING, NEVER THE VOTE (19E, windows
+ *    lane). `openBallot` asks `server/lib/governanceWindows.ts` whether this
+ *    village lets this kind of proposal open today, and refuses with the next
+ *    window's instants when it does not. Nothing else in this file reads a
+ *    window: a ballot already open runs to its own `closes_at` whatever the
+ *    calendar does, and a vote already cast is never touched.
  *  - A DELEGATED VOTE IS A ROW FOR THE DELEGATOR (0137). Casting copies the
  *    choice to everyone whose chain ends at the voter, stamped with who
  *    decided it, and the weight never moves. The rule itself lives in
@@ -55,6 +61,8 @@ import {
 import { delegatedRowsCountOn, evaluationRulesFor } from "../../shared/ballotSubjects";
 // Dispatcher lane: the proposal timing 0135 freezes onto the ballot at open.
 import { DEFAULT_TIMING, timingOf, type ProposalTiming } from "../../shared/governanceKinds";
+// Windows lane: the open path is gated, and only the open path (19E).
+import { openingRefusal } from "./governanceWindows";
 import type { WeightMode } from "./governanceWeights";
 
 export interface BallotRow {
@@ -193,6 +201,19 @@ export interface OpenBallotInput {
   onOpen?: (conn: PoolConnection, ballotId: string) => Promise<void>;
   /** Dispatcher lane, 0135: at_acceptance or next_moon. Defaults to next_moon. */
   timing?: ProposalTiming;
+  /**
+   * WINDOWS LANE (19E): what this opening carries, for the window gate below.
+   *
+   * Optional because a ceremony carries nothing beyond its subject type, which
+   * `openBallot` already has. A change set passes its element kinds so the
+   * strictest element decides, and anything coming back passes the instant the
+   * decision it answers closed, so the grace can be measured from it.
+   */
+  window?: {
+    elements?: readonly string[];
+    comingBackFrom?: Date | null;
+    relation?: string | null;
+  };
 }
 
 export type OpenBallotResult =
@@ -246,6 +267,25 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
    * imported: governance has no business depending on the chain-read module.)
    */
   const opensAt = new Date(Math.floor(Date.now() / 1000) * 1000);
+  /*
+   * THE GOVERNANCE WINDOW GATES THE OPENING, AND ONLY THE OPENING (19E).
+   *
+   * It sits here rather than in each route so every door into a village-wide
+   * vote passes the same gate and a route added later cannot forget it. A
+   * village that has set no window reads `always_open` for every kind, which is
+   * the platform default, so this is a no-op until somebody chooses otherwise.
+   * Nothing below this line ever closes a ballot: a window shutting while a
+   * vote runs changes nothing about that vote.
+   */
+  const closed = openingRefusal({
+    subjectType: input.subjectType,
+    elements: input.window?.elements,
+    durationDays: days,
+    at: opensAt,
+    comingBackFrom: input.window?.comingBackFrom ?? null,
+    relation: input.window?.relation ?? null,
+  });
+  if (closed) return { ok: false, error: closed };
   const closesAt = new Date(opensAt.getTime() + days * 24 * 60 * 60 * 1000);
   const conn = await pool.getConnection();
   try {

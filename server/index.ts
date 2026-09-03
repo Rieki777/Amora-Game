@@ -58,6 +58,7 @@ import { register as registerGovernanceVetoRoutes } from "./routes/governanceVet
 import { register as registerGovernanceLandingRoutes } from "./routes/governanceLanding";
 // The dispatcher lane: the landing path, the change-set executor and the roll notice.
 import { applyDueGovernance, autoSettleExpired, itemKindsOf, markNotApplicable, overrideDials, routeOutcome, runVetoWatch, vetoWindowOn, type CloseRouting, type LandingDeps, type SubjectCloser } from "./lib/applyDue";
+import { changeSetKinds, comingBackFrom, seasonEndInstant, setSeasonWindowReader } from "./lib/governanceWindows";
 import { applyChangeSet, applyMechanicsProposal as applyChangeSetForProposal, changeSetWaitsForCycleClose, recordMechanicsChangeRow, UntypedElementError, type ApplySetResult, type ChangesetDeps } from "./lib/changeset";
 import { landingRow } from "./lib/applyDue";
 import { notifyRollRows, type RollNotice } from "./lib/ballotNotices";
@@ -3756,6 +3757,7 @@ function seasonState() {
     today,
   };
 }
+setSeasonWindowReader(() => { const s = seasonState(); return { currentId: s.current?.id ?? null, endsAt: seasonEndInstant(s.current?.endsOn, s.timezone), configuredCount: s.seasons.length }; }); // windows lane (19E): the season-shaped window reads the village's own list through here
 
 
 // Safe user shape for API responses: strips the password hash and fills every
@@ -24854,6 +24856,7 @@ ${inner}
       // decided on the ballot, so an edit after the vote opened cannot move the
       // instant the village was shown. Absent means next_moon.
       timing: timingOf((p as { timing?: unknown }).timing),
+      window: { elements: changeSetKinds(p.changeSet), comingBackFrom: await comingBackFrom(getPool(), p.id) }, // windows lane (19E): the strictest element decides, and anything coming back gets its grace
       onOpen: async (conn, ballotId) => {
         const [r] = await conn.query<any>(
           "UPDATE mechanics_proposals SET status = 'onsite_vote', ballot_id = ? WHERE id = ? AND status = 'open'",

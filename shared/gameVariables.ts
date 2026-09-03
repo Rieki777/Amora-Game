@@ -553,6 +553,129 @@ export const VARIABLES: VariableDef[] = [
     unit: "days",
   },
 
+  // ── Governance windows, per proposal kind (19E, 19F, 20.11) ──────────────
+  //
+  // "we can also block all proposals from not happening within defined
+  // governance windows. Some can be 'always open' but some can have set
+  // windows (like the last week of every month or last 2 weeks of every
+  // season or whatever) but those two are the default choices we offer to
+  // guide." A governance month is a lunar month (19F), so "the last week of
+  // every month" is the last seven days of the ACTIVE clock's cycle.
+  //
+  // Every one of these ships ALWAYS OPEN, so a village that never touches
+  // them behaves exactly as every village behaved before windows existed.
+  // The grammar, the arithmetic and the refusals live in
+  // `server/lib/governanceWindows.ts`; `WINDOW_KINDS` there holds the same
+  // ten keys and `governanceWindows.test.ts` pins the two lists equal.
+  //
+  // The tier is structural: a window decides when the village may open a
+  // proposal at all, which is a rule about how the village decides. 20.11
+  // classes the window settings with the other dials that price proposals,
+  // so none of them may be trialled at a discount.
+  {
+    key: "governance.window_changeset",
+    category: "Governance",
+    label: "When a change to the Game Mechanics can go to the vote",
+    criticality: "structural",
+    description:
+      "always_open lets anyone take a change set to the vote on any day. last_days_of_cycle:7 opens it in the last seven days before the moon turns, so the village reads its changes together. last_days_of_season:14 opens it in the last two weeks of the season that is running. custom:1-7 names your own days of the cycle, counted from the moon. A window decides when a vote may OPEN: a vote already running is never closed by a window shutting, and a proposal coming back after a veto or an objection opens outside its window for the grace named below.",
+    type: "text",
+    default: "always_open",
+  },
+  {
+    key: "governance.window_mint_rule",
+    category: "Governance",
+    label: "When a change to what the village mints can go to the vote",
+    criticality: "structural",
+    description:
+      "The window a minting change opens in, in the same words as the change set window above. This one is separate because a village that wants its minting read together can hold minting to a window while everything else stays open. A change set carrying a minting element is held to the stricter of the two.",
+    type: "text",
+    default: "always_open",
+  },
+  {
+    key: "governance.window_governance_mode",
+    category: "Governance",
+    label: "When a change to how votes are counted can go to the vote",
+    criticality: "structural",
+    description:
+      "The window a vote-mode switch opens in, in the same words as the change set window above. A change set carrying a mode switch is held to this window as well as its own, so the biggest change in a bundle cannot ride into an open week under a small one.",
+    type: "text",
+    default: "always_open",
+  },
+  {
+    key: "governance.window_role_declare",
+    category: "Governance",
+    label: "When declaring a role can go to the vote",
+    criticality: "structural",
+    description:
+      "The window a proposal that declares a new role opens in, in the same words as the change set window above.",
+    type: "text",
+    default: "always_open",
+  },
+  {
+    key: "governance.window_role_seat",
+    category: "Governance",
+    label: "When seating a role can go to the vote",
+    criticality: "structural",
+    description:
+      "The window a proposal that asks somebody to sit in a role opens in, in the same words as the change set window above. Hold this one open while a village is young: a seat nobody can be asked to fill is a seat that stays empty until the calendar allows it.",
+    type: "text",
+    default: "always_open",
+  },
+  {
+    key: "governance.window_role_unseat",
+    category: "Governance",
+    label: "When taking a seat back can go to the vote",
+    criticality: "structural",
+    description:
+      "The window a proposal that takes a seat back opens in, in the same words as the change set window above. A village that windows this one is choosing to wait before it can remove somebody, so leave it always open unless you have a reason you can say out loud.",
+    type: "text",
+    default: "always_open",
+  },
+  {
+    key: "governance.window_power_transfer",
+    category: "Governance",
+    label: "When moving a power to a role can go to the vote",
+    criticality: "structural",
+    description:
+      "The window a proposal that moves a power from the admin panel to a role opens in, in the same words as the change set window above.",
+    type: "text",
+    default: "always_open",
+  },
+  {
+    key: "governance.window_power_grant",
+    category: "Governance",
+    label: "When granting a power can go to the vote",
+    criticality: "structural",
+    description:
+      "The window a proposal that grants a power to a role opens in, in the same words as the change set window above.",
+    type: "text",
+    default: "always_open",
+  },
+  {
+    key: "governance.window_power_return",
+    category: "Governance",
+    label: "When handing a power back can go to the vote",
+    criticality: "structural",
+    description:
+      "The window a proposal that hands a power back to the admin panel opens in, in the same words as the change set window above.",
+    type: "text",
+    default: "always_open",
+  },
+  {
+    key: "governance.window_grace_days",
+    category: "Governance",
+    label: "How long a proposal coming back may open outside its window",
+    criticality: "structural",
+    description:
+      "A resubmission after objections, a veto override and a renewal of a trial are all proposals coming back, and the village has already been asked once. Each of them may open outside its kind's window for this many days after the decision it comes back from closed. Set this to 0 and a single steward's veto becomes unanswerable until the next window opens.",
+    type: "integer",
+    default: "7",
+    min: 0,
+    max: 90,
+    unit: "days",
+  },
+
   // ── Governance: the on-site decision engine (round 5, lane G1) ────────────
   //
   // Ring placement per GOV_DESIGN section 7. The weight dials are FOUNDER
@@ -2098,6 +2221,28 @@ export function parseVariable(def: VariableDef, raw: string | undefined | null):
 }
 
 /**
+ * THE GRAMMAR OF A GOVERNANCE WINDOW, and the one place it is written down.
+ *
+ * `server/lib/governanceWindows.ts` parses the same four shapes into the type
+ * the arithmetic uses and re-exports this refusal, so a village can never
+ * store a shape the engine cannot read. The ordering check is here as well as
+ * the syntax, because `custom:20-5` parses cleanly and names no days at all.
+ */
+export const GOVERNANCE_WINDOW_SHAPES =
+  "always_open, last_days_of_cycle:N, last_days_of_season:N, or custom:FROM-TO counting days from the start of the cycle";
+
+export function governanceWindowSyntaxProblem(raw: string): string | null {
+  const text = String(raw ?? "").trim();
+  const bad = `A governance window is one of ${GOVERNANCE_WINDOW_SHAPES}.`;
+  if (text === "always_open") return null;
+  const last = /^last_days_of_(cycle|season):(\d{1,3})$/.exec(text);
+  if (last) return Number(last[2]) >= 1 ? null : bad;
+  const custom = /^custom:(\d{1,3})-(\d{1,3})$/.exec(text);
+  if (custom) return Number(custom[1]) >= 1 && Number(custom[2]) >= Number(custom[1]) ? null : bad;
+  return bad;
+}
+
+/**
  * Validate a proposed value. Returns an error message, or null when acceptable.
  * Runs on the server before any write, and is exported so Admin can show the
  * same message without a round trip.
@@ -2112,6 +2257,17 @@ export function validateVariable(def: VariableDef, raw: string): string | null {
   }
   if (def.type === "text") {
     if (raw.length > 255) return "Too long (255 characters maximum).";
+    /*
+     * A governance window is a grammar, and a typo in it would close a whole
+     * kind of proposal with nothing saying why. The SYNTAX is checked here so
+     * every write path gets it; the cross-key rule (a window has to be longer
+     * than `governance.vote_days`, or no vote could ever fit inside it) needs
+     * a second value and lives in `windowShapeProblem`,
+     * server/lib/governanceWindows.ts, called from `validateChangeSet`.
+     */
+    if (def.key.startsWith("governance.window_") && governanceWindowSyntaxProblem(raw)) {
+      return governanceWindowSyntaxProblem(raw);
+    }
     // Contract addresses must look like addresses, or a typo silently reads a
     // balance from nowhere and the member sees zero holdings.
     if (def.key.endsWith("_address") && raw !== "" && !/^0x[a-fA-F0-9]{40}$/.test(raw)) {

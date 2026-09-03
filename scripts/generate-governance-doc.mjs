@@ -1225,6 +1225,19 @@ const KNOWN_DIALS = [
   "governance.steward_council",
   "governance.highest_tier",
   "governance.change_cooldown_days",
+  // The windows, per proposal kind (19E, windows lane, 2026-09-03). Each holds
+  // one shape: always_open, last_days_of_cycle:N, last_days_of_season:N, or
+  // custom:FROM-TO. All ship always open.
+  "governance.window_changeset",
+  "governance.window_mint_rule",
+  "governance.window_governance_mode",
+  "governance.window_role_declare",
+  "governance.window_role_seat",
+  "governance.window_role_unseat",
+  "governance.window_power_transfer",
+  "governance.window_power_grant",
+  "governance.window_power_return",
+  "governance.window_grace_days",
   "governance.weight_mode",
   "governance.weight_token",
   "governance.unity_pct",
@@ -1392,11 +1405,16 @@ const RULINGS = [
       "As a default pattern the week before a season ends is the 'governance week' where all the players who want a role in the next season put up proposals for their roles - they play out for the season.",
       "Players can make proposal at anytime and it's a cultural pattern when and how people will actually show up to vote. So that's for every village to decide but as a default pattern we offer the above.",
     ],
-    status: (f) => (f.staged.governanceWeek ? "**Staged.** Not built." : "**Built.**"),
+    status: (f) => (f.staged.governanceWeek ? "**Staged.** Not built." : "**Built**, and the second half of the ruling is withdrawn."),
     note: () =>
-      "No governance dial names a week. The shape the ruling asks for is a pattern that is visible, skippable and named as " +
-      "a default the village can change, and a product that never refuses an action because it is the wrong week. A village " +
-      "running its governance differently should never see a screen implying it is doing it wrong.",
+      "The founder reopened this on 2026-09-03: a village MAY block proposals outside defined governance windows. So the " +
+      "sentence above about a permission check is withdrawn, and the rest of the ruling stands. Ten Governance settings hold " +
+      "one window shape each, one per proposal kind and one for a change set, and every one of them ships always open, so a " +
+      "village that wants the pattern without the gate has it. A shape is always_open, the last N days of every cycle under " +
+      "the active clock (the moon by default), the last N days of every season, or a range of days the village names. The " +
+      "window gates the OPENING alone: a ballot already running is never closed by a window shutting, and a proposal coming " +
+      "back after a veto or an objection opens outside its window for governance.window_grace_days. The refusal names which " +
+      "element of the proposal narrowed the window and when that window next opens.",
   },
   {
     id: 7,
@@ -1698,7 +1716,7 @@ function stagedFlags(dialKeys, governanceKeys, caps, dispatcher, routes, launchS
       !anyKey(/steward/i) &&
       !dispatcher.all.some((k) => /steward|approval/i.test(k)),
     launchSeatsSteward: !/steward/i.test(launchBody),
-    governanceWeek: !anyKey(/week/i),
+    governanceWeek: !anyKey(/week/i) && !anyKey(/^governance\.window_/i),
     delegation: !anyKey(/delegat/i) && !routes.rows.some((r) => /delegat/i.test(r.path)),
     cycleSetting: !dialKeys.some((k) => /^cycle\./i.test(k) || /(cycle_mode|cycle_kind|rhythm)/i.test(k)),
     clans: !dialKeys.some((k) => /\bclan/i.test(k)),
@@ -1721,7 +1739,6 @@ function stalenessProblem(staged) {
   // is to stop the build once, on the day the code moves past the prose, and
   // it has done that job for these five.
   const complaints = [
-    [!staged.governanceWeek, 6, "a governance week"],
     [!staged.clans, 18, "clans"],
     [!staged.secrecy, 22, "a voter-identity setting"],
     // Ruling 14 came off this list on 2026-09-03: the governance_mode subject
