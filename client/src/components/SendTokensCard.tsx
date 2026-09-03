@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import { authToken } from "@/lib/gameApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { Send } from "lucide-react";
-import { decimalsOf, formatTokenAmount } from "@/lib/tokenAmount";
+import { formatTokenAmount, decimalsOf, toMinorUnits, smallestUnit } from "@/lib/tokenAmount";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -79,7 +79,14 @@ export default function SendTokensCard() {
       const r = await fetch("/api/wallet/send", {
         method: "POST",
         headers: headers(),
-        body: JSON.stringify({ ...form, amount: Number(form.amount), clientNonce: nonce }),
+        // The member types what they would say out loud; the ledger stores minor
+        // units. Converting HERE, next to the input that shows the same scale,
+        // is what keeps the two halves of this card agreeing.
+        body: JSON.stringify({
+          ...form,
+          amount: toMinorUnits(form.amount, decimalsOf(tokenDecimals, form.tokenType)),
+          clientNonce: nonce,
+        }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -87,7 +94,10 @@ export default function SendTokensCard() {
         // the rule; a message written here would only be vaguer.
         setResult({ ok: false, text: d?.error ?? "That send did not go through" });
       } else {
-        setResult({ ok: true, text: `Sent ${d.sent} ${d.tokenName}${d.to ? ` to ${d.to}` : ""}.` });
+        setResult({
+          ok: true,
+          text: `Sent ${formatTokenAmount(d.sent, decimalsOf(tokenDecimals, form.tokenType))} ${d.tokenName}${d.to ? ` to ${d.to}` : ""}.`,
+        });
         setForm({ toEmail: "", tokenType: form.tokenType, amount: "", note: "" });
         setNonce(crypto.randomUUID());
         load();
@@ -138,7 +148,10 @@ export default function SendTokensCard() {
           <label className="block">
             <span className="text-xs font-medium text-gray-500">How much</span>
             <input
-              type="number" min={1} step={1} required value={form.amount}
+              type="number"
+              min={smallestUnit(decimalsOf(tokenDecimals, form.tokenType))}
+              step={smallestUnit(decimalsOf(tokenDecimals, form.tokenType))}
+              required value={form.amount}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
               className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
             />
