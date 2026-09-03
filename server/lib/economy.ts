@@ -46,7 +46,6 @@
  * the other, and no surface should let a member read one number as the other.
  */
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
-import { cycleBoundsFor } from "../../shared/lunar";
 import {
   mintRuleValueNumber,
   mintRuleValueProblem,
@@ -54,7 +53,7 @@ import {
   type MintRuleField,
 } from "../../shared/mintRuleKeys";
 import { issuanceRefusal } from "./gameStart";
-import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
+import { currentCycle, currentCycleNumber, cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { numberVar } from "./variables";
 import {
   memberAccount,
@@ -239,8 +238,8 @@ export function cycleKeyFor(at: Date = new Date()): string {
 }
 
 export function cycleWindow(at: Date = new Date()): { startsAt: Date; endsAt: Date; key: string } {
-  const b = cycleBoundsFor(at);
-  return { startsAt: b.startsAt, endsAt: b.endsAt, key: cycleIdFor(at) };
+  const c = currentCycle(at);
+  return { startsAt: new Date(c.startsAt), endsAt: new Date(c.endsAt), key: c.id };
 }
 
 // ── The epoch ───────────────────────────────────────────────────────────────
@@ -404,7 +403,7 @@ function rowToRule(r: RowDataPacket): MintRule {
  * N+1 and the closing cycle settles under the rules it ran under.
  */
 export async function rulesFor(pool: Pool, trigger: string, atCycle?: number): Promise<MintRule[]> {
-  const cycle = atCycle ?? cycleBoundsFor(new Date()).cycleNumber;
+  const cycle = atCycle ?? currentCycleNumber(new Date());
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT * FROM `mint_rules` WHERE `village_id` = ? AND `trigger` = ? AND `enabled` = 1 " +
       "AND `effective_from_cycle` <= ?",
@@ -1289,7 +1288,7 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
   // deferral working backwards.
   await applyPendingRules(pool, at);
 
-  const rules = await rulesFor(pool, "role.cycle", cycleBoundsFor(at).cycleNumber);
+  const rules = await rulesFor(pool, "role.cycle", currentCycleNumber(at));
   if (!rules.length) return out;
 
   // Asked ONCE, before the seat loop, and not once per seat: an unpayable rule
@@ -1575,7 +1574,7 @@ export async function queueRuleChange(
     }
   }
 
-  const fromCycle = Number.isFinite(intendedFromCycle) ? Number(intendedFromCycle) : cycleBoundsFor(new Date()).cycleNumber + 1;
+  const fromCycle = Number.isFinite(intendedFromCycle) ? Number(intendedFromCycle) : currentCycleNumber(new Date()) + 1;
   await pool.query(
     "UPDATE `mint_rules` SET `pending_amount` = ?, `pending_ceiling` = ?, `pending_enabled` = ?, " +
       "`pending_from_cycle` = ?, `pending_by` = ?, `pending_at` = CURRENT_TIMESTAMP " +
@@ -1723,7 +1722,7 @@ export async function applyMintRuleChanges(
  * and a stale pending copy of it.
  */
 export async function applyPendingRules(pool: Pool, at: Date = new Date()): Promise<number> {
-  const cycle = cycleBoundsFor(at).cycleNumber;
+  const cycle = currentCycleNumber(at);
   const [res]: any = await pool.query(
     "UPDATE `mint_rules` SET " +
       "`amount` = `pending_amount`, `ceiling` = `pending_ceiling`, `enabled` = `pending_enabled`, " +

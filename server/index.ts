@@ -12,7 +12,7 @@ import multer from "multer";
 import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { recognitionNameCheck } from "../shared/launchRequirements";
-import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle, cycleBoundsFor } from "../shared/lunar";
+import { civilParts, moonPhase, moonPhaseName } from "../shared/lunar";
 import { sceneStopsFor } from "../shared/questScenes";
 import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
 import {
@@ -338,6 +338,7 @@ import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, remove
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
 import { assertVoiceSecret, checkVoiceSecret, claimHistory, claimReadiness, requestVoiceClaim, settleVoiceClaim } from "./lib/voiceClaim";
+import { defaultSeasonsFor, seasonRunningProblem, suggestNextSeasonDates } from "./lib/seasonCalendar";
 import { installCrashHandlers, installShutdownHandlers, reachedSomebody, reportError, reportErrorWithin, wireErrorReporting } from "./lib/errors";
 import {
   STAY_CREDIT,
@@ -801,6 +802,10 @@ import { alignTableCollations } from "./db/collation";
 import { dbCollection, dbDocument } from "./repos/store-db";
 import { loadVariables } from "./lib/variables";
 import {
+  activeClock,
+  assertCycleSettingsRead,
+  boundsForNumber,
+  cycleDaysRemaining,
   cycleIdFor,
   currentCycle,
   dueCycles,
@@ -3690,7 +3695,15 @@ function normalizeSeasonConfig(raw: any): { seasons: any[]; cadence: string; tim
       timezone: def.timezone,
     };
   }
-  return { seasons: def.seasons as any[], cadence: def.cadence, timezone: def.timezone };
+  // A village that has written nothing gets a list DERIVED from its cadence
+  // and timezone, relative to today. The platform used to seed two hard-dated
+  // seasons that both ended 2026-12-21, so every fork provisioned after that
+  // date had no current season on any date and no seat term could come due.
+  return {
+    seasons: (def.seasons.length ? def.seasons : defaultSeasonsFor(def.cadence, def.timezone)) as any[],
+    cadence: def.cadence,
+    timezone: def.timezone,
+  };
 }
 
 function getSeasonConfig() {
@@ -3743,34 +3756,6 @@ function seasonState() {
   };
 }
 
-/** Suggests the next season's dates from the project's cadence, so admins get a
- *  sensible draft instead of a blank form. */
-function suggestNextSeasonDates(cadence: string, lastEndsOn: string): { startsOn: string; endsOn: string } {
-  const start = /^\d{4}-\d{2}-\d{2}$/.test(lastEndsOn) ? lastEndsOn : new Date().toISOString().slice(0, 10);
-  const d = new Date(`${start}T00:00:00Z`);
-  const end = new Date(d);
-  if (cadence === "lunar") {
-    end.setUTCDate(end.getUTCDate() + 30); // ~one synodic month
-  } else if (cadence === "solstice-equinox") {
-    // Next canonical turn after `start`. Ignore marks within ~6 weeks: a season
-    // starting the day before an equinox should run to the NEXT one, not produce
-    // a one-day season.
-    const marks = [[2, 20], [5, 21], [8, 22], [11, 21]] as const; // 0-indexed months
-    const y = d.getUTCFullYear();
-    const floor = d.getTime() + 45 * 86400000;
-    const candidates = [
-      ...marks.map(([m, day]) => Date.UTC(y, m, day)),
-      ...marks.map(([m, day]) => Date.UTC(y + 1, m, day)),
-    ].filter((t) => t > floor).sort((a, b) => a - b);
-    if (candidates.length) {
-      return { startsOn: start, endsOn: new Date(candidates[0]).toISOString().slice(0, 10) };
-    }
-    end.setUTCMonth(end.getUTCMonth() + 3); // shouldn't happen; stay sane anyway
-  } else {
-    end.setUTCMonth(end.getUTCMonth() + 3); // quarterly / custom default
-  }
-  return { startsOn: start, endsOn: end.toISOString().slice(0, 10) };
-}
 
 // Safe user shape for API responses: strips the password hash and fills every
 // field the client reads, so a fresh or legacy account never returns undefined
@@ -5445,6 +5430,10 @@ async function startServer() {
    */
   assertVoiceSecret();
 
+  // The rhythm setting reaches the engine. AFTER `initStores` for the same
+  // reason: a guard that reads a platform default cannot fail.
+  assertCycleSettingsRead();
+
   /*
    * 0093: the photographs the uploads route must refuse.
    *
@@ -5769,6 +5758,15 @@ async function startServer() {
     });
     if (r.holdersTold > 0) console.log(`[org] ${r.holdersTold} holder(s) told their term is ending or has ended`);
     if (r.waiting > 0) console.log(`[governance] ${r.waiting} carried decision(s) waiting, ${r.rollsTold} member(s) told`);
+    // LOUD. A seat whose term expires each season cannot come due while no
+    // season is running, so silence here is a village where nothing turns over.
+    const ss = seasonState();
+    const gap = seasonRunningProblem({
+      currentId: ss.current?.id ?? null,
+      configuredCount: ss.seasons.length,
+      allEnded: !!ss.needsNextSeason && ss.seasons.length > 0,
+    });
+    if (gap) console.warn(`[org] ${gap}`);
   });
 
   /**
@@ -20790,7 +20788,7 @@ ${inner}
       capabilities: heldCapabilities(ctx),
       cycle: {
         ...currentCycle(),
-        daysRemaining: daysRemainingInCycle(new Date()),
+        daysRemaining: cycleDaysRemaining(),
         moonPhaseName: moonPhaseName(moonPhase(new Date())),
       },
     });
@@ -21198,9 +21196,12 @@ ${inner}
     const now = new Date();
     const cycle = currentCycle(now);
     const user = await authedUser(req);
+    // Days remaining come from THIS cycle's own end, so a village keeping
+    // calendar months is told when its month ends and not when the moon turns.
+    // The moon phase is the sky and is true whatever clock the village keeps.
     res.json({
       ...cycle,
-      daysRemaining: daysRemainingInCycle(now),
+      daysRemaining: cycleDaysRemaining(now),
       moonPhase: moonPhase(now),
       moonPhaseName: moonPhaseName(moonPhase(now)),
       budget: user ? await gratitudeBudget(user) : null,
@@ -24356,13 +24357,12 @@ ${inner}
     vetoHours: () => numberVar("governance.veto_hours"),
     autoApplyEnabled: () => boolVar("governance.auto_apply_enabled"),
     stewardCouncil: () => boolVar("governance.steward_council"),
-    nextNewMoonAfter: (after: Date) => cycleBoundsFor(after).endsAt,
-    cycleNumberAt: (at: Date) => cycleBoundsFor(at).cycleNumber,
+    nextNewMoonAfter: (after: Date) => activeClock().nextBoundaryAfter(after),
+    cycleNumberAt: (at: Date) => activeClock().cycleNumberAt(at),
     closerFor: (subjectType: string) => SUBJECT_CLOSERS[subjectType],
     notify: async (input) => { await notify(input); },
     endedUnclosedCycle: async () => {
-      const current = cycleBoundsFor(new Date()).cycleNumber;
-      return (await cyclesRepo.all()).some((c: any) => c.status !== "closed" && Number(c.cycleNumber) < current);
+      return (await cyclesRepo.all()).some((c: any) => c.status !== "closed" && boundsForNumber(Number(c.cycleNumber)).endsAt.getTime() <= Date.now());
     },
     waitsForCycleClose: (changeSet) => changeSetWaitsForCycleClose(changeSet as any[]),
   });
