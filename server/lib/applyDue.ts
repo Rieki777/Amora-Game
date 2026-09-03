@@ -63,7 +63,7 @@ import { ballotById, votesFor, type BallotRow } from "./ballots";
 import { floorForCriticality, thresholdSettingsFrom, type ThresholdSettings } from "../../shared/ballotSubjects";
 import type { Criticality } from "../../shared/governanceEngine";
 import { numberVar, stringVar } from "./variables";
-import { keyIsVetoLocked, stewardsSeated, type VetoWindowVerdict } from "./stewardship";
+import { keyIsVetoMap, recordVeto as recordStewardAct, stewardNoBlocks, stewardsSeated, type VetoWindowVerdict } from "./stewardship";
 
 /** What a subject's closer hands back. Mirrors the dispatcher's own shape. */
 export interface CloseRouting {
@@ -212,45 +212,50 @@ export interface StewardVeto {
 }
 
 /**
- * A SEATED STEWARD'S NO VOTE IS ITSELF THE BLOCK.
+ * A SEATED STEWARD'S NO VOTE FAILS A TOKEN SEND AT THE CLOSE.
  *
  * The founder: "if a steward votes down on a token payment proposal than it
- * fails automatically". This reads it as written and applies it to every
- * ballot, because a token send has no window after it closes and the steward's
- * only door on one is while it is open. On a Game change the no vote is the
- * same act arriving earlier than it had to.
- *
- * Under `governance.steward_council` a veto needs MORE THAN HALF the seated
- * stewards, so one seat cannot hold the village. With the setting off, any
- * single steward's no is enough, which is the founder's own default.
+ * fails automatically". This function reads the rows; the RULE is
+ * `stewardNoBlocks` in server/lib/stewardship.ts, which owns the four
+ * narrowings the second audit required (token sends only, never a ballot the
+ * steward is the subject of, a reason under the veto's own rule, and the
+ * council majority). Keeping the rule there and the SQL here is what stops the
+ * steward's two doors, the vote and the veto, from being two different rules.
  *
  * A LAPSED HOLDING IS NOT A SEAT. `stewardsSeated` returns lapsed rows so a
- * surface can say who held the seat until when; a veto counts only the ones
+ * surface can say who held the seat until when; a block counts only the ones
  * still holding it.
  */
-export async function stewardNoVote(deps: LandingDeps, b: BallotRow): Promise<StewardVeto | null> {
+export async function stewardNoVote(
+  deps: LandingDeps,
+  b: BallotRow,
+  itemKinds?: readonly string[],
+): Promise<StewardVeto | null> {
   const seated = (await stewardsSeated(deps.pool, nowOf(deps))).filter((h) => !h.lapsed);
   if (seated.length === 0) return null;
   const seatIds = new Set(seated.map((h) => h.userId));
   const cast = await votesFor(deps.pool, b.id);
   const noes = cast.filter((v) => v.choice === "no" && seatIds.has(v.userId));
   if (noes.length === 0) return null;
-  const needed = deps.stewardCouncil() ? Math.floor(seated.length / 2) + 1 : 1;
-  if (noes.length < needed) return null;
-  const reasons: string[] = [];
+  // The reason lives on the vote row and `votesFor` does not carry it, so the
+  // stewards' rows are read once each. Only their rows: the rule counts only a
+  // seated steward's no, so nobody else's words are read here at all.
+  const votes: Array<{ userId: string; choice: string; reason: string | null }> = [];
   for (const v of noes) {
     const [rows] = await deps.pool.query<RowDataPacket[]>(
       "SELECT reason FROM ballot_votes WHERE ballot_id = ? AND user_id = ?",
       [b.id, v.userId],
     );
-    const text = String(rows[0]?.reason ?? "").trim();
-    if (text) reasons.push(text);
+    votes.push({ userId: v.userId, choice: "no", reason: rows[0]?.reason == null ? null : String(rows[0].reason) });
   }
-  return {
-    stewardIds: noes.map((v) => v.userId),
-    reason: reasons.length > 0 ? reasons.join(" / ") : "A steward voted against this one and gave no further reason.",
-    seated: seated.length,
-  };
+  const verdict = stewardNoBlocks({
+    ballot: { subjectType: b.subjectType, subjectRef: b.subjectRef, itemKinds },
+    votes,
+    seated: seated.map((h) => ({ userId: h.userId })),
+    council: deps.stewardCouncil(),
+  });
+  if (!verdict.blocks) return null;
+  return { stewardIds: verdict.stewardIds, reason: verdict.reason, seated: verdict.seated };
 }
 
 export type VetoResult =
@@ -595,6 +600,30 @@ const MOMENT_TITLE: Readonly<Record<StewardMoment, (title: string) => string>> =
 };
 
 /**
+ * STEWARD-VETO LANE: each moment takes its own notification type.
+ *
+ * All four used to go out as `governance`, which resolves to the governance
+ * email preference, which defaults to daily. So the two-hours-left warning
+ * arrived hours after the change had landed. The three window moments are
+ * pinned to "immediate" in `emailCadenceFor` through these types. A reopened
+ * window is the carry notice arriving a second time, and takes the same type.
+ *
+ * THE STRINGS ARE LITERALS HERE and the same three are named in
+ * `VETO_WATCH_NOTICE_TYPES` in server/lib/stewardship.ts, which is the module
+ * that owns them. `applyDue.test.ts` pins the two equal, so the duplication
+ * cannot drift. It is written out because the notification catalogue's own
+ * guard reads the server's source for the types it sends, and a type reached
+ * through another module's constant is invisible to it: the alternative was a
+ * blurb with no producer, which is exactly the check that guard exists for.
+ */
+export const MOMENT_TYPE: Readonly<Record<StewardMoment, string>> = {
+  carry: "veto_window_opened",
+  halfway: "veto_window_halfway",
+  two_hours: "veto_window_closing",
+  reopened: "veto_window_opened",
+};
+
+/**
  * In-app through the notification spine, to every seated steward, naming the
  * proposal and the instant. The email hook is the spine's own cadence, so a
  * lane wiring email for governance wires it there rather than here.
@@ -604,7 +633,7 @@ export async function tellStewards(deps: LandingDeps, b: BallotRow, landsAt: Dat
   for (const holding of seated) {
     await deps.notify({
       userId: holding.userId,
-      type: "governance",
+      type: MOMENT_TYPE[moment],
       title: MOMENT_TITLE[moment](b.title),
       body: `It takes effect at ${landsAt.toISOString()} unless you stop it before then, with a reason the village can read.`,
       link: `/governance/ballots/${b.id}`,
@@ -680,7 +709,7 @@ export async function routeOutcome(
   // A seated steward's no is the block, and it lands while the ballot is open,
   // which is the only door a token send ever has.
   let stewardVeto: StewardVeto | null = null;
-  if (outcome === "passed") stewardVeto = await stewardNoVote(deps, b);
+  if (outcome === "passed") stewardVeto = await stewardNoVote(deps, b, itemKinds);
   const effective: "passed" | "failed" | "no_quorum" = stewardVeto ? "failed" : outcome;
 
   const note = stewardVeto
@@ -704,6 +733,20 @@ export async function routeOutcome(
         "UPDATE mechanics_proposals SET vetoed_at = ?, vetoed_by = ?, veto_reason = ? WHERE id = ?",
         [sqlInstant(at), stewardVeto.stewardIds[0], stewardVeto.reason.slice(0, 4000), b.subjectRef],
       );
+    }
+    /*
+     * STEWARD-VETO LANE: the block is written as a VETO ACT as well as a set
+     * of columns, one row per steward who blocked it.
+     *
+     * The columns are what the landing gate and the override read. The acts
+     * are what a member reads: `vetoesFor` is the list every surface renders,
+     * `stewardVetoStands` is what the dashboard's blocked-payouts row counts,
+     * and `redactVetoReason` is the door the words can be taken back through.
+     * Stamping only the columns left a payout that died with a named steward
+     * and a public reason and no act anywhere a person could see it.
+     */
+    for (const stewardId of stewardVeto.stewardIds) {
+      await recordStewardAct(deps.pool, { ballotId: b.id, decidedBy: stewardId, reason: stewardVeto.reason });
     }
     routing.held = "A steward voted against this one while it was open, so it did not carry.";
     return routing;
@@ -846,23 +889,39 @@ export async function itemKindsOf(deps: LandingDeps, b: BallotRow): Promise<stri
 /**
  * DOES THIS SET EDIT THE MAP THAT SAYS WHAT A STEWARD MAY STOP?
  *
- * `server/lib/stewardship.ts` owns the list of keys that make up the reach of
- * the seat, and `keyIsVetoLocked` is its answer. Asked here so the same rule
- * that takes a window off `role_seat` and `role_unseat` also takes one off a
- * change set that narrows what the seat may reach. Reading the set a second
- * time costs one query on the close of a mechanics ballot, and it keeps the
- * key list in the module that owns it rather than copied into this one.
+ * `server/lib/stewardship.ts` owns the key lists and `keyIsVetoMap` is its
+ * answer to this narrower question. It asks the MAP question rather than the
+ * wider `keyIsVetoLocked` one on purpose: `keyIsVetoLocked` says which keys no
+ * steward may veto, which is five keys, and every one of them still waits out
+ * its window like any other Game change (20.11). Only the map itself carries
+ * the older no-window reading, and the dispatcher lane owns whether that
+ * survives at all.
  */
 export async function editsVetoMap(deps: LandingDeps, b: BallotRow): Promise<boolean> {
-  if (!hasProposal(b.subjectType)) return false;
-  const [rows] = await deps.pool.query<RowDataPacket[]>("SELECT change_set FROM mechanics_proposals WHERE id = ?", [
+  const set = await changeSetOf(deps.pool, b);
+  return set.some((c: { key?: unknown }) => keyIsVetoMap(String(c?.key ?? "")));
+}
+
+/**
+ * THE ELEMENTS A BALLOT CARRIES, or an empty list when it carries none.
+ *
+ * One reader, so the veto route and the landing path ask the same question of
+ * the same column. A subject with no proposal row behind it answers with an
+ * empty list, which is honest: it carries no elements, as opposed to elements
+ * nobody could read.
+ */
+export async function changeSetOf(
+  pool: Pool,
+  b: { subjectType: string; subjectRef: string },
+): Promise<Array<{ key?: unknown; kind?: unknown }>> {
+  if (!hasProposal(b.subjectType)) return [];
+  const [rows] = await pool.query<RowDataPacket[]>("SELECT change_set FROM mechanics_proposals WHERE id = ?", [
     b.subjectRef,
   ]);
   const raw = rows[0]?.change_set;
-  if (!raw) return false;
+  if (!raw) return [];
   const set = typeof raw === "string" ? JSON.parse(raw) : raw;
-  if (!Array.isArray(set)) return false;
-  return set.some((c: { key?: unknown }) => keyIsVetoLocked(String(c?.key ?? "")));
+  return Array.isArray(set) ? set : [];
 }
 
 /**

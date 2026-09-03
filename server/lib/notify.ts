@@ -109,8 +109,39 @@ export function resolveNotifyPrefs(prefs: any): NotifyPrefs {
   };
 }
 
+/**
+ * THE THREE STEWARD WINDOW NOTICES, PINNED, and they sit above the global
+ * switch on purpose.
+ *
+ * A carried decision lands at its instant whether or not anybody is looking,
+ * and these three are the only warning the one person who can stop it gets:
+ * at the carry, at the half-way point, and two hours out. Every other
+ * governance type resolves to `governanceEmail`, which defaults to DAILY, so
+ * riding that preference meant the last warning arrived hours after the change
+ * had landed.
+ *
+ * WHY ABOVE `emailsOff` AS WELL. The preference route refuses to turn mail off
+ * while a member holds a steward-capable role (`stewardMailRefusal`), so the
+ * only way a seated steward reaches this line with mail off is by having
+ * turned it off BEFORE the village seated them. A silence they chose about
+ * something they were not yet accountable for is not consent to miss the
+ * window, and the seat is one they can hand back at any time.
+ */
+const STEWARD_WINDOW_TYPES: ReadonlySet<string> = new Set([
+  "veto_window_opened",
+  "veto_window_halfway",
+  "veto_window_closing",
+]);
+
+/**
+ * The refusal that keeps the pin honest lives beside the seat it is about:
+ * `stewardMailRefusal` in server/lib/stewardship.ts, called by the preference
+ * route before it writes.
+ */
+
 /** Which email cadence a type resolves to. Unknown types: in-app only. */
 export function emailCadenceFor(type: string, p: NotifyPrefs): "immediate" | "daily" | "off" {
+  if (STEWARD_WINDOW_TYPES.has(type)) return "immediate";
   if (p.emailsOff) return "off";
   switch (type) {
     case "gratitude":

@@ -28,23 +28,37 @@
 import { describe, expect, it } from "vitest";
 import {
   ADVISORY,
+  AUTO_EXECUTE_SUBJECTS_KEY,
   DEFAULT_TERM_CYCLES,
+  HIGHEST_TIER_KEY,
   REASON_MAX,
   REASON_NOTICE,
+  VETO_TEXT_COLUMNS,
+  VETO_WATCH_NOTICE_TYPES,
+  isVetoable,
   keyIsVetoLocked,
+  keyIsVetoMap,
   mayVeto,
   noObjectionReasonProblem,
+  stewardIsSubjectOf,
   stewardMayVetoAnything,
+  stewardNoBlocks,
   subjectMap,
   termEndsAtFromCycles,
   vetoReasonProblem,
   vetoWatchMarksDue,
+  vetoWatchMarksToSend,
+  vetoWatchNoticeType,
   vetoWindowIsKnown,
   STEWARD_COUNCIL_KEY,
   STEWARD_SUBJECTS_KEY,
   STEWARD_VETO,
   VETO_HOURS_KEY,
 } from "./stewardship";
+import { emailCadenceFor, resolveNotifyPrefs } from "./notify";
+import { capabilityDecision } from "../../shared/capabilities";
+import { NOTIFICATION_KINDS } from "../../shared/notificationKinds";
+import { badgeProblem } from "./badges";
 import { stewardSeatRefusal, STEWARD_SEAT_REFUSAL } from "./roleGrants";
 import { ALL_CAPABILITIES, CAPABILITY_LABELS, TRANSFERABLE, DENIABLE } from "../../shared/capabilities";
 import { CAPABILITY_CONSEQUENCE } from "../../shared/draftKinds";
@@ -96,15 +110,215 @@ describe("what a steward may NEVER stop, however the list is set", () => {
    * the term that was supposed to end it hung on a season list that never
    * turned. These are the two carve-outs that answer it.
    */
-  it("puts the veto map, the council switch and the window length out of reach", () => {
+  it("puts all five limits on the seat out of reach", () => {
+    // The list widened on 2026-09-03 (20.11 names all five as constitutional
+    // and the seat's own limits). `governance.auto_execute_subjects` is the
+    // older half of the map and carries no registry entry on this build; it is
+    // still locked, because a fork's database may hold the row and a change
+    // set naming the string must be treated as an edit to the map.
     expect(keyIsVetoLocked(STEWARD_SUBJECTS_KEY)).toBe(true);
+    expect(keyIsVetoLocked(AUTO_EXECUTE_SUBJECTS_KEY)).toBe(true);
     expect(keyIsVetoLocked(STEWARD_COUNCIL_KEY)).toBe(true);
     expect(keyIsVetoLocked(VETO_HOURS_KEY)).toBe(true);
+    expect(keyIsVetoLocked(HIGHEST_TIER_KEY)).toBe(true);
   });
 
   it("leaves every other setting exactly where it was", () => {
     expect(keyIsVetoLocked("governance.auto_apply_enabled")).toBe(false);
     expect(keyIsVetoLocked("governance.quorum_pct")).toBe(false);
+  });
+
+  it("keeps the MAP question narrower than the reach question", () => {
+    // Two different questions, and collapsing them is what put the council
+    // switch and the window length on the no-window path. The map is the two
+    // keys 20.11 names; the reach is every limit on the seat.
+    expect(keyIsVetoMap(STEWARD_SUBJECTS_KEY)).toBe(true);
+    expect(keyIsVetoMap(AUTO_EXECUTE_SUBJECTS_KEY)).toBe(true);
+    expect(keyIsVetoMap(STEWARD_COUNCIL_KEY)).toBe(false);
+    expect(keyIsVetoMap(VETO_HOURS_KEY)).toBe(false);
+    expect(keyIsVetoMap(HIGHEST_TIER_KEY)).toBe(false);
+  });
+});
+
+describe("isVetoable, the one predicate, elements and all", () => {
+  /*
+   * The second audit's top risk 2 and risk 3 both land here. A change set
+   * carrying `governance.veto_hours` beside an ordinary dial used to answer
+   * "vetoable", because the only question asked was about the SUBJECT type, so
+   * the seat could stop the village shortening its own window by bundling the
+   * edit with anything else.
+   */
+  it("refuses a veto on a change set that edits a limit on the seat, and names the key", () => {
+    const verdict = isVetoable("mechanics", [{ key: "gratitude.pool" }, { key: VETO_HOURS_KEY }], {
+      stewardSubjects: "all",
+    });
+    expect(verdict.vetoable).toBe(false);
+    expect(verdict.why).toContain(VETO_HOURS_KEY);
+  });
+
+  it("lets an ordinary change set through", () => {
+    expect(isVetoable("mechanics", [{ key: "gratitude.pool" }], { stewardSubjects: "all" }).vetoable).toBe(true);
+    expect(isVetoable("mechanics", [], { stewardSubjects: "all" }).vetoable).toBe(true);
+  });
+
+  it("refuses a veto on the seating of a steward-capable role", () => {
+    const verdict = isVetoable("role_unseat", [], { stewardSubjects: "all", seatsStewardCapableRole: true });
+    expect(verdict.vetoable).toBe(false);
+  });
+
+  it("leaves a seating for any other role vetoable", () => {
+    expect(isVetoable("role_seat", [], { stewardSubjects: "all" }).vetoable).toBe(true);
+  });
+
+  it("SAYS THE WINDOW STANDS, because the carve-out takes the veto and nothing else", () => {
+    /*
+     * The rule this replaces: 20.11 corrected the first reading, under which
+     * these executed at pass with no window at all. That put the one act
+     * nobody can stop onto the fastest clock the platform has. They now wait
+     * exactly as long as any other Game change of the same timing, and the
+     * copy has to say so or a steward reads "no window" into it.
+     */
+    for (const verdict of [
+      isVetoable("role_unseat", [], { stewardSubjects: "all", seatsStewardCapableRole: true }),
+      isVetoable("mechanics", [{ key: STEWARD_SUBJECTS_KEY }], { stewardSubjects: "all" }),
+    ]) {
+      expect(verdict.why).toContain("waits out its window");
+      expect(verdict.why).not.toContain("the moment it carries");
+    }
+  });
+
+  it("still answers no on a subject this village put outside the seat's reach", () => {
+    expect(isVetoable("mechanics", [], { stewardSubjects: "none" }).vetoable).toBe(false);
+    expect(isVetoable(ADVISORY, [], { stewardSubjects: "all" }).vetoable).toBe(false);
+  });
+});
+
+describe("a seated steward's no, evaluated at the close", () => {
+  const STEWARD = { userId: "st-1" };
+  const send = (over: Record<string, unknown> = {}) => ({
+    ballot: { subjectType: "token_send", subjectRef: "pay-1", ...over },
+    seated: [STEWARD],
+    council: false,
+  });
+
+  it("fails a token send when the steward said no and said why", () => {
+    const verdict = stewardNoBlocks({
+      ...send(),
+      votes: [
+        { userId: "u-a", choice: "yes" },
+        { userId: "st-1", choice: "no", reason: "This pays one household twice." },
+      ],
+    });
+    expect(verdict.blocks).toBe(true);
+    expect(verdict.kind).toBe("token_send");
+    expect(verdict.stewardIds).toEqual(["st-1"]);
+    expect(verdict.reason).toContain("one household twice");
+  });
+
+  it("does NOT fail a Game change, which has a window and a veto of its own", () => {
+    // The wider reading the first build shipped gave one seat a silent,
+    // unappealable kill switch over every ballot in the village, the one that
+    // would remove them included. 20.11 narrows it to token sends.
+    const verdict = stewardNoBlocks({
+      ballot: { subjectType: "mechanics", subjectRef: "prop-1" },
+      votes: [{ userId: "st-1", choice: "no", reason: "Not this moon." }],
+      seated: [STEWARD],
+      council: false,
+    });
+    expect(verdict.blocks).toBe(false);
+    expect(verdict.kind).toBe("game_change");
+    expect(verdict.sentence).toContain("window");
+  });
+
+  it("reads a bundle as a whole, so a mixed set is a Game change", () => {
+    const verdict = stewardNoBlocks({
+      ballot: { subjectType: "mechanics", subjectRef: "prop-2", itemKinds: ["token_send", "dial"] },
+      votes: [{ userId: "st-1", choice: "no", reason: "Not this moon." }],
+      seated: [STEWARD],
+      council: false,
+    });
+    expect(verdict.kind).toBe("game_change");
+    expect(verdict.blocks).toBe(false);
+  });
+
+  it("NEVER fails a ballot the steward is the subject of", () => {
+    // Risk 4 of the second audit. The seat that cannot veto its own removal
+    // was failing it with a vote instead.
+    const verdict = stewardNoBlocks({
+      ballot: { subjectType: "token_send", subjectRef: "st-1" },
+      votes: [{ userId: "st-1", choice: "no", reason: "I would rather keep this." }],
+      seated: [STEWARD],
+      council: false,
+    });
+    expect(verdict.blocks).toBe(false);
+    expect(verdict.uncounted[0]?.because).toContain("about them");
+  });
+
+  it("reads the userId@roleId reference the seating ballots freeze", () => {
+    expect(stewardIsSubjectOf({ subjectRef: "st-1@steward" }, "st-1")).toBe(true);
+    expect(stewardIsSubjectOf({ subjectRef: "st-1" }, "st-1")).toBe(true);
+    expect(stewardIsSubjectOf({ subjectRef: "st-12@steward" }, "st-1")).toBe(false);
+    expect(stewardIsSubjectOf({ subjectRef: null }, "st-1")).toBe(false);
+  });
+
+  it("REQUIRES A REASON, held to the veto's own rule", () => {
+    // Choices are hidden by default, so a no with no words kills a payout
+    // while saying nothing and while nobody can see it coming.
+    for (const reason of [undefined, null, "", "   "]) {
+      const verdict = stewardNoBlocks({ ...send(), votes: [{ userId: "st-1", choice: "no", reason }] });
+      expect(verdict.blocks, String(reason)).toBe(false);
+      expect(verdict.uncounted[0]?.because).toContain("no reason");
+    }
+  });
+
+  it("takes a majority of the seated stewards under a council", () => {
+    const seated = [{ userId: "st-1" }, { userId: "st-2" }, { userId: "st-3" }];
+    const one = stewardNoBlocks({
+      ballot: { subjectType: "token_send", subjectRef: "pay-1" },
+      votes: [{ userId: "st-1", choice: "no", reason: "Not this one." }],
+      seated,
+      council: true,
+    });
+    expect(one.blocks).toBe(false);
+    expect(one.needed).toBe(2);
+
+    const two = stewardNoBlocks({
+      ballot: { subjectType: "token_send", subjectRef: "pay-1" },
+      votes: [
+        { userId: "st-1", choice: "no", reason: "Not this one." },
+        { userId: "st-2", choice: "no", reason: "Nor this one." },
+      ],
+      seated,
+      council: true,
+    });
+    expect(two.blocks).toBe(true);
+    expect(two.stewardIds).toEqual(["st-1", "st-2"]);
+  });
+
+  it("counts nobody who is not on a seat", () => {
+    const verdict = stewardNoBlocks({
+      ...send(),
+      votes: [{ userId: "u-a", choice: "no", reason: "I would rather not." }],
+    });
+    expect(verdict.blocks).toBe(false);
+    expect(verdict.uncounted).toEqual([]);
+  });
+
+  it("leaves the tally alone, because a steward's weight counts like anybody's", () => {
+    /*
+     * Nothing in this function removes or reweights a vote. The block sits on
+     * top of an outcome the engine already computed, so a ballot that failed
+     * on the numbers failed on the numbers, and a steward who votes no on a
+     * Game change has voted no like any other member.
+     */
+    const verdict = stewardNoBlocks({
+      ballot: { subjectType: "mechanics", subjectRef: "prop-3" },
+      votes: [{ userId: "st-1", choice: "no", reason: "Not this moon." }],
+      seated: [STEWARD],
+      council: false,
+    });
+    expect(verdict.blocks).toBe(false);
+    expect(verdict.stewardIds).toEqual([]);
   });
 });
 
@@ -317,5 +531,142 @@ describe("the capability, in all five places", () => {
     // put the removal the ballots own back inside the badge panel, which is
     // the same door under a different name.
     expect(DENIABLE[STEWARD_VETO]).toBe(false);
+  });
+
+  it("survives a warning badge naming it, at the gate itself", () => {
+    /*
+     * Risk 5 of the second audit, and the half that was never named: 20.8
+     * closed the GRANT path at the admin roles routes and left the DENY path
+     * open. An admin who could not seat themselves could still issue a warning
+     * badge against the elected steward, pass a constitutional change, and
+     * wait out the window, with nothing on the roles plane moving.
+     *
+     * THE DIRECTION IS WHY. Under the approval model a paused approval meant
+     * a proposal waited, which changes nothing. Under the veto model A PAUSED
+     * VETO MEANS THE CHANGE LANDS.
+     *
+     * Verified red by flipping DENIABLE["steward.veto"] to true: the decision
+     * below then reads "denied by warning badge" and the assertion fails.
+     */
+    const decision = capabilityDecision(STEWARD_VETO, {
+      stageIndex: 0,
+      stageIndexOf: () => -1,
+      roleCapabilities: [STEWARD_VETO],
+      badgeDenies: [STEWARD_VETO],
+    });
+    expect(decision.allowed).toBe(true);
+    expect(decision.source).toBe("role");
+  });
+
+  it("cannot even be written into a warning badge, so the admin is told rather than ignored", () => {
+    // The second of the three locks on the same door. The gate ignoring a
+    // deny is right and silent; an admin who tried deserves the sentence.
+    const problem = badgeProblem({
+      kind: "warning",
+      capabilities: [],
+      denies: [STEWARD_VETO],
+      rule: null,
+    });
+    expect(problem).toBeTruthy();
+    expect(String(problem)).toContain(CAPABILITY_LABELS[STEWARD_VETO]);
+  });
+});
+
+describe("the five settings that price and shape the seat", () => {
+  /*
+   * The second audit, verified against the tree: `governance.steward_subjects`
+   * carried no criticality field, so `criticalityOf` returned routine and the
+   * whole reach of the seat could be set to none at 20 percent quorum, by the
+   * cheapest proposal in the village, with no window and no veto able to reach
+   * it. All five are limits on the seat, so all five are priced at the top.
+   */
+  const CONSTITUTIONAL = [STEWARD_SUBJECTS_KEY, STEWARD_COUNCIL_KEY, VETO_HOURS_KEY, HIGHEST_TIER_KEY];
+
+  for (const key of CONSTITUTIONAL) {
+    it(`prices ${key} at the constitutional tier`, () => {
+      const def = VARIABLES_BY_KEY[key];
+      expect(def, "the setting is registered, or nothing can price it").toBeTruthy();
+      expect(def.criticality).toBe("constitutional");
+    });
+  }
+
+  it("locks the fifth key without registering it, because this build does not serve it", () => {
+    // `governance.auto_execute_subjects` is the older half of the veto map.
+    // Under the approval model it named which subjects carried themselves;
+    // once every subject does that it says nothing, so it has no registry
+    // entry here and nothing prices it. It stays in the locked list because a
+    // fork's database may still hold the row.
+    expect(VARIABLES_BY_KEY[AUTO_EXECUTE_SUBJECTS_KEY]).toBeUndefined();
+    expect(keyIsVetoLocked(AUTO_EXECUTE_SUBJECTS_KEY)).toBe(true);
+  });
+});
+
+describe("the three window notices, and the mail that carries them", () => {
+  /*
+   * Every governance type resolves to `governanceEmail`, which defaults to
+   * daily. So the last warning before a Game change landed, sent two hours
+   * out, arrived hours after it had landed. Three types of their own, pinned.
+   */
+  it("gives each mark its own notification type", () => {
+    expect(vetoWatchNoticeType("carried")).toBe("veto_window_opened");
+    expect(vetoWatchNoticeType("halfway")).toBe("veto_window_halfway");
+    expect(vetoWatchNoticeType("two-hours-left")).toBe("veto_window_closing");
+  });
+
+  it("pins all three to immediate, whatever the member set governance mail to", () => {
+    for (const setting of ["daily", "off"] as const) {
+      const prefs = resolveNotifyPrefs({ notify: { governanceEmail: setting } });
+      for (const type of Object.values(VETO_WATCH_NOTICE_TYPES)) {
+        expect(emailCadenceFor(type, prefs), `${type} at ${setting}`).toBe("immediate");
+      }
+      // The rest of the family is untouched: a ballot opening still rides the
+      // preference, because its window is measured in days.
+      expect(emailCadenceFor("ballot_opened", prefs)).toBe(setting);
+    }
+  });
+
+  it("reaches a steward who turned all mail off before the village seated them", () => {
+    const prefs = resolveNotifyPrefs({ notify: { emailsOff: true } });
+    expect(emailCadenceFor("veto_window_closing", prefs)).toBe("immediate");
+    expect(emailCadenceFor("ballot_opened", prefs)).toBe("off");
+  });
+
+  it("says what each one is about, so a bell row carries its own context", () => {
+    for (const type of Object.values(VETO_WATCH_NOTICE_TYPES)) {
+      const kind = NOTIFICATION_KINDS[type];
+      expect(kind, type).toBeTruthy();
+      expect(kind.group).toBe("decisions");
+      expect(kind.celebrate, "a countdown is not a moment").toBe(false);
+    }
+  });
+
+  it("SUPPRESSES a notice whose moment has passed rather than sending it late", () => {
+    const carried = new Date("2026-03-01T00:00:00.000Z");
+    const lands = new Date("2026-03-04T00:00:00.000Z");
+    const window = { carriedAt: carried, landsAt: lands };
+    // Inside the window it says the same thing the due list says.
+    expect(vetoWatchMarksToSend(window, new Date("2026-03-03T23:00:00.000Z"))).toEqual(
+      vetoWatchMarksDue(window, new Date("2026-03-03T23:00:00.000Z")),
+    );
+    // Once it has landed there is no door left, and a notice about a shut door
+    // sends a steward looking for one.
+    expect(vetoWatchMarksDue(window, new Date("2026-03-04T00:30:00.000Z")).length).toBeGreaterThan(0);
+    expect(vetoWatchMarksToSend(window, new Date("2026-03-04T00:30:00.000Z"))).toEqual([]);
+  });
+});
+
+describe("where this lane's free text lives", () => {
+  /*
+   * A veto reason is written once and stored three times, and the first
+   * redaction knew about one of them. An inventory that names all three is
+   * what makes "the words can be redacted later" true on every page rather
+   * than on one.
+   */
+  it("names every column, so a redaction can reach all of them", () => {
+    expect(VETO_TEXT_COLUMNS).toEqual([
+      "ballot_vetoes.reason",
+      "ballots.veto_reason",
+      "mechanics_proposals.veto_reason",
+    ]);
   });
 });
