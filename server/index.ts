@@ -53,6 +53,7 @@ import { register as registerOrgSeatingRoutes } from "./routes/orgSeatings";
 import { register as registerOrgRoutes } from "./routes/org";
 import { register as registerGovernanceWeightRoutes } from "./routes/governanceWeights";
 import { register as registerGovernanceWizardRoutes } from "./routes/governanceWizard";
+import { register as registerDelegationRoutes } from "./routes/delegation";
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
 import { register as registerHousingRoutes } from "./routes/housing";
 import { register as registerJourneyRoutes } from "./routes/journey";
@@ -26770,6 +26771,7 @@ ${inner}
     isAdmin, authedUser, adminActor, getPool, members, firstName, notify, weightModeNow,
   });
   registerGovernanceWizardRoutes(app, { authedUser, getPool, capabilityCtx, weightModeNow });
+  registerDelegationRoutes(app, { authedUser, getPool, capabilityCtx, members, firstName });
 
   /**
    * The subset of variables the CLIENT is allowed to know, so the UI can render

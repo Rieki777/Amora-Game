@@ -22,6 +22,11 @@
  *    after `closes_at` the proposer joins the closers; while the ballot is
  *    still running only a `proposal.decide` holder or an admin may close
  *    early, and a consent ballot never passes before its window ends.
+ *  - A DELEGATED VOTE IS A ROW FOR THE DELEGATOR (0137). Casting copies the
+ *    choice to everyone whose chain ends at the voter, stamped with who
+ *    decided it, and the weight never moves. The rule itself lives in
+ *    server/lib/delegation.ts; this file calls it from one place, after the
+ *    upsert, so the derivation and the vote cannot disagree.
  *
  * Callers hand this file a pool and plain inputs. Variables, capabilities
  * and subject-table flips live with the routes (server/index.ts), which is
@@ -39,6 +44,7 @@ import {
   type BallotTallies,
   type VoteChoice,
 } from "../../shared/governanceEngine";
+import { applyDelegatedVotes } from "./delegation";
 import type { WeightMode } from "./governanceWeights";
 
 export interface BallotRow {
@@ -422,9 +428,14 @@ export async function castVote(
   if (ballot.method === "consent" && choice === "no" && !cleanReason) {
     return { ok: false, error: "A no in consent mode is an objection, and an objection carries its reasoning. Say why" };
   }
+  // DELEGATION (0137): `followed_user_id` NULL is what "I decided this myself"
+  // means, and it is written explicitly here so that a member who had been
+  // following somebody takes their own row back the moment they vote. Every
+  // delegation-derived row is guarded on that column being set, so an own vote
+  // is never overwritten afterwards.
   await pool.query( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
-    "INSERT INTO ballot_votes (ballot_id, user_id, choice, reason) VALUES (?,?,?,?) " +
-      "ON DUPLICATE KEY UPDATE choice = VALUES(choice), reason = VALUES(reason)",
+    "INSERT INTO ballot_votes (ballot_id, user_id, choice, reason, followed_user_id) VALUES (?,?,?,?,NULL) " +
+      "ON DUPLICATE KEY UPDATE choice = VALUES(choice), reason = VALUES(reason), followed_user_id = NULL",
     [ballotId, userId, choice, cleanReason || null],
   );
   if (ballot.method === "consent" && choice === "no") {
@@ -438,6 +449,13 @@ export async function castVote(
       await fileObjection(pool, ballotId, userId, cleanReason);
     }
   }
+  // DELEGATION (0137): everyone whose chain ends at this voter and who has not
+  // decided for themselves now carries this choice, stamped with who decided
+  // it. Copying the choice keeps the weight where it froze, so this write
+  // moves no frozen column and the participation count stays one row per
+  // member. See server/lib/delegation.ts for why one routine derives the whole
+  // ballot rather than patching the members who look affected.
+  await applyDelegatedVotes(pool, ballotId);
   return { ok: true, choice };
 }
 
@@ -671,19 +689,32 @@ export async function withdrawBallot(pool: Pool, input: WithdrawBallotInput): Pr
   return { ok: true, ballot: withdrawn!, votesDiscarded: votes };
 }
 
-/** A member's own vote, for honest ballot pages. */
-export async function voteOf(pool: Pool, ballotId: string, userId: string): Promise<{ choice: VoteChoice; reason: string | null } | null> {
+/**
+ * A member's own vote, for honest ballot pages.
+ *
+ * DELEGATION (0137): `followedUserId` is null on a vote this member made, and
+ * otherwise names the member whose choice was copied here, at the END of the
+ * chain. A member who handed their voice to B and was decided by C four hops
+ * away reads C, because C is the concentration a delegator is owed a sight of.
+ */
+export async function voteOf(pool: Pool, ballotId: string, userId: string): Promise<{ choice: VoteChoice; reason: string | null; followedUserId: string | null } | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT choice, reason FROM ballot_votes WHERE ballot_id = ? AND user_id = ?",
+    "SELECT choice, reason, followed_user_id FROM ballot_votes WHERE ballot_id = ? AND user_id = ?",
     [ballotId, userId],
   );
-  return rows[0] ? { choice: rows[0].choice as VoteChoice, reason: rows[0].reason ?? null } : null;
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    choice: r.choice as VoteChoice,
+    reason: r.reason ?? null,
+    followedUserId: r.followed_user_id === null || r.followed_user_id === undefined ? null : String(r.followed_user_id),
+  };
 }
 
 /** Every vote, with weight: the Hypha voter-list posture, votes on the record. */
 export async function votesFor(pool: Pool, ballotId: string) {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT v.user_id, v.choice, v.cast_at, v.updated_at, e.weight FROM ballot_votes v " +
+    "SELECT v.user_id, v.choice, v.cast_at, v.updated_at, v.followed_user_id, e.weight FROM ballot_votes v " +
       "JOIN ballot_electorate e ON e.ballot_id = v.ballot_id AND e.user_id = v.user_id " +
       "WHERE v.ballot_id = ? ORDER BY v.cast_at, v.user_id",
     [ballotId],
@@ -693,6 +724,8 @@ export async function votesFor(pool: Pool, ballotId: string) {
     choice: String(r.choice) as VoteChoice,
     weight: Number(r.weight),
     castAt: iso(r.cast_at),
+    // DELEGATION (0137): who decided this row, or null when the member did.
+    followedUserId: r.followed_user_id === null || r.followed_user_id === undefined ? null : String(r.followed_user_id),
   }));
 }
 
