@@ -18,6 +18,7 @@ import {
   canConfirm,
   canSettleClaim,
   checkGive,
+  ceilingOutcome,
   clampToCeiling,
   claimRefunds,
   CREDITS,
@@ -1152,6 +1153,35 @@ describe.skipIf(!configured)("the village economy engine", () => {
       expect(clampToCeiling(0, rule({ amount: 25, ceiling: 5 }))).toBe(5);
       expect(clampToCeiling(0, rule({ amount: 25, ceiling: 250 }))).toBe(25);
       expect(clampToCeiling(0, rule({ amount: 25, ceiling: 0 }))).toBe(0);
+    });
+
+    it("answers the whole ceiling decision in one pure call, every case", () => {
+      // THE TABLE THE DRY-RUN MODEL MIRRORS. `shared/dryRun/economicsModel.ts`
+      // may not import anything under `server/` and its own test walks the
+      // import graph to enforce that, so it copies this arithmetic the way it
+      // copies the faucet map. This is the table to copy, and there is
+      // deliberately no "issued so far this cycle" column in it: the ceiling
+      // bounds an occurrence, so a running total is not an input.
+      const cases: Array<[Partial<MintRule>, number, number, boolean]> = [
+        // rule                          posted  paid  refused
+        [{ amount: 25, ceiling: 250 },        0,   25,  false],
+        [{ amount: 25, ceiling: 5 },          0,    5,  false],
+        [{ amount: 25, ceiling: 25 },         0,   25,  false], // exactly at it pays
+        [{ amount: 25, ceiling: 0 },          0,    0,   true],
+        [{ amount: 0, ceiling: 250 },         0,    0,  false], // the village's own off switch
+        [{ amount: null, ceiling: 100 },     40,   40,  false],
+        [{ amount: null, ceiling: 100 },   4000,  100,  false],
+        [{ amount: null, ceiling: 0 },       40,    0,   true],
+      ];
+      for (const [over, posted, paid, refused] of cases) {
+        const out = ceilingOutcome(rule(over), posted, "Village Credits");
+        expect({ paid: out.paid, refused: out.refusal !== null }).toEqual({ paid, refused });
+      }
+      // The sentence itself, once, because a founder reads it and a route logs
+      // it. It names the number that stopped the payment and what to do.
+      expect(ceilingOutcome(rule({ amount: 25, ceiling: 0 }), 0, "Village Credits").refusal).toBe(
+        "this rule's ceiling is 0, so it can pay no Village Credits at all. Raise the ceiling or pause the rule",
+      );
     });
   });
 

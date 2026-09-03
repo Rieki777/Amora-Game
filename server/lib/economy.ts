@@ -544,29 +544,65 @@ export function clampToCeiling(posted: number, rule: MintRule): number {
   return Math.min(asked, ceiling);
 }
 
+/** What the ceiling lets one occurrence post, and why it let it post nothing. */
+export interface CeilingOutcome {
+  /** What may be posted, in the rule's own human units. 0 posts nothing. */
+  paid: number;
+  /** Why the CEILING stopped it, in a founder's words, or null. */
+  refusal: string | null;
+}
+
 /**
- * Why this rule can pay nothing at all, or null when it can pay something.
+ * THE WHOLE CEILING DECISION, in one pure function, for one occurrence.
  *
- * Said in the founder's words and not the log's, because it goes into the same
- * `unpayable` list `ruleCannotPay` feeds, and a village reading that list is
- * trying to work out which of its own numbers is wrong.
+ * No pool, no clock, no registry: the rule row and the posted amount decide it
+ * and nothing else does. That is what makes it the single thing to mirror. The
+ * dry-run model (shared/dryRun/economicsModel.ts) is forbidden from importing
+ * anything under `server/` and its own test walks the import graph to enforce
+ * that, so it COPIES this arithmetic the way it copies the faucet map, and this
+ * function is the one place to copy it from.
+ *
+ * There is deliberately no "issued so far this cycle" argument. The ceiling
+ * bounds an occurrence and not a cycle, so a running total is not an input to
+ * this decision and adding one would describe a rule the schema does not have.
+ * See `clampToCeiling` for the four citations behind that reading.
+ *
+ * WHAT COMES BACK, and every case of it:
+ *
+ *   ceiling 250, amount 25   ->  { paid: 25, refusal: null }   nothing changes
+ *   ceiling 5,   amount 25   ->  { paid: 5,  refusal: null }   the clamp bites
+ *   ceiling 25,  amount 25   ->  { paid: 25, refusal: null }   exactly at it pays
+ *   ceiling 0,   amount 25   ->  { paid: 0,  refusal: "..." }  fails closed, loudly
+ *   ceiling 250, amount 0    ->  { paid: 0,  refusal: null }   the village's own off switch
+ *   ceiling 100, from_source ->  { paid: min(posted, 100), refusal: null }
+ *
+ * The refusal is worded for the founder reading the Mint panel, and it names
+ * the number to change, because it lands in the same `unpayable` list
+ * `ruleCannotPay` feeds and a village reading that list is working out which of
+ * its own numbers is wrong.
  *
  * A ceiling of zero is a REAL ANSWER and not an empty one: `mint_rules.ceiling`
  * is NOT NULL DEFAULT 0 and `mintRuleValueProblem` tells a village in as many
  * words that "a ceiling is zero or more, and zero means zero". So it earns a
- * sentence rather than the silence an `amount` of zero gets, which is a village
- * saying "not this one, not now" about the payment itself.
+ * sentence, where an `amount` of zero gets silence, because that one is a
+ * village saying "not this one, not now" about the payment itself.
  */
-export function ceilingRefusal(rule: MintRule, tokenName: string): string | null {
-  // The CEILING alone, never the clamp: a from_source rule's payable amount
-  // depends on what the work posted and is unknowable from the row, so asking
-  // the clamp here would call every from_source rule broken.
+export function ceilingOutcome(rule: MintRule, posted: number, tokenName?: string): CeilingOutcome {
+  const name = tokenName ?? rule.tokenSlug;
   const ceiling = Number(rule.ceiling);
-  if (Number.isFinite(ceiling) && ceiling > 0) return null;
-  return (
-    `this rule's ceiling is ${rule.ceiling}, so it can pay no ${tokenName} at all. ` +
-    `Raise the ceiling or pause the rule`
-  );
+  // The CEILING alone decides the refusal, never the clamp's answer: a
+  // from_source rule's payable amount depends on what the work posted, so
+  // reading a clamped zero as a broken ceiling would call every from_source
+  // rule broken on every occurrence that posted nothing.
+  if (!Number.isFinite(ceiling) || ceiling <= 0) {
+    return {
+      paid: 0,
+      refusal:
+        `this rule's ceiling is ${rule.ceiling}, so it can pay no ${name} at all. ` +
+        `Raise the ceiling or pause the rule`,
+    };
+  }
+  return { paid: clampToCeiling(posted, rule), refusal: null };
 }
 
 // ── Reversal ────────────────────────────────────────────────────────────────
@@ -1326,12 +1362,12 @@ export async function mintForConfirmedClaim(
     // paying 25 for ever. It is applied in the rule's own human units, before
     // `toLedgerUnits`, because that is the unit `mint_rules.ceiling` and
     // `mint_rules.amount` share: both are `decimal(18,4)` on the same row.
-    const barred = ceilingRefusal(r, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
-    if (barred) {
-      unpayable.push({ token: r.tokenSlug, reason: barred });
+    const capped = ceilingOutcome(r, asked, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
+    if (capped.refusal) {
+      unpayable.push({ token: r.tokenSlug, reason: capped.refusal });
       continue;
     }
-    const human = clampToCeiling(asked, r);
+    const human = capped.paid;
     // The ledger takes integers. A rule of 0.1 voice posts 100 thousandths,
     // because posting 0.1 posts nothing at all.
     const amount = toLedgerUnits(r.tokenSlug, human);
@@ -1476,15 +1512,15 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
     // says the rule pays 25 and says the most it may pay is nothing. Asked
     // ONCE here rather than once per seat, like every other reason in this
     // filter. See `clampToCeiling` for what the column bounds.
-    const barred = ceilingRefusal(r, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
-    if ((r.amount ?? 0) > 0 && barred) {
-      out.unpayable.push({ token: r.tokenSlug, reason: barred });
+    const capped = ceilingOutcome(r, r.amount ?? 0, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
+    if ((r.amount ?? 0) > 0 && capped.refusal) {
+      out.unpayable.push({ token: r.tokenSlug, reason: capped.refusal });
       return false;
     }
     // An amount that rounds to nothing in this token's minor units is the
     // other way a rule pays nobody while looking alive. Same class, same
     // report: a rule of 0.1 on a whole-unit token posts zero.
-    const human = clampToCeiling(r.amount ?? 0, r);
+    const human = capped.paid;
     if (human > 0 && toLedgerUnits(r.tokenSlug, human) <= 0) {
       out.unpayable.push({
         token: r.tokenSlug,
@@ -1518,8 +1554,10 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
     const seatId = String(seat.id);
     for (const r of payable) {
       // Clamped, like the quest path, and for the same reason: the ceiling is
-      // what the village voted on and the amount is what it typed first.
-      const human = clampToCeiling(r.amount ?? 0, r);
+      // what the village voted on and the amount is what it typed first. The
+      // filter above has already reported a ceiling of zero once for the whole
+      // rule, so this loop only has to stop paying.
+      const human = ceilingOutcome(r, r.amount ?? 0).paid;
       if (human <= 0) continue;
       const units = toLedgerUnits(r.tokenSlug, human);
       const faucet = faucetFor(r.tokenSlug)!;
