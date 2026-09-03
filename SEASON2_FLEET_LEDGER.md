@@ -184,10 +184,11 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   `drizzle/0145_an_investor_path_records_facts_not_money.sql` (new table
   `investor_path_facts`) and `drizzle/0146_a_member_opens_a_venture.sql` (new table
   `member_ventures`). Three numbers rather than one file so the integration coordinator can
-  land or hold each model separately. The cost is MEASURED and not estimated: this tree's own
-  run reports `117 migrations in 30.5s (261ms per migration file)`, so the three together add
-  about 0.8s to a run's one-off template build, against the 1.25s per file an older briefing
-  carried. Holders found by a four-way sweep at 2026-09-03T17:09Z, and every one of them is
+  land or hold each model separately. The cost is MEASURED and not estimated, and it MOVES:
+  two runs on this tree reported `261ms` and `188ms` per migration file, against the 1.25s per
+  file an older briefing carried. It is paid once per run into the template, not once per
+  suite (103 clones this run), so three files add well under a second. Read your own with
+  `pnpm measure:provisioning`; do not quote either figure. Holders found by a four-way sweep at 2026-09-03T17:09Z, and every one of them is
   ABOVE what section 3 recorded before this line: 0131 (`wt/lane-housing`), 0132 to 0139
   (the governance build: `wt/gb-clock`, `wt/gb-delegation`, `wt/gb-delegation-consent`,
   `wt/gb-dispatcher`, `wt/gb-steward`, `wt/gb-steward-veto`, `wt/gb-thresholds-heads`,

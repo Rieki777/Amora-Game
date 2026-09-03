@@ -1674,9 +1674,11 @@ its own when the fact behind it goes away, with nobody having to remember to
 write the change down.
 
 Nothing here needs an env var, a seed, or a provisioning step. Three migrations
-apply at boot like every other. Measured on this tree, a migration file costs
-about 261ms of the one-off schema build a test run pays once, so the three
-together add under a second.
+apply at boot like every other. A migration file costs a fraction of a second
+of the one-off schema build a test run pays once, and the figure moves with
+machine load: two runs on this tree measured 261ms and 188ms per file. So read
+your own with `pnpm measure:provisioning` rather than trusting either number
+here, the same way the dist budget is read and never quoted.
 
 | Path | Where its facts live | What makes a position fall |
 |---|---|---|
