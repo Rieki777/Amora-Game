@@ -22,7 +22,7 @@ the current model rather than to the model they were drafted under.
 - **Section 19** is his answer to section 15, given the same evening, and the mandate to build.
   **Sections 19B to 19F** are the later rounds, of 2026-09-02 night and 2026-09-03 morning, and the
   later letter wins over the earlier one wherever they touch the same rule.
-- **Section 20** is the execution plan the coordinator runs: lanes, ownership, migration numbers, merge order, the QA walk. **Section 21** specifies the eight additions the founder accepted on 2026-09-03.
+- **Section 20** is the execution plan the coordinator runs: lanes, ownership, migration numbers, merge order, the QA walk. **Section 21** specifies the eight additions the founder accepted on 2026-09-03. **Section 22** is the shared dry run's contract with the economics session.
 - **Sections 13 to 18** are what fourteen readers measured against the repository on 2026-09-02,
   each reader's citations re-opened by a second, adversarial agent. Where section 13 contradicts
   sections 1 to 11, section 13 is right. The full reports, with evidence tables, are outside the
@@ -2221,6 +2221,93 @@ notifications join the ballot-surfaces lane (email through the existing mail pat
   rulings. Maia's shelf (`docs/knowledge`) gets the same section so the assistant can answer
   "where does this come from".
 
+### 19G. Rulings of 2026-09-03, midday: the eight defaults, and non-human seats vote
+
+> "1. default 2. default 3. default 4. default
+> 5. a non-human seat should be voting! Either it is held by an actual human or a bot that is meant
+> to vote to represent that PoV. However, it can also be excluded from quorum (make this a setting
+> too whether to include or exclude from quorum with the default excluded)
+> 6. default 7. default 8. default"
+
+**What it settles.** Section 20.11's eight defaults stand as rulings: the veto window is at least
+72 hours and until it lands; a steward's no fails token payments only and never a ballot the
+steward is the subject of; payouts execute at acceptance by default and Game changes at the new
+moon; no trial of a pricing dial; a window gates the opening only and anything coming back opens
+outside it; names, amounts and reasons are members-only by default with a per-village opt-in whose
+copy says other people keep copies forever; erasure wins over the freeze, with a hash keeping the
+ballot provably unaltered.
+
+**Q5, corrected.** A non-human seat is a VOTING seat. Its representative, a human member or a bot
+built to hold that being's point of view, is expected to vote it. Whether the seat's weight counts
+toward QUORUM is a village setting, `governance.nonhuman_in_quorum`, default excluded. Coordinator's
+reading of "excluded": the seat's weight is left out of the quorum numerator and denominator, so an
+absent representative can never stall the village, and its vote still counts toward unity, because
+a point of view that was voted is agreement or disagreement like any other. When the setting is
+"included", the seat's weight counts like any member's and section 20.11's absent-representative rule
+(weight leaves the denominator after `governance.absent_cycles` cycles without a vote) applies.
+Flagged for him.
+
+**A bot that votes needs a row a ballot can reference.** The org chart's seat-plane agents
+(`holder_kind = 'documented'`, `is_agent`, from the bridge lane's PR #143) are not members and cannot
+vote; a non-human seat's bot representative is a different object: an account of a distinct member
+kind that `ballot_votes` can point at, seated by a `role_seat` ballot like any representative, with
+its votes attributed to the being it speaks for on every roll and read-back. The `birthing` and
+`clans` lanes own it; nothing in the org chart's agent model may assume an agent never has a
+`users` row.
+
+### 19H. Rulings relayed by the economics session (2026-09-03), pending his word to this session
+
+The economics session reports these rulings from the founder the same day. The dry-run ones match
+what sections 21.1 and 22 specify and are taken as settled: dry-run warnings never block a launch
+and stay attached to the proposal so stewards see them at vote time; any member may run a dry run;
+expired gratitude is shown as underutilisation; a trial moon's payouts stay paid; the preview is
+binding. Two change governance arithmetic and were recorded as RELAYED until the founder's own words
+arrived; 19I carries them and settles both:
+
+- **Every token, Voice included, is buyable through a money contribution.** Section 7 records the
+  opposite as a closed hole (exploit 2: a purchasable voice-kind token reproduced as a weight token
+  and then refused; `weightTokenProblem` in `server/lib/governanceWeights.ts` still refuses it). If
+  confirmed, the guard is relaxed deliberately, the Birthing document and every ballot show each
+  holder's share, and the document says plainly that Voice can be bought and that transparency is
+  the protection.
+- **Voice decays by a village-set percentage per cycle, default 1 percent.** The frozen weights at a
+  ballot's open read the balance the ledger holds at that instant, so decay posted at cycle close
+  by settlement is the balance quorum reads, with no change to the engine, provided decay is a
+  ledger posting to a sink (conservation holds) and never a rewrite of a balance. The digest shows
+  it as voice that waned this moon.
+
+### 19I. Rulings of 2026-09-03, afternoon, in the founder's words as quoted by the economics session, confirmed to this session
+
+> "Yes, Voice is buyable and decays 1% per cycle by default." (to this session, 2026-09-03)
+
+The economics session quoted him verbatim, which is the rule for a ruling travelling between
+sessions; 19H's two relayed items are settled by these.
+
+> "Yes an investment of money is a contribution and does (by default) issue voice. though this can
+> be changed of course by each village and each proposal being 100% editable."
+
+> "Yes decay is uniform."
+
+And, in the economics session's summary of his further words: tokens are paid as contributions
+land with no vesting schedule by default (cash today pays all tokens today; a role paid over
+thirteen moons pays one thirteenth per moon), so the founding allocation is a contribution ledger
+rather than a vesting table; dry-run warnings stay on the proposal for stewards and never block.
+
+**What changes.**
+
+- **Money in mints Voice by default**, through a mint rule like any other contribution, overridable
+  per village and per proposal. The 2026-08-31 guard that refuses a purchasable voice-kind token as
+  the weight token (`weightTokenProblem` in `server/lib/governanceWeights.ts`, section 7's exploit
+  2) is relaxed DELIBERATELY: the refusal becomes a warning sentence on the control, every ballot
+  and the Birthing document show each holder's share, and the generated document says in plain
+  words that Voice can be bought and that transparency is the protection. Lane: `ballot-surfaces`
+  for the shares, `birthing` for the document, a named task in Phase 2 for the guard.
+- **Decay is uniform**: bought and earned Voice wane alike, posted to a sink at cycle close by
+  settlement, never a balance rewrite; the frozen weights at a ballot's open read the decayed
+  balance with no engine change. The digest shows it as voice that waned this moon.
+- **No vesting by default.** The founding allocation is entries in the contribution ledger, each
+  with its share of the total, and nothing in governance holds tokens back over time.
+
 ### The mandate that follows
 
 > "your role now is to respond to my ideas for improvement with a final execution plan. Then you're
@@ -2258,6 +2345,7 @@ so a coordinator that loses its context can pick it up.
   lives.
 - **Migration numbers can be invalidated from above.** `scripts/check-migration-numbers.mjs` refuses a merge whose new migrations are numbered BELOW anything the base branch has since reached, and a fully green pull request goes red the moment another lane lands a higher number on `main`. Before landing the build on `main`, the merge agent simulates it (`git worktree add <scratch> --detach <branch>; cd <scratch> && git merge --no-edit origin/main; GITHUB_BASE_REF=main node scripts/check-migration-numbers.mjs`, no node_modules needed) and renumbers the build's migrations above `main`'s highest if the gate says so. Renumbering is allowed BEFORE a migration has run on any real instance and never after, because `_migrations_applied` keys on the filename.
 - **Prove the landing against the merged tree, without a checkout.** Immediately before the landing push: `git merge-tree --write-tree origin/main HEAD` (textual; exit 0 means clean), then `GITHUB_BASE_REF=main node scripts/check-migration-numbers.mjs` (semantic, dependency-free). For any dependency-free gate, extract the merged tree the first command returns (`T=$(git merge-tree --write-tree origin/main HEAD); git archive "$T" | tar -x -C <scratch dir>`) and run the gate there, so the question answered is "does it pass AFTER the merge". Never run the suite from a worktree nested under `game-amora/.claude/worktrees/`: vitest resolves setup files against the parent's `node_modules` and every component test fails at suite level with a module-resolution error while the test count stays the same.
+- **Two green pull requests can be red together.** When one branch changes a behaviour and another asserts it, neither branch's CI can see it, because CI merges each with `main` and never the two with each other. Before landing beside another lane's open pull request (the economics session's, the bridge lane's): `git worktree add <scratch> --detach origin/<branch-a>; cd <scratch> && git merge origin/main && git merge origin/<branch-b>; pnpm install --frozen-lockfile && npx vitest run <the suites they share>`. Run it for any pair where one changes a function and the other tests it, which across money and governance is the common case.
 - **New documents are guarded the day they land:** `scripts/check-doc-links.mjs` now globs every `.md` under `docs/` and the root (PR #141), so `docs/GOVERNANCE.md` must name only paths that exist; run it before pushing, and do not edit that script while #141 is open.
 - **Every lane ships red-to-green tests**, runs `pnpm check`, `pnpm check:tests` cold, its own suites
   alone and inside the full run, `node scripts/check-voice.mjs`, and regenerates `docs/GOVERNANCE.md`
@@ -2872,3 +2960,66 @@ one honest sentence at `members` or below.
   tier and fix it; try a setting for one moon and watch it revert; read the timeline on a phone;
   read the new-moon digest; read the constitution route as a stranger and find no names; read the
   assistant's summary and find no recommendation.
+
+---
+
+## 22. The shared dry run, and the economics session (2026-09-03)
+
+The founder launched a sibling session for economics (its prompt is
+`CLAUDE_CODE_PROMPT_2026-09-03_ECONOMICS.md` on `main`) and ruled that the two builds work
+together because "those two are so intertwined". The dry run is SHARED: the governance build owns
+the engine and the governance model (what a ballot does to power); the economics session owns the
+economics model (what a cycle does to balances). The contract below is what the economics session
+builds against; the governance build's Phase 2 gains a lane, `dryrun-engine`, that builds the
+engine on top of `server/lib/proposalDryRun.ts` and the governance model, and wires the preview
+into the wizard (21.1) and the tray (20.8). The engine's cardinal rule is structural: it takes
+plain data and has no path to a connection. Migration numbers: economics holds 0145 to 0149; the
+governance build's spare is 0144.
+
+### The engine's contract, strawman
+
+The governance session owns the engine and will build it in its Phase 2 as the `dryrun-engine`
+lane, on top of `server/lib/proposalDryRun.ts` (Phase 1b), which already shares the changeset
+validator with the executor so the thing previewed is the thing that will run. Build your model
+against this contract; if you need it changed, say so before you build, and we change it together.
+
+```ts
+// shared/dryRun/types.ts  (governance-owned; both models import it)
+export interface VillageSnapshot {          // read once, then plain data; no pool, no connection
+  atIso: string; clock: CycleClockSpec;      // lunar | calendar, timezone
+  tokens: TokenSpec[];                       // slug, kind, decimals, faucet, sinks
+  balances: Record<string, Record<string, bigint>>; // accountId -> slug -> minor units
+  mintRules: MintRuleSpec[]; variables: Record<string, string>;
+  members: MemberSpec[];                     // id, stage, seats, isRepresentative?, representsSeatId?
+  modules: Record<string, Lifecycle>;
+}
+export interface ProposedChange { kind: ChangeItemKind; key?: string; from?: unknown; to?: unknown; timing: 'at_acceptance' | 'next_moon'; expiresAfterCycles?: number }
+export interface SimInput { snapshot: VillageSnapshot; changes: ProposedChange[]; cycles: number; seed: number; concurrency?: number }
+export interface DomainModel {
+  name: 'governance' | 'economics';
+  step(state: SimState, cycle: number, rng: Rng): SimState;   // pure; returns a new state
+  flags(state: SimState, cycle: number): Flag[];               // plain-language, actionable
+  invariants(state: SimState): Violation[];                    // conservation, non-negative non-faucets
+}
+export interface SimResult { baseline: CycleResult[]; proposed: CycleResult[]; diff: Diff[]; flags: Flag[]; violations: Violation[]; seed: number }
+export function simulate(input: SimInput, models: DomainModel[]): SimResult   // writes nothing: takes no pool, no connection, no fs
+```
+
+Rules the engine enforces so the cardinal rule is structural: `simulate` receives plain data and
+has no import path to the pool; the snapshot is taken by a governance-owned reader that opens a
+READ-ONLY connection (`SET TRANSACTION READ ONLY`) and returns plain objects; models are pure
+functions of state; the seed is part of the input and printed in the output; the diff is against
+a baseline run of the same snapshot with no changes. Your economics model implements
+`DomainModel` and owns everything in `step` that moves balances: settlement, mint rules,
+allowances, sinks, exits, the pool. The governance model owns thresholds, weights, concentration,
+windows and landing instants. The engine composes them in a fixed order per cycle (governance
+landings first, then the economics step, then flags and invariants from both) and stops at the
+first violation with the cycle and the posting named.
+
+
+### Who owns which file (so the merge agent never takes either side)
+
+| Governance session owns | Economics session owns | Shared, edit by category only |
+|---|---|---|
+| `server/lib/applyDue.ts`, `changeset.ts`, `governanceKinds.ts`, `proposalDryRun.ts`, `stewardship.ts`, `delegation.ts`, `governanceWeights.ts`, `ballots.ts`, `mechanics.ts`, `governanceWindows.ts`, `moonDigest.ts`, `shared/cycleClock.ts`, `shared/governanceEngine.ts`, `shared/ballotSubjects.ts`, `shared/dryRun/*`, `server/routes/governance*.ts`, `delegation.ts`, `constitution.ts`, `scripts/generate-governance-doc.mjs` and its guard, `docs/GOVERNANCE.md` | `server/lib/economy.ts`, `ledger.ts`, `spending.ts`, `exit.ts`, `voiceClaim.ts`, `economySeed.ts`, `gratitude.ts`, the mint-rule routes, `server/lib/dryRun/economicsModel.ts`, `scripts/generate-token-doc.mjs` and its guard (tell governance before editing ruling text), `docs/TOKENS.md`, `docs/ECONOMICS.md` and its guard | `shared/gameVariables.ts` (Governance category is governance's; Gratitude, Economy and Ledger categories are economics'; the Cycle keys are governance's), `server/index.ts` (two exempt lines per route module; no net lines), the settlement job registration (governance registers `applyDueGovernance`; economics owns `runSettlement`; neither reaches into the other's body) |
+
