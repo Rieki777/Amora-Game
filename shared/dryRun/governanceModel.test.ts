@@ -6,8 +6,12 @@ import type { SimState, VillageSnapshot } from "./types";
 
 const snapshot = (over: Partial<VillageSnapshot> = {}): VillageSnapshot => ({
   atIso: "2026-09-03T00:00:00.000Z",
+  launched: true,
+  quests: { open: 0, confirmedPerCycle: 0, gratitudePerConfirmation: BigInt(0) },
   clock: { mode: "lunar", timezone: "UTC" },
-  tokens: [{ slug: "voice", kind: "voice", decimals: 0, faucet: "sys:faucet", sinks: [] }],
+  tokens: [
+    { slug: "voice", kind: "voice", decimals: 0, faucet: "sys:faucet", sinks: [], governance: "platform", active: true },
+  ],
   balances: {
     "mem:ada": { voice: BigInt(100) },
     "mem:bo": { voice: BigInt(300) },
@@ -20,8 +24,8 @@ const snapshot = (over: Partial<VillageSnapshot> = {}): VillageSnapshot => ({
     "governance.quorum_pct": "50",
   },
   members: [
-    { id: "ada", accountId: "mem:ada", stage: "resident", seats: [] },
-    { id: "bo", accountId: "mem:bo", stage: "resident", seats: [] },
+    { id: "ada", accountId: "mem:ada", stage: "member", seats: [] },
+    { id: "bo", accountId: "mem:bo", stage: "member", seats: [] },
   ],
   modules: {},
   ...over,
@@ -48,8 +52,8 @@ describe("weightsOf", () => {
     const state = stateOf({
       variables: { "governance.weight_mode": "custom" },
       members: [
-        { id: "ada", accountId: "mem:ada", stage: "resident", seats: [], weight: 4 },
-        { id: "bo", accountId: "mem:bo", stage: "resident", seats: [] },
+        { id: "ada", accountId: "mem:ada", stage: "member", seats: [], weight: 4 },
+        { id: "bo", accountId: "mem:bo", stage: "member", seats: [] },
       ],
     });
     expect(weightsOf(state).get("ada")).toBe(4);
@@ -66,8 +70,8 @@ describe("votableWeightOf", () => {
   it("counts out the members who have gone still", () => {
     const state = stateOf({
       members: [
-        { id: "ada", accountId: "mem:ada", stage: "resident", seats: [] },
-        { id: "bo", accountId: "mem:bo", stage: "resident", seats: [], absent: true },
+        { id: "ada", accountId: "mem:ada", stage: "member", seats: [] },
+        { id: "bo", accountId: "mem:bo", stage: "member", seats: [], absent: true },
       ],
     });
     expect(votableWeightOf(state, weightsOf(state))).toBe(100);
@@ -111,8 +115,8 @@ describe("reachability", () => {
   it("flags a tier the members who can answer cannot reach", () => {
     const state = stateOf({
       members: [
-        { id: "ada", accountId: "mem:ada", stage: "resident", seats: [] },
-        { id: "bo", accountId: "mem:bo", stage: "resident", seats: [], absent: true },
+        { id: "ada", accountId: "mem:ada", stage: "member", seats: [] },
+        { id: "bo", accountId: "mem:bo", stage: "member", seats: [], absent: true },
       ],
     });
     const flags = governanceModel().flags(state, 1).filter((f) => f.code === "tier_unreachable");

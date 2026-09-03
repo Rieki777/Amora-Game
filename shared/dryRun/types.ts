@@ -31,13 +31,71 @@
  * preview of somebody's money that is close is worse than no preview. Use
  * `BigInt("...")` to write one, never a `123n` literal, because the build
  * target refuses those (CLAUDE.md, House traps).
+ *
+ * ── WHAT THIS FILE MAY IMPORT, AND WHY IT IS ALMOST NOTHING ────────────────
+ *
+ * The economics session builds its model on a branch cut from `main`, and the
+ * governance vocabulary this file used to borrow does not exist there yet.
+ * A contract that only compiles beside its author is not a shared contract.
+ * So `types.ts` names ONE other file, `shared/cycleClock.ts`, and every other
+ * vocabulary it needs is declared here as a `const` list with the type read
+ * off it. `rng.ts` and `simulate.ts` hold to the same rule.
+ *
+ * A copied list can drift from the list it copied, so neither copy is left to
+ * a comment: `types.test.ts` imports the engine's own arrays and fails the
+ * moment the members stop matching, and the same test reads every file in
+ * this directory off disk and fails if one of them starts naming the engine.
+ *
+ * ── WHERE ACTIVITY ASSUMPTIONS LIVE ────────────────────────────────────────
+ *
+ * `SimInput.assumptions` is the ONE place an assumption about activity lives.
+ * How many quests a cycle completes, how many members show up, what an
+ * average payout looks like: every number a model invents about how busy the
+ * village will be is a key under here and is nowhere else in the build.
+ *
+ * It is keyed by model name, so `assumptions.economics` is the economics
+ * model's to define and `assumptions.governance` is the governance model's,
+ * and neither reads the other's. The engine itself reads none of it. It
+ * carries the object onto `SimState` so `step` and `flags` can reach it, and
+ * echoes it on `SimResult` beside the seed.
+ *
+ * That echo is the point. The seed makes a run repeatable; the assumptions
+ * make it legible. A preview that says a village runs out of Voice in cycle
+ * nine is worth nothing unless the reader can see the activity that answer
+ * assumed, and a number buried in a model's own constants can be neither read
+ * back nor argued with. Same object in, same object out: the engine never
+ * copies it, never edits it, and never invents a default for it.
  */
 import type { ClockMode, ProposalTiming } from "../cycleClock";
-import type { ChangeItemKind } from "../ballotSubjects";
-import type { ModuleLifecycle } from "../modules";
 
-/** A module's openness, spelled the one way `shared/modules.ts` spells it. */
-export type Lifecycle = ModuleLifecycle;
+/**
+ * The vocabularies a change set is written in. This file declares them and
+ * imports none of them, so it compiles against a branch that has no
+ * governance engine on it. `types.test.ts` proves these members equal
+ * `CHANGE_ITEM_KINDS` in `shared/ballotSubjects.ts`.
+ */
+export const CHANGE_ITEM_KINDS = [
+  "dial",
+  "mint_rule",
+  "weight_allocation",
+  "mode_switch",
+  "module_lifecycle",
+  "brand_field",
+  "role",
+] as const;
+
+/** Which vocabulary one element of a change set is written in. */
+export type ChangeItemKind = (typeof CHANGE_ITEM_KINDS)[number];
+
+/**
+ * A module's openness, spelled the one way `shared/modules.ts` spells it and
+ * declared here for the same reason as the kinds above. `types.test.ts`
+ * proves these members equal the keys of `LIFECYCLE_RANK`.
+ */
+export const LIFECYCLES = ["off", "preview", "members", "public"] as const;
+
+/** How open one module is. */
+export type Lifecycle = (typeof LIFECYCLES)[number];
 
 /** Which clock the village keeps time by, and the zone its dates render in. */
 export interface CycleClockSpec {
@@ -47,7 +105,28 @@ export interface CycleClockSpec {
   timezone: string;
 }
 
-/** One token as the simulation needs it, copied from the ledger's registry. */
+/**
+ * Who mints a token. `platform` means this ledger issues and moves it;
+ * `hypha` means the village holds a read-only mirror of a token governed
+ * somewhere else. Declared here and imported from nowhere: nothing
+ * in this directory may name anything under `server/`, and `types.test.ts`
+ * proves that from disk.
+ */
+export const TOKEN_GOVERNANCES = ["platform", "hypha"] as const;
+
+/** Where a token is governed. */
+export type TokenGovernance = (typeof TOKEN_GOVERNANCES)[number];
+
+/**
+ * One token as the simulation needs it, copied from the ledger's registry.
+ *
+ * `governance`, `active` and `faucet` are the three facts behind three of the
+ * four refusals `ruleCannotPay` makes in `server/lib/economy.ts`, and the
+ * fourth is a slug that is not in `tokens` at all. They are here so a model
+ * can mirror all four and a preview never promises a payout the engine would
+ * refuse. A preview that multiplies an unpayable rule by the seat count and
+ * prints the total is the exact defect `ruleCannotPay` was written to end.
+ */
 export interface TokenSpec {
   /** The ledger's identifier for this token. */
   slug: string;
@@ -59,9 +138,27 @@ export interface TokenSpec {
   faucet: string | null;
   /** The accounts this token drains into, such as dues and burns. */
   sinks: string[];
+  /** `platform` if this village issues it, `hypha` if it only mirrors it. */
+  governance: TokenGovernance;
+  /** False when the token has been retired from the registry. */
+  active: boolean;
 }
 
-/** One minting rule as the simulation needs it, copied from `mint_rules`. */
+/**
+ * One minting rule as the simulation needs it, copied from `mint_rules`.
+ *
+ * ── WHY THE AMOUNT IS HERE TWICE ───────────────────────────────────────────
+ *
+ * `mint_rules.amount` is `decimal(18,4)` (drizzle/0071), and a token with
+ * `decimals: 0` turns 0.0004 into 0 minor units. So `amount` alone cannot
+ * tell a rule that was set to nothing from a rule whose amount rounded away
+ * to nothing, and those two are different facts about a village: one is a
+ * decision, the other is a rule that quietly pays nobody.
+ *
+ * `amountRaw` is the column's own text, unrounded and unparsed. A model that
+ * wants to say "this rule rounds away to nothing" compares the two and is
+ * exact, instead of inferring from a zero that has two causes.
+ */
 export interface MintRuleSpec {
   /** The row's id, which is what a `mint:<id>:<field>` change key names. */
   id: string;
@@ -73,6 +170,13 @@ export interface MintRuleSpec {
   recipient: string;
   /** How much, in minor units, or null when the amount rides on the source. */
   amount: bigint | null;
+  /**
+   * The `decimal(18,4)` text exactly as the column holds it, such as
+   * `"0.0004"`. Empty string when the column is NULL, which is the same fact
+   * `amount: null` states and is spelled this way so the field is never
+   * absent. This is the ONLY unrounded copy of the amount in the simulation.
+   */
+  amountRaw: string;
   /** The most it may mint in one cycle, in minor units, or null for no cap. */
   ceiling: bigint | null;
   /** Whether it fires at all. */
@@ -85,7 +189,12 @@ export interface MemberSpec {
   id: string;
   /** The ledger account their balances are keyed by, which is `mem:<id>`. */
   accountId: string;
-  /** How far along the member's journey is, such as `resident`. */
+  /**
+   * How far along the member's journey is, as a `GAME_CONFIG.stages` id such
+   * as `member` or `contributor`. It is a plain string and not a union
+   * because a fork edits that list, so a closed union here would refuse a
+   * village its own stages.
+   */
   stage: string;
   /** The seat ids this member holds. */
   seats: string[];
@@ -108,10 +217,50 @@ export interface MemberSpec {
   absent?: boolean;
 }
 
+/**
+ * WHAT THE VILLAGE'S QUESTS ARE DOING, in the three numbers a model needs.
+ *
+ * Recognition is minted when a quest is confirmed, so a model that projects
+ * recognition forward has to know how often that happens and how much it
+ * pays. This is the minimal shape that answers both, and it holds three
+ * numbers and no list of quests, because a preview is arithmetic on a rate
+ * and never a re-simulation of somebody's to-do list.
+ *
+ * All three are OBSERVED, read off the tables at the snapshot instant. They
+ * are not assumptions and they do not belong in `SimInput.assumptions`. A
+ * model that wants to project a DIFFERENT rate multiplies these by something
+ * out of `assumptions`, and the result then says both the observation it
+ * started from and the assumption it applied.
+ */
+export interface QuestsSummary {
+  /** How many quests stand open at the snapshot instant. */
+  open: number;
+  /**
+   * How many quests the village confirmed in the cycle before the snapshot.
+   * The observed rate, which is what a flat projection repeats.
+   */
+  confirmedPerCycle: number;
+  /**
+   * What one confirmation paid on average, in minor units of the recognition
+   * token. Zero when nothing was confirmed to average over.
+   */
+  gratitudePerConfirmation: bigint;
+}
+
 /** The village, read once and then held as plain data for the whole run. */
 export interface VillageSnapshot {
   /** The instant the snapshot was taken, which is where cycle 1 begins. */
   atIso: string;
+  /**
+   * Whether the village's launch vote has carried. FALSE REFUSES EVERY
+   * FAUCET POSTING, Voice included: `issuanceRefusal` in
+   * `server/lib/gameStart.ts` turns every mint away until the Game starts
+   * (R67, R74). A model that mints into a village whose `launched` is false
+   * is previewing a village that cannot exist.
+   */
+  launched: boolean;
+  /** What the village's quests are doing, observed at the snapshot instant. */
+  quests: QuestsSummary;
   /** The clock the village keeps time by. */
   clock: CycleClockSpec;
   /** Every token in the village's registry. */
@@ -161,6 +310,19 @@ export interface SimInput {
   seed: number;
   /** How many proposals a model should assume run beside this one. */
   concurrency?: number;
+  /**
+   * THE ONE PLACE ACTIVITY ASSUMPTIONS LIVE. See the header of this file.
+   *
+   * Keyed by model name: `assumptions.economics` belongs to the economics
+   * model, `assumptions.governance` to the governance one. The engine reads
+   * none of it, carries it onto every `SimState`, and echoes it on
+   * `SimResult` beside the seed so a reader can see what the answer assumed.
+   *
+   * A model that wants a number about how busy the village is takes it from
+   * here. It does not hold a constant of its own, because a constant cannot
+   * be read back off a result and cannot be argued with.
+   */
+  assumptions?: Record<string, unknown>;
 }
 
 /** What the governance model keeps between cycles. */
@@ -182,10 +344,22 @@ export interface GovernanceState {
  * which is what makes the baseline pass and the proposed pass comparable.
  */
 export interface SimState {
-  /** The instant this cycle begins. */
+  /**
+   * The instant this cycle begins.
+   *
+   * THE ENGINE OWNS THIS FIELD. `runPass` stamps it at the top of every cycle
+   * and re-stamps it after every model has stepped, so a model that writes it
+   * cannot move the clock. Advancing it is not a model's job: two models each
+   * advancing by a cycle would advance the run by two, and a recorded cycle
+   * would carry an instant no cycle ever began at.
+   */
   atIso: string;
   /** Which cycle the state is at. Zero is before the first step. */
   cycle: number;
+  /** Whether the launch vote has carried. Nothing mints while this is false. */
+  launched: boolean;
+  /** What the village's quests are doing, carried from the snapshot. */
+  quests: QuestsSummary;
   /** The clock, carried so a model can ask what a boundary means. */
   clock: CycleClockSpec;
   /** The token registry, unchanged by any model in this build. */
@@ -202,6 +376,35 @@ export interface SimState {
   modules: Record<string, Lifecycle>;
   /** What the governance model keeps between cycles. */
   governance: GovernanceState;
+  /**
+   * WHAT EACH MODEL REMEMBERS BETWEEN CYCLES, keyed by model name.
+   *
+   * `governance` above is the governance model's memo and predates this bag.
+   * Every other model keeps its own under its own name, so the economics
+   * model writes `models.economics` and reads nothing else, and two models
+   * can never collide over a field name.
+   *
+   * The value is `unknown` on purpose: the engine does not know what a model
+   * remembers and must not have an opinion about it. A model casts its own
+   * entry, which is the one place the shape is known.
+   *
+   * `cloneState` carries this into every recorded `CycleResult.state`, so the
+   * memo is readable off the result and nothing may drop it on the way. The
+   * bag itself is shallow copied per record. What is inside it cannot be,
+   * because `unknown` cannot be copied without knowing its shape, so a model
+   * that wants its memo readable per cycle replaces its entry each cycle and
+   * never edits one in place.
+   */
+  models: Record<string, unknown>;
+  /**
+   * The assumptions the run was given, carried here so `step` and `flags` can
+   * read them. Read only, and the engine hands every state the SAME object it
+   * was given, so a model reading `state.assumptions.economics` reads exactly
+   * what the caller wrote and exactly what the result echoes. Absent when the
+   * caller gave none; a model that needs one supplies its own fallback, and
+   * the engine never invents a default.
+   */
+  readonly assumptions?: Readonly<Record<string, unknown>>;
 }
 
 /** How loud a flag is. */
@@ -303,4 +506,11 @@ export interface SimResult {
   violations: Violation[];
   /** The seed this run used, so anybody can run it again and get this. */
   seed: number;
+  /**
+   * The assumptions this run was given, echoed verbatim. The seed says the
+   * run can be repeated; this says what it assumed while it ran. It is the
+   * same object `SimInput.assumptions` held, never a copy and never edited,
+   * and absent when the caller gave none.
+   */
+  assumptions?: Readonly<Record<string, unknown>>;
 }

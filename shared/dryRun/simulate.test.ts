@@ -9,19 +9,32 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const snapshot = (over: Partial<VillageSnapshot> = {}): VillageSnapshot => ({
   atIso: "2026-09-03T00:00:00.000Z",
+  launched: true,
+  quests: { open: 4, confirmedPerCycle: 2, gratitudePerConfirmation: BigInt(30) },
   clock: { mode: "lunar", timezone: "UTC" },
-  tokens: [{ slug: "voice", kind: "voice", decimals: 0, faucet: "sys:faucet", sinks: [] }],
+  tokens: [
+    { slug: "voice", kind: "voice", decimals: 0, faucet: "sys:faucet", sinks: [], governance: "platform", active: true },
+  ],
   balances: {
     "mem:ada": { voice: BigInt(100) },
     "mem:bo": { voice: BigInt(300) },
   },
   mintRules: [
-    { id: "rule-quest-voice", trigger: "quest.completed", tokenSlug: "voice", recipient: "member", amount: BigInt(5), ceiling: null, enabled: true },
+    {
+      id: "rule-quest-voice",
+      trigger: "quest.completed",
+      tokenSlug: "voice",
+      recipient: "member",
+      amount: BigInt(5),
+      amountRaw: "5.0000",
+      ceiling: null,
+      enabled: true,
+    },
   ],
   variables: { "governance.quorum_pct": "50", "governance.unity_pct": "80" },
   members: [
-    { id: "ada", accountId: "mem:ada", stage: "resident", seats: [] },
-    { id: "bo", accountId: "mem:bo", stage: "resident", seats: [] },
+    { id: "ada", accountId: "mem:ada", stage: "member", seats: [] },
+    { id: "bo", accountId: "mem:bo", stage: "member", seats: [] },
   ],
   modules: { quests: "public" },
   ...over,
@@ -250,6 +263,360 @@ describe("diffOf", () => {
       "variables/governance.quorum_pct",
       "variables/governance.unity_pct",
     ]);
+  });
+});
+
+/**
+ * THE ASSUMPTIONS PASS THROUGH UNTOUCHED.
+ *
+ * `SimInput.assumptions` is the one place an activity assumption lives, and
+ * the whole value of that is the round trip: what a model read has to be what
+ * the result shows, or a reader checking an answer against its stated
+ * assumptions is checking the wrong object.
+ */
+describe("assumptions", () => {
+  const ASSUMPTIONS = {
+    economics: { questsPerCycle: 12, payout: "0.5000", sinks: ["dues"] },
+    governance: { turnout: 0.6 },
+  };
+
+  /** A model that writes down what it was handed, so a test can read it back. */
+  const probe = (): { model: DomainModel; sawInStep: unknown[]; sawInFlags: unknown[] } => {
+    const sawInStep: unknown[] = [];
+    const sawInFlags: unknown[] = [];
+    return {
+      sawInStep,
+      sawInFlags,
+      model: {
+        name: "economics",
+        step: (state) => {
+          sawInStep.push(state.assumptions);
+          return state;
+        },
+        flags: (state) => {
+          sawInFlags.push(state.assumptions);
+          return [];
+        },
+        invariants: () => [],
+      },
+    };
+  };
+
+  it("echoes them beside the seed, byte for byte", () => {
+    const out = simulate(
+      { snapshot: snapshot(), changes: [], cycles: 3, seed: 7, assumptions: ASSUMPTIONS },
+      [inert("governance")],
+    );
+    expect(JSON.stringify(out.assumptions)).toBe(JSON.stringify(ASSUMPTIONS));
+    // And it is the caller's own object, not a copy that merely agrees with
+    // it. A copy would let the two drift the moment anything edited one.
+    expect(out.assumptions).toBe(ASSUMPTIONS);
+    expect(out.seed).toBe(7);
+  });
+
+  it("hands every model its own, in step and in flags, on every cycle", () => {
+    const p = probe();
+    simulate(
+      { snapshot: snapshot(), changes: [], cycles: 3, seed: 1, assumptions: ASSUMPTIONS },
+      [inert("governance"), p.model],
+    );
+    // Two passes, three cycles each.
+    expect(p.sawInStep).toHaveLength(6);
+    expect(p.sawInFlags).toHaveLength(6);
+    for (const seen of p.sawInStep.concat(p.sawInFlags)) {
+      expect(seen).toBe(ASSUMPTIONS);
+      expect((seen as typeof ASSUMPTIONS).economics.questsPerCycle).toBe(12);
+    }
+  });
+
+  it("carries them onto every recorded cycle of both passes", () => {
+    const out = simulate(
+      { snapshot: snapshot(), changes: [], cycles: 2, seed: 1, assumptions: ASSUMPTIONS },
+      [inert("governance")],
+    );
+    for (const cycle of out.baseline.concat(out.proposed)) {
+      expect(cycle.state.assumptions).toBe(ASSUMPTIONS);
+    }
+  });
+
+  it("invents none when the caller gave none, and echoes that too", () => {
+    const out = simulate({ snapshot: snapshot(), changes: [], cycles: 1, seed: 1 }, [inert("governance")]);
+    expect(out.assumptions).toBeUndefined();
+    expect(out.baseline[0].state.assumptions).toBeUndefined();
+  });
+
+  it("echoes them even when the snapshot refuses to parse", () => {
+    const out = simulate(
+      { snapshot: snapshot({ atIso: "not a date" }), changes: [], cycles: 2, seed: 1, assumptions: ASSUMPTIONS },
+      [inert("governance")],
+    );
+    expect(out.violations[0].invariant).toBe("snapshot.readable");
+    expect(out.assumptions).toBe(ASSUMPTIONS);
+  });
+});
+
+/**
+ * THE PER-MODEL MEMO BAG.
+ *
+ * `state.models` is where a model keeps what it remembers between cycles,
+ * under its own name. The engine holds no opinion about what is in it and is
+ * only obliged not to drop it.
+ */
+describe("the models memo bag", () => {
+  /** A model that remembers how many cycles it has seen, under its own name. */
+  const counter = (name: string): DomainModel => ({
+    name: "economics",
+    step: (state, cycle) => ({
+      ...state,
+      models: { ...state.models, [name]: { seen: cycle, at: state.atIso } },
+    }),
+    flags: () => [],
+    invariants: () => [],
+  });
+
+  it("starts empty, because the engine invents nothing a model did not write", () => {
+    const out = simulate({ snapshot: snapshot(), changes: [], cycles: 1, seed: 1 }, [inert("governance")]);
+    expect(out.baseline[0].state.models).toEqual({});
+  });
+
+  it("carries what a model wrote into every recorded cycle", () => {
+    const out = simulate({ snapshot: snapshot(), changes: [], cycles: 3, seed: 1 }, [
+      inert("governance"),
+      counter("economics"),
+    ]);
+    expect(out.proposed.map((c) => (c.state.models.economics as { seen: number }).seen)).toEqual([1, 2, 3]);
+  });
+
+  it("keeps two models out of each other's way", () => {
+    const out = simulate({ snapshot: snapshot(), changes: [], cycles: 2, seed: 1 }, [
+      inert("governance"),
+      counter("economics"),
+      counter("land"),
+    ]);
+    expect(Object.keys(out.proposed[1].state.models).sort()).toEqual(["economics", "land"]);
+  });
+
+  it("copies the bag per record, so a later cycle cannot add a key to an earlier one", () => {
+    const late = (): DomainModel => ({
+      name: "economics",
+      step: (state, cycle) => (cycle === 2 ? { ...state, models: { ...state.models, late: true } } : state),
+      flags: () => [],
+      invariants: () => [],
+    });
+    const out = simulate({ snapshot: snapshot(), changes: [], cycles: 2, seed: 1 }, [inert("governance"), late()]);
+    expect(out.proposed[0].state.models).toEqual({});
+    expect(out.proposed[1].state.models).toEqual({ late: true });
+  });
+});
+
+/**
+ * THE ENGINE OWNS THE CLOCK.
+ *
+ * A recorded cycle's instant is that cycle's START, on the result and on the
+ * state alike, and no model can move it.
+ */
+describe("atIso", () => {
+  it("records the cycle's start on the result and on the state, and they agree", () => {
+    const out = simulate({ snapshot: snapshot(), changes: [], cycles: 3, seed: 1 }, [inert("governance")]);
+    for (const cycle of out.proposed) expect(cycle.state.atIso).toBe(cycle.atIso);
+    expect(out.proposed[0].atIso).toBe("2026-09-03T00:00:00.000Z");
+    // Strictly increasing, one boundary at a time.
+    const instants = out.proposed.map((c) => c.atIso);
+    expect(instants.slice().sort()).toEqual(instants);
+    expect(new Set(instants).size).toBe(3);
+  });
+
+  it("discards a model's own advance instead of compounding it", () => {
+    const meddler: DomainModel = {
+      name: "economics",
+      // A model that thinks advancing the clock is its job. Before the engine
+      // took ownership this moved the run: once here, once at the bottom of
+      // the loop, so a three cycle run covered six.
+      step: (state) => ({ ...state, atIso: new Date(new Date(state.atIso).getTime() + 9e8).toISOString() }),
+      flags: () => [],
+      invariants: () => [],
+    };
+    const honest = simulate({ snapshot: snapshot(), changes: [], cycles: 3, seed: 1 }, [inert("governance")]);
+    const meddled = simulate({ snapshot: snapshot(), changes: [], cycles: 3, seed: 1 }, [
+      inert("governance"),
+      meddler,
+    ]);
+    expect(meddled.proposed.map((c) => c.atIso)).toEqual(honest.proposed.map((c) => c.atIso));
+    expect(meddled.proposed.map((c) => c.state.atIso)).toEqual(honest.proposed.map((c) => c.state.atIso));
+  });
+
+  it("advances the final state exactly one cycle past the last one, not two", () => {
+    // The final state is not recorded on a CycleResult, so it is read through
+    // the one place it reaches the answer: a longer run's next cycle has to
+    // begin exactly where the shorter run's final state was left.
+    const two = simulate({ snapshot: snapshot(), changes: [], cycles: 2, seed: 1 }, [inert("governance")]);
+    const three = simulate({ snapshot: snapshot(), changes: [], cycles: 3, seed: 1 }, [inert("governance")]);
+    expect(three.proposed.map((c) => c.atIso).slice(0, 2)).toEqual(two.proposed.map((c) => c.atIso));
+    // Cycle 3's start is what a two cycle run's final state advanced to, and
+    // the fallback that computes it reads the cycle's own start and never
+    // whatever the state was left holding.
+    expect(three.proposed[2].atIso).not.toBe(two.proposed[1].atIso);
+  });
+});
+
+/**
+ * WHAT THE SNAPSHOT NOW CARRIES, AND WHY EACH OF IT REACHES A MODEL.
+ */
+describe("launch, quests and the token registry", () => {
+  it("carries launched and the quests summary onto the state a model steps", () => {
+    const seen: SimState[] = [];
+    const watcher: DomainModel = {
+      name: "economics",
+      step: (state) => {
+        seen.push(state);
+        return state;
+      },
+      flags: () => [],
+      invariants: () => [],
+    };
+    simulate(
+      {
+        snapshot: snapshot({
+          launched: false,
+          quests: { open: 9, confirmedPerCycle: 3, gratitudePerConfirmation: BigInt(45) },
+        }),
+        changes: [],
+        cycles: 1,
+        seed: 1,
+      },
+      [inert("governance"), watcher],
+    );
+    expect(seen[0].launched).toBe(false);
+    expect(seen[0].quests).toEqual({ open: 9, confirmedPerCycle: 3, gratitudePerConfirmation: BigInt(45) });
+  });
+
+  it("carries the four facts behind ruleCannotPay onto every token", () => {
+    const out = simulate(
+      {
+        snapshot: snapshot({
+          tokens: [
+            { slug: "voice", kind: "voice", decimals: 0, faucet: "sys:faucet", sinks: [], governance: "platform", active: true },
+            { slug: "amora", kind: "equity", decimals: 4, faucet: null, sinks: [], governance: "hypha", active: false },
+          ],
+        }),
+        changes: [],
+        cycles: 1,
+        seed: 1,
+      },
+      [inert("governance")],
+    );
+    const mirrored = out.baseline[0].state.tokens[1];
+    expect(mirrored.governance).toBe("hypha");
+    expect(mirrored.active).toBe(false);
+    expect(mirrored.faucet).toBeNull();
+  });
+
+  it("records launched and quests on every recorded cycle of both passes", () => {
+    const out = simulate({ snapshot: snapshot({ launched: false }), changes: [], cycles: 2, seed: 1 }, [
+      inert("governance"),
+    ]);
+    for (const cycle of out.baseline.concat(out.proposed)) {
+      expect(cycle.state.launched).toBe(false);
+      expect(cycle.state.quests.confirmedPerCycle).toBe(2);
+    }
+  });
+});
+
+/**
+ * THE MINT AMOUNT, HELD TWICE AND KEPT IN STEP.
+ *
+ * `mint_rules.amount` is `decimal(18,4)`, and a token with no decimals turns
+ * 0.0004 into 0 minor units. So the rounded number and the column's own text
+ * are both carried, and they have to move together or the flag that says "this
+ * rule rounds away to nothing" fires on a value nobody proposed.
+ */
+describe("amountRaw", () => {
+  const RULE_KEY = "mint:rule-quest-voice:amount";
+
+  it("comes through the snapshot unrounded, beside the rounded amount", () => {
+    const out = simulate(
+      {
+        snapshot: snapshot({
+          mintRules: [
+            {
+              id: "rule-quest-voice",
+              trigger: "quest.completed",
+              tokenSlug: "voice",
+              recipient: "member",
+              amount: BigInt(0),
+              amountRaw: "0.0004",
+              ceiling: null,
+              enabled: true,
+            },
+          ],
+        }),
+        changes: [],
+        cycles: 1,
+        seed: 1,
+      },
+      [inert("governance")],
+    );
+    const rule = out.baseline[0].state.mintRules[0];
+    // The two together are what tells a rule set to nothing apart from a rule
+    // that rounded away to nothing. Either one alone cannot.
+    expect(rule.amount).toBe(BigInt(0));
+    expect(rule.amountRaw).toBe("0.0004");
+  });
+
+  it("moves with the amount when a change retunes it", () => {
+    const changes: ProposedChange[] = [
+      { kind: "mint_rule", key: RULE_KEY, from: "5", to: "0.0004", timing: "at_acceptance" },
+    ];
+    const out = simulate({ snapshot: snapshot(), changes, cycles: 1, seed: 1 }, [inert("governance")]);
+    const proposed = out.proposed[0].state.mintRules[0];
+    expect(proposed.amount).toBe(BigInt(0));
+    expect(proposed.amountRaw).toBe("0.0004");
+    // The baseline never saw the change, so it keeps the snapshot's text.
+    expect(out.baseline[0].state.mintRules[0].amountRaw).toBe("5.0000");
+  });
+
+  it("gives back the exact text a term reversion took away", () => {
+    const changes: ProposedChange[] = [
+      { kind: "mint_rule", key: RULE_KEY, from: "5", to: "9", timing: "at_acceptance", expiresAfterCycles: 1 },
+    ];
+    const out = simulate(
+      {
+        snapshot: snapshot({
+          mintRules: [
+            {
+              id: "rule-quest-voice",
+              trigger: "quest.completed",
+              tokenSlug: "voice",
+              recipient: "member",
+              amount: BigInt(5),
+              amountRaw: "5.4321",
+              ceiling: null,
+              enabled: true,
+            },
+          ],
+        }),
+        changes,
+        cycles: 3,
+        seed: 1,
+      },
+      [inert("governance")],
+    );
+    expect(out.proposed[0].state.mintRules[0].amountRaw).toBe("9");
+    // The term ran out at the start of cycle 2 and handed back the four
+    // places the column was holding, not the rounded 5 the number carried.
+    expect(codes(out.flags)).toContain("term_reverted");
+    expect(out.proposed[1].state.mintRules[0].amount).toBe(BigInt(5));
+    expect(out.proposed[1].state.mintRules[0].amountRaw).toBe("5.4321");
+  });
+
+  it("leaves the text alone when a change writes some other field of the rule", () => {
+    const changes: ProposedChange[] = [
+      { kind: "mint_rule", key: "mint:rule-quest-voice:enabled", from: "true", to: "false", timing: "at_acceptance" },
+    ];
+    const out = simulate({ snapshot: snapshot(), changes, cycles: 1, seed: 1 }, [inert("governance")]);
+    const rule = out.proposed[0].state.mintRules[0];
+    expect(rule.enabled).toBe(false);
+    expect(rule.amountRaw).toBe("5.0000");
   });
 });
 
