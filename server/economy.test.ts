@@ -18,6 +18,7 @@ import {
   canConfirm,
   canSettleClaim,
   checkGive,
+  ceilingOutcome,
   clampToCeiling,
   claimRefunds,
   CREDITS,
@@ -41,6 +42,7 @@ import {
   applyPendingRules,
   rulesFor,
   reverse,
+  runSettlement,
   VILLAGE_VOICE,
   VOICE_MINT,
   villageId,
@@ -884,6 +886,302 @@ describe.skipIf(!configured)("the village economy engine", () => {
       expect(r?.pending).toBeNull();
       // And a second run has nothing left to do.
       expect(await applyPendingRules(pool, nextMoon)).toBe(0);
+    });
+  });
+
+  // ── The ceiling binds where the payment happens ──────────────────────────
+  //
+  // Measured on this build before the fix, against a rule left at
+  // `amount 25, ceiling 5`: `mintForConfirmedClaim` posted 25 and the member's
+  // balance read 25. `clampToCeiling` existed, was exported, was documented as
+  // the rule, and had NO CALLER anywhere under `server/`: the only reference to
+  // it in the repository was the unit test three hundred lines above this one.
+  // A function nobody calls is a comment with a type signature.
+  //
+  // WHAT THE COLUMN BOUNDS, because the answer decides every test below.
+  // ONE OCCURRENCE, in the rule's own human units, and not a cycle's total.
+  // Four citations say so and none says otherwise:
+  //
+  //   drizzle/0071_economy_core.sql:52  "The hard cap on any from_source amount"
+  //   server/lib/economy.ts             `clampToCeiling`, per posted amount
+  //   economy.ts `publicRules` and client/src/pages/Mint.tsx:365, which both
+  //     print it as "up to N, as much as the work was posted for"
+  //   economy.ts `queueRuleChange`      refuses ONE amount above it as
+  //     "a rule that contradicts itself", which is a per-occurrence sentence
+  //
+  // So the last test in this block is the one that pins the reading down: the
+  // shipped default of `amount 25, ceiling 250` pays eleven confirmed quests
+  // 275, and that is the rule working rather than a cap being missed.
+  describe("a rule's ceiling", () => {
+    // `stay-credit` because the natural key is (village, trigger, token) and
+    // every other token this file uses on `quest.completed` already carries a
+    // rule from a block above. Registered here rather than assumed: the stays
+    // module registers it at boot and this suite never boots one, so a rule
+    // pointing at an unregistered token would report "no token called" and the
+    // ceiling would never be reached at all.
+    const TOKEN = "stay-credit";
+    const RULE = "rule-ceiling-test";
+
+    /** The rule's live numbers, written straight, in force from cycle zero. */
+    async function setRule(amount: number | null, ceiling: number): Promise<void> {
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`, `effective_from_cycle`) " +
+          "VALUES (?,?,'quest.completed',?,?,?,'claimant',1,0) " +
+          "ON DUPLICATE KEY UPDATE `amount` = VALUES(`amount`), `ceiling` = VALUES(`ceiling`), " +
+          "`enabled` = 1, `effective_from_cycle` = 0, `pending_from_cycle` = NULL",
+        [RULE, villageId(), TOKEN, amount, ceiling],
+      );
+    }
+
+    /** What the ledger actually holds for this token, from the rows themselves. */
+    async function posted(account: string): Promise<{ rows: number; units: number }> {
+      const [rows] = await pool.query<any[]>(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(`amount`), 0) AS units FROM `token_ledger` " +
+          "WHERE `to_account` = ? AND `token_type` = ?",
+        [account, TOKEN],
+      );
+      return { rows: Number(rows[0]?.n ?? 0), units: Number(rows[0]?.units ?? 0) };
+    }
+
+    beforeAll(async () => {
+      await registerToken(pool, {
+        slug: TOKEN, name: "Stay Credit", kind: "credit",
+        governance: "platform", transferable: false, decimals: 0,
+      });
+      await loadTokenRegistry(pool);
+    });
+
+    afterAll(async () => {
+      // The block below deletes every rule in the village and counts what is
+      // left, so this one takes its own row out rather than leaving a rule the
+      // next reader has to account for.
+      await pool.query("DELETE FROM `mint_rules` WHERE `id` = ?", [RULE]);
+    });
+
+    it("pays the ceiling, not the amount, when a rule was left above its own ceiling", async () => {
+      await setRule(25, 5);
+      const u = await makeMember("econ-ceil-1");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-ceil-1", questId: "q-ceil", userId: u, confirmedAt: new Date(),
+      });
+      // Read on the balance and on the row, never on the return value: a mint
+      // that reported 5 and posted 25 would pass an assertion on `minted`.
+      expect(await balanceOf(pool, memberAccount(u), TOKEN)).toBe(5);
+      expect(await posted(memberAccount(u))).toEqual({ rows: 1, units: 5 });
+      // And the caller is told what it actually paid, so a route logging the
+      // result does not tell the member 25.
+      expect(out.minted.find((m) => m.token === TOKEN)?.amount).toBe(5);
+      expect((await checkLedgerInvariants(pool)).problems).toEqual([]);
+    });
+
+    it("reaches that state through the governed path, with nobody typing the row", async () => {
+      // GREEN EITHER WAY, on purpose, and it is the only test here that is.
+      // It measures `queueRuleChange` and `applyPendingRules`, which this
+      // change does not touch: its job is to prove the row the tests around
+      // it measure is reachable without an admin typing it, not to prove the
+      // clamp. Removing the clamp leaves this one passing.
+      //
+      // THE HOLE THIS CLOSES. `queueRuleChange` refuses an amount above the
+      // ceiling, and skips that check entirely when the change carries a
+      // ceiling and no amount. A village voting "the most it can pay" down
+      // therefore lands the rule at 25 over a ceiling of 5, which is exactly
+      // the row the test above measures, and no admin ever typed it.
+      await setRule(25, 250);
+      const queued = await queueRuleChange(pool, RULE, { ceiling: 5 }, "admin-ceiling");
+      expect(queued.ok).toBe(true);
+
+      const nextMoon = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      expect(await applyPendingRules(pool, nextMoon)).toBeGreaterThan(0);
+
+      const [rows] = await pool.query<any[]>(
+        "SELECT `amount`, `ceiling` FROM `mint_rules` WHERE `id` = ?",
+        [RULE],
+      );
+      expect(Number(rows[0].amount)).toBe(25);
+      expect(Number(rows[0].ceiling)).toBe(5);
+    });
+
+    it("mints nothing on a ceiling of zero, and says which number stopped it", async () => {
+      // An empty state and a real zero are different facts. `mint_rules.ceiling`
+      // is NOT NULL DEFAULT 0 and `mintRuleValueProblem` tells a village in as
+      // many words that "a ceiling is zero or more, and zero means zero", so
+      // this is fail-closed by the same reading the swap caps use.
+      await setRule(25, 0);
+      const u = await makeMember("econ-ceil-zero");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-ceil-zero", questId: "q-ceil", userId: u, confirmedAt: new Date(),
+      });
+      expect(await balanceOf(pool, memberAccount(u), TOKEN)).toBe(0);
+      expect(await posted(memberAccount(u))).toEqual({ rows: 0, units: 0 });
+      // A refusal a person can read, naming the number to change. An amount of
+      // zero stays quiet because it is a village saying "not this one, not
+      // now"; a ceiling of zero under a positive amount is a row at war with
+      // itself and somebody has to be told.
+      const said = out.unpayable.find((x) => x.token === TOKEN);
+      expect(said?.reason).toMatch(/ceiling is 0/);
+      expect(said?.reason).toMatch(/Raise the ceiling or pause the rule/);
+    });
+
+    it("still pays once for one occurrence, whatever the clamp did", async () => {
+      await setRule(25, 5);
+      const u = await makeMember("econ-ceil-idem");
+      const claim = { id: "claim-ceil-idem", questId: "q-ceil", userId: u, confirmedAt: new Date() };
+      await mintForConfirmedClaim(pool, claim);
+      const again = await mintForConfirmedClaim(pool, claim);
+      // The key shape is untouched by this change, so a re-confirm is still a
+      // duplicate and still pays nothing a second time.
+      expect(again.minted.find((m) => m.token === TOKEN)).toBeUndefined();
+      expect(await posted(memberAccount(u))).toEqual({ rows: 1, units: 5 });
+    });
+
+    it("holds the ceiling on two claims confirmed in the same instant", async () => {
+      await setRule(25, 5);
+      const a = await makeMember("econ-ceil-race-a");
+      const b = await makeMember("econ-ceil-race-b");
+      /*
+       * A per-occurrence bound has NO RUNNING TOTAL TO RACE ON, so there is no
+       * check-then-act window here for a `TransferGuard` to close: the clamp
+       * is a pure function of the rule row and the amount, decided before the
+       * post. What this measures is that contention cannot get more than the
+       * ceiling past the clamp, and that the books still balance afterwards.
+       *
+       * `allSettled` AND NOT `all`, and the difference is not cosmetic. `all`
+       * rejects the moment one side does and leaves the OTHER mint still
+       * posting, which then deadlocks the next test in this block against a
+       * transaction the previous test walked away from. That cost a flaky run
+       * before it was understood.
+       *
+       * A REJECTION IS AN ACCEPTED OUTCOME HERE, and it is a defect this lane
+       * found and did not fix, because it lives in `postTransfer` and not in
+       * the mint path. `postTransferPair` retries `ER_LOCK_DEADLOCK` three
+       * times and says in its own comment that "InnoDB may still pick a
+       * deadlock victim under real contention even with perfect lock
+       * ordering". `postTransfer`, which every single mint goes through, rolls
+       * back and rethrows, and neither `mint` nor `mintForConfirmedClaim`
+       * catches it. So `mintForConfirmedClaim`'s promise that "it never throws
+       * into the consent route" is not true under contention. Measured at
+       * 2026-09-03: one run in three of exactly this pair of calls.
+       */
+      const settled = await Promise.allSettled([
+        mintForConfirmedClaim(pool, { id: "claim-race-a", questId: "q-ceil", userId: a, confirmedAt: new Date() }),
+        mintForConfirmedClaim(pool, { id: "claim-race-b", questId: "q-ceil", userId: b, confirmedAt: new Date() }),
+      ]);
+      for (const s of settled) {
+        // Narrow, so a NEW kind of failure still turns this red rather than
+        // being absorbed by a tolerant assertion.
+        if (s.status === "rejected") {
+          expect(["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"]).toContain(s.reason?.code);
+        }
+      }
+      // The rule holds whatever the ledger did. A call that came back paid
+      // exactly the ceiling; a call that was the deadlock victim posted
+      // nothing at all, because `postTransfer` rolls back before it rethrows.
+      const who = [a, b];
+      for (let i = 0; i < settled.length; i += 1) {
+        const rows = await posted(memberAccount(who[i]));
+        expect(rows).toEqual(settled[i].status === "fulfilled" ? { rows: 1, units: 5 } : { rows: 0, units: 0 });
+      }
+      expect((await checkLedgerInvariants(pool)).problems).toEqual([]);
+    });
+
+    it("clamps a seat payout at settlement too, which is the other mint path", async () => {
+      // The twin. `runSettlement` read `r.amount ?? 0` and posted it, so a
+      // fix to the quest path alone would have left every seat in the village
+      // paid over the ceiling once a moon.
+      // No `org_roles` row: the seat query reads `org_role_assignments` alone
+      // and this schema carries no foreign keys, so inventing a seat title
+      // here would only be scenery.
+      const u = await makeMember("econ-ceil-seat");
+      await pool.query(
+        "INSERT INTO `org_role_assignments` (`id`, `org_role_id`, `holder_kind`, `user_id`, `holder_key`, `is_example`) " +
+          "VALUES ('seat-ceiling-test','role-ceiling-test','member',?,?,0) " +
+          "ON DUPLICATE KEY UPDATE `user_id` = VALUES(`user_id`)",
+        [u, u],
+      );
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`, `effective_from_cycle`) " +
+          "VALUES ('rule-ceiling-seat',?,'role.cycle',?,25,5,'holder',1,0) " +
+          "ON DUPLICATE KEY UPDATE `amount` = 25, `ceiling` = 5, `enabled` = 1, `effective_from_cycle` = 0",
+        [villageId(), TOKEN],
+      );
+      const out = await runSettlement(pool);
+      expect(out.stewardsThanked).toBe(1);
+      expect(await balanceOf(pool, memberAccount(u), TOKEN)).toBe(5);
+      expect(await posted(memberAccount(u))).toEqual({ rows: 1, units: 5 });
+      await pool.query("DELETE FROM `mint_rules` WHERE `id` = 'rule-ceiling-seat'");
+      await pool.query("DELETE FROM `org_role_assignments` WHERE `id` = 'seat-ceiling-test'");
+    });
+
+    it("leaves the shipped default alone: eleven quests at 25 under a ceiling of 250 issue 275", async () => {
+      // GREEN EITHER WAY, and that is the point: a regression guard on the
+      // reading rather than a proof of the clamp. If somebody later reads the
+      // column as a per-cycle budget, this is the test that goes red and says
+      // which village it would have stopped paying.
+      //
+      // THE READING, pinned. This is `rule-quest.completed-credits` as
+      // `economySeed.ts` ships it, and 275 is what "25 Village Credits when a
+      // steward confirms finished work" promises for eleven confirmed quests.
+      //
+      // Reading the column as a per-cycle budget would make this 250 and would
+      // ALSO stop the shipped `role.cycle credits, amount 25, ceiling 250`
+      // after the tenth seat in every village with more than ten seats, which
+      // nobody has decided. That is a founder's call and it needs its own
+      // column, not a new reading of this one.
+      await setRule(25, 250);
+      const u = await makeMember("econ-ceil-eleven");
+      for (let i = 1; i <= 11; i += 1) {
+        await mintForConfirmedClaim(pool, {
+          id: `claim-ceil-11-${i}`, questId: "q-ceil", userId: u, confirmedAt: new Date(),
+        });
+      }
+      expect(await posted(memberAccount(u))).toEqual({ rows: 11, units: 275 });
+      expect(await balanceOf(pool, memberAccount(u), TOKEN)).toBe(275);
+      expect((await checkLedgerInvariants(pool)).problems).toEqual([]);
+    });
+
+    it("clamps a from_source amount the way it always said it did", () => {
+      // Held on the function rather than on a balance, and this is a real
+      // limit on what this suite proves: NEITHER mint path can reach the
+      // from_source branch. `mintForConfirmedClaim` refuses `amount === null`
+      // as "a quest posts no amount in this token" before any amount exists,
+      // and `runSettlement` reads `r.amount ?? 0` and skips. So the branch the
+      // column was written for has no live caller to measure, and the two
+      // paths above are where the column now actually binds.
+      expect(clampToCeiling(40, rule({ ceiling: 100 }))).toBe(40);
+      expect(clampToCeiling(4000, rule({ ceiling: 100 }))).toBe(100);
+      // And the branch this change added: a fixed amount is bounded too.
+      expect(clampToCeiling(0, rule({ amount: 25, ceiling: 5 }))).toBe(5);
+      expect(clampToCeiling(0, rule({ amount: 25, ceiling: 250 }))).toBe(25);
+      expect(clampToCeiling(0, rule({ amount: 25, ceiling: 0 }))).toBe(0);
+    });
+
+    it("answers the whole ceiling decision in one pure call, every case", () => {
+      // THE TABLE THE DRY-RUN MODEL MIRRORS. `shared/dryRun/economicsModel.ts`
+      // may not import anything under `server/` and its own test walks the
+      // import graph to enforce that, so it copies this arithmetic the way it
+      // copies the faucet map. This is the table to copy, and there is
+      // deliberately no "issued so far this cycle" column in it: the ceiling
+      // bounds an occurrence, so a running total is not an input.
+      const cases: Array<[Partial<MintRule>, number, number, boolean]> = [
+        // rule                          posted  paid  refused
+        [{ amount: 25, ceiling: 250 },        0,   25,  false],
+        [{ amount: 25, ceiling: 5 },          0,    5,  false],
+        [{ amount: 25, ceiling: 25 },         0,   25,  false], // exactly at it pays
+        [{ amount: 25, ceiling: 0 },          0,    0,   true],
+        [{ amount: 0, ceiling: 250 },         0,    0,  false], // the village's own off switch
+        [{ amount: null, ceiling: 100 },     40,   40,  false],
+        [{ amount: null, ceiling: 100 },   4000,  100,  false],
+        [{ amount: null, ceiling: 0 },       40,    0,   true],
+      ];
+      for (const [over, posted, paid, refused] of cases) {
+        const out = ceilingOutcome(rule(over), posted, "Village Credits");
+        expect({ paid: out.paid, refused: out.refusal !== null }).toEqual({ paid, refused });
+      }
+      // The sentence itself, once, because a founder reads it and a route logs
+      // it. It names the number that stopped the payment and what to do.
+      expect(ceilingOutcome(rule({ amount: 25, ceiling: 0 }), 0, "Village Credits").refusal).toBe(
+        "this rule's ceiling is 0, so it can pay no Village Credits at all. Raise the ceiling or pause the rule",
+      );
     });
   });
 
