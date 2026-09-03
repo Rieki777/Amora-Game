@@ -39,7 +39,7 @@ import {
   type LandingDeps,
   type SubjectCloser,
 } from "./applyDue";
-import { STEWARD_APPROVE } from "./stewardship";
+import { STEWARD_VETO } from "./stewardship";
 
 const configured = testDbConfigured();
 let db: TestDb;
@@ -161,7 +161,7 @@ const carry = async (b: BallotRow, votes: Array<[string, "yes" | "no", string?]>
 const seatSteward = async (userId: string, termEndsAt: Date | null = null) => {
   await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     "INSERT INTO roles (id, name, capabilities) VALUES ('steward','Steward',?) ON DUPLICATE KEY UPDATE capabilities = VALUES(capabilities)",
-    [JSON.stringify([STEWARD_APPROVE])],
+    [JSON.stringify([STEWARD_VETO])],
   );
   await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
     "INSERT INTO role_holders (id, role_id, user_id, granted_by, term_ends_at) VALUES (?,?,?,?,?) " +

@@ -202,12 +202,13 @@ export const POWERS: readonly PowerEntry[] = [
     ],
   },
   {
-    capability: "steward.approve",
-    title: "The last word on a passed proposal",
-    surface: "Approving what the village carried, or refusing it and saying why",
+    capability: "steward.veto",
+    title: "The veto on a carried decision",
+    surface: "Stopping what the village carried, inside the window, and saying why",
     routes: [
-      "/api/governance/ballots/:id/approve",
-      "/api/governance/ballots/:id/refuse",
+      "/api/governance/ballots/:id/veto",
+      "/api/governance/ballots/:id/no-objection",
+      "/api/governance/vetoes/:id/redact",
     ],
   },
   {

@@ -63,7 +63,7 @@ import { ballotById, votesFor, type BallotRow } from "./ballots";
 import { floorForCriticality, thresholdSettingsFrom, type ThresholdSettings } from "../../shared/ballotSubjects";
 import type { Criticality } from "../../shared/governanceEngine";
 import { numberVar, stringVar } from "./variables";
-import { stewardsSeated } from "./stewardship";
+import { keyIsVetoLocked, stewardsSeated, type VetoWindowVerdict } from "./stewardship";
 
 /** What a subject's closer hands back. Mirrors the dispatcher's own shape. */
 export interface CloseRouting {
@@ -137,6 +137,13 @@ export interface StampInput {
   ballot: BallotRow;
   /** The change set, when the subject has one, so a bundle takes one clock. */
   itemKinds?: readonly string[];
+  /**
+   * True when an element of the set edits the map that says what a steward
+   * may stop. Such a set executes at pass with no window, for the same reason
+   * `role_unseat` on a steward-capable role does: a seat that could stop the
+   * edit narrowing its own reach would hold the village.
+   */
+  editsVetoMap?: boolean;
 }
 
 /**
@@ -155,7 +162,7 @@ export function landingOf(deps: LandingDeps, input: StampInput): Landing {
     timing: timingOfBallot(b),
     vetoHours: vetoHoursFrom(deps.vetoHours()),
     nextNewMoonAfter: deps.nextNewMoonAfter,
-    noWindow: executesAtPassWithNoWindow(b.subjectType),
+    noWindow: executesAtPassWithNoWindow(b.subjectType) || !!input.editsVetoMap,
   });
 }
 
@@ -720,7 +727,7 @@ export async function routeOutcome(
     return routing;
   }
 
-  const landing = landingOf(deps, { ballot: b, itemKinds });
+  const landing = landingOf(deps, { ballot: b, itemKinds, editsVetoMap: await editsVetoMap(deps, b) });
   await stampLanding(deps, b, landing);
 
   if (landing.executesAtClose) {
@@ -834,6 +841,49 @@ export async function itemKindsOf(deps: LandingDeps, b: BallotRow): Promise<stri
   const set = typeof raw === "string" ? JSON.parse(raw) : raw;
   if (!Array.isArray(set)) return undefined;
   return set.map((c: { kind?: string }) => String(c?.kind ?? "dial"));
+}
+
+/**
+ * DOES THIS SET EDIT THE MAP THAT SAYS WHAT A STEWARD MAY STOP?
+ *
+ * `server/lib/stewardship.ts` owns the list of keys that make up the reach of
+ * the seat, and `keyIsVetoLocked` is its answer. Asked here so the same rule
+ * that takes a window off `role_seat` and `role_unseat` also takes one off a
+ * change set that narrows what the seat may reach. Reading the set a second
+ * time costs one query on the close of a mechanics ballot, and it keeps the
+ * key list in the module that owns it rather than copied into this one.
+ */
+export async function editsVetoMap(deps: LandingDeps, b: BallotRow): Promise<boolean> {
+  if (!hasProposal(b.subjectType)) return false;
+  const [rows] = await deps.pool.query<RowDataPacket[]>("SELECT change_set FROM mechanics_proposals WHERE id = ?", [
+    b.subjectRef,
+  ]);
+  const raw = rows[0]?.change_set;
+  if (!raw) return false;
+  const set = typeof raw === "string" ? JSON.parse(raw) : raw;
+  if (!Array.isArray(set)) return false;
+  return set.some((c: { key?: unknown }) => keyIsVetoLocked(String(c?.key ?? "")));
+}
+
+/**
+ * THE WINDOW, ASKED BY THE VETO ROUTE.
+ *
+ * The seat, the reason and the record live in `server/lib/stewardship.ts`;
+ * the instant a decision lands lives here. `setVetoWindowCheck` is registered
+ * with this function at boot, so the two modules hold one answer between them
+ * rather than two copies of the arithmetic that would disagree eventually.
+ */
+export async function vetoWindowOn(pool: Pool, ballotId: string, now: Date = new Date()): Promise<VetoWindowVerdict> {
+  const row = await landingRow(pool, ballotId);
+  if (!row) return { open: true, known: false };
+  if (row.landingStatus === "applied") {
+    return { open: false, known: true, error: "This one has already landed. Bringing it back is a new proposal." };
+  }
+  if (!row.landsAt) {
+    return { open: false, known: true, error: "This one took effect the moment it carried, so there is no window on it." };
+  }
+  if (!vetoIsInTime(row.landsAt, now)) return { open: false, known: true, error: lateVetoRefusal(row.landsAt) };
+  return { open: true, known: true };
 }
 
 /**

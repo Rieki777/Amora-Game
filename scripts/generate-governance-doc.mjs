@@ -1094,8 +1094,8 @@ const PROSE = {
     "plane and carrying no power of its own.",
   stewardApprover:
     "**The steward the founder ruled for.** A seat, held by a village's catalysts at the Birthing and re-voted each " +
-    "season, whose holder approves a passed proposal before it takes effect and can refuse it with a reason. This one " +
-    "does not exist yet.",
+    "term, whose holder can stop a decision the village has already carried, inside the window before it lands, and " +
+    "has to say why. It approves nothing: a carried decision lands whether or not anybody holds this seat.",
   publishIntro:
     "What a village publishes, read from the route registrations. The door on each route is classified from the " +
     "code, and a route whose door this reader cannot classify says so instead of guessing.",
@@ -1220,8 +1220,7 @@ const KNOWN_DIALS = [
   "governance.hub_url",
   "governance.auto_apply_enabled",
   "governance.steward_subjects",
-  "governance.auto_execute_subjects",
-  // The three the dispatcher lane added with the veto window (2026-09-03).
+  // The three that arrived with the veto window (2026-09-03).
   "governance.veto_hours",
   "governance.steward_council",
   "governance.highest_tier",
@@ -1318,16 +1317,15 @@ const RULINGS = [
     ],
     status: (f) => (f.staged.steward ? "**Staged.** Not built." : "**Half built.**"),
     note: (f) =>
-      `The seat exists. A \`steward.approve\` capability gates an approve route and a refuse route, one row per ballot records ` +
-      `who decided and why, and two settings say which subjects wait for a steward and which carry themselves. What is still ` +
-      `missing is the hold itself: the close dispatcher has no step that waits, so a passed ballot runs its executor at the ` +
-      `close and an approval today changes no outcome. The other hold that exists is \`governance.auto_apply_enabled\`, a ` +
+      `The seat exists, and the approval gate this ruling describes is WITHDRAWN by the founder's 2026-09-03 words. ` +
+      `A \`steward.veto\` capability gates a veto route, an early no-objection route and a redaction route; one row per ` +
+      `steward per ballot records who acted, on what, and why; and one setting says which kinds of decision the seat may ` +
+      `stop. Nothing waits: a Game change lands at the later of the next new moon and the close of its window, on its own, ` +
+      `whether or not anybody holds the seat, and a token send executes when its ballot closes unless a steward voted no ` +
+      `while it was open. What is still missing is the landing instant itself, which the close dispatcher owns. The other ` +
+      `hold that exists is \`governance.auto_apply_enabled\`, a ` +
       `${f.dials.autoApply.ring}-ring dial defaulting to \`${f.dials.autoApply.default}\`, which covers the mechanics closer alone and hands a ` +
-      `held proposal to an administrator to apply by hand. Read this ruling next to the founder's 2026-09-03 words, which ` +
-      `withdraw the approval gate and make the steward a veto window instead: a Game change lands at the next new moon on ` +
-      `its own unless a steward blocks it, and the window closes at the later of the cycle's end and three days after the ` +
-      `vote carried. The approval machinery above is the record and the seat that ruling still needs. The waiting is what it ` +
-      `no longer wants.`,
+      `held proposal to an administrator to apply by hand.`,
   },
   {
     id: 2,
@@ -1362,10 +1360,11 @@ const RULINGS = [
     ],
     status: (f) => (f.staged.steward ? "**Staged.** Not built." : "**Built.**"),
     note: () =>
-      "A refusal is a first-class act now. The refuse route stores who decided, which ballot, and the reason, and it " +
-      "refuses an empty or whitespace-only reason at the door, so a proposal the village passed can never die silently. " +
-      "An approval may carry no words, because a yes explains itself. The first decision on a ballot stands and a second " +
-      "one never overwrites it. What the record still waits on is the surface that shows it to the proposer.",
+      "A veto is a first-class act now. The veto route stores who acted, which ballot, and the reason, and it refuses " +
+      "an empty or whitespace-only reason at the door, so a decision the village carried can never die silently. The " +
+      "reason is plain text capped at 2000 characters, rendered escaped, and redactable: the words can be blanked later " +
+      "while the act, its author and its time stay on the record. An early no-objection may be recorded and it changes " +
+      "no timing. What the record still waits on is the surface that shows it to the proposer.",
   },
   {
     id: 5,
@@ -1581,9 +1580,9 @@ const RULINGS = [
     ],
     status: () => "**Staged.** Not built.",
     note: () =>
-      "The seat does not exist, so nothing renders an empty one. When it does: an empty steward seat is never a warning " +
-      "once a village has chosen it, and passed proposals queue for the seat when it is empty by accident so the backlog " +
-      "is itself the pressure to hold the vote.",
+      "An empty steward seat is never a warning, and nothing queues behind it. A village with nobody on the seat is a " +
+      "village nobody can veto: its carried decisions land at their landing time exactly as they would with the seat " +
+      "filled. The vacancy read says that in one sentence and never as a fault report.",
   },
   {
     id: 18,
