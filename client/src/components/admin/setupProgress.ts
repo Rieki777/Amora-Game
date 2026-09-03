@@ -24,8 +24,8 @@
  *
  * So the two steps whose fields live in the brand record this same screen
  * already loads are MEASURED: their completion is derived from the record and
- * there is no box to tick. The other four stay SELF-REPORTED and keep their
- * checkbox, because what they ask about is genuinely not in that record:
+ * there is no box to tick. The other four keep a checkbox, because what they
+ * ask about is genuinely not in that record:
  *
  *   numbers    the figures on the Settings tab, where every single one is
  *              allowed to stay blank on purpose (a village states its own
@@ -38,6 +38,27 @@
  *
  * The UI says which row is which. A checklist that mixes measured and
  * self-reported rows without saying so is how the empty images survived.
+ *
+ * WHAT CHANGED AFTER THAT, AND WHY IT WAS NOT ENOUGH. On 2026-09-02 all six
+ * brand hero slots were found holding empty strings in the `brand` row of
+ * `app_config` on the live site, with the wizard complete and reachable and
+ * having been for months. Two holes were left in the rewrite above:
+ *
+ *   A tick was still rendered as a completion. The four unmeasured steps kept
+ *   a plain checkbox whose ticked state was reported through the same `done`
+ *   field a counted row uses, so a screen could not tell a founder's memory
+ *   from a reading even though this file knew the difference. `done` is now
+ *   joined by `state`, `source` and `declaredDone`, and an untouched step
+ *   reports `unknown` instead of a quiet `false`.
+ *
+ *   An unread record counted as a read one. `measureSetup(null)` returned
+ *   `filled: 0, total: 9`, so a document that never arrived and a village with
+ *   no pictures printed the same sentence. `filled` and `total` are now null
+ *   when nothing was counted, and the row is `unknown`.
+ *
+ * Derivation is the default and a tick is the exception, marked as one. The
+ * four unmeasured steps take their reading from `SetupObservations` when a
+ * caller has one; see that type for where those readings already exist.
  *
  * WHICH FIELDS COUNT, for a measured row: the ones the wizard renders without
  * calling them optional. Site URL, events URL and contact email each say in
@@ -131,18 +152,77 @@ export interface BrandLike {
      future step could start counting again. */
 }
 
+/**
+ * THREE STATES, BECAUSE THERE ARE THREE FACTS.
+ *
+ * `done` and `todo` are both readings. `unknown` is the absence of one, and it
+ * has to be its own value because the two ways of not being done are different
+ * facts and this repository has already been bitten by code that printed the
+ * same thing for both. Before this, an unread brand document produced
+ * `filled: 0, total: 9` on the pictures row: a village whose record had never
+ * arrived was told it had none of its nine pictures, in the same words as a
+ * village that genuinely had none. That is the silent zero, on the one screen
+ * built to answer the question.
+ *
+ * A row is `unknown` in exactly two situations, and never any other:
+ *   1. The brand document has not been read (null or undefined). An empty
+ *      object is NOT this: `{}` is a record that arrived carrying nothing,
+ *      which is the outage state, and it reads `todo`.
+ *   2. The step has nothing to read from. The four steps whose values live
+ *      behind other endpoints are unknown until an observation is passed in.
+ */
+export type SetupState = "done" | "todo" | "unknown";
+
+/** Whether the row's state was read from data, or asserted by a person. */
+export type SetupSource = "measured" | "declared";
+
 export interface SetupRow {
   key: SetupStepKey;
   label: string;
-  /** True when `done` was read from the record. False when a founder ticked it. */
+  /** True when `done` was read from data. False when a founder ticked it. */
   measured: boolean;
+  source: SetupSource;
+  state: SetupState;
+  /** `state === "done"`. Kept so existing callers read the same answer. */
   done: boolean;
-  /** Both zero on a self-reported row, which has nothing to count. */
-  filled: number;
-  total: number;
+  /**
+   * True when this row says done ONLY because a founder ticked the box. The UI
+   * must render it differently from a measured completion: a tick outlives
+   * whatever it was ticked about, and a screen that draws the two identically
+   * is the screen that scored an empty village six of six.
+   */
+  declaredDone: boolean;
+  /**
+   * Null when nothing was counted, which is not the same as counting zero.
+   * A row with `total: null` must never render as "0 of N".
+   */
+  filled: number | null;
+  total: number | null;
   /** Labels of the measured fields still blank, for the row's own hint. */
   blank: string[];
+  /** One sentence of live detail, when an observation supplied one. */
+  detail?: string;
 }
+
+/**
+ * A reading of one step, taken from somewhere this file cannot reach.
+ *
+ * The four steps that are not in the brand document (numbers, content, map,
+ * technical) are readable, just not from here: the launch resolver already
+ * observes the deploy, the domain, the session secret and the email sender at
+ * `GET /api/admin/launch`, and the figures live behind
+ * `GET /api/admin/settings`. Passing those in is how a tick stops being the
+ * only thing this file can ask. Pass nothing and those rows read `unknown`,
+ * which is the honest answer while nobody has looked.
+ */
+export interface SetupObservation {
+  state: SetupState;
+  filled?: number;
+  total?: number;
+  detail?: string;
+}
+
+export type SetupObservations = Partial<Record<SetupStepKey, SetupObservation>>;
 
 /** A field counts as filled when the village's own record holds a non-blank
  *  string. Whitespace does not count: a space bar is not a village name. */
@@ -154,27 +234,123 @@ function hasValue(brand: BrandLike | null | undefined, field: SetupField): boole
 /**
  * One row per step, in order, ready to render.
  *
- * Pass the brand document. A missing or half-loaded document yields every
- * measured row at zero, which is the honest reading: nothing has been seen.
+ * Pass the brand document, and any observations of the steps that live outside
+ * it. A document that has not arrived at all (null or undefined) yields every
+ * row `unknown` with nothing counted, because nothing has been seen.
+ *
+ * WHERE A TICK STILL COUNTS, and where it stops counting. Derived wins by
+ * default. A founder's tick can still carry a step whose reading says `todo`,
+ * because a blank is sometimes a deliberate answer (a village states its own
+ * land figures or states none), but the row then comes back `declaredDone`, so
+ * the screen can say whose word it is.
  */
-export function measureSetup(brand: BrandLike | null | undefined): SetupRow[] {
+export function measureSetup(
+  brand: BrandLike | null | undefined,
+  observed: SetupObservations = {},
+): SetupRow[] {
+  /* Read, versus not yet read. `{}` counts as read. */
+  const seen = brand !== null && brand !== undefined;
+
   return SETUP_STEPS.map((step) => {
-    const blank = step.fields.filter((f) => !hasValue(brand, f)).map((f) => f.label);
-    const measured = step.fields.length > 0;
-    return {
+    const ticked = Boolean(brand?.setup?.[step.key]);
+    const observation = observed[step.key];
+    const base = {
       key: step.key,
       label: step.label,
-      measured,
-      done: measured ? blank.length === 0 : Boolean(brand?.setup?.[step.key]),
-      filled: step.fields.length - blank.length,
-      total: step.fields.length,
-      blank,
+      blank: [] as string[],
+      detail: observation?.detail,
+    };
+
+    /* Nothing has arrived. Every row is unknown and nothing is counted, ticks
+       included: a tick read out of a document nobody has is not a reading. */
+    if (!seen) {
+      return {
+        ...base,
+        measured: false,
+        source: "measured" as const,
+        state: "unknown" as const,
+        done: false,
+        declaredDone: false,
+        filled: null,
+        total: null,
+      };
+    }
+
+    /* A step whose values are in the brand document. Counted, every time. */
+    if (step.fields.length > 0) {
+      const blank = step.fields.filter((f) => !hasValue(brand, f)).map((f) => f.label);
+      const state: SetupState = blank.length === 0 ? "done" : "todo";
+      return {
+        ...base,
+        blank,
+        measured: true,
+        source: "measured" as const,
+        state,
+        done: state === "done",
+        declaredDone: false,
+        filled: step.fields.length - blank.length,
+        total: step.fields.length,
+      };
+    }
+
+    /* A step read from somewhere else. The observation is the default answer,
+       and a tick may still carry it, visibly. */
+    if (observation) {
+      const carried = observation.state !== "done" && ticked;
+      const state: SetupState = carried ? "done" : observation.state;
+      return {
+        ...base,
+        measured: !carried,
+        source: carried ? ("declared" as const) : ("measured" as const),
+        state,
+        done: state === "done",
+        declaredDone: carried,
+        filled: observation.filled ?? null,
+        total: observation.total ?? null,
+      };
+    }
+
+    /* Nobody has looked at this step. A tick is the founder's own note and is
+       reported as exactly that; an empty box says nothing either way, so the
+       row is unknown and not `todo`. */
+    return {
+      ...base,
+      measured: false,
+      source: "declared" as const,
+      state: ticked ? ("done" as const) : ("unknown" as const),
+      done: ticked,
+      declaredDone: ticked,
+      filled: null,
+      total: null,
     };
   });
 }
 
 /** Whether every step is finished, for the Admin shell's nav posture. The
- *  shell and the wizard have to agree, so they share this one answer. */
-export function setupIsComplete(brand: BrandLike | null | undefined): boolean {
-  return measureSetup(brand).every((row) => row.done);
+ *  shell and the wizard have to agree, so they share this one answer. An
+ *  `unknown` row is never finished. */
+export function setupIsComplete(
+  brand: BrandLike | null | undefined,
+  observed: SetupObservations = {},
+): boolean {
+  return measureSetup(brand, observed).every((row) => row.state === "done");
+}
+
+/**
+ * The three counts, for a caller that needs to tell "still to do" apart from
+ * "nobody has looked". A progress bar built on `done / total` alone reports the
+ * same fraction for both, which is the reading this file exists to refuse.
+ */
+export function setupCounts(
+  brand: BrandLike | null | undefined,
+  observed: SetupObservations = {},
+): { done: number; todo: number; unknown: number; declared: number; total: number } {
+  const rows = measureSetup(brand, observed);
+  return {
+    done: rows.filter((r) => r.state === "done").length,
+    todo: rows.filter((r) => r.state === "todo").length,
+    unknown: rows.filter((r) => r.state === "unknown").length,
+    declared: rows.filter((r) => r.declaredDone).length,
+    total: rows.length,
+  };
 }
