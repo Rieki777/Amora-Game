@@ -1081,7 +1081,7 @@ const DEFAULT_SETTINGS = {
    * Anything a village types here is its own claim about its own land.
    */
   landFacts: {
-    acres: { value: "", note: "" },
+    acres: { value: "", note: "acres" }, // the unit, printed as the master plan tile's own label. Change it and the page changes with it.
     appraisal: { value: "", note: "" },
     appreciation: { value: "", note: "" },
     projectedReturn: { value: "", note: "" },
