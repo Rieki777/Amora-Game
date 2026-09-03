@@ -22,12 +22,17 @@ import { describe, expect, it } from "vitest";
 import {
   addHamlet,
   hamletNumbers,
+  homeChoices,
+  homeFieldValue,
+  homePatch,
   INITIAL_PHASE,
+  isHomeNoOp,
   isNoOp,
   labelFieldValue,
   labelPatch,
   loadSettled,
   loadStarted,
+  preselectedHome,
   showsPlaceholder,
   showsRefreshing,
   sourcePatch,
@@ -36,6 +41,8 @@ import {
   totalPatch,
   takenPatch,
   type FounderRow,
+  type HomeTypeFounderRow,
+  type PublicHome,
 } from "./housingForm";
 
 /** A hamlet with four homes typed and two of them live from reservations. */
@@ -635,5 +642,240 @@ describe("the panel still routes every decision through housingForm", () => {
     const admin = readSource("../pages/Admin.tsx");
     expect(admin).not.toContain("housing/availability");
     expect(admin).toContain("<HousingAdminPanel password={password} />");
+  });
+});
+
+/* ── THE HOMES A VILLAGE OFFERS (0131) ──────────────────────────────────────
+ *
+ * Same two halves as the hamlet suite above, for the same reason. The four
+ * tiers lived as a module constant in Housing.tsx with a second copy of their
+ * sizes in ReserveHome.tsx, nothing imports client/src/pages, and the two
+ * copies had already drifted into different wording for the same home with no
+ * gate able to see it. The decisions are now in housingForm.ts where the
+ * first half of this block runs them, and the second half reads the three
+ * surfaces as text to check they still route through them.
+ */
+
+const publicHome = (over: Partial<PublicHome> = {}): PublicHome => ({
+  homeType: "casita",
+  name: "Casita",
+  size: "45 m2",
+  price: "₡45.000.000",
+  description: "",
+  features: [],
+  ...over,
+});
+
+const founderHome = (over: Partial<HomeTypeFounderRow> = {}): HomeTypeFounderRow => ({
+  homeType: "casita",
+  name: "Casita",
+  size: "45 m2",
+  price: null,
+  description: null,
+  features: null,
+  isPublished: true,
+  updatedBy: null,
+  updatedAt: null,
+  ...over,
+});
+
+describe("what a public surface may say about this village's homes", () => {
+  it("says nothing while the list is still in flight", () => {
+    // A page that announces "no homes yet" for the length of a round trip and
+    // then draws four has told a visitor something false. The hamlet half of
+    // this file records the same defect, shipped and photographed.
+    expect(homeChoices(null)).toEqual({ kind: "unknown" });
+  });
+
+  it("reports an empty list as none, which is what draws no tier section", () => {
+    expect(homeChoices([])).toEqual({ kind: "none" });
+  });
+
+  it("hands over the homes when there are some", () => {
+    const homes = [publicHome()];
+    expect(homeChoices(homes)).toEqual({ kind: "some", homes });
+  });
+});
+
+describe("the home a link asks for", () => {
+  it("selects a home this village published", () => {
+    expect(preselectedHome([publicHome()], "casita")).toBe("casita");
+  });
+
+  it("selects nothing for a home the founder has since cleared", () => {
+    // A link already sent must not preselect a home this village no longer
+    // offers: the server refuses it and the person meets a 400 on the last
+    // click, having been shown the home as available the whole way.
+    expect(preselectedHome([publicHome()], "villa")).toBe("");
+  });
+
+  it("selects nothing before the list has arrived", () => {
+    expect(preselectedHome(null, "casita")).toBe("");
+  });
+});
+
+describe("which field each home box reads", () => {
+  it("shows an empty box for a column nobody filled in", () => {
+    // Never the word null, and never a stand-in: a box showing a stand-in
+    // writes the stand-in the moment anybody tabs through it.
+    expect(homeFieldValue(founderHome({ price: null }), "price")).toBe("");
+    expect(homeFieldValue(founderHome({ features: null }), "features")).toBe("");
+  });
+
+  it("shows exactly what is stored, symbols and units and all", () => {
+    expect(homeFieldValue(founderHome({ price: "₡45.000.000" }), "price")).toBe("₡45.000.000");
+    expect(homeFieldValue(founderHome({ size: "0,5 hectáreas" }), "size")).toBe("0,5 hectáreas");
+  });
+});
+
+describe("what each home box sends", () => {
+  it("sends one field and never the four it was not asked about", () => {
+    // A control that sends one field cannot revert a field it never
+    // mentioned. Restating the row is what let a stale form clobber three
+    // columns on the hamlet side.
+    expect(homePatch("price", "ask us")).toEqual({ price: "ask us" });
+    expect(Object.keys(homePatch("name", "Cabina"))).toEqual(["name"]);
+  });
+
+  it("sends null from an emptied box, which is how a home is unpublished", () => {
+    expect(homePatch("name", "")).toEqual({ name: null });
+    expect(homePatch("size", "   ")).toEqual({ size: null });
+  });
+
+  it("adds no currency, no unit and no rounding to what was typed", () => {
+    expect(homePatch("price", "  ₡45.000.000 a ₡60.000.000 ")).toEqual({
+      price: "₡45.000.000 a ₡60.000.000",
+    });
+    expect(homePatch("size", "0,5 hectáreas")).toEqual({ size: "0,5 hectáreas" });
+  });
+
+  it("keeps the newlines inside features, because they ARE the list", () => {
+    expect(homePatch("features", " Covered patio\nKitchen, bathroom and a porch ")).toEqual({
+      features: "Covered patio\nKitchen, bathroom and a porch",
+    });
+  });
+});
+
+describe("a blur that changed nothing saves nothing", () => {
+  it("is a no-op when the box holds what the row holds", () => {
+    expect(isHomeNoOp(founderHome(), homePatch("name", "Casita"))).toBe(true);
+    expect(isHomeNoOp(founderHome({ price: null }), homePatch("price", ""))).toBe(true);
+  });
+
+  it("is not a no-op when the founder actually edited the box", () => {
+    expect(isHomeNoOp(founderHome(), homePatch("name", "Cabina"))).toBe(false);
+    expect(isHomeNoOp(founderHome({ price: null }), homePatch("price", "ask us"))).toBe(false);
+    expect(isHomeNoOp(founderHome(), homePatch("name", ""))).toBe(false);
+  });
+});
+
+describe("the three surfaces still route every home decision through housingForm", () => {
+  const HOUSING = "../pages/Housing.tsx";
+  const RESERVE = "../pages/ReserveHome.tsx";
+  const TIERS = "../components/HousingTiersPanel.tsx";
+
+  /**
+   * The literals as they shipped, and the reason this list is spelled out
+   * rather than described. Every one of these was published under every
+   * fork's name, to prospective residents, with no field able to change it.
+   * A page that grows one back should fail here on the day it does.
+   */
+  const SHIPPED_LITERALS = [
+    "sq ft",
+    "$80,000",
+    "$150,000",
+    "$250,000",
+    "$450,000",
+    "$1,000,000",
+    "10 show homes",
+  ];
+
+  it("carries none of the four tiers as a literal any more", () => {
+    for (const page of [HOUSING, RESERVE]) {
+      const source = readSource(page);
+      for (const literal of SHIPPED_LITERALS) {
+        expect(
+          source.includes(literal),
+          `${page} still contains ${JSON.stringify(literal)}. These four tiers were a module ` +
+            `constant published by every village that deploys this platform, in dollars and ` +
+            `square feet nobody at that village chose. They come from the village's own table ` +
+            `now (0131); do not reinstate one as a default or an example.`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("reads the homes off the shared helper rather than a constant of its own", () => {
+    const housing = readSource(HOUSING);
+    expect(housing).toContain("homeChoices");
+    expect(housing).toContain('fetch("/api/housing/public")');
+    const reserve = readSource(RESERVE);
+    expect(reserve).toContain("homeChoices");
+    expect(reserve).toContain("preselectedHome");
+  });
+
+  it("draws the whole tier section or none of it, heading included", () => {
+    /*
+     * Hiding only the grid leaves "Housing Options" standing over a gap,
+     * which reads as a page that failed to load rather than as a village that
+     * has not described its homes. The heading has to live INSIDE the branch,
+     * so this asks where it sits rather than whether a guard exists.
+     */
+    const housing = readSource(HOUSING);
+    const sf = ts.createSourceFile("Housing.tsx", housing, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const guards: ts.BinaryExpression[] = [];
+    const walk = (n: ts.Node) => {
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+        n.left.getText(sf).includes("choices.kind") &&
+        n.left.getText(sf).includes('"some"')
+      ) {
+        guards.push(n);
+      }
+      n.forEachChild(walk);
+    };
+    walk(sf);
+    expect(guards, "the tier section renders under one published-homes guard").toHaveLength(1);
+    const guarded = guards[0]!.right.getText(sf);
+    expect(guarded, "the heading is inside the guard, not above it").toContain("Housing Options");
+    expect(guarded, "and so are the cards").toContain("choices.homes.map");
+  });
+
+  it("says the homes are not listed yet rather than offering four nobody chose", () => {
+    const reserve = readSource(RESERVE);
+    expect(reserve).toContain('choices.kind === "none"');
+    // `unknown` is the in-flight window and must never render the empty
+    // state, or every visitor is told there are no homes for a round trip.
+    expect(reserve).not.toContain('choices.kind !== "some"');
+  });
+
+  it("binds every founder box through homeFieldValue and homePatch", () => {
+    const panel = readSource(TIERS);
+    expect(panel).toContain("defaultValue={homeFieldValue(r, f.key)}");
+    expect(panel).toContain("homePatch(field, raw)");
+    expect(panel).toContain("isHomeNoOp(row, patch)");
+    // An inline body is how a control comes to restate fields it was never
+    // asked about, which is the defect the hamlet half of this file exists for.
+    expect(panel).toContain("JSON.stringify(patch)");
+  });
+
+  it("asks the server whether a home is published, and never re-derives it", () => {
+    // The hamlet list beside this one shipped a re-derived predicate to main:
+    // a founder read a green badge on a row every visitor was being told was
+    // an example. Two assertions, so a rename alone cannot satisfy both.
+    const panel = readSource(TIERS);
+    expect(panel).toContain("r.isPublished");
+    expect(panel).not.toContain("r.name &&");
+    expect(panel).not.toContain("r.price !== null");
+  });
+
+  it("keeps the housing tab as the only door to the homes", () => {
+    // A second copy in Admin.tsx would be a second set of rules, and only one
+    // of them would be under test. Admin.tsx also carries a hard line ratchet.
+    const admin = readSource("../pages/Admin.tsx");
+    expect(admin).not.toContain("housing/home-types");
+    const hamlets = readSource("../components/HousingAdminPanel.tsx");
+    expect(hamlets).toContain("<HousingTiersPanel password={password} />");
   });
 });

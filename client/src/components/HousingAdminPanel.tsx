@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import HousingTiersPanel from "@/components/HousingTiersPanel";
 import {
   addHamlet,
   INITIAL_PHASE,
@@ -452,6 +453,12 @@ export default function HousingAdminPanel({ password }: { password: string }) {
       </div>
 
       {showsRefreshing(phase) && <p className="text-xs text-stone-400">Refreshing.</p>}
+
+      {/* The other half of housing (0131): what a home IS, as opposed to how
+          many of them a hamlet has open. Its own file, its own fetch and its
+          own state, mounted in one line the way this panel is mounted into
+          Admin.tsx, and for the same reason. */}
+      <HousingTiersPanel password={password} />
     </div>
   );
 }
