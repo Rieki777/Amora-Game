@@ -11,7 +11,7 @@ This describes a FRESH village: what a village standing up a new instance holds 
 <!-- written by a person: generated -->
 This file is generated. `scripts/generate-governance-doc.mjs` reads the engine, the subject registry, the dials, the capability tables, the module definition, the clock and the route registrations, works out the facts, and writes the whole document. `scripts/check-governance-doc.mjs` regenerates it and fails the build when the committed text and the code have come apart.
 
-It describes the code at commit `15e74bb56640900e6badfb137837f0d4fc3360ae`.
+It describes the code at commit `ac551c916e3cd6ac7bbf19a16926eed4f2ef6a25`.
 
 <!-- written by a person: editing -->
 Editing this file by hand does not hold. Change the code, then run:
@@ -646,7 +646,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
 
 ```json
 {
-  "commit": "15e74bb56640900e6badfb137837f0d4fc3360ae",
+  "commit": "ac551c916e3cd6ac7bbf19a16926eed4f2ef6a25",
   "module": {
     "id": "governance",
     "shipsAs": "off",
