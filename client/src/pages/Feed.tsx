@@ -144,7 +144,7 @@ export default function Feed() {
                 placeholder="Share a moment… mention people with @handle."
                 className="w-full text-sm border border-border rounded-lg px-3 py-2" />
               <div className="flex items-center justify-between">
-                {error ? <p className="text-xs text-red-600">{error}</p> : <span />}
+                {error ? <p role="alert" className="text-xs text-red-600">{error}</p> : <span />}
                 <button onClick={post} disabled={!draft.trim()}
                   className="inline-flex items-center gap-1.5 text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium disabled:opacity-40">
                   <Send className="w-3.5 h-3.5" /> Post

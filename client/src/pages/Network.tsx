@@ -118,7 +118,7 @@ export default function Network() {
 
       <section className="py-8 bg-background">
         <div className="container max-w-3xl space-y-6">
-          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
+          {error && <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>}
 
           {/* ── What we share ── */}
           <div className="bg-card border border-border rounded-xl p-5">
