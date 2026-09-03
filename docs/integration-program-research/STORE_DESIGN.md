@@ -106,7 +106,7 @@ is exactly the case a healthy ecosystem should make easy.
 
 ## 4. `withdrawn` is a state, not a deletion
 
-**Accepted.** Built. Closes a row on `CONTRACT_ENFORCEMENT_GAPS_2026-08-14.md`.
+**Accepted.** Built. Closes a row on CONTRACT_ENFORCEMENT_GAPS_2026-08-14.md, a lane working file never committed here.
 
 The contract promises "the listing is marked withdrawn rather than deleted so nothing orphans". Before
 this, the only way to stop offering a listing was to remove the registry entry, which turns every
@@ -159,7 +159,7 @@ is true.
 
 In v1 the developer bills the fork directly. Zero platform payment processing, zero merchant of
 record exposure, zero payout machinery. That is the Connected posture applied to money, and it is what
-`MODULE_LIBRARY_TIERS_AND_PROCESS_2026-08-14.md` decision 10 already defaults to: "Connected: 0%, the
+MODULE_LIBRARY_TIERS_AND_PROCESS_2026-08-14.md (a lane working file never committed here) decision 10 already defaults to: "Connected: 0%, the
 vendor bills and you owe only the connector."
 
 If a platform-billed rail is ever wanted, this is the shape and these are the costs, from the Stripe
