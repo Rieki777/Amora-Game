@@ -195,7 +195,7 @@ export default function Profile() {
                         className="w-full p-4 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep"
                         rows={4}
                       />
-                      {bioError && <p className="text-sm text-red-600 mt-2">{bioError}</p>}
+                      {bioError && <p role="alert" className="text-sm text-red-600 mt-2">{bioError}</p>}
                       <div className="flex items-center gap-3 mt-3">
                         {/* This Save is the whole point: the editor used to
                             discard every word on close, silently. */}

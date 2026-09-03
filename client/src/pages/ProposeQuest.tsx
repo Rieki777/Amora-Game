@@ -355,7 +355,7 @@ export default function ProposeQuest() {
             </div>
 
             {error && (
-              <p className="text-sm text-destructive">{error}</p>
+              <p role="alert" className="text-sm text-destructive">{error}</p>
             )}
 
             <button
