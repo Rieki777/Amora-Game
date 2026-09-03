@@ -1224,6 +1224,8 @@ const KNOWN_DIALS = [
   "governance.veto_hours",
   "governance.steward_council",
   "governance.highest_tier",
+  // A passed decision that never lands stops being a promise (2026-09-03).
+  "governance.landing_expiry_cycles",
   "governance.change_cooldown_days",
   "governance.weight_mode",
   "governance.weight_token",

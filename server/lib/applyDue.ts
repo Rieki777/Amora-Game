@@ -43,10 +43,38 @@
  * "Read the status, then write it" loses that race silently, and the two
  * callers here (a five-minute job and a human pressing cycle close) genuinely
  * do arrive at one row in the same second at a moon turn.
+ *
+ * ── THE TOTAL ORDER FOR ROWS DUE AT ONE INSTANT ────────────────────────────
+ *
+ * Several rows can fall due in the same second, and one of them can change the
+ * dials another is priced or timed by. So the order is STATED here rather than
+ * left to whatever the database hands back, and it is TOTAL: no two rows can
+ * tie on the whole key, so two servers reading the same table apply them in the
+ * same sequence.
+ *
+ *   1. `lands_at` ascending. The earlier instant goes first, always.
+ *   2. SOURCE TABLE, in this fixed sequence, which is the tie-break that
+ *      matters and the one a later lane must not reorder:
+ *        a. scheduled reversions (`governance_scheduled_reversions`, Phase 2)
+ *        b. carried proposals (`ballots`)
+ *      A reversion is the fulfilment of an OLDER vote whose term simply ran
+ *      out, and the new decision due in the same second is the village's
+ *      current mind. Running the reversion first means the new decision writes
+ *      last and stands; running it second would silently undo the thing the
+ *      village just decided. Phase 2 adds the reversion table and inherits this
+ *      sentence rather than choosing again.
+ *   3. `id` ascending inside a table, which is unique, so the order is total.
+ *
+ * ── THE DIGEST ─────────────────────────────────────────────────────────────
+ *
+ * Composed HERE and not by the settlement path, because this is the routine
+ * that knows whether every row due inside the closed cycle has actually been
+ * dealt with. It runs when a tick crosses a cycle boundary, after that
+ * assertion, once per cycle id. See `server/lib/moonDigest.ts`.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import {
-  DEFAULT_TIMING,
+  defaultTimingFor,
   executesAtPassWithNoWindow,
   kindOfSet,
   kindOfSubject,
@@ -63,7 +91,13 @@ import { ballotById, votesFor, type BallotRow } from "./ballots";
 import { floorForCriticality, thresholdSettingsFrom, type ThresholdSettings } from "../../shared/ballotSubjects";
 import type { Criticality } from "../../shared/governanceEngine";
 import { numberVar, stringVar } from "./variables";
-import { keyIsVetoLocked, stewardsSeated, type VetoWindowVerdict } from "./stewardship";
+import { keyIsVetoLocked, stewardsSeated, vetoWatchMarksDue, type VetoWindowVerdict } from "./stewardship";
+/*
+ * The digest composer is re-exported from beside the `composeDigest` dep that
+ * takes it, so a caller wiring the landing job reaches one module for the job
+ * and the thing the job is handed. `server/lib/moonDigest.ts` is its home.
+ */
+export { digestComposerFor } from "./moonDigest";
 
 /** What a subject's closer hands back. Mirrors the dispatcher's own shape. */
 export interface CloseRouting {
@@ -110,10 +144,19 @@ export interface LandingDeps extends VetoDeps {
   autoApplyEnabled: () => boolean;
   /** Does a veto need a majority of the seated stewards? */
   stewardCouncil: () => boolean;
-  /** The next new moon strictly after an instant, from the cycle clock. */
-  nextNewMoonAfter: (after: Date) => Date;
+  /**
+   * The first boundary of the ACTIVE clock strictly after an instant.
+   *
+   * Wired to `activeClock().nextBoundaryAfter`, never to the lunar arithmetic
+   * directly: a village that keeps calendar months would otherwise have watched
+   * every landing wait for a moon its settlement no longer uses, which is the
+   * defect migration 0108 retired and section 13.7 warned would come back.
+   */
+  nextBoundaryAfter: (after: Date) => Date;
   /** The lunation number a landing instant falls in, for a queued minting rule. */
   cycleNumberAt: (at: Date) => number;
+  /** How many boundaries a passed row may miss before it is written off. */
+  landingExpiryCycles: () => number;
   /** The closer table, so this module never holds a second copy of it. */
   closerFor: (subjectType: string) => SubjectCloser | undefined;
   /** Tell one member something, through the notification spine. */
@@ -122,6 +165,17 @@ export interface LandingDeps extends VetoDeps {
   endedUnclosedCycle: () => Promise<boolean>;
   /** Does this change set hold a cycle-timed dial or a minting rule? */
   waitsForCycleClose: (changeSet: unknown[]) => boolean;
+  /**
+   * Does this change set move a number the running cycle is being settled
+   * against? A cycle-timed dial, a minting rule or a stage multiplier. Such a
+   * set may only land ON a boundary, on every path.
+   */
+  snapsToBoundary: (changeSet: unknown[]) => boolean;
+  /**
+   * Compose the digest for a cycle that has just ended. Optional so a caller
+   * with no feed (a test, a fixture) still runs the landing loop.
+   */
+  composeDigest?: (input: { pool: Pool; endedAt: Date; at: Date }) => Promise<{ composed: boolean; why: string }>;
 }
 
 const nowOf = (deps: VetoDeps): Date => (deps.now ? deps.now() : new Date());
@@ -138,12 +192,16 @@ export interface StampInput {
   /** The change set, when the subject has one, so a bundle takes one clock. */
   itemKinds?: readonly string[];
   /**
-   * True when an element of the set edits the map that says what a steward
-   * may stop. Such a set executes at pass with no window, for the same reason
-   * `role_unseat` on a steward-capable role does: a seat that could stop the
-   * edit narrowing its own reach would hold the village.
+   * True when an element of the set edits the map that says what a steward may
+   * stop. Such a set KEEPS its timing and its window and is simply not
+   * vetoable (section 20.11), for the same reason `role_unseat` on a
+   * steward-capable role is not: a seat that could stop the edit narrowing its
+   * own reach would hold the village. It is not the same thing as no window,
+   * and Phase 1b conflated them.
    */
   editsVetoMap?: boolean;
+  /** True when the set moves a number the running cycle is being settled against. */
+  snapToBoundary?: boolean;
 }
 
 /**
@@ -159,10 +217,12 @@ export function landingOf(deps: LandingDeps, input: StampInput): Landing {
   return landingFor({
     closesAt: new Date(b.closesAt),
     kind,
-    timing: timingOfBallot(b),
+    timing: timingOfBallot(b, kind),
     vetoHours: vetoHoursFrom(deps.vetoHours()),
-    nextNewMoonAfter: deps.nextNewMoonAfter,
-    noWindow: executesAtPassWithNoWindow(b.subjectType) || !!input.editsVetoMap,
+    nextBoundaryAfter: deps.nextBoundaryAfter,
+    noWindow: executesAtPassWithNoWindow(b.subjectType),
+    notVetoable: !!input.editsVetoMap,
+    snapToBoundary: !!input.snapToBoundary,
   });
 }
 
@@ -173,9 +233,16 @@ function kindOfSetOrSubject(subjectType: string, itemKinds?: readonly string[]):
   return kindOfSet(itemKinds);
 }
 
-/** The timing frozen on the ballot at open, total over anything stored. */
-export function timingOfBallot(b: BallotRow & { timing?: unknown }): ProposalTiming {
-  return timingOf((b as { timing?: unknown }).timing ?? DEFAULT_TIMING);
+/**
+ * The timing frozen on the ballot at open, total over anything stored.
+ *
+ * The fallback is the KIND's default and not one word for everything: a token
+ * send that says nothing means at acceptance, a Game change that says nothing
+ * means the next boundary. The column itself is NOT NULL with a default, so
+ * this fallback only ever answers for a row written before the column existed.
+ */
+export function timingOfBallot(b: BallotRow & { timing?: unknown }, kind: GovernanceKind = "game_change"): ProposalTiming {
+  return timingOf((b as { timing?: unknown }).timing, defaultTimingFor(kind));
 }
 
 /**
@@ -186,8 +253,8 @@ export function timingOfBallot(b: BallotRow & { timing?: unknown }): ProposalTim
 export async function stampLanding(deps: LandingDeps, b: BallotRow, landing: Landing): Promise<void> {
   const at = landing.landsAt ? sqlInstant(landing.landsAt) : null;
   await deps.pool.query(
-    "UPDATE ballots SET lands_at = ?, veto_closes_at = ?, landing_status = ? WHERE id = ?",
-    [at, at, landing.executesAtClose ? "not_applicable" : "pending", b.id],
+    "UPDATE ballots SET lands_at = ?, veto_closes_at = ?, landing_status = ?, veto_locked = ? WHERE id = ?",
+    [at, at, landing.executesAtClose ? "not_applicable" : "pending", landing.vetoable ? 0 : 1, b.id],
   );
   if (hasProposal(b.subjectType)) {
     await deps.pool.query(
@@ -294,6 +361,22 @@ export async function recordVeto(
   if (!row.landsAt) {
     return { ok: false, error: "This one took effect the moment it carried, so there is no window on it." };
   }
+  /*
+   * THE ROW NOBODY MAY STOP, and it still has a window and a countdown.
+   *
+   * A change set editing `governance.steward_subjects`, `steward_council` or
+   * `veto_hours` is the village deciding what its own training wheels reach.
+   * It waits like any Game change so everybody can read it coming, and the one
+   * act it does not admit is the seat stopping it.
+   */
+  if (row.vetoLocked) {
+    return {
+      ok: false,
+      error:
+        "This decision is about what a steward may stop, so no steward may stop it. It still waits its window and " +
+        "the village can read it coming, and it lands when the window shuts.",
+    };
+  }
   const at = nowOf(deps);
   if (!vetoIsInTime(row.landsAt, at)) {
     return { ok: false, error: lateVetoRefusal(row.landsAt) };
@@ -323,16 +406,26 @@ export async function recordVeto(
   if (Number(res.affectedRows) === 0) {
     return { ok: false, error: "Somebody got to this one first, or it landed while you were reading it." };
   }
+  /*
+   * THE VETO LIVES ON THE BALLOT AND NOWHERE ELSE.
+   *
+   * It used to be stamped onto `mechanics_proposals` as well, and that copy was
+   * a trap with two ends. The proposal was set to `vetoed` and then straight
+   * back to `open`, so the word never survived to be read; and the columns that
+   * DID survive were `vetoed_at`, `vetoed_by` and `veto_reason`, which nobody
+   * ever cleared. A village that answered its steward's objection, passed the
+   * same proposal again and watched it carry would then find it unlandable
+   * forever, because every landing predicate reads `vetoed_at IS NULL`.
+   *
+   * A veto answers a BALLOT: this vote, at this bar, on this text. A proposal
+   * brought back opens a new ballot and is a new question. So the proposal is
+   * returned to its proposer with its backers standing, the way a missed quorum
+   * returns it, and its veto display is derived from its current ballot by
+   * `vetoDisplayFor` below.
+   */
   if (hasProposal(b.subjectType)) {
     await deps.pool.query(
-      "UPDATE mechanics_proposals SET status = 'vetoed', vetoed_at = ?, vetoed_by = ?, veto_reason = ? " +
-        "WHERE id = ? AND status IN ('passed_onsite','passed_verified','onsite_vote')",
-      [sqlInstant(at), input.stewardId, reason, b.subjectRef],
-    );
-    // Back to the proposer with the backers standing, the way a missed quorum
-    // returns it. Guarded so a proposal somebody else moved is left alone.
-    await deps.pool.query(
-      "UPDATE mechanics_proposals SET status = 'open' WHERE id = ? AND status = 'vetoed'",
+      "UPDATE mechanics_proposals SET status = 'open' WHERE id = ? AND status IN ('passed_onsite','passed_verified','onsite_vote')",
       [b.subjectRef],
     );
   }
@@ -350,12 +443,16 @@ export interface LandingRow {
   landingStatus: string;
   status: string;
   timing: ProposalTiming;
+  /** True when no steward may stop this one, window or no window. */
+  vetoLocked: boolean;
+  /** Set when the row reached passed with its instant already behind it. */
+  lateSettledAt: Date | null;
 }
 
 export async function landingRow(pool: Pool, ballotId: string): Promise<LandingRow | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT id, subject_type, subject_ref, lands_at, vetoed_at, vetoed_by, veto_reason, landing_status, status, timing " +
-      "FROM ballots WHERE id = ?",
+    "SELECT id, subject_type, subject_ref, lands_at, vetoed_at, vetoed_by, veto_reason, landing_status, status, timing, " +
+      "veto_locked, late_settled_at FROM ballots WHERE id = ?",
     [ballotId],
   );
   const r = rows[0];
@@ -372,6 +469,38 @@ export async function landingRow(pool: Pool, ballotId: string): Promise<LandingR
     landingStatus: String(r.landing_status),
     status: String(r.status),
     timing: timingOf(r.timing),
+    vetoLocked: Number(r.veto_locked ?? 0) === 1,
+    lateSettledAt: asDate(r.late_settled_at),
+  };
+}
+
+/**
+ * A PROPOSAL'S VETO DISPLAY, DERIVED FROM ITS CURRENT BALLOT.
+ *
+ * The veto columns live on the ballot alone. A surface asking "was this
+ * proposal stopped, and why" reads the newest ballot held on it, which is the
+ * only answer that stays true through a veto, a return to the proposer and a
+ * second pass: the old ballot keeps its veto on the record, and the new one
+ * carries no veto, so the proposal reads as standing again.
+ */
+export async function vetoDisplayFor(
+  pool: Pool,
+  subjectType: string,
+  subjectRef: string,
+): Promise<{ vetoedAt: string; vetoedBy: string | null; reason: string | null; ballotId: string } | null> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT id, vetoed_at, vetoed_by, veto_reason FROM ballots " +
+      "WHERE subject_type = ? AND subject_ref = ? ORDER BY opens_at DESC, id DESC LIMIT 1",
+    [subjectType, subjectRef],
+  );
+  const r = rows[0];
+  if (!r || !r.vetoed_at) return null;
+  const at = r.vetoed_at instanceof Date ? r.vetoed_at : new Date(String(r.vetoed_at));
+  return {
+    ballotId: String(r.id),
+    vetoedAt: at.toISOString(),
+    vetoedBy: r.vetoed_by === null || r.vetoed_by === undefined ? null : String(r.vetoed_by),
+    reason: r.veto_reason === null || r.veto_reason === undefined ? null : String(r.veto_reason),
   };
 }
 
@@ -393,32 +522,49 @@ export async function claimDue(pool: Pool, ballotId: string, at: Date): Promise<
   return Number(res.affectedRows) === 1;
 }
 
-/** The durable trace that survives a throw between the claim and the return. */
+/**
+ * The durable trace that survives a throw between the claim and the return.
+ *
+ * ONE ROW PER ATTEMPT, and the table keys on its own id for that reason. It
+ * used to key on the ballot and upsert, so a second attempt overwrote the
+ * failure the table exists to record: the row that said "this threw, here is
+ * what it said" became a row that said "this is running", and the only trace of
+ * why the first run died was a counter. `attempts` still counts, read off the
+ * rows that came before.
+ */
 export async function openPending(pool: Pool, ballotId: string): Promise<void> {
-  await pool.query(
-    "INSERT INTO governance_executor_pending (ballot_id, claimed_at) VALUES (?, NOW()) " +
-      "ON DUPLICATE KEY UPDATE claimed_at = NOW(), cleared_at = NULL, attempts = attempts + 1",
+  const [prior] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS n FROM governance_executor_pending WHERE ballot_id = ?",
     [ballotId],
+  );
+  await pool.query(
+    "INSERT INTO governance_executor_pending (ballot_id, claimed_at, attempts) VALUES (?, NOW(), ?)",
+    [ballotId, Number(prior[0]?.n ?? 0) + 1],
   );
 }
 
+/** Close, or annotate, the newest open attempt on this ballot. */
 export async function clearPending(pool: Pool, ballotId: string, error?: string): Promise<void> {
   if (error) {
-    await pool.query("UPDATE governance_executor_pending SET last_error = ? WHERE ballot_id = ?", [
-      error.slice(0, 1000),
-      ballotId,
-    ]);
+    await pool.query(
+      "UPDATE governance_executor_pending SET last_error = ? WHERE ballot_id = ? AND cleared_at IS NULL " +
+        "ORDER BY id DESC LIMIT 1",
+      [error.slice(0, 1000), ballotId],
+    );
     return;
   }
-  await pool.query("UPDATE governance_executor_pending SET cleared_at = NOW(), last_error = NULL WHERE ballot_id = ?", [
-    ballotId,
-  ]);
+  await pool.query(
+    "UPDATE governance_executor_pending SET cleared_at = NOW(), last_error = NULL WHERE ballot_id = ? " +
+      "AND cleared_at IS NULL ORDER BY id DESC LIMIT 1",
+    [ballotId],
+  );
 }
 
 /** Decisions that started landing and never finished. A human can act on these. */
 export async function unfinishedLandings(pool: Pool, olderThanMs = 10 * 60 * 1000): Promise<string[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT ballot_id FROM governance_executor_pending WHERE cleared_at IS NULL AND claimed_at < ? ORDER BY claimed_at",
+    "SELECT DISTINCT ballot_id FROM governance_executor_pending WHERE cleared_at IS NULL AND claimed_at < ? " +
+      "ORDER BY ballot_id",
     [sqlInstant(new Date(Date.now() - olderThanMs))],
   );
   return rows.map((r) => String(r.ballot_id));
@@ -437,6 +583,10 @@ export type ApplyDueReport =
       stalled: number;
       /** Rows refused because a cycle has ended and nobody has closed it. */
       deferred: number;
+      /** Rows written off after too many boundaries without landing. */
+      expired: number;
+      /** What the digest did on this tick, in one word a caller cannot ignore. */
+      digest: "not_asked" | "no_boundary_crossed" | "composed" | "already_composed" | "held";
       notes: string[];
     }
   | { ran: false; why: string };
@@ -451,9 +601,15 @@ export type ApplyDueReport =
  * `veto_hours` from the moment applying resumes and every steward is told.
  */
 export async function applyDueGovernance(deps: LandingDeps, at: Date = new Date()): Promise<ApplyDueReport> {
+  /*
+   * THE TOTAL ORDER, stated in the module header and written here once.
+   * `lands_at` first, then the id, which is unique, so no two rows can tie.
+   * Phase 2's reversion table joins this sequence AHEAD of the ballots at the
+   * same instant; the header says why.
+   */
   const [rows] = await deps.pool.query<RowDataPacket[]>(
     "SELECT id FROM ballots WHERE status = 'passed' AND landing_status IN ('pending','stalled') " +
-      "AND lands_at IS NOT NULL AND lands_at <= ? AND vetoed_at IS NULL ORDER BY lands_at, id",
+      "AND lands_at IS NOT NULL AND lands_at <= ? AND vetoed_at IS NULL ORDER BY lands_at ASC, id ASC",
     [sqlInstant(at)],
   );
   const dueIds = rows.map((r) => String(r.id));
@@ -476,19 +632,18 @@ export async function applyDueGovernance(deps: LandingDeps, at: Date = new Date(
       failed: 0,
       stalled,
       deferred: 0,
+      expired: 0,
+      digest: "held",
       notes: [
         dueIds.length === 0
           ? "Nothing was due. Applying is switched off, so nothing would have landed either."
           : `${dueIds.length} decision(s) came due while applying is switched off. They are held and their windows reopen when it comes back on.`,
+        "No digest was composed: applying is switched off, so the moon that ended has rows nobody has dealt with.",
       ],
     };
   }
 
-  if (dueIds.length === 0) {
-    return { ran: true, due: 0, landed: 0, failed: 0, stalled: 0, deferred: 0, notes: ["Nothing was due."] };
-  }
-
-  const endedUnclosed = await deps.endedUnclosedCycle();
+  const endedUnclosed = dueIds.length === 0 ? false : await deps.endedUnclosedCycle();
   const notes: string[] = [];
   let landed = 0;
   let failed = 0;
@@ -508,11 +663,25 @@ export async function applyDueGovernance(deps: LandingDeps, at: Date = new Date(
      * costs the steward nothing they were not already owed.
      */
     if (before.landingStatus === "stalled") {
-      const reopened = new Date(at.getTime() + vetoHoursFrom(deps.vetoHours()) * 60 * 60 * 1000);
-      await deps.pool.query(
-        "UPDATE ballots SET lands_at = ?, veto_closes_at = ?, landing_status = 'pending' WHERE id = ? AND landing_status = 'stalled'",
+      /*
+       * ONCE PER STALL, and no more. A window handed back on every tick of a
+       * brake that keeps going off is a decision that never lands and never
+       * fails, and a member watching it reads a countdown that resets. The
+       * second time a row stalls it goes to `writeOffExpired` instead.
+       */
+      const reopened = await snappedWindowEnd(deps, b, at);
+      const [res] = await deps.pool.query<any>(
+        "UPDATE ballots SET lands_at = ?, veto_closes_at = ?, landing_status = 'pending', " +
+          "stall_reopens = stall_reopens + 1 WHERE id = ? AND landing_status = 'stalled' AND stall_reopens < 1",
         [sqlInstant(reopened), sqlInstant(reopened), id],
       );
+      if (Number(res.affectedRows) !== 1) {
+        notes.push(
+          `${b.title}: applying was off when this came due for the second time. Its window was already reopened once, ` +
+            "so it stays held until somebody looks at it.",
+        );
+        continue;
+      }
       if (hasProposal(b.subjectType)) {
         await deps.pool.query("UPDATE mechanics_proposals SET lands_at = ?, veto_closes_at = ? WHERE id = ?", [
           sqlInstant(reopened),
@@ -566,7 +735,125 @@ export async function applyDueGovernance(deps: LandingDeps, at: Date = new Date(
     }
   }
 
-  return { ran: true, due: dueIds.length, landed, failed, stalled, deferred, notes };
+  const expired = await writeOffExpired(deps, at, notes);
+  const digest = await composeDigestIfBoundaryCrossed(deps, at, notes);
+
+  if (dueIds.length === 0 && expired === 0) {
+    notes.unshift("Nothing was due.");
+  }
+  return { ran: true, due: dueIds.length, landed, failed, stalled, deferred, expired, digest, notes };
+}
+
+/**
+ * A PASSED ROW THAT NEVER LANDS EVENTUALLY STOPS BEING A PROMISE.
+ *
+ * `governance.landing_expiry_cycles` (default 3). A decision that has sat
+ * passed and unlanded through that many boundaries is not waiting any more, it
+ * is stuck, and leaving it in `pending` forever means a member reads a
+ * countdown that will never reach zero. So it closes as a named terminal state
+ * with one door: withdraw and rewrite, which carries the backers.
+ *
+ * A STALLED ROW REOPENS ITS WINDOW AT MOST ONCE PER STALL. The reopen path
+ * above sets `pending` and stamps a fresh instant; `stall_reopens` counts them,
+ * and a row that has already been given its window back once is written off
+ * here instead of being given a third and a fourth. A window reopened
+ * endlessly is a decision that never happens and never fails, which is the one
+ * outcome nobody can act on.
+ */
+async function writeOffExpired(deps: LandingDeps, at: Date, notes: string[]): Promise<number> {
+  const cycles = Math.max(1, Math.trunc(deps.landingExpiryCycles()) || 3);
+  const [rows] = await deps.pool.query<RowDataPacket[]>(
+    "SELECT id, title, lands_at FROM ballots WHERE status = 'passed' AND landing_status IN ('pending','stalled') " +
+      "AND lands_at IS NOT NULL AND lands_at <= ? ORDER BY lands_at ASC, id ASC",
+    [sqlInstant(at)],
+  );
+  let expired = 0;
+  for (const r of rows) {
+    const landsAt = r.lands_at instanceof Date ? r.lands_at : new Date(String(r.lands_at));
+    // The deadline is N boundaries of the ACTIVE clock after the instant it was
+    // supposed to land, so a village on calendar months gets months.
+    let deadline = landsAt;
+    for (let i = 0; i < cycles; i += 1) deadline = deps.nextBoundaryAfter(deadline);
+    if (at.getTime() < deadline.getTime()) continue;
+    const [res] = await deps.pool.query<any>(
+      "UPDATE ballots SET landing_status = 'expired' WHERE id = ? AND landing_status IN ('pending','stalled')",
+      [String(r.id)],
+    );
+    if (Number(res.affectedRows) !== 1) continue;
+    expired += 1;
+    notes.push(
+      `${String(r.title)}: this one carried and then sat unlanded through ${cycles} cycle(s), so it is closed. ` +
+        "Withdraw and rewrite it to bring it back, and it keeps the people who backed it.",
+    );
+  }
+  return expired;
+}
+
+/**
+ * THE DIGEST, COMPOSED BY THIS JOB AND BY NOTHING ELSE.
+ *
+ * Only when this tick crossed a cycle boundary, and only after every row due
+ * INSIDE the cycle that ended has been applied, vetoed or stalled. Composing it
+ * with rows still resting in `pending` would publish "what changed this moon"
+ * with the changes missing, and the digest is the one page a returning player
+ * reads first.
+ *
+ * "No digest composed" and "the digest was empty" are different answers and are
+ * logged apart, because a village whose moon really did nothing and a village
+ * whose digest never ran look identical from the feed.
+ */
+async function composeDigestIfBoundaryCrossed(
+  deps: LandingDeps,
+  at: Date,
+  notes: string[],
+): Promise<"not_asked" | "no_boundary_crossed" | "composed" | "already_composed" | "held"> {
+  if (!deps.composeDigest) return "not_asked";
+  /*
+   * DID THIS TICK CROSS A BOUNDARY? The job runs every five minutes, so the
+   * boundary that ended the last cycle is the one strictly before now and at or
+   * after the previous tick. Asking the clock for the boundary after "one tick
+   * ago" answers it with no state kept anywhere.
+   */
+  const lookBack = new Date(at.getTime() - TICK_MS);
+  const boundary = deps.nextBoundaryAfter(lookBack);
+  if (boundary.getTime() > at.getTime()) return "no_boundary_crossed";
+
+  const [unfinished] = await deps.pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS n FROM ballots WHERE status = 'passed' AND landing_status IN ('pending','applying') " +
+      "AND lands_at IS NOT NULL AND lands_at < ?",
+    [sqlInstant(boundary)],
+  );
+  if (Number(unfinished[0]?.n ?? 0) > 0) {
+    notes.push(
+      `No digest was composed for the cycle that ended at ${boundary.toISOString()}: ` +
+        `${Number(unfinished[0]?.n ?? 0)} decision(s) due inside it are neither applied, vetoed nor stalled.`,
+    );
+    return "held";
+  }
+  const result = await deps.composeDigest({ pool: deps.pool, endedAt: boundary, at });
+  notes.push(result.why);
+  return result.composed ? "composed" : "already_composed";
+}
+
+/** How often the landing job ticks, and the window the digest looks back over. */
+export const TICK_MS = 5 * 60 * 1000;
+
+/**
+ * A FRESH WINDOW FROM `at`, SNAPPED FORWARD WHEN THE SET DEMANDS IT.
+ *
+ * The two paths that recompute an instant after the close (a stalled row whose
+ * window is handed back, and a row restamped because it was read late) have to
+ * obey the same boundary rule the original stamp obeyed. A set holding a
+ * cycle-timed dial, a minting rule or a stage multiplier may only land ON a
+ * boundary, and "every path" in section 20.11 means these two as well: a
+ * reopened window that lands mid-cycle moves a ceiling under somebody already
+ * spending against it exactly as the first stamp would have.
+ */
+async function snappedWindowEnd(deps: LandingDeps, b: BallotRow, at: Date): Promise<Date> {
+  const end = new Date(at.getTime() + vetoHoursFrom(deps.vetoHours()) * 60 * 60 * 1000);
+  if (!(await snapsToBoundary(deps, b))) return end;
+  const boundary = deps.nextBoundaryAfter(new Date(end.getTime() - 1));
+  return boundary.getTime() >= end.getTime() ? boundary : end;
 }
 
 /** Does this decision move a cycle-timed dial or a minting rule? */
@@ -585,13 +872,32 @@ async function touchesCycleTimed(deps: LandingDeps, b: BallotRow): Promise<boole
 
 // ── Telling the stewards ────────────────────────────────────────────────────
 
-export type StewardMoment = "carry" | "halfway" | "two_hours" | "reopened";
+export type StewardMoment = "carry" | "halfway" | "two_hours" | "reopened" | "late_settled";
 
 const MOMENT_TITLE: Readonly<Record<StewardMoment, (title: string) => string>> = {
   carry: (t) => `The village carried this, and you can stop it: ${t}`,
   halfway: (t) => `Half your window has gone on: ${t}`,
   two_hours: (t) => `Two hours left to stop this: ${t}`,
   reopened: (t) => `Applying is back on and your window is open again: ${t}`,
+  late_settled: (t) => `This was read late, so your window starts now: ${t}`,
+};
+
+/**
+ * EACH MOMENT IS ITS OWN NOTIFICATION TYPE.
+ *
+ * Every governance notice used to resolve to one preference that defaults to a
+ * DAILY digest, so the last warning before a change landed arrived hours after
+ * it landed. The three window moments carry their own types, which
+ * `server/lib/notify.ts` pins to immediate; the steward-veto lane owns that
+ * pinning and this map is the list of names it pins. Change one here and the
+ * other must move with it.
+ */
+export const MOMENT_NOTIFICATION_TYPE: Readonly<Record<StewardMoment, string>> = {
+  carry: "governance_veto_window_opened",
+  halfway: "governance_veto_window_halfway",
+  two_hours: "governance_veto_window_closing",
+  reopened: "governance_veto_window_reopened",
+  late_settled: "governance_veto_window_late",
 };
 
 /**
@@ -604,7 +910,7 @@ export async function tellStewards(deps: LandingDeps, b: BallotRow, landsAt: Dat
   for (const holding of seated) {
     await deps.notify({
       userId: holding.userId,
-      type: "governance",
+      type: MOMENT_NOTIFICATION_TYPE[moment],
       title: MOMENT_TITLE[moment](b.title),
       body: `It takes effect at ${landsAt.toISOString()} unless you stop it before then, with a reason the village can read.`,
       link: `/governance/ballots/${b.id}`,
@@ -628,10 +934,22 @@ export interface WatchReport {
  * The carry notice is sent by the close path, because that is the moment it is
  * about. These two are the ones only a clock can send, and the dedupe key makes
  * them exactly-once per ballot per moment however often the job ticks.
+ *
+ * WHICH MARKS ARE DUE IS NOT DECIDED HERE. `vetoWatchMarksDue` in
+ * `server/lib/stewardship.ts` is the one definition of the three moments, and
+ * this job asks it rather than doing the arithmetic a second time: two copies
+ * of "halfway" drift the day somebody changes what the window is counted from,
+ * and the steward reads a countdown the server does not believe.
+ *
+ * A MARK WHOSE MOMENT HAS PASSED IS SUPPRESSED, NOT SENT LATE. The helper
+ * returns every mark whose instant is behind us, so a window that opened while
+ * the job was down reports "carried, halfway, two-hours-left" all at once. Only
+ * the LAST of those is still true, and sending the earlier two would tell a
+ * steward they have half a window left when they have minutes.
  */
 export async function runVetoWatch(deps: LandingDeps, at: Date = new Date()): Promise<WatchReport> {
   const [rows] = await deps.pool.query<RowDataPacket[]>(
-    "SELECT id, closes_at, lands_at FROM ballots " +
+    "SELECT id, closes_at, lands_at, late_settled_at FROM ballots " +
       "WHERE status = 'passed' AND landing_status = 'pending' AND lands_at IS NOT NULL AND lands_at > ? AND vetoed_at IS NULL",
     [sqlInstant(at)],
   );
@@ -641,15 +959,18 @@ export async function runVetoWatch(deps: LandingDeps, at: Date = new Date()): Pr
     const b = await ballotById(deps.pool, String(r.id));
     if (!b) continue;
     const landsAt = r.lands_at instanceof Date ? r.lands_at : new Date(String(r.lands_at));
-    const opened = new Date(b.closesAt).getTime();
-    const left = landsAt.getTime() - at.getTime();
-    const whole = landsAt.getTime() - opened;
-    if (left <= 2 * 60 * 60 * 1000) {
+    // The window was carried FROM the late-settle instant when there was one,
+    // because that is the moment the steward was actually told.
+    const late = r.late_settled_at ? (r.late_settled_at instanceof Date ? r.late_settled_at : new Date(String(r.late_settled_at))) : null;
+    const carriedAt = late ?? new Date(b.closesAt);
+    const marks = vetoWatchMarksDue({ carriedAt, landsAt }, at);
+    const latest = marks[marks.length - 1];
+    if (latest === "two-hours-left") {
       await tellStewards(deps, b, landsAt, "two_hours");
       twoHours += 1;
       continue;
     }
-    if (whole > 0 && left <= whole / 2) {
+    if (latest === "halfway") {
       await tellStewards(deps, b, landsAt, "halfway");
       halfway += 1;
     }
@@ -727,8 +1048,51 @@ export async function routeOutcome(
     return routing;
   }
 
-  const landing = landingOf(deps, { ballot: b, itemKinds, editsVetoMap: await editsVetoMap(deps, b) });
+  const landing = landingOf(deps, {
+    ballot: b,
+    itemKinds,
+    editsVetoMap: await editsVetoMap(deps, b),
+    snapToBoundary: await snapsToBoundary(deps, b),
+  });
   await stampLanding(deps, b, landing);
+
+  /*
+   * A ROW THAT REACHES PASSED WITH ITS INSTANT ALREADY BEHIND IT.
+   *
+   * `lands_at` is derived from the ballot's frozen `closes_at`, which is right
+   * and is what stops a proposer choosing which three days a steward gets. It
+   * also means that any delay between `closes_at` and the actual close longer
+   * than the window produces a row whose window is over at the moment stewards
+   * are told it began: a scheduler outage, a late human close, a village that
+   * came back online after a week. The change would land within five minutes of
+   * carrying and the record would report the window as honoured.
+   *
+   * So the window is restamped from NOW, the row is marked late-settled with
+   * the reason, and every steward is told. The village loses nothing it was
+   * promised; it gains the notice it was promised.
+   */
+  if (landing.landsAt && landing.landsAt.getTime() <= nowOf(deps).getTime()) {
+    const at = nowOf(deps);
+    const restamped = await snappedWindowEnd(deps, b, at);
+    const why =
+      `The vote's window ended at ${new Date(b.closesAt).toISOString()} and it was not read until ` +
+      `${at.toISOString()}, so the instant it should have landed at was already past. ` +
+      "The window is counted from now instead, so nobody loses the notice they were owed.";
+    await deps.pool.query(
+      "UPDATE ballots SET lands_at = ?, veto_closes_at = ?, late_settled_at = ?, late_settled_reason = ? WHERE id = ?",
+      [sqlInstant(restamped), sqlInstant(restamped), sqlInstant(at), why.slice(0, 1000), b.id],
+    );
+    if (hasProposal(b.subjectType)) {
+      await deps.pool.query("UPDATE mechanics_proposals SET lands_at = ?, veto_closes_at = ? WHERE id = ?", [
+        sqlInstant(restamped),
+        sqlInstant(restamped),
+        b.subjectRef,
+      ]);
+    }
+    await tellStewards(deps, b, restamped, "late_settled");
+    routing.held = `${why} It lands at ${restamped.toISOString()}.`;
+    return routing;
+  }
 
   if (landing.executesAtClose) {
     await openPending(deps.pool, b.id);
@@ -853,6 +1217,29 @@ export async function itemKindsOf(deps: LandingDeps, b: BallotRow): Promise<stri
  * time costs one query on the close of a mechanics ballot, and it keeps the
  * key list in the module that owns it rather than copied into this one.
  */
+export async function snapsToBoundary(deps: LandingDeps, b: BallotRow): Promise<boolean> {
+  if (b.subjectType === "mint_rule") return true;
+  if (!hasProposal(b.subjectType)) return false;
+  const [rows] = await deps.pool.query<RowDataPacket[]>("SELECT change_set FROM mechanics_proposals WHERE id = ?", [
+    b.subjectRef,
+  ]);
+  const raw = rows[0]?.change_set;
+  if (!raw) return false;
+  const set = typeof raw === "string" ? JSON.parse(raw) : raw;
+  if (!Array.isArray(set)) return false;
+  return deps.snapsToBoundary(set);
+}
+
+/**
+ * DOES THIS SET MOVE A NUMBER THE RUNNING CYCLE IS SETTLED AGAINST?
+ *
+ * A cycle-timed dial, a minting rule, a stage multiplier. Such a set may only
+ * land ON a boundary, on EVERY path, `at_acceptance` included. The older guard
+ * (refuse to apply while a cycle has ended and nobody has closed it) is a
+ * different thing and does not cover this: it stops a landing over an unsettled
+ * moon, and says nothing about a landing halfway through a live one, which
+ * moves a ceiling under a member already spending against it.
+ */
 export async function editsVetoMap(deps: LandingDeps, b: BallotRow): Promise<boolean> {
   if (!hasProposal(b.subjectType)) return false;
   const [rows] = await deps.pool.query<RowDataPacket[]>("SELECT change_set FROM mechanics_proposals WHERE id = ?", [
@@ -902,13 +1289,75 @@ export async function vetoWindowOn(pool: Pool, ballotId: string, now: Date = new
 export async function isOverride(pool: Pool, subjectType: string, subjectRef: string): Promise<{ of: string } | null> {
   if (!hasProposal(subjectType)) return null;
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT p.supersedes_proposal_id AS sup, o.vetoed_at AS was_vetoed FROM mechanics_proposals p " +
-      "LEFT JOIN mechanics_proposals o ON o.id = p.supersedes_proposal_id WHERE p.id = ?",
+    "SELECT p.supersedes_proposal_id AS sup, p.supersedes_relation AS rel FROM mechanics_proposals p WHERE p.id = ?",
     [subjectRef],
   );
   const r = rows[0];
-  if (!r?.sup || !r.was_vetoed) return null;
+  /*
+   * THE RELATION IS EXPLICIT, and that is the fix.
+   *
+   * `supersedes_proposal_id` alone conferred steward-proof landing on anything
+   * that pointed at a vetoed row, and three different writers set that column:
+   * an override, a renewal of an expiring setting (21.2) and the
+   * withdraw-and-rewrite clone. Two of the three were never the village
+   * answering a veto at its highest bar, and both would have landed regardless
+   * of any steward at whatever tier they happened to be priced at.
+   */
+  if (!r?.sup || String(r.rel ?? "") !== "overrides") return null;
+  if (!(await wasVetoed(pool, String(r.sup)))) return null;
   return { of: String(r.sup) };
+}
+
+/** Was any ballot ever held on this proposal stopped by a steward? */
+export async function wasVetoed(pool: Pool, proposalId: string): Promise<boolean> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS n FROM ballots WHERE subject_type = 'mechanics' AND subject_ref = ? AND vetoed_at IS NOT NULL",
+    [proposalId],
+  );
+  return Number(rows[0]?.n ?? 0) > 0;
+}
+
+/**
+ * THE OVERRIDE IS DECIDED BY THE TIER THE RESUBMISSION ACTUALLY CARRIED AT.
+ *
+ * `overrideDials` raises the bar a resubmission is CONDUCTED at. This answers
+ * the other half: did the ballot that carried actually sit at the village's
+ * highest set tier? The two dials are frozen on the ballot at open, so this
+ * reads the vote that happened rather than the intention behind it. A ballot
+ * opened before the override rule existed, or priced by a hand that did not
+ * raise it, does not land regardless of a steward just because a column points
+ * somewhere.
+ */
+export function ballotPricedAtOrAbove(
+  ballot: { unityPct: number; quorumPct: number },
+  tier: Criticality,
+  settings: ThresholdSettings,
+): boolean {
+  const floor = floorForCriticality(tier, settings);
+  return ballot.unityPct >= floor.unityPct && ballot.quorumPct >= floor.quorumPct;
+}
+
+/**
+ * A RENEWAL MAY NOT POINT AT A VETOED ROW.
+ *
+ * 21.2's renewal keeps an expiring change alive, and the village already said
+ * no to this one. Letting a renewal point at it would carry a stopped decision
+ * back into force at the setting's ordinary bar, which is the override without
+ * the override's price. Returns the refusal, or null.
+ */
+export async function supersedesRefusal(
+  pool: Pool,
+  relation: string,
+  supersedesProposalId: string | null | undefined,
+): Promise<string | null> {
+  const rel = String(relation ?? "").trim().toLowerCase();
+  if (!supersedesProposalId) return null;
+  if (rel !== "renews") return null;
+  if (!(await wasVetoed(pool, String(supersedesProposalId)))) return null;
+  return (
+    "That decision was stopped by a steward, so it cannot be renewed: there is nothing running to keep running. " +
+    "Bring it back as an override instead, which the village passes at the highest bar it has set for itself."
+  );
 }
 
 /**

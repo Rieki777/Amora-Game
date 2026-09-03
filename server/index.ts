@@ -57,8 +57,9 @@ import { register as registerDelegationRoutes } from "./routes/delegation";
 import { register as registerGovernanceVetoRoutes } from "./routes/governanceVetoes";
 import { register as registerGovernanceLandingRoutes } from "./routes/governanceLanding";
 // The dispatcher lane: the landing path, the change-set executor and the roll notice.
-import { applyDueGovernance, autoSettleExpired, itemKindsOf, markNotApplicable, overrideDials, routeOutcome, runVetoWatch, vetoWindowOn, type CloseRouting, type LandingDeps, type SubjectCloser } from "./lib/applyDue";
-import { applyChangeSet, applyMechanicsProposal as applyChangeSetForProposal, changeSetWaitsForCycleClose, recordMechanicsChangeRow, UntypedElementError, type ApplySetResult, type ChangesetDeps } from "./lib/changeset";
+import { applyDueGovernance, autoSettleExpired, digestComposerFor, itemKindsOf, markNotApplicable, overrideDials, routeOutcome, runVetoWatch, vetoWindowOn, type CloseRouting, type LandingDeps, type SubjectCloser } from "./lib/applyDue";
+import { register as registerGovernanceModeRoutes } from "./routes/governanceMode";
+import { applyChangeSet, applyMechanicsProposal as applyChangeSetForProposal, changeSetSnapsToBoundary, changeSetWaitsForCycleClose, recordMechanicsChangeRow, UntypedElementError, type ApplySetResult, type ChangesetDeps } from "./lib/changeset";
 import { landingRow } from "./lib/applyDue";
 import { notifyRollRows, type RollNotice } from "./lib/ballotNotices";
 import { forgetStewardActs, holdingHasLapsed, runTermWatch, setVetoWindowCheck } from "./lib/stewardship";
@@ -258,6 +259,7 @@ import {
   ownVoteView,
   rowToBallot,
   ruleObjection,
+  setSubjectCloserCheck,
   standingObjectionCount,
   talliesFor,
   voteCount,
@@ -291,6 +293,7 @@ import {
   type BallotOutcome,
 } from "../shared/governanceEngine";
 import {
+  delegatedRowsCountOn,
   dialsForSubject,
   methodForSubject,
   thresholdSettingsFrom,
@@ -23954,7 +23957,7 @@ ${inner}
       }
       const member = await members.byId(asked.userId);
       if (!member) {
-        out.held = "The person this vote named is no longer a member of this village, so nobody was seated.";
+        out.held = `The person this vote named (${asked.userId}) left the village while the vote was running, so nobody was seated in ${role.name ?? asked.roleId}.`;
         await notifyAdmins("governance", `A carried seating could not land: ${b.title}`, `bal:${b.id}:seat-held`);
         return out;
       }
@@ -24325,7 +24328,6 @@ ${inner}
    */
   SUBJECT_CLOSERS[MINT_RULE] = SUBJECT_CLOSERS.mechanics;
 
-
   /**
    * EVERYTHING THE LANDING PATH NEEDS, so the five-minute job, the cycle close,
    * the close route and the veto watch ask the same objects the same questions.
@@ -24336,14 +24338,17 @@ ${inner}
     vetoHours: () => numberVar("governance.veto_hours"),
     autoApplyEnabled: () => boolVar("governance.auto_apply_enabled"),
     stewardCouncil: () => boolVar("governance.steward_council"),
-    nextNewMoonAfter: (after: Date) => activeClock().nextBoundaryAfter(after),
+    nextBoundaryAfter: (after: Date) => activeClock().nextBoundaryAfter(after),
     cycleNumberAt: (at: Date) => activeClock().cycleNumberAt(at),
+    landingExpiryCycles: () => numberVar("governance.landing_expiry_cycles"),
+    composeDigest: digestComposerFor(activeClock),
     closerFor: (subjectType: string) => SUBJECT_CLOSERS[subjectType],
     notify: async (input) => { await notify(input); },
     endedUnclosedCycle: async () => {
       return (await cyclesRepo.all()).some((c: any) => c.status !== "closed" && boundsForNumber(Number(c.cycleNumber)).endsAt.getTime() <= Date.now());
     },
     waitsForCycleClose: (changeSet) => changeSetWaitsForCycleClose(changeSet as any[]),
+    snapsToBoundary: (changeSet) => changeSetSnapsToBoundary(changeSet as any[]),
   });
 
   /*
@@ -24356,6 +24361,7 @@ ${inner}
    * it is registered here, once, at boot.
    */
   setVetoWindowCheck(vetoWindowOn);
+  setSubjectCloserCheck((subjectType: string) => ballotBinds(subjectType));
 
 
   /**
@@ -24623,6 +24629,7 @@ ${inner}
       votes: await Promise.all(
         votes.map(async (v) => ({ name: await nameOf(v.userId), choice: v.choice, weight: v.weight, castAt: v.castAt })),
       ),
+      votedCount: votes.filter((v) => delegatedRowsCountOn(b) || !v.followedUserId).length, // people, never rows: a delegated row is not cast at 100 unity
       // The count the EVALUATOR uses, stated rather than left to be derived
       // from the list beside it. Zero on every method but consent.
       standingObjections,
@@ -24939,7 +24946,7 @@ ${inner}
     const pool = getPool();
     const tallies = await talliesFor(pool, b);
     const [[counts]] = await pool.query<any[]>(
-      "SELECT COUNT(*) AS voted FROM ballot_votes WHERE ballot_id = ?",
+      `SELECT COUNT(*) AS voted FROM ballot_votes WHERE ballot_id = ?${delegatedRowsCountOn(b) ? "" : " AND followed_user_id IS NULL"}`,
       [b.id],
     );
     const [mine] = viewerId
@@ -26766,6 +26773,7 @@ ${inner}
   registerDelegationRoutes(app, { authedUser, getPool, capabilityCtx, members, firstName });
   registerGovernanceVetoRoutes(app, { authedUser, mayAct, isAdmin, getPool, members, firstName, notify });
   registerGovernanceLandingRoutes(app, { authedUser, mayAct, getPool, members, firstName, notify });
+  registerGovernanceModeRoutes(app, { authedUser, getPool, capabilityCtx, firstName, weightModeNow, buildElectorate });
 
   /**
    * The subset of variables the CLIENT is allowed to know, so the UI can render

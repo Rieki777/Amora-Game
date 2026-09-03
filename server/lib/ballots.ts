@@ -54,7 +54,7 @@ import {
 } from "./delegation";
 import { delegatedRowsCountOn, evaluationRulesFor } from "../../shared/ballotSubjects";
 // Dispatcher lane: the proposal timing 0135 freezes onto the ballot at open.
-import { DEFAULT_TIMING, timingOf, type ProposalTiming } from "../../shared/governanceKinds";
+import { defaultTimingFor, kindOfSubject, noCloserRefusal, timingOf, type ProposalTiming } from "../../shared/governanceKinds";
 import type { WeightMode } from "./governanceWeights";
 
 export interface BallotRow {
@@ -170,6 +170,19 @@ export async function amendedKeysFor(pool: Pool, ballotId: string): Promise<stri
   return rows.map((r) => String(r.config_key));
 }
 
+/**
+ * DOES THIS SUBJECT TYPE HAVE A CLOSER? Registered by `server/index.ts` at
+ * boot, the same shape `setVetoWindowCheck` uses and for the same reason: the
+ * closer table lives beside the executors it dispatches to, and this module
+ * asks it rather than keeping a second list that would drift the day a lane
+ * adds a subject.
+ */
+let closerCheck: ((subjectType: string) => boolean) | null = null;
+
+export function setSubjectCloserCheck(fn: ((subjectType: string) => boolean) | null): void {
+  closerCheck = fn;
+}
+
 export interface OpenBallotInput {
   subjectType: string;
   subjectRef: string;
@@ -206,6 +219,14 @@ export type OpenBallotResult =
  * exist rather than sit unwinnable.
  */
 export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<OpenBallotResult> {
+  /*
+   * DISPATCHER LANE: a binding ballot may not open on a subject nobody can
+   * close. `server/index.ts` registers the check at boot with its own closer
+   * table, so this module holds no second copy of which subjects bind, and a
+   * build with no check registered opens exactly as it always did.
+   */
+  const refusal = closerCheck ? noCloserRefusal(input.subjectType, closerCheck(input.subjectType)) : null;
+  if (refusal) return { ok: false, error: refusal };
   const electorate = input.electorate.filter((e) => e.userId);
   if (electorate.length === 0) {
     return { ok: false, error: "Nobody is eligible to vote on this, so the ballot refuses to open. Check who holds ballot.vote and, in custom mode, who holds weight" };
@@ -272,7 +293,7 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
         input.openedBy,
         opensAt,
         closesAt,
-        input.timing ?? DEFAULT_TIMING,
+        input.timing ?? defaultTimingFor(kindOfSubject(input.subjectType)),
       ],
     );
     for (const e of electorate) {

@@ -23,13 +23,19 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import mysql from "mysql2/promise";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
-import { castVote, closeBallot, openBallot, type BallotRow, type OpenBallotInput } from "./ballots";
+import { castVote, closeBallot, openBallot, setSubjectCloserCheck, type BallotRow, type OpenBallotInput } from "./ballots";
 import {
   applyDueGovernance,
   autoSettleExpired,
+  ballotPricedAtOrAbove,
   claimDue,
+  isOverride,
+  supersedesRefusal,
+  vetoDisplayFor,
+  wasVetoed,
   landingOf,
   landingRow,
+  runVetoWatch,
   recordVeto,
   routeOutcome,
   stampLanding,
@@ -39,7 +45,8 @@ import {
   type LandingDeps,
   type SubjectCloser,
 } from "./applyDue";
-import { STEWARD_VETO } from "./stewardship";
+import { STEWARD_VETO, vetoWatchMarksDue } from "./stewardship";
+import { floorForCriticality, thresholdSettingsFrom } from "../../shared/ballotSubjects";
 
 const configured = testDbConfigured();
 let db: TestDb;
@@ -62,12 +69,14 @@ const deps = (over: Partial<LandingDeps> = {}): LandingDeps => ({
   vetoHours: () => 72,
   autoApplyEnabled: () => brakeOff,
   stewardCouncil: () => council,
-  nextNewMoonAfter: (after: Date) => new Date(after.getTime() + FAR_MOON_DAYS * 24 * HOUR),
+  nextBoundaryAfter: (after: Date) => new Date(after.getTime() + FAR_MOON_DAYS * 24 * HOUR),
   cycleNumberAt: () => 1,
   closerFor: (subjectType: string) => CLOSERS[subjectType],
   notify: async () => {},
   endedUnclosedCycle: async () => false,
   waitsForCycleClose: () => false,
+  snapsToBoundary: () => false,
+  landingExpiryCycles: () => 3,
   ...over,
 });
 
@@ -141,12 +150,17 @@ const reload = async (id: string): Promise<BallotRow | null> => {
 };
 
 /** Carry a ballot: three yes votes, window expired, closed by the engine. */
-const carry = async (b: BallotRow, votes: Array<[string, "yes" | "no", string?]> = [["u-a", "yes"], ["u-b", "yes"]]) => {
+const carry = async (
+  b: BallotRow,
+  votes: Array<[string, "yes" | "no", string?]> = [["u-a", "yes"], ["u-b", "yes"]],
+  /** How long ago the window ended, so a close read late can be staged. */
+  endedAgoMs = 60_000,
+) => {
   for (const [userId, choice, reason] of votes) {
     const r = await castVote(pool, b.id, userId, choice, reason);
     if (!r.ok) throw new Error(`vote refused: ${r.error}`);
   }
-  const expired = await expire(b);
+  const expired = await expire(b, endedAgoMs);
   const closed = await closeBallot(pool, {
     ballotId: expired.id,
     closedBy: "governance",
@@ -330,21 +344,36 @@ describe.skipIf(!configured)("the veto inside and outside the window", () => {
     expect(writes).toEqual([]);
   });
 
+  /*
+   * REWRITTEN 2026-09-03, because the rule it pinned changed twice.
+   *
+   * It used to build the stopped proposal by writing `vetoed_at` onto the
+   * PROPOSAL row and to claim the override from `supersedes_proposal_id`
+   * alone. Section 20.11 moved the veto onto the ballot (so a proposal passed
+   * again can land) and made the relation explicit (so a renewal and a
+   * withdraw-and-rewrite clone do not inherit steward-proof landing). The
+   * property under test is unchanged: an override cannot be stopped a second
+   * time, and it lands.
+   */
   it("refuses a veto on an override, and lets it land", async () => {
     await seatSteward("u-steward");
-    // The original, stopped by a steward.
+    // The original, stopped by a steward, on its own ballot.
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status) " +
+        "VALUES ('gmp-vetoed-1','The first ask','because','[]','u-proposer','onsite_vote')",
+    );
     const first = await openOne({ subjectRef: "gmp-vetoed-1" });
     const closedFirst = await carry(first);
     await routeOutcome(deps(), closedFirst.ballot!, "passed", "carried", "u-a");
-    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
-      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status, vetoed_at) " +
-        "VALUES ('gmp-vetoed-1','The first ask','because','[]','u-proposer','vetoed', NOW())",
-    );
-    // The resubmission, pointing at it, passed again at the highest bar.
+    const firstStopped = await recordVeto(deps(), {
+      ballotId: first.id, stewardId: "u-steward", reason: "The village had not been shown the numbers yet.",
+    });
+    expect(firstStopped.ok, JSON.stringify(firstStopped)).toBe(true);
+    // The resubmission, pointing at it as an OVERRIDE, passed again at the highest bar.
     const again = await openOne({ subjectRef: "gmp-override-1" });
     await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
-      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status, supersedes_proposal_id) " +
-        "VALUES ('gmp-override-1','The same ask, again','because','[]','u-proposer','onsite_vote','gmp-vetoed-1')",
+      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status, supersedes_proposal_id, supersedes_relation) " +
+        "VALUES ('gmp-override-1','The same ask, again','because','[]','u-proposer','onsite_vote','gmp-vetoed-1','overrides')",
     );
     const closedAgain = await carry(again);
     await routeOutcome(deps(), closedAgain.ballot!, "passed", "carried", "u-a");
@@ -513,5 +542,357 @@ describe.skipIf(!configured)("stamping is idempotent and honest about what never
     const first = (await landingRow(pool, b.id))!.landsAt!.toISOString();
     await stampLanding(deps(), closed.ballot!, landing);
     expect((await landingRow(pool, b.id))!.landsAt!.toISOString()).toBe(first);
+  });
+});
+
+/**
+ * ── THE FIX WAVE OF 2026-09-03 ─────────────────────────────────────────────
+ *
+ * Everything the second audit found still standing after the dispatcher lane's
+ * first pass. Each block names the failure it pins.
+ */
+describe.skipIf(!configured)("a row that reaches passed with its instant already behind it", () => {
+  it("restamps the window from now, marks it late-settled and tells every steward", async () => {
+    /*
+     * THE FAILURE: `lands_at` is frozen from `closes_at`, so any delay longer
+     * than the window between the window ending and the close being read
+     * produced a row whose window was already over at the moment stewards were
+     * told it had begun. The change landed within five minutes of carrying and
+     * the record reported the window as honoured.
+     */
+    await seatSteward("u-steward");
+    const told: string[] = [];
+    const b = await openOne({ subjectRef: `late-${++n}`, timing: "at_acceptance" });
+    // The votes are cast while the window is open, and then nobody reads the
+    // close for ten days: a scheduler outage, or a village that went quiet.
+    // The window it was promised (72 hours from the close) ran out on day three.
+    const closed = await carry(b, [["u-a", "yes"], ["u-b", "yes"]], 10 * 24 * HOUR);
+    const at = new Date();
+    const routing = await routeOutcome(
+      deps({ now: () => at, notify: async (i) => { told.push(i.type); } }),
+      closed.ballot!, "passed", "carried", "u-a",
+    );
+    const row = await landingRow(pool, b.id);
+    expect(row?.lateSettledAt, "the row says it was settled late").not.toBeNull();
+    expect(row?.landsAt!.getTime()).toBeGreaterThan(at.getTime() + 71 * HOUR);
+    expect(routing.held).toContain("counted from now instead");
+    expect(told).toContain("governance_veto_window_late");
+    expect(writes, "and it did not land in the meantime").toEqual([]);
+  });
+});
+
+describe.skipIf(!configured)("the claim runs against a real resting row", () => {
+  it("claims a proposal that was parked at passed_verified exactly once under two callers", async () => {
+    /*
+     * THE FAILURE: the inline cycle-close block that used to apply
+     * `passed_verified` and `passed_onsite` rows is gone, and those rows carry
+     * a NULL `lands_at`, so the new landing gate could not see them at all.
+     * Migration 0144 backfills them. This proves the backfilled shape is one
+     * the loop can actually claim, and claims it once.
+     */
+    const b = await openOne({ subjectRef: `verified-${++n}` });
+    const closed = await carry(b);
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, status, proposer_user_id, change_set) VALUES (?,?,?,?,?,?)",
+      [b.subjectRef, "A parked proposal", "why the village was asked", "passed_verified", "u-a", JSON.stringify([])],
+    );
+    const due = new Date(Date.now() + 40 * 24 * HOUR);
+    await Promise.all([applyDueGovernance(deps(), due), applyDueGovernance(deps(), due)]);
+    /*
+     * Counted on THIS row rather than on the report's totals: other rows from
+     * earlier cases in this file are due at the same instant, and a total would
+     * pass while this one landed twice.
+     */
+    expect(writes.filter((w) => w === `landed:${b.id}`).length, "exactly one executor").toBe(1);
+    const [claims] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM governance_executor_pending WHERE ballot_id = ?",
+      [b.id],
+    );
+    expect(Number(claims[0].n), "one election, one attempt row").toBe(1);
+    expect((await landingRow(pool, b.id))?.landingStatus).toBe("applied");
+  });
+});
+
+describe.skipIf(!configured)("the veto lives on the ballot and nowhere else", () => {
+  it("lets a vetoed proposal be passed again and land, which it never could before", async () => {
+    /*
+     * THE FAILURE: the veto was stamped onto `mechanics_proposals` too, and
+     * nobody ever cleared it. Every landing predicate reads `vetoed_at IS
+     * NULL`, so a village that answered its steward and passed the same
+     * proposal again was skipped forever.
+     */
+    await seatSteward("u-steward");
+    const ref = `reopen-${++n}`;
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, status, proposer_user_id, change_set) VALUES (?,?,?,?,?,?)",
+      [ref, "The proposal that came back", "why the village was asked", "onsite_vote", "u-a", JSON.stringify([])],
+    );
+    const first = await openOne({ subjectRef: ref });
+    const closedFirst = await carry(first);
+    await routeOutcome(deps(), closedFirst.ballot!, "passed", "carried", "u-a");
+    const stopped = await recordVeto(deps(), {
+      ballotId: first.id, stewardId: "u-steward", reason: "The village had not heard the lending circle yet.",
+    });
+    expect(stopped.ok, JSON.stringify(stopped)).toBe(true);
+
+    const [proposal] = await pool.query<any[]>("SELECT status FROM mechanics_proposals WHERE id = ?", [ref]);
+    expect(String(proposal[0].status), "back with its proposer").toBe("open");
+    const display = await vetoDisplayFor(pool, "mechanics", ref);
+    expect(display?.reason).toContain("lending circle");
+
+    // The village answers the objection and passes it again.
+    await pool.query("UPDATE mechanics_proposals SET status = 'onsite_vote' WHERE id = ?", [ref]);
+    const second = await openOne({ subjectRef: ref });
+    const closedSecond = await carry(second);
+    await routeOutcome(deps(), closedSecond.ballot!, "passed", "carried", "u-a");
+    await applyDueGovernance(deps(), new Date(Date.now() + 40 * 24 * HOUR));
+    expect(writes, "the second pass lands").toContain(`landed:${second.id}`);
+    // And the first ballot keeps its veto, so the record still reads honestly.
+    expect((await landingRow(pool, first.id))?.vetoedAt).not.toBeNull();
+    expect(await vetoDisplayFor(pool, "mechanics", ref), "the display follows the current ballot").toBeNull();
+  });
+});
+
+describe.skipIf(!configured)("a decision about what a steward may stop", () => {
+  it("waits its window like any Game change and refuses every veto inside it", async () => {
+    await seatSteward("u-steward");
+    const ref = `locked-${++n}`;
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, status, proposer_user_id, change_set) VALUES (?,?,?,?,?,?)",
+      [ref, "Who may stop what", "why the village was asked", "onsite_vote", "u-a",
+        JSON.stringify([{ kind: "dial", key: "governance.steward_subjects", to: "mechanics" }])],
+    );
+    const b = await openOne({ subjectRef: ref });
+    const closed = await carry(b);
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a", ["dial"]);
+    const row = await landingRow(pool, b.id);
+    expect(row?.landsAt, "it still waits, which the first pass took away").not.toBeNull();
+    expect(row?.vetoLocked).toBe(true);
+    const stopped = await recordVeto(deps(), {
+      ballotId: b.id, stewardId: "u-steward", reason: "I would rather keep the reach I have.",
+    });
+    expect(stopped.ok).toBe(false);
+    if (stopped.ok) return;
+    expect(stopped.error).toContain("no steward may stop it");
+  });
+});
+
+describe.skipIf(!configured)("a passed row that never lands", () => {
+  it("is written off after the village's expiry in cycles, with one door back", async () => {
+    const b = await openOne({ subjectRef: `expiry-${++n}` });
+    const closed = await carry(b);
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    const landsAt = (await landingRow(pool, b.id))!.landsAt!;
+    /*
+     * The executor keeps falling over, so the row is claimed, fails, and goes
+     * back to `pending` on every tick. That is the shape that used to wait
+     * forever with a countdown a member could read and nothing behind it.
+     */
+    throwOnExecute = true;
+    await applyDueGovernance(deps(), new Date(landsAt.getTime() + HOUR));
+    expect((await landingRow(pool, b.id))?.landingStatus).toBe("pending");
+    const wayLater = new Date(landsAt.getTime() + 200 * 24 * HOUR);
+    const report = await applyDueGovernance(deps(), wayLater);
+    expect(report.ran && report.expired, JSON.stringify(report)).toBeGreaterThanOrEqual(1);
+    expect((await landingRow(pool, b.id))?.landingStatus).toBe("expired");
+    expect(report.ran && report.notes.join(" ")).toContain("Withdraw and rewrite");
+    expect(writes, "and nothing landed on its way out").toEqual([]);
+  });
+
+  it("gives a stalled row its window back once, and never twice", async () => {
+    const b = await openOne({ subjectRef: `stall-${++n}` });
+    const closed = await carry(b);
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    const landsAt = (await landingRow(pool, b.id))!.landsAt!;
+    brakeOff = false;
+    await applyDueGovernance(deps(), new Date(landsAt.getTime() + HOUR));
+    brakeOff = true;
+    const first = await applyDueGovernance(deps(), new Date(landsAt.getTime() + 2 * HOUR));
+    expect(first.ran && first.stalled, "the window is reopened once").toBe(1);
+    const reopened = (await landingRow(pool, b.id))!.landsAt!;
+    brakeOff = false;
+    await applyDueGovernance(deps(), new Date(reopened.getTime() + HOUR));
+    brakeOff = true;
+    const second = await applyDueGovernance(deps(), new Date(reopened.getTime() + 2 * HOUR));
+    expect(second.ran && second.stalled, "and never a second time").toBe(0);
+    expect(second.ran && second.notes.join(" ")).toContain("already reopened once");
+  });
+});
+
+describe.skipIf(!configured)("the report tells nothing-to-do from could-not-tell", () => {
+  it("says so in words on a quiet tick, and names the digest's own answer", async () => {
+    const report = await applyDueGovernance(deps(), new Date());
+    expect(report.ran).toBe(true);
+    if (!report.ran) return;
+    expect(report.due).toBe(0);
+    expect(report.notes.join(" ")).toContain("Nothing was due");
+    expect(report.digest, "no composer wired means not asked, never 'empty'").toBe("not_asked");
+  });
+});
+
+describe.skipIf(!configured)("the override is decided by the tier the resubmission carried at", () => {
+  it("is not conferred by the pointer alone: a renewal and a rewrite are not overrides", async () => {
+    /*
+     * THE FAILURE: `supersedes_proposal_id` alone conferred steward-proof
+     * landing, and three writers set that column. A 21.2 renewal and the
+     * withdraw-and-rewrite clone would both have landed regardless of any
+     * steward at whatever tier they happened to be priced at.
+     */
+    const vetoedRef = `orig-${++n}`;
+    const backRef = `back-${++n}`;
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, status, proposer_user_id, change_set) VALUES (?,?,?,?,?,?)",
+      [vetoedRef, "The one that was stopped", "why the village was asked", "open", "u-a", JSON.stringify([])],
+    );
+    const first = await openOne({ subjectRef: vetoedRef });
+    const closed = await carry(first);
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    await seatSteward("u-steward");
+    await recordVeto(deps(), { ballotId: first.id, stewardId: "u-steward", reason: "Not yet, and here is why in full." });
+    expect(await wasVetoed(pool, vetoedRef)).toBe(true);
+
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, status, proposer_user_id, change_set, supersedes_proposal_id, supersedes_relation) " +
+        "VALUES (?,?,?,?,?,?,?,?)",
+      [backRef, "The one that came back", "why the village was asked", "open", "u-a", JSON.stringify([]), vetoedRef, "replaces"],
+    );
+    expect(await isOverride(pool, "mechanics", backRef), "a replacement is not an override").toBeNull();
+    await pool.query("UPDATE mechanics_proposals SET supersedes_relation = 'overrides' WHERE id = ?", [backRef]);
+    expect((await isOverride(pool, "mechanics", backRef))?.of).toBe(vetoedRef);
+  });
+
+  it("refuses a renewal that points at a stopped decision, naming the door that is open", async () => {
+    const ref = `renew-target-${++n}`;
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, status, proposer_user_id, change_set) VALUES (?,?,?,?,?,?)",
+      [ref, "The one that was stopped", "why the village was asked", "open", "u-a", JSON.stringify([])],
+    );
+    const b = await openOne({ subjectRef: ref });
+    const closed = await carry(b);
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    await seatSteward("u-steward");
+    await recordVeto(deps(), { ballotId: b.id, stewardId: "u-steward", reason: "The village has not heard this one out." });
+    const refusal = await supersedesRefusal(pool, "renews", ref);
+    expect(refusal).toContain("cannot be renewed");
+    expect(refusal).toContain("override");
+    expect(await supersedesRefusal(pool, "overrides", ref), "an override may point at it").toBeNull();
+  });
+
+  it("reads the tier the ballot actually froze, never the one the proposer meant", () => {
+    const settings = thresholdSettingsFrom(() => Number.NaN);
+    const floor = floorForCriticality("constitutional", settings);
+    expect(ballotPricedAtOrAbove({ unityPct: floor.unityPct, quorumPct: floor.quorumPct }, "constitutional", settings)).toBe(true);
+    expect(ballotPricedAtOrAbove({ unityPct: floor.unityPct - 1, quorumPct: floor.quorumPct }, "constitutional", settings)).toBe(false);
+  });
+});
+
+describe.skipIf(!configured)("a binding ballot cannot open on a subject nobody can close", () => {
+  afterAll(() => setSubjectCloserCheck(null));
+
+  it("refuses at the door, names the subject, and points at the practice-vote door", async () => {
+    /*
+     * PLAN_TO_A item 3. The close dispatcher runs the closer for a ballot's
+     * subject type and does nothing at all when there is none, and nobody was
+     * told: the village voted, the vote carried, and the thing it decided
+     * never happened.
+     */
+    setSubjectCloserCheck((t: string) => Object.prototype.hasOwnProperty.call(CLOSERS, t));
+    const result = await openBallot(pool, {
+      subjectType: "weather_forecast",
+      subjectRef: `nocloser-${++n}`,
+      title: "Should it rain",
+      docMarkdown: "# A question nothing can carry out",
+      method: "custom",
+      weightMode: "equal",
+      unityPct: 60,
+      quorumPct: 20,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [{ userId: "u-a", weight: 1 }],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("weather_forecast");
+    expect(result.error).toContain("advisory");
+  });
+
+  it("lets an advisory vote through, and every subject that does have a closer", async () => {
+    setSubjectCloserCheck((t: string) => Object.prototype.hasOwnProperty.call(CLOSERS, t));
+    const advisory = await openBallot(pool, {
+      subjectType: "advisory",
+      subjectRef: `advisory-${++n}`,
+      title: "What the village thinks",
+      docMarkdown: "# A practice vote on the real engine",
+      method: "custom",
+      weightMode: "equal",
+      unityPct: 60,
+      quorumPct: 20,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [{ userId: "u-a", weight: 1 }],
+    });
+    expect(advisory.ok, advisory.ok ? "" : advisory.error).toBe(true);
+    const real = await openOne({ subjectRef: `hascloser-${++n}` });
+    expect(real.id).toBeTruthy();
+  });
+});
+
+describe.skipIf(!configured)("the timing a ballot freezes when nobody chose one", () => {
+  it("gives a token send at acceptance and a Game change the next boundary", async () => {
+    const send = await openOne({ subjectType: "token_send", subjectRef: `timing-send-${++n}` });
+    expect(send.timing, "a payout for finished work does not wait a moon").toBe("at_acceptance");
+    const change = await openOne({ subjectRef: `timing-change-${++n}` });
+    expect(change.timing).toBe("next_moon");
+  });
+});
+
+describe.skipIf(!configured)("the three window notices", () => {
+  it("come from stewardship's own marks, each with its own notification type", async () => {
+    /*
+     * THE FAILURE: the job did the halfway arithmetic itself, so it could
+     * drift from the countdown a steward reads, and all three notices went out
+     * as one type that resolves to a DAILY mail digest. The last warning before
+     * a Game change lands used to arrive hours after it landed.
+     */
+    await seatSteward("u-steward");
+    const b = await openOne({ subjectRef: `watch-${++n}` });
+    const closed = await carry(b);
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    const landsAt = (await landingRow(pool, b.id))!.landsAt!;
+    const closesAt = new Date(closed.ballot!.closesAt);
+
+    const typesAt = async (at: Date): Promise<string[]> => {
+      const seen: string[] = [];
+      await runVetoWatch(deps({ notify: async (i) => { seen.push(i.type); } }), at);
+      return seen;
+    };
+
+    const half = new Date((closesAt.getTime() + landsAt.getTime()) / 2 + 1000);
+    expect(vetoWatchMarksDue({ carriedAt: closesAt, landsAt }, half)).toContain("halfway");
+    expect(await typesAt(half)).toContain("governance_veto_window_halfway");
+
+    const nearly = new Date(landsAt.getTime() - 30 * 60 * 1000);
+    expect(await typesAt(nearly)).toContain("governance_veto_window_closing");
+
+    // A tick early in the window sends neither: only "carried" is due, and the
+    // close path already sent that one.
+    const early = new Date(closesAt.getTime() + 60_000);
+    expect((await typesAt(early)).filter((t) => t !== "governance_veto_window_closing")).toEqual([]);
+  });
+
+  it("sends only the LAST mark when the job was down through two of them", async () => {
+    await seatSteward("u-steward");
+    const b = await openOne({ subjectRef: `watch-late-${++n}` });
+    const closed = await carry(b);
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    const landsAt = (await landingRow(pool, b.id))!.landsAt!;
+    const seen: string[] = [];
+    // One minute before it lands: halfway and two-hours-left are both behind
+    // us, and telling a steward they have half a window left would be false.
+    await runVetoWatch(deps({ notify: async (i) => { seen.push(i.type); } }), new Date(landsAt.getTime() - 60_000));
+    // Every other row still open in this schema is in the same position, so the
+    // assertion is on WHICH types went out and never on how many rows there are.
+    expect(Array.from(new Set(seen))).toEqual(["governance_veto_window_closing"]);
   });
 });

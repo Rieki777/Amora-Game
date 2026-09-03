@@ -33,7 +33,7 @@ import { numberVar, boolVar } from "../lib/variables";
 import { landingRow } from "../lib/applyDue";
 import { activeClock } from "../lib/gratitude-cycles";
 import { dryRunProposal } from "../lib/proposalDryRun";
-import { elementsFor, type ChangesetDeps } from "../lib/changeset";
+import { changeSetSnapsToBoundary, elementsFor, type ChangesetDeps } from "../lib/changeset";
 import { CHANGE_SET_CAP } from "../lib/mechanics";
 import { stewardsSeated } from "../lib/stewardship";
 import { vetoHoursFrom } from "../../shared/governanceKinds";
@@ -90,7 +90,8 @@ export function register(app: Express, deps: Deps): void {
       timing: req.body?.timing,
       closesAt,
       vetoHours: vetoHoursFrom(numberVar("governance.veto_hours")),
-      nextNewMoonAfter: (after: Date) => activeClock().nextBoundaryAfter(after),
+      nextBoundaryAfter: (after: Date) => activeClock().nextBoundaryAfter(after),
+      snapsToBoundary: (set) => changeSetSnapsToBoundary(set as any[]),
     });
     res.json({ ...out, closesAt: closesAt.toISOString(), preview: true });
   });

@@ -30,7 +30,7 @@ import {
   type ValidatedElement,
 } from "./changeset";
 import { asChangeItem, type ChangeInput } from "./mechanics";
-import { kindOfSet, landingFor, timingOf, vetoHoursFrom, type GovernanceKind, type ProposalTiming } from "../../shared/governanceKinds";
+import { defaultTimingFor, kindOfSet, landingFor, timingOf, vetoHoursFrom, type GovernanceKind, type ProposalTiming } from "../../shared/governanceKinds";
 
 export interface DryRunElement {
   index: number;
@@ -63,7 +63,10 @@ export interface DryRunInput {
   /** The instant the vote would close, so the preview can name a real date. */
   closesAt: Date;
   vetoHours: number;
-  nextNewMoonAfter: (after: Date) => Date;
+  /** The first boundary of the ACTIVE clock strictly after an instant. */
+  nextBoundaryAfter: (after: Date) => Date;
+  /** True when the set moves a number the running cycle is settled against. */
+  snapsToBoundary?: (changeSet: readonly unknown[]) => boolean;
 }
 
 /**
@@ -76,7 +79,6 @@ export interface DryRunInput {
  * is the first thing anybody asks.
  */
 export async function dryRunProposal(deps: ChangesetDeps, input: DryRunInput): Promise<DryRunResult> {
-  const timing = timingOf(input.timing);
   const itemKinds = input.changes.map((c) => {
     try {
       return asChangeItem(c).kind as string;
@@ -85,12 +87,16 @@ export async function dryRunProposal(deps: ChangesetDeps, input: DryRunInput): P
     }
   });
   const kind = kindOfSet(itemKinds);
+  // The default is the KIND's, so a preview of a payout that says nothing shows
+  // the instant it would actually execute at rather than a moon away.
+  const timing = timingOf(input.timing, defaultTimingFor(kind));
   const landing = landingFor({
     closesAt: input.closesAt,
     kind,
     timing,
     vetoHours: vetoHoursFrom(input.vetoHours),
-    nextNewMoonAfter: input.nextNewMoonAfter,
+    nextBoundaryAfter: input.nextBoundaryAfter,
+    snapToBoundary: input.snapsToBoundary ? input.snapsToBoundary(input.changes) : false,
   });
 
   const validated = await validateElements(deps, input.changes);

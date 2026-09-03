@@ -19,6 +19,7 @@ import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
 import {
   applyChangeSet,
   applyMechanicsProposal,
+  changeSetSnapsToBoundary,
   changeSetWaitsForCycleClose,
   elementsFor,
   NEVER_BY_CHANGESET,
@@ -247,7 +248,7 @@ describe.skipIf(!configured)("the dry run writes nothing", () => {
       timing: "next_moon",
       closesAt: new Date("2026-09-10T12:00:00.000Z"),
       vetoHours: 72,
-      nextNewMoonAfter: (after: Date) => new Date(after.getTime() + 20 * 24 * 60 * 60 * 1000),
+      nextBoundaryAfter: (after: Date) => new Date(after.getTime() + 20 * 24 * 60 * 60 * 1000),
     });
 
   it("previews a good set and changes nothing on disk", async () => {
@@ -281,5 +282,110 @@ describe("the cycle-timed predicate, with no database", () => {
   it("says a set holding a cycle-timed dial waits as a whole", () => {
     expect(changeSetWaitsForCycleClose([{ key: "governance.vote_days" }])).toBe(false);
     expect(changeSetWaitsForCycleClose([{ key: "a.key.that.does.not.exist" }])).toBe(false);
+  });
+});
+
+/**
+ * ── THE MIX THE SECOND AUDIT FOUND (top risk 3) ────────────────────────────
+ *
+ * Three rules collided on one row and nothing said which won. Read one way, a
+ * faction publishes one proposal that edits the veto map and reallocates the
+ * weight table, and the whole thing lands with nobody able to stop the half
+ * that was meant to be stoppable. Read the other way, a steward gets a veto
+ * over the edit to their own reach whenever it travels with anything else.
+ *
+ * Before this refusal existed the set validated and went to a vote.
+ */
+describe.skipIf(!configured)("a set may not mix an unstoppable element with any other kind", () => {
+  it("refuses a veto-map edit travelling with a weight allocation, naming both", async () => {
+    const out = await validateElements(deps(), [
+      { kind: "dial", key: "governance.steward_subjects", to: "mechanics" },
+      { kind: "weight_allocation", userId: "u-mix", to: "40", note: "the founding table" },
+    ]);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.problem).toContain("governance.steward_subjects");
+    expect(out.problem).toContain("weight_allocation");
+    expect(out.sentence).toContain("Item 1 of 2");
+  });
+
+  it("refuses the council switch and the window length the same way", async () => {
+    for (const key of ["governance.steward_council", "governance.veto_hours"]) {
+      const out = await validateElements(deps(), [
+        { kind: "dial", key: "governance.vote_days", to: "9" },
+        { kind: "dial", key, to: key === "governance.veto_hours" ? "96" : "true" },
+      ]);
+      expect(out.ok, `${key} travelling with an ordinary dial`).toBe(false);
+      if (out.ok) continue;
+      expect(out.problem).toContain(key);
+    }
+  });
+
+  it("allows a set made only of unstoppable elements", async () => {
+    const out = await validateElements(deps(), [
+      { kind: "dial", key: "governance.steward_subjects", to: "mechanics" },
+      { kind: "dial", key: "governance.veto_hours", to: "96" },
+    ]);
+    expect(out.ok, JSON.stringify(out)).toBe(true);
+  });
+
+  it("allows an ordinary set, which is every other proposal in the village", async () => {
+    const out = await validateElements(deps(), [
+      { kind: "dial", key: "governance.vote_days", to: "9" },
+      { kind: "dial", key: "governance.sensing_days", to: "5" },
+    ]);
+    expect(out.ok).toBe(true);
+  });
+
+  it("writes nothing when it refuses", async () => {
+    const before = numberVar("governance.vote_days");
+    const result = await applyChangeSet(deps(), {
+      ballotId: "bal-mix",
+      proposalRef: "gm:mix",
+      actor: "u-a",
+      changes: [
+        { kind: "dial", key: "governance.veto_hours", to: "96" },
+        { kind: "dial", key: "governance.vote_days", to: "11" },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.refusal?.problem).toContain("governance.veto_hours");
+    await loadVariables(pool);
+    expect(numberVar("governance.vote_days")).toBe(before);
+    expect(await elementsFor(pool, "bal-mix")).toEqual([]);
+  });
+});
+
+describe.skipIf(!configured)("a set that moves a number the running cycle is settled against", () => {
+  it("is named by changeSetSnapsToBoundary, and an ordinary dial is not", () => {
+    expect(changeSetSnapsToBoundary([{ key: "gratitude.base_budget" }])).toBe(true);
+    expect(changeSetSnapsToBoundary([{ key: "cycle.mode" }])).toBe(true);
+    expect(changeSetSnapsToBoundary([{ kind: "mint_rule", key: "mint.anything" }])).toBe(true);
+    expect(changeSetSnapsToBoundary([{ key: "governance.vote_days" }])).toBe(false);
+    expect(changeSetSnapsToBoundary([{ key: "a.key.that.does.not.exist" }])).toBe(false);
+  });
+});
+
+describe.skipIf(!configured)("the element ledger is keyed on the element, not on a row id", () => {
+  it("writes one row per element however many times the landing is retried", async () => {
+    const changes = [{ kind: "dial", key: "governance.sensing_days", to: "6" }];
+    await applyChangeSet(deps(), { ballotId: "bal-retry", proposalRef: "gm:retry", actor: "u-a", changes });
+    await applyChangeSet(deps(), { ballotId: "bal-retry", proposalRef: "gm:retry", actor: "u-a", changes });
+    const rows = await elementsFor(pool, "bal-retry");
+    expect(rows.length, "a retry must not say the dial moved twice").toBe(1);
+  });
+
+  it("carries the proposal id beside the ballot id, so a reversion can join it", async () => {
+    await applyChangeSet(deps(), {
+      ballotId: "bal-join",
+      proposalRef: "gm:join",
+      actor: "u-a",
+      changes: [{ kind: "dial", key: "governance.sensing_days", to: "8" }],
+    });
+    const [rows] = await pool.query<any[]>(
+      "SELECT proposal_id FROM governance_element_ledger WHERE ballot_id = ?",
+      ["bal-join"],
+    );
+    expect(String(rows[0]?.proposal_id)).toBe("gm:join");
   });
 });

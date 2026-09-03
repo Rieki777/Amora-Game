@@ -126,6 +126,7 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.steward_subjects` | Which decisions a steward can stop | `open` | `all` | text | when it is written |
 | `governance.steward_council` | A veto needs a majority of the stewards | `open` | `false` | boolean | when it is written |
 | `governance.veto_hours` | How long a steward has to stop a change | `open` | `72` | 72 to 720 hours | when it is written |
+| `governance.landing_expiry_cycles` | Cycles a passed decision waits before it is written off | `open` | `3` | 1 to 12 cycles | when it is written |
 | `governance.change_cooldown_days` | Cooldown after a governed rule change | `open` | `0` | 0 to 365 days | when it is written |
 | `governance.weight_mode` | How voting weight is assigned | `founder` | `equal` | `equal`, `token`, `custom` | when it is written |
 | `governance.weight_token` | The weight token | `founder` | `gratitude` | text | when it is written |
@@ -148,7 +149,7 @@ The dials a village holds, with the ring that says who may move each one and the
 <!-- written by a person: dialsStorage -->
 Only CHANGED values are stored. An absent row means the platform default in the table above, so a fresh village starts with every one of these and no rows at all.
 
-11 settings across the whole registry wait for a cycle close instead of applying when they are written: `cycle.mode`, `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 28 settings above is one of them, so every governance dial takes effect the moment it is written.
+11 settings across the whole registry wait for a cycle close instead of applying when they are written: `cycle.mode`, `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 29 settings above is one of them, so every governance dial takes effect the moment it is written.
 
 ## What each kind of decision asks
 
@@ -871,6 +872,17 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "default": "72",
       "min": 72,
       "max": 720,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.landing_expiry_cycles",
+      "label": "Cycles a passed decision waits before it is written off",
+      "ring": "open",
+      "type": "integer",
+      "default": "3",
+      "min": 1,
+      "max": 12,
       "choices": null,
       "applyTiming": "instant"
     },
