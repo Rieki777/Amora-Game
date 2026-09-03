@@ -347,9 +347,32 @@ export function changedFiles(baseSha) {
  */
 export function hunkMentions(file, symbols, baseSha) {
   const seen = new Set();
+  /*
+   * READ THE DIFF'S STRUCTURE, NEVER THE SHAPE OF A LINE.
+   *
+   * This used to skip any line matching /^(\+\+\+|---)/, meaning to skip the
+   * two file headers. It also skipped every REAL changed line whose own text
+   * begins with `++` or `--`, and both of those are ordinary code here:
+   * `+++mintedThisCycle;` is a pre-increment of the admin mint's counter, and
+   * removing a SQL `-- comment` line from a template literal produces
+   * `--- comment`. Either one changed the economy while the guard reported
+   * "nothing on the economy surface changed". Found by the adversary pass
+   * (F9), with `mintedThisCycle++;` as its control: the same edit written the
+   * other way round fired correctly, which is what made the miss invisible.
+   *
+   * Matching the header FORMS more exactly (`^\+\+\+ ` and `^--- `) would
+   * still collide with a removed line whose own text is `-- a/path`. So this
+   * tracks WHERE IT IS instead: `diff --git` opens a file's header block, `@@`
+   * opens a hunk, and only inside a hunk does a leading + or - mean a changed
+   * line. That is exact by construction and cannot be fooled by content.
+   */
   const scan = (text) => {
+    let inHunk = false;
     for (const line of text.split("\n")) {
-      if (!/^[+-]/.test(line) || /^(\+\+\+|---)/.test(line)) continue;
+      if (line.startsWith("diff --git ")) { inHunk = false; continue; }
+      if (line.startsWith("@@")) { inHunk = true; continue; }
+      if (!inHunk) continue;
+      if (!/^[+-]/.test(line)) continue;
       const body = line.slice(1);
       for (const s of symbols) if (body.includes(s)) seen.add(s);
     }

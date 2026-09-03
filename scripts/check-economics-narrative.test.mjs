@@ -289,6 +289,61 @@ check("FIXTURE: HUNK RULE stays quiet when the changed lines are unrelated", () 
   assert.strictEqual(code, 0, `an unrelated edit to server/index.ts must not fire:\n${out}`);
 });
 
+check("FIXTURE: HUNK RULE sees a changed line that itself starts with ++ (F9)", () => {
+  // `+++mintedThisCycle;` in the diff is a REAL added line whose own text
+  // begins with `++`. The old header filter skipped it and the guard reported
+  // "nothing on the economy surface changed" over a change to the admin mint's
+  // counter. Its control is the next case: the same edit written as a
+  // post-increment always fired, which is what made the miss invisible.
+  const repo = newRepo("hunk-plusplus");
+  repo.write("server/index.ts", "// a stand-in\nconst a = 1;\n++mintedThisCycle;\n");
+  commitAll(repo, "feat: pre-increment the mint counter");
+  const { code, out } = runGuard(repo, ["--base", "main"]);
+  assert.strictEqual(code, 1, `a changed line beginning with ++ must be read:\n${out}`);
+  assert.match(out, /changed lines mention mintedThisCycle/);
+});
+
+check("FIXTURE: CONTROL, the same edit as a post-increment also fires", () => {
+  // The control that proves the case above is measuring the leading `++` and
+  // not something else about the fixture.
+  const repo = newRepo("hunk-plusplus-control");
+  repo.write("server/index.ts", "// a stand-in\nconst a = 1;\nmintedThisCycle++;\n");
+  commitAll(repo, "feat: post-increment the mint counter");
+  const { code, out } = runGuard(repo, ["--base", "main"]);
+  assert.strictEqual(code, 1, out);
+});
+
+check("FIXTURE: HUNK RULE sees a REMOVED line that itself starts with -- (F9)", () => {
+  // Deleting a SQL `-- comment` from a template literal produces `--- comment`
+  // in the diff, which the old filter took for a file header.
+  const repo = newRepo("hunk-minusminus");
+  repo.write(
+    "server/index.ts",
+    "// a stand-in\nconst q = `\n  -- postTransfer lives here\n  SELECT 1\n`;\n",
+  );
+  commitAll(repo, "base: a SQL comment naming a posting");
+  const withComment = git(repo.root, ["rev-parse", "HEAD"]);
+  repo.write("server/index.ts", "// a stand-in\nconst q = `\n  SELECT 1\n`;\n");
+  commitAll(repo, "chore: drop the SQL comment");
+  const { code, out } = runGuard(repo, ["--base", withComment]);
+  assert.strictEqual(code, 1, `a removed line beginning with -- must be read:\n${out}`);
+  assert.match(out, /changed lines mention postTransfer/);
+});
+
+check("FIXTURE: the file headers themselves are still NOT read as changed lines", () => {
+  // The other direction of F9: the fix must not start counting `+++ b/path`
+  // and `--- a/path`. A path containing a symbol would otherwise make every
+  // change to that file fire, which is the whole-file matching that was
+  // deliberately rejected.
+  const repo = newRepo("hunk-headers");
+  fs.mkdirSync(path.join(repo.root, "server", "postTransfer"), { recursive: true });
+  fs.writeFileSync(path.join(repo.root, "server", "postTransfer", "note.txt"), "a file whose PATH carries a symbol\n");
+  repo.write("server/index.ts", "// a stand-in\nconst a = 1;\nconst c = 3;\n");
+  commitAll(repo, "chore: an unrelated line, beside a path that names a symbol");
+  const { code, out } = runGuard(repo, ["--base", "main"]);
+  assert.strictEqual(code, 0, `a symbol in the diff's own header must not count:\n${out}`);
+});
+
 check("FIXTURE: HUNK RULE reads changed lines, not their CONTEXT", () => {
   // `-U0` is what makes this true. With any context at all, an edit three
   // lines away from a postTransfer call would count, and in a 28,000 line file
