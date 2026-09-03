@@ -1,8 +1,49 @@
 # Governance evolution: the brief for the session that builds it
 
-Written 2026-08-31 by the session that did the token foundations work. Read it end to end before
-touching anything. Everything here was measured against the repository that day, not remembered,
+Written 2026-08-31 by the session that did the token foundations work, and extended 2026-09-02 with
+the founder's fuller vision and a measured map of the engine (sections 0 and 12 to 18). Read it end
+to end before touching anything. Everything here was measured against the repository that day, not remembered,
 and where a claim is a reading rather than a measurement it says so.
+
+---
+
+## 0. Read this first (added 2026-09-02)
+
+This brief now has three layers, and the later ones win where they disagree with the earlier ones.
+
+- **Sections 1 to 11** are the 2026-08-31 brief. Keep reading them: the reasoning is sound and the
+  founder's quotes there are still his rulings. Three of its claims are superseded, named below.
+- **Section 12** is the founder's fuller vision, stated 2026-09-02, in his words. It is the target
+  the document must describe.
+- **Section 19** is his answer to section 15, given the same evening, and the mandate to build.
+- **Section 20** is the execution plan the coordinator runs: lanes, ownership, migration numbers, merge order, the QA walk.
+- **Sections 13 to 18** are what fourteen readers measured against the repository on 2026-09-02,
+  each reader's citations re-opened by a second, adversarial agent. Where section 13 contradicts
+  sections 1 to 11, section 13 is right. The full reports, with evidence tables, are outside the
+  repository at `C:\Users\taren\Desktop\Amora\governance-sources\reports\` (section 18).
+
+**Three claims in sections 1 to 11 are now wrong.**
+
+1. "Governance mode cannot be switched back and forth" (sections 6, 7 and question 7). The founder
+   reversed it on 2026-09-02 (section 12), and the code never enforced it anyway (section 13.2).
+2. "Only `mechanics` has an executor" (section 2). Nine subject types execute at close (13.1).
+3. "The governance test suite is currently unreliable" (section 7). Fixed by `c0ac180` on
+   2026-08-31; the ledger records no governance defect (13.9).
+
+**Every `server/index.ts` line number in this document is a locator, never a fact.** The file was
+31,082 lines at `6f6a55e` when sections 1 to 11 were written, 28,562 on `main` at `8d2a9c4` when
+this section was written, and it lost about 2,500 lines to route extractions in the hours between,
+while the readers were inside it. Section 13 gives a search anchor for every site it names. Search
+the anchor. The other governance files named in this document (`shared/governanceEngine.ts`,
+`shared/ballotSubjects.ts`, `shared/gameVariables.ts`, `shared/lunar.ts`, `server/lib/ballots.ts`,
+`server/lib/gameStart.ts`, `server/lib/mechanics.ts`, `server/lib/governanceWeights.ts`,
+`server/lib/orgChart.ts`, `server/routes/governance*.ts`, `docs/TOKENS.md`) are byte-identical
+between `6f6a55e` and `8d2a9c4`, so their line numbers in section 13 held at the time of writing.
+
+**The canonical checkout moved while this was written.** `C:\Users\taren\Desktop\Amora\hotfix` was
+`main` on the morning of 2026-09-02 and is another lane's live worktree (`wt/g-architecture`) by the
+evening. Never read governance code from a directory you did not create. Make your own worktree
+from `origin/main` and say its commit inside anything you generate.
 
 ---
 
@@ -795,6 +836,9 @@ is why that logic lives in one place. Do not add a second opinion about whether 
 
 ## 10. Questions for the founder, collected
 
+*Superseded by section 15 on 2026-09-02, which folds every question here into a fuller list. Kept
+for the reasoning behind each recommendation.*
+
 Every open question in one place, so you can put them to him in one pass rather than one at a time
 across a week. Each carries the context and a recommendation, because a question with no
 recommendation makes him do your thinking. He is holding a lot; do not send him a quiz.
@@ -864,6 +908,8 @@ than inherit it.
 
 ## 11. What to do first
 
+*Superseded by section 17 on 2026-09-02. Kept because steps 1, 2 and 5 still hold word for word.*
+
 1. Read the seven files in section 2. Do not design anything until you have.
 2. Write down, in your own words, what the existing engine does and where a changeset attaches. If
    that description is wrong, everything after it is wrong.
@@ -874,3 +920,1045 @@ than inherit it.
 5. **Ship the changeset subject type and staging UI before the executor.** The dispatcher's
    fail-safe absence makes it safe, and it means real villages vote on real changesets while the
    execution path is still being got right.
+
+---
+
+## 12. Addendum, 2026-09-02: the founder's fuller vision, in his words
+
+Written 2026-09-02 by the session asked to make this brief complete. The founder restated the whole
+vision in one message that day. Everything in this section is HIS, quoted or closely paraphrased,
+and it supersedes any older ruling it contradicts. One reversal is flagged explicitly below.
+
+### The deliverable, restated
+
+> "Your task is going to be setting up the sole source of truth for governance and our game creating
+> a document that is based off of truth that's human readable and beautiful, and also machine
+> readable that sits in our repo so that everyone including bots can understand how the governance
+> system works."
+
+> "This isn't a full story and for you to fill out the whole story and create version 1.0 of this
+> document for us to go back-and-forth on to ensure that we have the right vision."
+
+So: one document, in the repo, generated from what is true (section 1), readable by a person AND by a
+machine (follow `docs/TOKENS.md`: prose plus a JSON block, one generator, one guard that fails CI),
+and shipped as a version 1.0 that he will iterate with you. He expects a draft to react to, not a
+questionnaire.
+
+### Founding: one to three founders, and only Voice
+
+> "Every village starts off with 1 to 3 founders putting the initial conditions in place and the only
+> tokens they can issue at this point is Voice tokens."
+
+### Starting the game: three people, everyone, unanimous
+
+> "then at some point when the game is mature enough and the founders deem it ready that they're
+> ready to start the game then it starts with an initial proposal that needs a minimum of three votes
+> three different parties voting and it has to get 100% quorum and 100% unity so every player of the
+> game needs to show up to the start the game proposal. This proposal will also show the current
+> distribution of Voice as that's the only token that had been issued at that time and give a brief
+> overview of how the game is structured and the conditions that the game is at."
+
+Four rules in one sentence: at least three DIFFERENT voters; 100% quorum (every player votes); 100%
+unity (every vote is yes); and the proposal body itself renders the Voice distribution plus a summary
+of the game's structure and current conditions. Section 7's still-open abstain case (one yes and two
+abstentions carrying a launch) is settled by this rule in spirit: an abstention is not a yes, so
+under 100% unity it cannot carry. Check what the engine does with it and fix the engine, not the copy.
+
+### After launch: the admin panel is everyone's, and edits become proposals
+
+> "after this point all members can see the admin section and all of the controls for the entire
+> game so the admin panel that's available just for founders at the beginning becomes available for
+> everyone to see and they can go through and just like a founder can make all these edits but the
+> edits as they're making them just become a change log that will then turn into a proposal and if
+> the proposal passes then changes the game at the start of the next lunar cycle"
+
+Three consequences: the CHANGE LOG is the staging area (section 2's "draft is not a proposal"
+boundary applies to it); passing does not apply; the passed changeset applies at the NEXT CYCLE
+START. That gives the steward approval (section 3) a natural window: between the vote closing and
+the new moon.
+
+### Cycles: lunar by default, a setting by design
+
+> "so that we're following lunar cycle periods for every lunar cycle. A new game structure can take
+> place this lunar cycle is also a setting that it could be changed to any calendar cycle or any
+> other cycle but we default to lunar cycles where a new cycle start and end at the new moon just
+> like with the gratitude cycle"
+
+The governance cycle and the gratitude cycle are the same rhythm and should be the same setting.
+Find how the gratitude cycle computes "new moon" today before adding a second clock.
+
+### Vote mode: switchable BOTH ways, holdings never deleted. THIS REVERSES AN EARLIER RULING.
+
+> "within governance, we have some elements where you can have one person one vote or one token one
+> vote where members can hold multiple voice tokens, and their vote is stronger. This should be able
+> to go back-and-forth where you can change from one person one vote to one token one vote and vice
+> versa and when we're making these changes, it doesn't delete the voice token holdings so if you
+> have voice tokens, and you switch over to one person, one vote and just changes the overall
+> governance that way, and then allows the community to go back to one token one vote and maintain
+> the current token holdings"
+
+Section 6 and section 7 of this brief record "Governance mode cannot be switched back and forth."
+That is now WRONG. The 2026-09-02 ruling is: the mode is a village setting that may change in either
+direction by proposal, the change touches only how votes are COUNTED, and Voice balances are
+untouched by it. Ballots already open keep the mode they froze at open (property 1 in section 2).
+Question 7's un-votable list loses "the governance mode" as a candidate.
+
+### Proposals carry more than one element, because elements connect
+
+> "for example, on that proposal, the proposal could also contain a clause where they're distributing
+> a bunch of new Voice tokens out to different members if maybe there is unfair voice token holding
+> that elicited their desire to go back to one person one vote but realize they actually just needed
+> a fair distribution so that's why proposals need to contain more than one element because they
+> might be connected."
+
+A proposal is a LIST of changes voted as one. The changeset subject type (section 2) is that list.
+Note that his example mixes a settings change (vote mode) with a token distribution (mint Voice to
+members), so a changeset's elements are not only settings: they include ledger acts.
+
+### The objection loop: vote down, say what to fix, withdraw, edit, resubmit
+
+> "During the proposal process proposal comes up and people can vote it down and put their
+> objections and what they would like fixed then a proposer can withdraw and edit their proposal and
+> make those suggested changes and put it back up for vote to try to reach the required quorum and
+> unity required."
+
+So an objection carries text (what they would like fixed), a proposer may WITHDRAW an open proposal,
+EDIT it, and RESUBMIT it, and the resubmission should be linked to what it replaces so the history
+reads as one conversation rather than two unrelated proposals.
+
+### Stewards, restated (unchanged from section 3, repeated because he repeated it)
+
+> "having it default that the steward (by default the founder(s) are granted a steward role after
+> Game launch) needs to approve a proposal to change the game before it actually goes through is a
+> great addition, but also there's another stage of maturity where the founder gives up this power
+> and then auto-execute takes over. Stewards have the power to approve anything in the Game that
+> needs approval - they're the 'training wheels' for the Game until it matures enough that they can
+> give more and more power to the Game to auto-execute decisions."
+
+### The inspiration, and where a local copy lives
+
+He named three sources for where this comes from. Read them; they are short, and the engine's
+quorum, unity and weight dials descend from them directly.
+
+| Source | What it is | Local text copy (outside the repo) |
+|---|---|---|
+| https://docs.google.com/presentation/d/1hjjo_p5VqaOkaUml9nR3s8ZGUt1AzCidCSw6VngJ3dc/edit?usp=drivesdk | Slide deck "So you want to make a DHO?" (Hypha / SEEDS). The three dials (voice token variance, quorum, unity) with named presets, plus voice half-life, vote period, role expiry, what requires a vote, vote scope by circle. | `C:\Users\taren\Desktop\Amora\governance-sources\hypha_slides.txt` |
+| https://youtu.be/_TpyEO6NRnY | Talk "How to do a DHO/DAO: Guide for groups building new paradigm organizations" (SEEDS: ReGenerative Renaissance), 78 minutes. | `C:\Users\taren\Desktop\Amora\governance-sources\yt_transcript.txt` (auto captions, deduplicated) |
+| https://docs.google.com/document/d/1hFJPe1N0yyntJ9g-iQFvhtf9j2pDsxmmG-ufxqnAt5g/edit?usp=drivesdk | Hypha Handbook V0.3. His words: "out of date and for a different type of organization than a village but still following some of the Game mechanics we have and the self-organization and regenerative principles throughout". | `C:\Users\taren\Desktop\Amora\governance-sources\hypha_gdoc.txt` |
+
+The deck's own framing, which the document should probably adopt as its vocabulary: governance is
+three dials (voice token variance, quorum, unity), and the named corners are classic democracy,
+consent, consensus, distributed voice, and on the dark side oligarchy, dictatorship, anarchy. The
+start-the-game rule above is the consensus corner with every dial at maximum.
+
+### Repository facts measured 2026-09-02
+
+- The canonical checkout on this machine is `C:\Users\taren\Desktop\Amora\hotfix`, on `main` at
+  `6f6a55e` (2026-09-01), level with `origin/main`. The other directories under `Desktop\Amora` are
+  worktrees of older branches; do not read governance code from them.
+- The repository is now `Rieki777/village-os` and the package is PUBLIC (renamed 2026-08-31,
+  `df779e3`). The governance document will be read by people standing up villages that are not
+  Amora. Write it for a fresh village, as `docs/TOKENS.md` does, and keep Amora's politics out of it.
+- `docs/TOKENS.md` exists and is the shape to copy: fully generated by
+  `scripts/generate-token-doc.mjs`, guarded by `scripts/check-token-doc.mjs` in CI
+  (`.github/workflows/ci.yml`), person-written sentences stored INSIDE the generator and marked,
+  no timestamp, a JSON block at the end, a "what this file is made from" list, and a database test
+  (`server/db/tokenDoc.test.ts`) that proves the generator's rows equal the real rows.
+- Two dials the token document already reports that the governance document must own:
+  `governance.weight_mode` (default `equal`) and `governance.weight_token` (default `gratitude`,
+  NOT `village-voice`; check this against section 7's claim that Village Voice is the weight).
+- Maia's knowledge shelf is `docs/knowledge/` (`decentralized-governance.md`, `sociocracy.md` and
+  five more), read by `server/lib/knowledge.ts`. A generated governance document is exactly what
+  that shelf should carry about this village's own rules.
+- Fourteen verified research reports on the engine as it stands on `main` (schema, engine,
+  dispatcher, routes, launch, weights, flow, cycles, admin, docs, hub, inspiration, tests, legacy)
+  live in `C:\Users\taren\Desktop\Amora\governance-sources\reports\`. Each has an evidence table
+  with file:line citations that were re-opened by a second agent. Read them before re-deriving.
+
+---
+
+## 13. The engine as it actually is, measured 2026-09-02: errata to sections 1 to 11
+
+Fourteen readers, one per subsystem, read `main` at `6f6a55e` and the files that did not change
+through `8d2a9c4`. A second agent re-opened every cited line. What follows is what survived. Each
+bullet names a file and, for `server/index.ts`, the string to search for, because that file's line
+numbers do not hold (section 0).
+
+### 13.1 The close dispatcher and its executors
+
+- The dispatcher is `SUBJECT_CLOSERS` in `server/index.ts`. Search for the comment *"A subject type
+  that is NOT a key here"*. It has **nine executing keys**: `mechanics`, `power_transfer`,
+  `power_grant`, `power_return`, `role_declare`, `role_seat`, `role_unseat`, `village_launch`, and
+  `mint_rule`, which is aliased to the mechanics executor under the comment *"ONE EXECUTOR, TWO
+  SUBJECT TYPES (R81, R84)"*. `advisory` is opened with no executor by design. Section 2's "six
+  types, one executor" is stale, and so is the header comment in `drizzle/0089` that lists five.
+- `role_application`, `agreement`, `badge_grant` and `quest_payout` are **never opened as their own
+  subject.** The wizard offers them and converts them to practice votes
+  (`client/src/components/governance/TypeCards.tsx`). Section 7A's "four vote types collect real
+  votes and then do nothing" overstates it: they collect practice votes, which is honest, and the
+  document must say so.
+- **The close route closes the ballot with one guarded UPDATE, THEN runs the executor, with no
+  transaction around the pair.** An executor that throws lands in the Express 4 async patch and the
+  500 handler; the ballot stays closed and passed, `notifyRoll` never fires, and only `mechanics`
+  has a second door (the admin apply route). Before adding executors, write a durable "executor
+  pending" row between close and route, cleared on return, so a throw leaves something a human can
+  act on rather than a console line.
+- `ballotBinds` derives "binding" from the same table, so absence really is fail-safe.
+- **Launch goes through the same dispatcher.** `POST /api/admin/launch/propose` (founder-only,
+  refused once the Game has started) opens `village_launch` at 100 unity, 100 quorum, a floor of
+  three members, with `everySeatWeighs` (`shared/ballotSubjects.ts`). Its closer writes two
+  `app_config` documents, `game-start` (`{startedAt, ballotId, startedBy, note}`, migration `0112`)
+  and `launch-state`, and **nothing else: no role, no seat, no grant.** Founders inherit nothing at
+  launch today.
+- **Abstention.** `shared/governanceEngine.ts`: quorum is (yes + no + abstain) over the frozen
+  total weight; unity is yes over (yes + no). So **one yes and two abstentions carries the launch at
+  100 and 100.** `shared/ballotSubjects.ts` records this as a documented decision and
+  `ballotSubjects.test.ts` pins that two yes plus one abstain carries. Under section 12's "every
+  player must show up and agree", this is a defect to fix in the engine with a per-subject abstain
+  policy or a minimum-yes-heads floor, and the pinning test rewritten red to green.
+- **Closing is human, with one deliberate exception.** Mint rules stamped `pending_from_cycle` are
+  promoted automatically by the hourly moon-settlement job at the boundary (search
+  `pending_from_cycle`). Property 2 in section 2 ("nothing auto-executes at expiry") is already
+  broken on purpose on that one path, and it is the worked example for "apply at the next cycle".
+
+### 13.2 Thresholds, methods and dials
+
+- `shared/governanceEngine.ts` is 168 lines and is the arithmetic: quorum checked first for every
+  method; `majority` strictly above 50; `consensus` no weight on no and some on yes; `custom`
+  unity at or above the frozen dial; `consent` zero standing objections. Village defaults, all in
+  `game_variables` deltas: unity 80 (floor 50), quorum 20, vote window 7 days (max 30), consent
+  window, default method `custom`, weight mode `equal`, weight token `gratitude`.
+- **Subject floors are code.** `SUBJECT_THRESHOLDS` in `shared/ballotSubjects.ts`: launch 100/100/3
+  with every seat weighing; `mint_rule` quorum 50. Also code: the majority constant, the unity floor
+  of 50, the 90-day clamp, the 12-change cap, and the one-vocabulary rule. Section 7A's rule that a
+  governance number must be changeable without a deploy applies to every one of these.
+- **Fifteen `governance.*` keys** exist in `shared/gameVariables.ts`. The registry holds 149
+  variables (122 literal entries plus 27 pushed by `VARIABLES.push(...)` near the bottom); 32 resolve
+  to the founder ring, 117 to open. **`governance.weight_mode` and `governance.weight_token` are
+  founder ring.** The ring header says nothing can open a founder dial to the village;
+  `applyMechanicsProposal` refuses every non-open key (search *"ringOf"* in the apply path); the
+  wizard hides them. **No `governance.*` key is cycle-timed.** No rhythm dial (13.7). No secrecy key,
+  no steward key, no delegation key.
+- **Mode switching has no irreversibility guard and never touches holdings.** The only writer is
+  `PUT /api/admin/variables/:key`, which an admin may use freely; `weightModeNow` (search the
+  function) reads the setting fresh at each ballot open and collapses unknown values to `equal`;
+  nothing deletes or rewrites `governance_weights`, `token_balances` or `token_ledger`; open
+  ballots keep the mode they froze. The code already matches section 12's reversal. What the code
+  lacks is the VILLAGE's ability to vote the switch. Two documents say the opposite and must be
+  fixed together: `docs/TOKENS.md` ruling 4 (its prose lives in `scripts/generate-token-doc.mjs`,
+  "Staged. Not built." naming a one-way lock) and this brief's sections 6 and 7.
+- **Two tokens are called Voice.** `village-voice` (platform-governed, 3 decimals, can weigh a vote)
+  and `voice` (the Hypha mirror on Base, which `server/lib/governanceWeights.ts` refuses as a weight
+  token). **The default weight token is Gratitude.** Section 7's "Village Voice IS voting weight" is
+  true only after a founder sets `governance.weight_token` to `village-voice` by hand.
+- **A display defect in token mode.** Ballot weights are ledger thousandths; a chip reading 0.1
+  weighs 100 and `MyStanding` prints 100 (`server/lib/governanceWeights.ts`, `voteBars.ts`). Tallies
+  are right; the number a member reads is not the number they hold. The admin mint form takes raw
+  units with no hint: typing 1 for Voice mints 0.001.
+
+### 13.3 Before launch
+
+- **Nothing can be issued before launch, Voice included.** `issuanceRefusal` in
+  `server/lib/gameStart.ts` refuses every faucet posting until `game-start` exists; it is called from
+  `server/lib/ledger.ts` (two sites), the gratitude path, the economy path and the admin mint. There
+  is no token exception. Section 7's "Voice is the only token issuable before the game starts" is a
+  ruling the code does not implement; the code refuses it. Worse: in token mode with the weight token
+  set to `village-voice`, `weightFloorProblem` refuses to OPEN the launch vote because nobody weighs
+  anything, so **a fresh token-mode village cannot start.**
+- The only pre-launch weight a founder can hand out is the **custom allocation table**
+  (`governance_weights`, written by `server/routes/governanceWeights.ts`, append-only trail,
+  self-allocation permitted). It is a number, never a token, and it appears nowhere as a proposal.
+- **The admin mint refuses self-grants flat**, at any amount (search *"NOBODY GRANTS THEMSELVES POWER
+  ALONE"*, migration `0106`). A lone founder cannot hand-mint Voice to themselves. Section 5's ruling
+  that founders may self-allocate voice is satisfied today only by the custom table.
+- Founders are a tier on `users.role`. Launch ends the founder-beyond-admin powers
+  (`founderPowerStands`); the string survives on the account; `FOUNDER_EMAILS` can re-stamp it at
+  sign-in without reading launch state (`server/lib/founderGrant.ts`); nobody new can be made a
+  founder after launch (search *"founderStands"* near the role route). Founders are **refused by the
+  six ceremonies** (power transfer, grant, return; role declare, seat, unseat) unless they hold
+  `proposal.open` as a member, which unlocks at the co-creator stage. A founder-only village cannot
+  open any of them.
+- Nothing enforces "one to three founders".
+
+### 13.4 After launch: admin, stewards, terms
+
+- **The admin panel stays admin-only after launch, on purpose.** `gameStart.ts`: *"a village may
+  choose never to vote in a steward and must still work completely"*. `client/src/pages/Admin.tsx`
+  refuses every non-admin client-side; `isAdmin` (search *"async function isAdmin"*) is the account
+  tier admin or founder; the nav hides the entry. **No admin GET reads launch state.** At HEAD there
+  are 17 `role === "admin" || role === "founder"` branches in `server/index.ts`, one in
+  `server/routes/places.ts`, and eight in client pages.
+- **172 admin write routes** (`scripts/check-admin-reach.mjs` agrees on the total): 129 on `isAdmin`,
+  41 on a capability through `guardCapability` or `mayAct` (12 keys), one bootstrap password, one
+  founder-only. Two `app.use("/api/admin")` middlewares add audit attribution and DEFAULT-DENY.
+  **Only two of the 172 have a proposal path today**: `PUT variables/:key` through mechanics
+  proposals, and `PATCH economy/rules/:id`, which is refused after launch and redirected. `Admin.tsx`
+  is 10,608 lines and mounts 47 tab components; the nav is data in `adminNavGroups.ts`. The full
+  bucket table with a proposed founder / vote / steward / operator split per bucket is in
+  `reports/admin.md`.
+- **There is no steward in the platform, by design.** No type, flag, column, capability or seeded
+  row (search *"no steward"* in `server/index.ts`). Lane STEWARD built three member-opened ballots
+  (role-declarations, role-seats, role-unseats) whose executors act at close with no approval step.
+  Section 7A's claim that they have no browser surface is confirmed, and so is the blind spot:
+  `check-admin-reach` cannot see routes outside `/api/admin/`, so a changeset route under
+  `/api/governance` would pass with no door.
+- **The word "steward" already means three things.** In shipped quest copy it is the administrator
+  who consents to work. "Village Steward" is a persona path in `shared/gameConfig.ts`. The founder's
+  steward is an approver of passed proposals. Name them apart in the document.
+- **The only post-pass human gate is the mechanics auto-apply brake.** `governance.auto_apply_enabled`
+  (founder ring, default TRUE, meaning auto-apply is ON and described as an emergency brake) covers
+  the mechanics closer only. When off, a pass is held with `held = "auto-apply is off"`, admins are
+  notified, and `POST /api/admin/mechanics/proposals/:id/apply` (isAdmin) applies immediately,
+  mid-cycle, reporting partial application as 207 or 409. Every other executor applies at close.
+  **No veto object, no reason, no record.** So the code's default is the mature posture and the
+  vision's default is training wheels.
+- **Terms live on a different plane from powers.** Permission roles (`roles`, `role_holders`, from
+  migration `0002`) carry powers and have **no term column**; `roleCapabilitiesFor` never reads
+  lapse. Org-chart seats (`org_role_assignments.term_ends_at`, `org_roles.expires_each_season`,
+  nullable per role, migration `0049`) carry terms and no powers. `server/index.ts` says it: search
+  *"two planes that share only a word"*. `term-watch` (search `term-watch`) notifies once, daily
+  checked, and its copy says *"nothing has been taken away"*. `seatLapse.test.ts` pins **NOTHING IS
+  REVOKED** and `seatRecord.routes.e2e.test.ts` asserts a lapsed holder stays seated. Real expiry is
+  a new rule; rewrite those tests red to green rather than around them. The `annual` reassignment
+  cadence is dead code.
+- `PUT /api/admin/users/:id/role` is `isAdmin`, founder-only before launch, and its own comment says
+  the village does not decide its admins. No `member.role` capability exists.
+
+### 13.5 Proposals and the member's flow
+
+- **One flow exists end to end, for mechanics only.** Wizard draft (server-held, private, cap of
+  five, autosaved to `POST /api/governance/drafts`); publish to `POST /api/game/mechanics/proposals`;
+  gather supports on `/game-mechanics`; open the ballot with
+  `POST /api/governance/mechanics/:id/open-ballot` (freezes roll and dials); vote (an upsert until
+  `closes_at`); object (consent method only); a human closes with a required note; the dispatcher
+  runs. Power transfer, grant and return publish straight into a ballot.
+- **A change set is immutable.** `drizzle/0043`: *"a changed mind is a withdrawal and a new
+  proposal."* There is no edit route, no PUT or PATCH on a proposal. Withdrawal: a proposal only at
+  draft or open before its ballot opens; a ballot only while nobody has voted (or by `proposal.decide`
+  or an admin, with a reason). A resubmission is a new proposal and a new ballot with a new freeze,
+  linked only by same-subject prior attempts and, on consent ballots,
+  `ballot_objections.led_to_ballot_id` (migration `0102`). **No supersedes pointer exists.**
+- **Objections with text and rulings exist only under the consent method.** The default method is
+  `custom`, so under defaults a member cannot record what they would like fixed. The vote widget does
+  open a reason box on a `no` under voting methods too (label *"Say why, if you want to"*), but
+  `votesFor` in `server/lib/ballots.ts` shows stored reasons to nobody.
+- **A change set holds at most 12 open-ring dials; dials and mint rules never share a set** (the
+  R81/R84 "one honest price" rule in `server/lib/mechanics.ts`); founder-ring keys are refused; a
+  Voice distribution is not a vocabulary at all (weights are a direct admin write). So section 12's
+  example proposal, switch the mode and distribute Voice, is refused twice and half of it cannot be
+  balloted at all.
+- A missed quorum returns the proposal to open and keeps its backers; a failed vote is terminal.
+- **Save-honesty defects on the surface you will extend.** The wizard says *"It is in front of the
+  village"* even when the server answered `draft`; *"Publishing does not start a vote"* and *"It
+  needs N supporters"* render for power types whose route opens a vote on publish; the objection
+  panel's "Uphold it" help claims the ballot closes when it does not; `CloseBeat` promises execution
+  the brake may hold; `Admin.tsx` toasts *"Saved. The rule is live"* on `PUT variables/:key`. Read
+  `scripts/check-save-honesty.mjs` and fix these before adding "propose this change" controls.
+- **The launch document** (search *"# Start the Game"*) carries: what changes (*"Token issuance turns
+  on."*), one quorum/unity/electorate line, an abstention sentence (*"takes no side"*), an optional
+  weight-mode note, and a journey-read line. **No per-member Voice distribution, no structure
+  overview, no conditions.** The frozen roll with names and weights already exists at open and is
+  served by the decision page (`serveBallot`), so the data is there to embed.
+
+### 13.6 Voter identity and who may read
+
+- **Votes are named on purpose.** `serveBallot` says *"This village does not run secret ballots"*;
+  `votesFor` returns user id, choice and weight; `VoterRoll.tsx` shows names. **No secrecy setting
+  exists.** Ledger ruling **R9** (`SEASON2_FLEET_LEDGER.md`, search "R9") says ballot detail stays
+  public and is *"Closed; do not re-litigate."* Section 5 records the founder's later words
+  *"(defaulted to secret)"*. Two rulings collide and one of them has to be the documented default.
+  This is question Q12 in section 15.
+- **Anonymous reads, measured on production:** five `/api/game/mechanics` reads answer strangers
+  regardless of module lifecycle (the registry, the amendment ledger with actor first names, every
+  proposal with proposer names, the document, the handoff). Under `/api/governance` the list, the
+  detail and the objection lineage accept a null viewer, so at lifecycle `public` the detail serves
+  every voter's first name, choice and frozen weight plus every non-voter's name to the internet,
+  and at `members` to any signed-in member. 23 of the 40 governance-prefixed routes carry no
+  capability key. The route table is in `reports/routes.md`.
+- **The governance module ships OFF.** `shared/modules.ts`: absent row means off, *"hundreds of forks
+  inherit the shipped Hypha/manual loop unchanged until a founder turns this on."* Every
+  `/api/governance` path is a 404 until then; the 13 `/api/game/mechanics` routes are never
+  module-gated. The document must state this as its first fact about a fresh village.
+
+### 13.7 Cycles, seasons and three calendars
+
+- **One clock: `shared/lunar.ts`.** A cycle is a true astronomical lunation from a checked-in table
+  (2020 to 2050) from cycle 330 onward, the mean 29.53-day formula before that, frozen forever
+  (*"THE PAST IS FROZEN"*); ids are `lunar-NNNNNN`; the old calendar-month ids are refused at
+  settlement. **The rhythm dial `gratitude.cycle_mode` was retired on 2026-08-29 at the founder's
+  own instruction** (migration `0108`, `shared/gameVariables.ts` near the `0108` comment) because
+  the panel offered a choice the engine did not honour. Section 12's "the cycle is a setting"
+  reopens exactly that. About ten consumers import lunar arithmetic directly (`cycleIdFor`,
+  `cycleBoundsFor`, `currentCycle`, `dueCycles`, health snapshots, module usage, mint and library
+  caps, the calendar's cycle-close recurrence, the client `CycleClock`). If the dial returns, build a
+  `CycleClock` seam first and route every consumer through it, or 0108's defect returns with it.
+- **Nothing scheduled closes a cycle.** An admin presses `POST /api/admin/cycles/close`, which
+  settles every overdue lunation in one press and only then applies held governance, and only while
+  `auto_apply_enabled` is on. So "at the new moon" today means "when an admin next closes the
+  moon", which can lag by days and can land several lunations at once. The exception is mint rules,
+  promoted by the hourly job at the true boundary.
+- **`CYCLE_APPLY_KEYS`** (ten dials plus the stage multipliers) wait for cycle close; every other
+  dial and every non-mechanics executor applies at close. There is no `lands_at_cycle` column; the
+  held state is implicit, a status plus a live check against a code list that can change between
+  the vote and the close. A held proposal never tells the member which cycle it lands in; mint rules
+  do (`pending.fromCycle`).
+- **Seasons are a different object.** A `startsOn`/`endsOn` list in the village timezone
+  (`America/Costa_Rica` civil dates) in `shared/gameConfig.ts`, derived on read, never rolled by a
+  job; the season cadence's `lunar` option only moves a date suggestion by 30 civil days. **Claims
+  week runs on solar MM-DD dates in UTC** and its copy in `gameVariables.ts` wrongly claims the
+  moon's rhythm. `term-watch`'s 14 days is a literal. **No governance week exists.** Three
+  calendars, none reads another. Section 3's "one setting drives both" was right and bigger than it
+  looked: `expires each season` and `next lunar cycle` are two clocks today.
+- The hub still runs the mean formula, so village and hub boundaries can differ by up to 17.6 hours
+  from cycle 330 until the hub adopts the table.
+
+### 13.8 The hub bridge: corrections to section 7A
+
+- **Nothing is sent to the hub unless BOTH `governance.hub_url` and the secret are configured.**
+  Section 7A's sentence that a fork configuring nothing registers its outcomes with one organisation
+  is not what the code does; the `regencivics.earth` default is live only for crowdpool reads, gated
+  on that module. The default-URL question (blank like `FEEDBACK_HUB_URL`, or kept) still stands.
+- Still unproven end to end, in both directions. **Four displays are false today:** `hub_link_synced`
+  is never set true so the UI always says "hub sync pending"; the hub never sends a space id so the
+  space check idles on every delivery; `hypha_outcomes.source` is hardcoded `"hub"`; the card says
+  the secret is "issued" by a hub that issues nothing. The hub stores fork secrets in plaintext, its
+  outbound is a bare fetch, and it decodes `yesVotes`/`noVotes` and drops them, so the village cannot
+  state people-and-weight for a Hypha ballot. Hypha-decided ballots are counted by Hypha, so the
+  village's mode switch cannot reach them. `server/lib/hypha/switchover.ts` already makes the
+  on-site/Hypha method switch reversible.
+
+### 13.9 Tests: corrections to section 7
+
+- "Currently unreliable" is stale. `c0ac180` (2026-08-31) made the harness say what it ran, named
+  five flakes in the ledger, added no retries, and found no governance defect; the governance case now
+  waits on a clock. The 100/100/3 launch rule is the best-covered piece of the vision (`launchVote`,
+  `launchWeight`, `founderEnds`, `ballotSubjects` suites). Nothing is `.skip` or `.todo`; the only
+  conditional skips are database gates, and `pnpm test:full` turns a hollow run into a failure.
+- **The "byte-identical `ballots.test.ts`" rule is prose only.** Nothing enforces it; the file is
+  unchanged since 2026-08-22. A sha256 self-test in `scripts/` (auto-globbed by
+  `run-self-tests.mjs`) would make it real.
+- **Zero tests** on `governance.auto_apply_enabled`, on the proposal withdraw route, or on the
+  anonymous behaviour of the two governance list routes.
+
+### 13.10 Documents and pages that disagree with the code or the vision
+
+- `docs/knowledge/decentralized-governance.md` pattern 6: *"What NOT to copy: one-token-one-vote."*
+  Maia loads that shelf at boot and CI voice-checks it. `docs/COORDINATION_SUBSTRATE.md` says never
+  build token-weighted governance and that lapsed holdings keep power; the ADR says the same. Both
+  now contradict rulings. `docs/ARCHITECTURE.md` never mentions ballots, `0089`, quorum, unity or
+  `SUBJECT_CLOSERS`; `docs/VILLAGE_OVERVIEW.md` has no governance section. The R54 to R90 rulings
+  register (`GOV_DESIGN`) is not in this repository; code comments are the only copy.
+- **Nine public pages state governance that is not true**, and the repository is public now:
+  `HowWeCreate.tsx` (a Board, an Advisory Council, eight circles, a Leadership Council, per-circle
+  Hypha thresholds), `StewardRights.tsx` (a quarterly season vote, voice by years), `Circles.tsx` and
+  `Governance.tsx` (a General Coordinating Circle, double links, elected representatives, "logged on
+  Hypha"), `CoCreatorsGuide.tsx` (delegation, monthly calls, "founders cannot override"),
+  `ResidentJourney.tsx` (voice grows with tenure), `Roles.tsx`, `GoodNeighbor.tsx` (a Resident Circle
+  admission vote; only `membership.vouch_threshold` exists). `reports/legacy.md` has every line.
+- `docs/TOKENS.md`'s per-token human sentences carry no marker, contrary to its own header;
+  `check-voice` does not scan `docs/` outside `docs/knowledge`; `check-doc-links` checks six named
+  documents only; `season_roll_log` is written and never read; the `0091` header says `0090`.
+
+### 13.11 What the inspiration has that the engine does not
+
+Measured against the deck, Handbook V0.3 and the talk (`reports/inspiration.md`). **Already here:**
+unity and quorum exactly as Hypha defines them (the 80/20 default is named in the code as inherited
+from Hypha), frozen snapshots, a 7-day vote period, consent objections with attributed rulings,
+withdrawal with a reason, Voice mint rules on confirmed contribution, reversible modes. **Missing:**
+voice half-life (Hypha halves earned voice yearly; R66 leaves waning to Hypha), a variance dial or any
+concentration display, the named presets, circle-scoped ballots (`ballots.circle_id` was dropped in
+`0095`; circles carry a `decides_by` word only), delegation, a secrecy setting, a steward,
+per-subject auto-execute, edit and resubmit, real expiry, badge voice bonuses, a vouching step, and
+any comms cadence. **Hypha's principles worth carrying:** structural votes (role, circle, badge,
+policy) are village-wide and activity votes (assignment, quest, expense) belong to the paying circle,
+and roughly 80% of decisions are never voted at all; "it is easier to not say yes than to say no",
+so everything a member holds expires within at most three lunar cycles; passed decisions execute with
+no approver, which is the end state the founder's steward gradient points at. **The sharpest tension
+with section 12:** "every admin edit becomes a proposal" has no precedent in the inspiration, which
+votes structure and resources and leaves operations to role holders. Recommend classifying every
+admin write (founder / vote / steward / operator) as data both the document and the gate read.
+
+---
+
+## 14. Vision against code: the gap table
+
+| Section 12 element | Exists today | Missing | Where it attaches |
+|---|---|---|---|
+| One to three founders | `users.role = founder` tier; ends at launch | Nothing enforces a count | Document the tier; enforce only if he asks |
+| Only Voice issuable before launch | Custom weight table (a number); every faucet refused | A pre-launch issuance door for `village-voice` alone; a proposal-shaped record | One slug exempted in `issuanceRefusal`, proven at boot; or rename the custom table "founding allocation" and render it as a proposal |
+| Start rule: 3 voters, 100/100 | `village_launch` floors, `everySeatWeighs`, tests | Abstain counts as showing up, not agreeing | Per-subject abstain policy or `minYesHeads` in `SUBJECT_THRESHOLDS` |
+| Start document shows Voice distribution, structure, conditions | Dials, head count, abstain sentence, mode note | The distribution table, an overview, the conditions | The launch document builder; the frozen electorate is already computed at open |
+| Admin section visible to all after launch | Admin-only by design; 172 writes, 129 `isAdmin` | Any launch-state read on an admin GET | Split `isAdmin` into `mayReadAdmin` (any member once `readGameStart().started`) and `mayAct`; classification per route |
+| Edits become a change log, then one proposal | Server-held drafts; mechanics `change_set` (12 dials, one vocabulary) | A changeset subject spanning dials, weights, mode, modules, brand, roles, mint acts | Extend `mechanics_proposals.change_set` with key namespaces (the recipe comment in `server/index.ts`, search *"third vocabulary"*); price a mixed set at the max floor |
+| Passed changes land at the next cycle start | `CYCLE_APPLY_KEYS` (ten dials); mint rules via the hourly job | A default of next-cycle; a `lands_at_cycle` fact; one apply gate | `lands_at_cycle` stamped at pass; `applyDueGovernance(pool, at)` called from both the human close and the settlement job |
+| Lunar default, cycle as a setting | `shared/lunar.ts`, one clock, dial retired 2026-08-29 | The setting, and a seam for its consumers | `CycleClock` interface; `cycle.mode` key, launch-grade, cycle-close timing, past frozen |
+| Vote mode switchable both ways by proposal | Reversible by admin PUT; holdings untouched | The village's vote; a record | Own subject type `governance_mode` with its own floor; executor calls `setVariable`; cycle-close timing |
+| Holdings survive a switch | True by construction | A round-trip test | `token → equal → token` asserting frozen weights equal the original |
+| Multi-element proposals | 12 dials, one vocabulary | Mixed vocabularies; ledger acts as elements; atomic apply | Typed items (dial, mint rule, weight allocation, mode switch, module lifecycle); max floor; one transaction, applied/failed printed |
+| Objection with "what to fix" | Consent-only objections; `no` reason stored, shown to nobody | A structured ask on every method; visible to the proposer | Reuse `ballot_votes.reason`; add a nullable `ask` column; serve on `votes[]` |
+| Withdraw, edit, resubmit | Withdraw (limited); new proposal; consent lineage | An edit before freeze; a supersedes link; objections travelling | `supersedes_proposal_id`; a "withdraw and rewrite" door that clones the set into a draft; PUT refused once a ballot is open |
+| Steward approves before effect | Mechanics brake (default auto ON), admin apply route | A role, an approval act, a veto with a reason, a record | `ballot_approvals` (ballot_id PK, decided_by, decision, reason NOT NULL on refusal); `needsSteward` beside each subject; `held = "waiting for a steward"`; `POST /ballots/:id/approve` and `/refuse` gated by a new `steward.approve` capability |
+| Founders inherit the steward at launch | Launch closer writes two facts | The seating | Inside the `village_launch` closer after `recordLaunchCarried`: find-or-create the role, grant the capability, seat every founder with a term ending at the next turn, idempotent on (role, user) |
+| Steward expires each season unless re-voted | Terms on seats only; nothing revoked | Term columns on the permission plane; revocation; loud vacancy | Nullable `term_ends_at`, `season_id` on `role_holders`; `roleCapabilitiesFor` drops lapsed; `term-watch` reused with new copy; the vacancy shown on the approval route and `Decision.tsx` |
+| Auto-execute as a gradient | One founder-ring boolean, mechanics only | Per-subject flags | A per-subject map defaulting off, read in the closer wrapper; `auto_apply_enabled` kept as the mechanics entry |
+| Delegation | The word in `shared/power.ts` | Everything | Section 4's design: copy the choice, never move the weight; refuse cycles at creation; show effective concentration |
+| Voter identity secret by default | Named on purpose; R9 says closed | A setting; viewer-aware serving | `serveBallot` viewer-aware: names for the frozen roll or under a village setting; tallies and counts for everyone |
+| Percent of total voice per player | Nothing | `shareOfTotal` | On `GET /api/governance/weights` and `/standing`; token mode divides by issued supply, custom by the table sum, equal by electorate count; shown on `MyStanding`, `WeightRecord`, the launch document |
+| People AND weight in every vote sentence | The card computes `votedCount`; the launch document says "N people hold a voice" | The rule applied everywhere | Generate the sentence from `votes.length`, `electorate_count` and tallies at close |
+| Governance numbers changeable without a deploy | Dials in `game_variables` | Subject floors, abstain rule, majority constant, unity floor, 12-cap | Move `SUBJECT_THRESHOLDS` into `game_variables` with the registry as floors |
+| A generated, guarded document | `docs/TOKENS.md` and its scripts | `docs/GOVERNANCE.md`, generator, guard, self-test, database test | Section 16.2 |
+
+---
+
+## 15. Questions for the founder, 2026-09-02 (replaces section 10)
+
+Section 10's questions were confirmed still open by the readers and are folded in here. Each
+question carries a recommendation. The first twelve decide the SHAPE of version 1.0 and need his
+answer before the document is generated; the rest ship with the recommended default and change by
+ruling. Put the whole list in front of him WITH the draft document, because he asked for a draft to
+react to rather than a questionnaire.
+
+### Decisions that shape version 1.0
+
+**Q1. Which token is "Voice"?** Two rows carry the name: `village-voice` (platform-governed, can
+weigh a vote, accrues here) and `voice` (the Hypha mirror on Base, read-only, refused as a weight
+token). The default weight token is Gratitude. *Recommendation:* `village-voice` is THE Voice; the
+Base mirror is "Voice claimed across"; `governance.weight_token` defaults to `village-voice` when the
+token exists; the custom allocation table is renamed the "founding allocation" and survives until
+launch.
+
+**Q2. How do founders issue Voice before launch?** Every faucet is refused until the launch vote
+carries, self-mint is refused flat, and a token-mode village cannot even open its launch vote.
+*Recommendation:* one named "founding allocation" act, allowed only before launch, minting
+`village-voice` through one slug exempted from the issuance gate and proven at boot; self-grant
+allowed there with every player's share of total shown; recorded as a proposal-shaped entry the
+launch document embeds. Every other faucet stays gated.
+
+**Q3. Is an abstention agreement on the start vote?** Today one yes and two abstentions carries at
+100 and 100. *Recommendation:* no. Give `village_launch` a policy that every frozen seat must vote
+yes, and make abstain policy a per-subject setting so other subjects keep the Hypha rule.
+
+**Q4. What is "the start of the next lunar cycle"?** The astronomical instant (a scheduler applies
+it, as mint rules already are) or the moment an admin closes the previous gratitude cycle (a human
+act that can lag by days)? *Recommendation:* the instant, through one `applyDueGovernance` gate that
+both the settlement job and the human close call, so either may run first and neither applies twice.
+
+**Q5. Does the cycle become a setting again?** He retired the rhythm dial on 2026-08-29 because it
+lied about what the engine did; `shared/lunar.ts` is the one clock and cycle numbers are natural keys
+on settlement rows. *Recommendation:* NOT in version 1.0. Document lunar as the one clock and the
+setting as staged, and if it returns, build the `CycleClock` seam first, make the switch launch-grade
+and boundary-timed, freeze every closed cycle, and drive seasons, claims week and governance week
+from the same clock.
+
+**Q6. The steward, in five parts.** Which plane (permission roles carry powers and no terms; org-chart
+seats carry terms and no powers)? With several founders, one seat each, and does approval need one
+or all? What executes when the seat is empty at a season turn? Is the refusing steward named? Does a
+refusal end the proposal or return it? *Recommendation:* the permission plane with term columns
+added; one seat each and any one steward approves; passed proposals QUEUE when the seat is empty (the
+dispatcher's `held` field is the queue marker) and the vacancy is loud; the steward is named, because
+his answer every time has been that transparency is the protection; a refusal returns the proposal to
+its proposer with the reason and keeps its backers, the way a missed quorum already does.
+
+**Q7. Late approval.** A steward approves after the new moon has passed. *Recommendation:* the
+proposal rolls to the following boundary, because it is the only rule under which "takes effect at the
+start of a cycle" stays literally true; the row shows its new landing cycle; no deadline and no lapse.
+
+**Q8. Does `governance.weight_mode` leave the founder ring?** It was placed there to stop a majority
+entrenching itself. *Recommendation:* yes, as its own subject type `governance_mode` with a
+launch-grade floor (100 and 100) or the village's own dials plus steward approval, timed to cycle
+close, so the switch has a record instead of a PUT. Keep the founder-ring refusal inside ordinary
+mechanics proposals so a dial change cannot smuggle it.
+
+**Q9. Multi-element proposals: one threshold, and what happens when item four of seven fails?**
+*Recommendation:* the ballot freezes the MAX of every element's floor (`dialsForSubject` already takes
+a max; extend it to a list); apply in one transaction, all or nothing, and print applied and failed
+by name. Keep the cap of 12.
+
+**Q10. What does "all members can see the admin section" include?** The panel has 47 tabs, among
+them secrets (masked), integrations, uploads, email configuration, investor documents, deletion
+routes, and rosters with emails. *Recommendation:* every GAME tab becomes readable by any member once
+the Game has started, with every control rendered as "propose this change"; the operator tabs stay
+with whoever runs the deployment; rosters carrying personal data stay behind membership and never go
+to strangers.
+
+**Q11. What can never be changed by proposal?** The old list loses the governance mode.
+*Recommendation:* secrets and integrations, abuse guards and session lengths (the founder-ring
+categories), the right-to-be-forgotten route, cycle close itself, refunds and card confirmations,
+anything retroactive on a closed ballot, and the thresholds for changing thresholds. Villages may add
+to the list and never remove from it.
+
+**Q12. Voter identity.** Ledger ruling R9 says ballot detail stays public and is closed; he later
+said "defaulted to secret". Both cannot be the documented default, and the start document's Voice
+distribution presumes holdings are visible. *Recommendation:* names and choices visible to the frozen
+roll (members) and hidden from strangers; tallies, counts and shares of weight public; a true secret
+ballot offered as a setting, default off, as a later stage. This is his call and the document should
+carry whichever he gives verbatim.
+
+### Decisions that can ship with a default
+
+**Q13.** "Three different parties" means three distinct member accounts. **Q14.** The roll stays
+frozen; a member who leaves mid-vote makes 100% quorum unreachable and the vote is re-run with one
+click, which the launch page should say. **Q15.** Objections with a "what would fix it" ask exist on
+every method, not only consent; `ballot_votes.reason` is reused. **Q16.** A resubmission is a new
+ballot with a fresh freeze; votes do not carry over; the predecessor's objections and asks travel to
+it as "asked to be fixed" and both show on one page. **Q17.** Granted powers reset with the seat.
+**Q18.** Mint rules keep their automatic promotion at the boundary until the gradient is built, then
+sit under the same per-subject flag as everything else. **Q19.** Voice waning is offered as a
+per-token half-life dial, default off, applied at cycle close as a posting to a sink; permanence stays
+the default. **Q20.** Governance week, claims week and the term notice become one window derived from
+the season's end, default seven days, and `term-watch`'s 14 becomes a variable. **Q21.** Maia's shelf
+and `COORDINATION_SUBSTRATE.md` are amended to say the village chooses its mode with concentration
+shown; the nine public pages drop the 2025 institutions or label them as history. **Q22.**
+`governance.hub_url` ships blank, like the feedback relay, and the Hypha route is documented as a
+later maturity stage rather than the binding vote of a launch-era village. **Q23.** The document
+describes a FRESH village, as `docs/TOKENS.md` does, with the running village's chosen dials shown
+by the admin page and never by the document. **Q24.** The five anonymous mechanics reads and the two
+governance list routes answer strangers with tallies and titles only; per-person records need a
+session. **Q25.** Under one-person-one-vote a member holding no Voice still votes, weight 1, which is
+what `equal` mode does today.
+
+---
+
+## 16. Improvements to the plan
+
+### 16.1 Write the document before the features, and let it name what is broken
+
+Version 1.0 describes TODAY, including every gap in section 14, every ruling in sections 3, 4, 5 and
+12 marked Built, Half built or Staged (the `docs/TOKENS.md` convention), and the residual defects:
+the abstain carry, the three anonymous routes, the module lifecycle edited by hand, the hub relay's
+four false displays, the 3-decimal display, the two Voice tokens, the dead `annual` cadence, the
+stale schema comments. He asked for a draft to react to. A document that says "the steward does not
+exist yet, and here is what the founder has ruled it will be" is more useful to him than one that
+waits for the steward to exist.
+
+### 16.2 The generator, file for file
+
+Copy the sibling: `scripts/generate-governance-doc.mjs` (no shebang, for the same reason the token
+generator has none; exports `ROOT`, `DOC_PATH`, `SOURCES`, `generateDetailed`, `--stdout`; a
+`ReadError` that names the file and the text it could not read), `scripts/check-governance-doc.mjs`
+(a copy of `check-token-doc.mjs` with the imports changed; CRLF normalised; `--list`; a pass line with
+counts), `scripts/generate-governance-doc.test.mjs` (auto-globbed by `run-self-tests.mjs`;
+determinism; both-direction prose coverage; an unknown dispatcher key refuses; an unknown
+`governance.*` dial refuses; every human sentence run through `check-voice`'s `checkSpan`), and
+`server/db/governanceDoc.test.ts` (the real `evaluateBallot`, `unityPctOf`, `quorumPctOf`,
+`thresholdsForSubject` and dial defaults against the document's numbers).
+
+**Sources, each read by an anchored, fail-loud reader:** `SUBJECT_CLOSERS` keys;
+`SUBJECT_THRESHOLDS`, `CONDUCTABLE_TYPES` and the wizard's type list (three drift pairs the document
+can check today); `BALLOT_METHODS` and `VOTE_CHOICES`; every Governance-category `VariableDef` with
+`ringOf` and `applyTimingOf`; `CYCLE_APPLY_KEYS`; the capability keys and `DENIABLE`; the governance
+module definition; the route registrations under `/api/governance` and `/api/game/mechanics` with
+their auth (this needs a thin registration wrapper that records the capability key beside the path,
+so `capabilityRegistry.ts` stops being hand-declared); `readGameStart` and `issuanceRefusal`'s
+sentence; `shared/lunar.ts` constants and id format; the hub payload shape and the three posture
+sentences; `registeredJobs()`.
+
+**Structure, mirroring `docs/TOKENS.md`:** purpose; fresh-village scope; how to read this file; the
+constitution in one screen (Ring 0, the launch rule, what can never be proposed), ahead of the long
+tables, as Hypha keeps its strict rules short; what a decision is; how a vote is counted (formulas,
+the abstain rule, the four methods); the dials (key, label, ring, default, bounds, apply timing);
+what each kind of decision asks (floors, method, who may open, what executes, "conducts a decision
+and executes nothing" for absent types); starting the Game; voting weight (modes, the weight token
+rule, the trail, the display units); who may do what; what a village publishes (the anonymous routes,
+read from registration); the cycle; the bridge, stated honestly; the founder's rulings (date,
+verbatim, status); a machine-readable JSON block; what this file is made from.
+
+**Rules for the generator:** every vote sentence states people AND weight together; a preset
+read-back names which Hypha corner the village's dials describe (classic democracy, consent,
+consensus, distributed voice, and the warning corners); the three stewards are named apart; the
+module-off fact comes first; human prose is marked where it appears (fixing the sibling's half-kept
+promise); anchors are syntax and exported symbols, never line numbers; the commit SHA is printed
+inside the document; a Staged ruling carries a narrow staleness guard so "not built" cannot outlive
+the build (copy `generate-token-doc.mjs`'s pattern).
+
+**Wiring:** `docs/GOVERNANCE.md -text` in `.gitattributes`; two `ci.yml` steps beside "Token doc";
+a `CLAUDE.md` gate line; a README door beside "Understanding the tokens"; one pointer each in
+`ARCHITECTURE.md`, `VILLAGE_OVERVIEW.md` and `FORK_RUNBOOK.md`; the document added to
+`check-doc-links`; `check-voice` extended to `docs/TOKENS.md` and `docs/GOVERNANCE.md`. Rewrite
+ruling 4 in `generate-token-doc.mjs` and regenerate `docs/TOKENS.md` in the same commit.
+
+**A second gate worth building:** "what the site says". Grep the public pages for retired governance
+nouns (Development Board, Advisory Council, Leadership Council, General Coordinating Circle, double
+links, eight Sociocratic Circles, votes on what kind of season) and fail on a new hit, the shape of
+`check-fund-claims.mjs` in the hub.
+
+### 16.3 The features, in the order the seams suggest
+
+1. **Steward approval at one seam.** A wrapper on `SUBJECT_CLOSERS`: on passed, if the subject needs a
+   steward and no auto-execute flag covers it, write the approval row and return
+   `held = "waiting for a steward"`; the approve and refuse routes re-enter the same closer body;
+   `Decision.tsx` already renders `held`. Auto-execute becomes a per-subject map defaulting off.
+2. **Founders seated as stewards inside the launch closer**, idempotent, with a term.
+3. **Real expiry on the permission plane, with a loud vacancy.** Rewrite `seatLapse.test.ts` and the
+   seat-record e2e as the new rule first.
+4. **`lands_at_cycle` and `applyDueGovernance`.** Stamp the landing cycle at pass; one gate, two
+   callers; a held row tells the member which moon.
+5. **The changeset as namespaces on `mechanics_proposals.change_set`**: module lifecycle, weight
+   rows, weight mode, brand fields, roles, mint acts; every namespace applied through the existing
+   writer so every refusal runs at apply time (`setModuleLifecycle`, `setModuleConfig`, the mechanics
+   writer, the org executors, `setWeight`, the brand writer); never a direct table write; priced at
+   the max floor; applied in one transaction.
+6. **`mayReadAdmin`**, the smallest honest permission inversion, on admin GETs only, with every
+   control on the member's view rendered as "propose".
+7. **`supersedes_proposal_id`** and the "withdraw and rewrite" door; a PUT refused once a ballot is
+   open, so editing is honest before the freeze and impossible after it.
+8. **Viewer-aware `serveBallot`** and the secrecy setting, whichever way Q12 goes.
+9. **`shareOfTotal`** on weights and standing, in display units, on the launch document too.
+10. **Delegation**, exactly as section 4 designs it.
+11. **The launch document widened** with the distribution table, the structure overview and the
+    conditions, generated from the same sources as the document.
+
+### 16.4 Tests to write red first
+
+Pending approval applies nothing and `held` names the steward; approval executes; an empty refusal
+reason is refused; a refusal records name, reason and ballot; a founder inherits at launch with a
+term; a lapsed steward's capability is gone and the vacancy is visible; `token → equal → token`
+leaves frozen weights equal to the original allocation and `governance_weight_changes` carries no
+deletion; a passed changeset lands at the next new moon and not before; a mixed set is priced at the
+max floor; item four of seven failing applies nothing; the launch document carries a distribution
+table and a people-and-weight sentence (replace the head-count assertion in
+`launchWeight.routes.e2e.test.ts`); the two list routes pinned anonymous or not; a launch with an
+abstention refused; a sha256 self-test on `ballots.test.ts`.
+
+### 16.5 Housekeeping the readers found
+
+Fix `TOKENS.md` ruling 4 in its generator; state the two schema-comment drifts (`0089`, `0091`) in
+the generated document rather than editing shipped migrations; read or delete `season_roll_log`; add
+the `FORK_RUNBOOK.md` row for `HYPHA_VOICE_WEBHOOK_SECRET`; correct `ARCHITECTURE.md`'s feedback
+default; give the three steward routes a page and extend `check-route-reachability` so
+`/api/governance` writes stop passing by blind spot; put a decimals hint on the admin mint form; fix
+the copy in `gameConfig.ts` ("per calendar-month cycle") and `gameVariables.ts` (claims week's
+rhythm); move the five named flakes into `scripts/known-flakes.json`.
+
+---
+
+## 17. What to do first (replaces section 11)
+
+1. **Your own worktree from `origin/main`**, `.env` copied in, built, and the three governance suites
+   run alone and inside the full run before you touch anything. Say the commit SHA in everything you
+   generate.
+2. **Read the fourteen reports** (section 18), then re-measure every `server/index.ts` anchor on your
+   HEAD. Write down, in your own words, what the engine does and where each section 14 seam is. If
+   that description is wrong, everything after it is wrong.
+3. **Generate `docs/GOVERNANCE.md` version 1.0 as the document of TODAY**, with the generator, the
+   guard, the self-test and the database test, the rulings section carrying every quote in sections
+   3, 4, 5 and 12 with its date and status, and every section 14 gap named as staged.
+4. **Put section 15 to him with the draft**, the twelve shaping questions first. He answers once.
+5. **Then build in section 16.3's order.** Steward approval and real expiry first; his model rests
+   on them. Ship the changeset subject and staging before its executor, as section 2 says; the
+   dispatcher's fail-safe absence makes that safe.
+
+---
+
+## 18. Where the research lives, and how far to trust it
+
+- **Reports:** `C:\Users\taren\Desktop\Amora\governance-sources\reports\` holds fourteen files
+  (`schema`, `engine`, `dispatcher`, `routes`, `launch`, `weights`, `flow`, `cycles`, `admin`, `docs`,
+  `hub`, `inspiration`, `tests`, `legacy`), each with an evidence table (claim, file:line, quote), a
+  conflicts list, a gaps list, questions and improvements. `_synthesis_input.txt` in the same folder
+  is every reader's summary plus every verifier correction in one file. These are outside the
+  repository on purpose: they cite a moving file by line and would rot inside it.
+- **Verification:** thirteen of the fourteen were re-opened line by line by a second agent. Tallies
+  (confirmed / wrong / unverifiable): schema 33/8/0, engine 40/0/0, dispatcher 40/1/0, routes 40/0/0,
+  launch 24/16/0, weights 30/9/1, flow 22/18/0, admin 26/15/0, docs 32/7/0, hub 38/4/0, inspiration
+  37/4/0, tests 35/5/0, legacy 39/1/0. **Every "wrong" was a `server/index.ts` line number that had
+  moved under the reader, with the substance confirmed and the corrected line recorded**, except
+  three: the launch reader's 18-branch count is 17 at HEAD; the admin reader's 143/29 split of the
+  172 routes does not reproduce (only the total holds); and "every amendment-ledger row carries the
+  ballot id" holds only for on-site passes (a Hypha-verified proposal writes `hyphaRef` and no ballot
+  id).
+- **Unverified:** the `cycles` reader's citations were never re-opened (the verifier ran out of
+  session). Its clock facts (`shared/lunar.ts`, the retired dial, the human cycle close, mint-rule
+  promotion, `CYCLE_APPLY_KEYS`, the three calendars) were each stated independently by the
+  `launch`, `admin`, `engine` and `dispatcher` readers, whose citations were verified. Treat its
+  `server/index.ts` line numbers as locators only.
+- **The completeness critic never ran.** Nobody asked "what is missing across all fourteen". Areas
+  no reader was assigned: notifications for governance events (`server/lib/notify.ts`), the ledger
+  and audit trail for governance acts as such, the members and tiers model (who counts as a player
+  for 100% quorum), the calendar and gathering hooks, Maia's answers about governance, i18n of
+  governance copy, `server/lib/dryRun.ts`, and the equity token's relation to voting. Cover them
+  before you call the document complete.
+- **Sources the founder gave:** `hypha_slides.txt`, `hypha_gdoc.txt` (Handbook V0.3),
+  `yt_transcript.txt` (the talk, auto captions), and `session63dc_user_turns.txt` (his own words
+  from the session that wrote sections 1 to 11), all in `governance-sources\`.
+
+---
+
+## 19. Rulings of 2026-09-02, evening: the founder answers section 15
+
+He answered the shaping questions in one message. His words first, then what each one changes.
+Where he wrote "explain", the coordinator's explanation and the default it proceeds on follow.
+These supersede section 15's recommendations where they differ.
+
+### Q1, which token is Voice: no objection raised
+
+He did not answer Q1 separately and wrote "Love them all" of the recommendations. **Proceed:**
+`village-voice` is THE Voice; the Base mirror `voice` is "Voice claimed across";
+`governance.weight_token` defaults to `village-voice`; the custom allocation table becomes the
+"founding allocation" and survives until the Game starts.
+
+### Q2, pre-launch Voice, plus a new idea: voice for other beings, and clans
+
+> "part of step 2 is to encourage to name non-human governance roles in your Game (other beings who
+> live on the land) to be part of governance. - For example giving voice to nature (a mountain your
+> project is on a river it borders, the trees and fauna and flora that shares that piece of earth
+> with us) - this creates another idea where a governance function of 'clans' (which groups can name
+> whatever they like and change this name in admin) but groups within the village that anchor on
+> living beings. The water group would tend to the waters the earth group to the land the air group
+> to the air, etc the wolf group would tend to restoring this apex predator - which requires
+> restoring the whole pyramid underneath the beaver clan, etc. etc all clans are namable in admin as
+> well. But these other actors can be given voice - though this is considered a mature feature to
+> build into the Game once you hit 144+ people."
+
+What it changes: the founding-allocation act stands (Q2's recommendation), and the founding step
+should INVITE the catalysts to name non-human governance roles: a mountain, a river, the trees, the
+fauna and flora that share the land. **Clans** are a new governance object: groups within the
+village, each anchored on a living being or element (water, earth, air, wolf, beaver), each tending
+what it is named for, every name editable in the Game Mechanics section. **Non-human actors may be
+given Voice**, and that is a MATURE feature, unlocked at 144 or more players. Version 1.0 documents
+clans and non-human voice as staged, names the unlock, and builds the naming surface only.
+
+### Q3, the start vote: a Birthing, unanimous, and the word Catalyst
+
+> "No we need 100% saying yes as a collective 'Birthing' moment where you reveal the game, it's at
+> LEAST 3 but could be many more people who then activate a new game before they all switch to
+> being 'players' instead of just the catalysts (we say Catalyst instead of founder for those who
+> play the game this way."
+
+What it changes: **every frozen seat must vote YES**; an abstention does not carry a launch. The
+launch is called the **Birthing** and its proposal reveals the Game. Three is the floor, never the
+target. **The word is Catalyst, never founder**, in every surface a player reads; `users.role =
+founder` stays as the storage value with the display name changed, because the slug is history's
+identity (section 7). After the Birthing, catalysts become players like everyone else.
+
+### Q4, what "the start of the next cycle" means: explained, and the default
+
+He wrote: "I don't understand this fully."
+
+The question, in plain words. Today the moon turns on its own, but the Game only notices when an
+administrator presses "close the cycle" on the admin page. That press can come a day late or a week
+late, and if two moons have passed it closes both at once. So "a passed proposal takes effect at
+the next new moon" can mean two different things:
+
+- **the moment of the new moon itself**, which needs the server to apply the change on its own, on
+  a timer, with no person in the loop at that instant; or
+- **the moment somebody presses close**, which is a human act but can land days after the moon.
+
+The engine already does the first for one thing: a new minting rule voted in during a moon takes
+effect automatically at the next new moon, by a job that runs every hour. **Default the
+coordinator proceeds on:** the new moon itself. A passed proposal is stamped with the cycle it
+lands in, one routine applies everything that is due, and both the hourly job and the human close
+call that routine, so whichever runs first applies it and the other finds nothing left to do. A
+member sees "lands at cycle 331" on the proposal from the moment it passes.
+
+### Q5, the cycle as a setting: yes
+
+> "Yes the cycle structure can be changed."
+
+What it changes: the rhythm setting returns, lunar by default, with the seam section 13.7 requires:
+one `CycleClock` interface every consumer reads through, a calendar implementation with its own id
+prefix, past cycles frozen with the ids they closed under, the switch itself launch-grade and
+boundary-timed. Seasons, claims week and the governance window read the same clock.
+
+### Q6, stewards: accepted, and the end state named
+
+> "Sure and it's perfectly fine to have no stewards and for the game to have self/executing
+> agreements - Stewards are like the 'training wheels' to the game to help them start - not a
+> desirable endstate. Except one where we're all stewards in our own way."
+
+What it changes: section 15's Q6 recommendation stands in full (permission plane with terms, one
+seat per catalyst, any one steward approves, proposals queue when the seat is empty, the steward is
+named, a refusal returns the proposal with its reason). And the document must say plainly that a
+village with no steward and self-executing agreements is a HEALTHY state, the one the training
+wheels come off into. Never render an empty steward seat as a warning once a village has chosen it.
+
+### Q7, late approval: explained, and the default
+
+He wrote: "explain?"
+
+The situation: a proposal passes on the 20th of the moon. The steward is away and approves it on
+the 2nd of the next moon, after the new moon has already come and gone. Three things could happen:
+(a) it takes effect the instant the steward approves, mid-moon, which breaks the promise that
+changes land at cycle starts; (b) it waits for the NEXT new moon after the approval, so the promise
+holds and the proposal shows its new landing date; (c) it expires because the steward missed the
+moon, which punishes the village for a steward's absence. **Default the coordinator proceeds on:**
+(b). The proposal rolls to the following new moon and the page says so.
+
+### Q8, the vote mode leaves the founder ring: yes
+
+> "yes"
+
+What it changes: `governance.weight_mode` becomes proposable through its own subject type,
+`governance_mode`, with a launch-grade floor, timed to the cycle boundary, with a record. The
+ordinary mechanics path keeps refusing it so a dial change cannot carry it by the side door.
+
+### Q9, multi-element proposals: explained, and the default
+
+He wrote: "explain"
+
+Two things hide in one question. First, **the threshold.** Each kind of change carries its own
+floor: a minting rule needs 50% quorum, the Birthing needs 100 and 100, a small dial needs the
+village's ordinary 20 and 80. When one proposal bundles a mode switch (a big change) with a Voice
+distribution (a ledger act), which floor does the ballot use? **Default:** the highest floor among
+its elements. A bundle is as hard to pass as its hardest part, so nobody can smuggle a big change
+under a small one. This also fits the Q11 ruling: the most critical element sets the bar.
+
+Second, **what happens when part of it fails.** Seven changes pass as one proposal. When the moon
+turns and the Game applies them, the fourth one is refused, say because a module it turns on was
+deleted last week. Two choices: apply the six that work and report one failure, or apply nothing
+and report which one blocked. **Default:** nothing applies, and the proposal shows exactly which
+element blocked it and why, so the proposer can withdraw, fix, and resubmit. A proposal that
+half-applies leaves a village in a state nobody voted for.
+
+### Q10, the Game Mechanics section, always public
+
+> "yes, no PII exposed, but all the admin sections I'm able to see now as I'm making the Game. So
+> truly there's no reason to ever hide these behind admin. Instead name them the 'Game Mechanics'
+> section that's always public."
+
+What it changes, and it is large: **the admin panel's game tabs are renamed the Game Mechanics
+section and are PUBLIC, always, before and after the Birthing.** Before the Birthing, catalysts
+edit directly and everyone can watch the Game being made. After it, every control becomes
+"propose this change" for every player, and the edits collect into one proposal. Personal data
+(rosters with emails, addresses, payment records) and operator matters (secrets, credentials,
+integrations, uploads, deletion) are never exposed; they are not part of the Game Mechanics
+section and stay with whoever runs the deployment.
+
+### Q11, nothing is un-votable; criticality raises the bar; 97 is the recommended ceiling
+
+> "Everything can be! But the more critical it is, the higher percentage of quorum you need (hard
+> to get quorum) such that changing the most critical things would require a max high of 97%
+> quorum where only 3% of the whole network would be able to not be informed and have 97% approval
+> (max heights - we don't recommend more than those though they can exceed them (if they do we
+> warn them) because the closer you get to 100% the chances of you getting a stalemate increase
+> where the Game breaks even though a massive majority want to continue they can't because someone
+> died suddenly or stopped playing the Game, etc."
+
+What it changes: **there is no never-votable list.** Every setting carries a criticality tier, and
+the tier sets the quorum and unity the change needs. The most critical tier asks 97% quorum and
+97% approval. A village may set its dials above 97 and the Game WARNS it, in words, that the closer
+to 100 it goes the likelier a stalemate becomes, because one player dying or drifting away can
+freeze a Game a massive majority wants to continue. Section 13.2's floors that live in code move
+into settings behind the same tiers. The Birthing stays at 100 and 100 because it is the one vote
+where everyone is present by definition.
+
+### Q12, voter identity: participation visible, choices hidden, faces after half
+
+> "How about the name who participates is visible but by default we hide how they voted (and we
+> only expose faces once 50% of the required vote count happens (so you can't really tell who
+> voted what) but we don't say what they voted by default - but in settings this can be changed to
+> public voting."
+
+What it changes: by default, **who has voted is visible and how they voted is hidden.** The names
+of those who have voted appear only once half of the required vote count has been reached, so an
+early voter cannot be read off the tally. Choices stay hidden. A village setting switches to public
+voting, where choices show. Ledger ruling R9 is superseded by this. The people-and-weight sentence
+(section 5) is unaffected: counts and shares of weight are always shown.
+
+### The mandate that follows
+
+> "your role now is to respond to my ideas for improvement with a final execution plan. Then you're
+> going to oversee Agents who are running on Opus or lower for what you need and only you are the
+> Fable model as the swarm coordinator to oversee building this whole plan. You'll only complete
+> once you've done a QA test as a fake account going through all governance actions and
+> interacting with the site. You'll continue with QA passes building in a better Game and
+> experience as they 'Play the Game'."
+
+The coordinating session runs on Fable; every building agent runs on Opus or lower. Completion
+means a fake account has walked every governance action end to end on the site and the walk was
+good enough to keep playing. Section 20 is the plan.
+
+---
+
+## 20. The execution plan (2026-09-02, evening)
+
+The founder's mandate: the Fable session coordinates, every building agent runs on Opus or lower,
+and the work is complete only when a fake account has played every governance action end to end on
+the site and the walk was good. This section is the plan the coordinator runs. It is written here
+so a coordinator that loses its context can pick it up.
+
+### 20.1 Ground rules for every lane
+
+- **Integration branch:** `wt/governance-build`, worktree `C:\Users\taren\Desktop\Amora\wt-govbuild`,
+  cut from `origin/main` at `2bce3df`. Every lane branches from it (`git worktree add
+  ../wt-gb-<lane> -b wt/gb-<lane> wt/governance-build`), commits only its own paths by name, and is
+  merged back by a merge agent in the order listed. Nobody writes into `hotfix`.
+- **Migration numbers are reserved here, once.** `0127` to `0131` are held by other lanes on this
+  machine; the governance build takes **`0132` to `0139`** in the order below. A lane that needs one
+  more asks the coordinator; nobody counts `ls drizzle/`.
+- **Routes go in `server/routes/<domain>.ts`** exporting `register(app, deps)`, wired with exactly
+  two lines in `server/index.ts` (the import and the register call, nothing adjacent), so the ratchet
+  costs nothing. The close-dispatcher wrapper is the one exception and lives where `SUBJECT_CLOSERS`
+  lives.
+- **New documents are guarded the day they land:** `scripts/check-doc-links.mjs` now globs every `.md` under `docs/` and the root (PR #141), so `docs/GOVERNANCE.md` must name only paths that exist; run it before pushing, and do not edit that script while #141 is open.
+- **Every lane ships red-to-green tests**, runs `pnpm check`, `pnpm check:tests` cold, its own suites
+  alone and inside the full run, `node scripts/check-voice.mjs`, and regenerates `docs/GOVERNANCE.md`
+  and `docs/TOKENS.md` when its change moves either guard. A green from a pipe is not a green.
+- **Writing rules** apply to copy, comments and commits. The word is Catalyst, never founder, in
+  anything a player reads; `founder` stays as the stored role value.
+- **Nothing auto-executes on a timer except through `applyDueGovernance`**, and every apply is
+  idempotent on status so two callers cannot apply twice.
+
+### 20.2 Phase 1, foundations (parallel lanes, then one merge)
+
+| Lane | Owns | Builds | Migrations |
+|---|---|---|---|
+| **clock** | `shared/lunar.ts`, new `shared/cycleClock.ts`, every consumer that imports lunar arithmetic, the client `CycleClock` | The `CycleClock` seam (`boundsFor`, `idFor`, `parseId`, `startOf`); lunar implementation unchanged; a calendar implementation with its own id prefix; `cycle.mode` setting, lunar default, boundary-timed, launch-grade; past cycles frozen with their ids; a boot assertion that no setting is shown that nothing reads | `0132` if a column is needed |
+| **thresholds** | `shared/governanceEngine.ts`, `shared/ballotSubjects.ts`, the Governance category of `shared/gameVariables.ts`, `server/lib/mechanics.ts`, the open path in `server/lib/ballots.ts` | A criticality tier on every setting with a tier-to-quorum-and-unity map; the 97/97 recommended ceiling with a warning above it; `SUBJECT_THRESHOLDS` as settings with the registry as floors; a per-subject abstain policy and minimum-yes-heads; the Birthing requires every frozen seat to vote yes; a mixed change set priced at the highest floor among its elements; the one-vocabulary rule replaced by typed items | none |
+| **steward** | new `server/lib/stewardship.ts`, new `server/routes/governanceApprovals.ts`, `server/lib/orgChart.ts`, the `term-watch` job, `roleCapabilitiesFor`, `server/lib/founderGrant.ts` | `ballot_approvals` (ballot id, decided by, decision, reason NOT NULL on refusal); term columns on `role_holders`; `roleCapabilitiesFor` drops lapsed holdings; `term-watch` says the seat is empty and makes the vacancy loud where the approval is needed; approve and refuse routes gated by a new `steward.approve` capability; the seating of every catalyst as a steward, idempotent, with a term ending at the next season turn, exposed as one function the launch closer calls; a village with no steward documented as healthy | `0133` approvals, `0134` terms |
+| **dispatcher** | the governance region of `server/index.ts`, new `server/lib/changeset.ts`, `server/lib/dryRun.ts` | The closer split into settle and execute; the approval hold (`held = "waiting for a steward"`) and the per-subject auto-execute map with the mechanics brake kept as its entry; `lands_at_cycle` stamped at pass; `applyDueGovernance(pool, at)` called from both the hourly settlement job and the human cycle close; late approval rolls to the following boundary; the `governance_mode` subject type with its executor; the changeset as typed namespaces on `mechanics_proposals.change_set` (dials, mint rules, weight allocation, mode switch, module lifecycle, brand fields, roles) applied through the existing writers in one transaction, all or nothing, with the blocking element named; a durable executor-pending row | `0135` landing and supersedes columns, `0136` executor-pending |
+| **delegation** | new `server/lib/delegation.ts`, new `server/routes/delegation.ts`, the tally path in `server/lib/ballots.ts` | Delegations that copy the choice and never move the weight; transitive resolution; cycle refusal at creation; the delegator's row shows who they actually followed; effective concentration per member; concentration visible on the weights route | `0137` delegations |
+| **docgen** | new `scripts/generate-governance-doc.mjs`, `scripts/check-governance-doc.mjs`, `scripts/generate-governance-doc.test.mjs`, `server/db/governanceDoc.test.ts`, `docs/GOVERNANCE.md`, `.gitattributes`, `ci.yml`, `CLAUDE.md`, `README.md`, ruling 4 in `scripts/generate-token-doc.mjs` | The generated document of TODAY exactly as section 16.2 specifies, with every ruling in sections 3, 4, 5, 12 and 19 carried verbatim with date and status, every section 14 gap named as staged, clans and voice for other beings named as staged at 144 players; the guard in CI; the self-test; the database test | none |
+
+**Merge order:** clock, thresholds, steward, dispatcher, delegation, docgen. The merge agent
+regenerates both documents after each merge and refuses to continue on a red guard.
+
+### 20.3 Phase 2, surfaces (parallel lanes, then one merge)
+
+| Lane | Builds |
+|---|---|
+| **mechanics-section** | The admin panel's game tabs renamed the **Game Mechanics** section and public always: `mayReadAdmin` true for everyone on the game tabs, every write still on `mayAct`; before the Birthing catalysts edit directly and everyone watches; after it every control renders "propose this change", edits collect into a visible change log (the staging tray, drafts as its store), and one button submits the tray as one proposal; operator tabs and every surface carrying personal data stay where they are; save-honesty defects in section 13.5 fixed; mobile first, because the founder plays from a phone |
+| **birthing** | The launch renamed the Birthing in copy; the proposal document reveals the Game: the founding Voice distribution as a table with each catalyst's share of the total, the structure (modules on, roles declared, clans named, dials changed from default, seasons seeded), and the conditions; the invitation to name non-human governance roles on the founding screen; the founding-allocation act behind one exempted faucet; catalysts become players after it carries |
+| **ballot-surfaces** | Viewer-aware ballot serving: who voted visible, how they voted hidden, names revealed only after half the required count, a village setting for public voting; the people-and-weight sentence on every card and page; `shareOfTotal` on standing and weights in display units; the 0.1-shows-as-100 defect fixed; objection asks on every method and visible to the proposer; the withdraw-and-rewrite door with the predecessor's asks carried over; "lands at cycle N" on every held proposal; the steward's approve and refuse on the decision page with the vacancy shown |
+| **delegation-ui** | Give and withdraw a delegation from the standing page; see who you actually followed on each vote; the concentration view for every player |
+| **clans** | The naming surface only: clans as named groups anchored on a living being, editable in the Game Mechanics section, with the 144-player unlock for voice shown as a staged feature, never as a broken one |
+
+### 20.4 Phase 3, the record
+
+Maia's shelf and `COORDINATION_SUBSTRATE.md` amended to the rulings; the nine public pages
+stripped of the 2025 institutions or labelled as history; the "what the site says" gate; the
+`ARCHITECTURE.md`, `VILLAGE_OVERVIEW.md` and `FORK_RUNBOOK.md` pointers; `docs/GOVERNANCE.md`
+regenerated one final time against the merged tree.
+
+### 20.5 Phase 4, playing the Game
+
+A fresh village provisioned locally against the local MySQL, the built server started, and a fake
+account driven through the Browser pane: claim the village as a catalyst; name the clans and a
+non-human role; allocate founding Voice and see the shares; invite two more catalysts; open the
+Birthing; watch it refuse an abstention; carry it unanimously; become a player; open the Game
+Mechanics section as a plain member; stage three edits and submit them as one proposal; vote; see
+who voted and not how; object with an ask; watch the proposer withdraw, rewrite and resubmit with
+the ask carried; pass it; see the steward hold; approve as the steward; see "lands at cycle N";
+turn the moon and see it land; propose a mode switch bundled with a Voice distribution and see the
+highest floor; delegate a vote and see who was followed; let a steward's term lapse and see the
+vacancy; switch the cycle setting and see nothing about the past change. Every rough edge found is
+a lane in the next pass. The coordinator writes the walk down as a runbook and turns it into an e2e
+script so the walk runs in CI after this.
+
+### 20.6 What the coordinator adds beyond the founder's list
+
+- **Criticality is a property of every setting, shown on its control** ("changing this needs 97 of
+  100 to show up and 97 to agree"), so the bar is visible before anyone proposes.
+- **A dry run on every proposal** before it is published, from `server/lib/dryRun.ts`, showing what
+  would change and what would block it, so a proposal that cannot apply is caught before a vote.
+- **A governance read-back on the Game Mechanics front page:** which Hypha corner the dials describe,
+  concentration of voice, participation over the last three moons, and whether a steward holds the
+  seat.
+- **Stalemate protection the founder asked for in words:** when a frozen roll can no longer reach
+  its quorum because a member left, the page says so and offers the re-run in one click.
+- **The first governance actions as quests.** A short chain on the quest board (make your first
+  proposal, cast your first vote, give your first delegation) so a new player learns the Game by
+  playing it.
+- **Every governance act posts to the feed and notifies**, with the people-and-weight sentence.
+- **The bridge to the hub stays out of scope** and is described honestly in the document.
+- **The fake account's walk becomes a CI script**, so the Game cannot quietly stop being playable.
