@@ -124,9 +124,9 @@ describe.skipIf(!configured)("the village economy engine", () => {
     // The bug this prevents: a key of `quest.completed:<quest>` pays a weekly
     // quest once for all time, and gives eight people on a build day one
     // shared payout between them.
-    const weekOne = keys.questCompleted("local", "q-swale", "claim-1", "u1");
-    const weekTwo = keys.questCompleted("local", "q-swale", "claim-2", "u1");
-    const otherHand = keys.questCompleted("local", "q-swale", "claim-3", "u2");
+    const weekOne = keys.questCompleted("local", "q-swale", "claim-1", "u1", CREDITS);
+    const weekTwo = keys.questCompleted("local", "q-swale", "claim-2", "u1", CREDITS);
+    const otherHand = keys.questCompleted("local", "q-swale", "claim-3", "u2", CREDITS);
     expect(weekOne).not.toBe(weekTwo);
     expect(weekOne).not.toBe(otherHand);
   });
@@ -134,8 +134,8 @@ describe.skipIf(!configured)("the village economy engine", () => {
   it("keeps the same key in two villages apart", () => {
     // Two villages running the same seeded quest must not collide on a UNIQUE
     // index, and without the scope segment they would.
-    expect(keys.questCompleted("alder", "q1", "c1", "u1")).not.toBe(
-      keys.questCompleted("birch", "q1", "c1", "u1"),
+    expect(keys.questCompleted("alder", "q1", "c1", "u1", CREDITS)).not.toBe(
+      keys.questCompleted("birch", "q1", "c1", "u1", CREDITS),
     );
   });
 
@@ -160,7 +160,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   it("mints once for the same occurrence key, twice over", async () => {
     const u = await makeMember("econ-mint-1");
-    const key = keys.questCompleted(villageId(), "q1", "c1", u);
+    const key = keys.questCompleted(villageId(), "q1", "c1", u, HEARTS);
     const first = await mint(pool, {
       toUserId: u, tokenSlug: HEARTS, amount: 10,
       from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -539,7 +539,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   it("writes one mirror however many times it is reversed", async () => {
     const u = await makeMember("econ-rev-1");
-    const key = keys.questCompleted(villageId(), "q-rev", "c-rev", u);
+    const key = keys.questCompleted(villageId(), "q-rev", "c-rev", u, HEARTS);
     await mint(pool, {
       toUserId: u, tokenSlug: HEARTS, amount: 7,
       from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -576,7 +576,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   it("mints cleanly as a new occurrence after a wrong reversal", async () => {
     const u = await makeMember("econ-redo");
-    const wrong = keys.questCompleted(villageId(), "q-redo", "claim-a", u);
+    const wrong = keys.questCompleted(villageId(), "q-redo", "claim-a", u, HEARTS);
     await mint(pool, {
       toUserId: u, tokenSlug: HEARTS, amount: 5,
       from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: wrong,
@@ -588,7 +588,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
     // The honest re-do is a NEW claim row, so it is a new occurrence and the
     // spent key does not stand in its way.
-    const redo = keys.questCompleted(villageId(), "q-redo", "claim-b", u);
+    const redo = keys.questCompleted(villageId(), "q-redo", "claim-b", u, HEARTS);
     const res = await mint(pool, {
       toUserId: u, tokenSlug: HEARTS, amount: 5,
       from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: redo,
@@ -637,7 +637,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
     // numbers still balances. The numbers come off the row now, and a caller
     // value that disagrees refuses the whole reversal before any write.
     const u = await makeMember("econ-rev-attack");
-    const key = keys.questCompleted(villageId(), "q-attack", "c-attack", u);
+    const key = keys.questCompleted(villageId(), "q-attack", "c-attack", u, CREDITS);
     await mint(pool, {
       toUserId: u, tokenSlug: CREDITS, amount: 25,
       from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -688,7 +688,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   it("derives the mirror from the row when the caller says only a note", async () => {
     const u = await makeMember("econ-rev-derive");
-    const key = keys.questCompleted(villageId(), "q-derive", "c-derive", u);
+    const key = keys.questCompleted(villageId(), "q-derive", "c-derive", u, CREDITS);
     await mint(pool, {
       toUserId: u, tokenSlug: CREDITS, amount: 25,
       from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -720,7 +720,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
     // would leave the ledger insisting a withdrawn payment still stands.
     const spender = await makeMember("econ-rev-spent");
     const other = await makeMember("econ-rev-spent-to");
-    const key = keys.questCompleted(villageId(), "q-spent", "c-spent", spender);
+    const key = keys.questCompleted(villageId(), "q-spent", "c-spent", spender, CREDITS);
     await mint(pool, {
       toUserId: spender, tokenSlug: CREDITS, amount: 25,
       from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -794,7 +794,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
     const res = await mint(pool, {
       toUserId: u, tokenSlug: VILLAGE_VOICE, amount: 1,
       from: VOICE_MINT, source: "quest_consent",
-      idempotencyKey: keys.questCompleted(villageId(), "q-v", "c-v", u),
+      idempotencyKey: keys.questCompleted(villageId(), "q-v", "c-v", u, VILLAGE_VOICE),
     });
     // The `voice` row seeded in 0006 is governance:'hypha', which validateLeg
     // refuses to move and a boot invariant requires to hold zero rows. Voice

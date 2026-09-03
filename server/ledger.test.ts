@@ -16,10 +16,14 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import mysql from "mysql2/promise";
 import {
+  ALLOW_NEGATIVE_SOURCES,
   balanceOf,
   balancesFor,
   checkLedgerInvariants,
+  CLAWBACK_DEBT,
   CYCLE_POOL_FAUCET,
+  GRACE_NIGHT_DEBT,
+  PAYMENT_REVERSAL_DEBT,
   entriesForMember,
   loadTokenRegistry,
   memberAccount,
@@ -294,7 +298,7 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
 
   it("refuses allowNegative, duplicate keys within the pair, and invalid legs", async () => {
     const debt = await postTransferPair(pool, [
-      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 1, source: "exchange_swap", idempotencyKey: "k1", allowNegative: true },
+      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 1, source: "exchange_swap", idempotencyKey: "k1", allowNegative: GRACE_NIGHT_DEBT },
       { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 1, source: "exchange_swap", idempotencyKey: "k2" },
     ]);
     expect(debt.ok).toBe(false);

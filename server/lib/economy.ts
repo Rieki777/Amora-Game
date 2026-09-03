@@ -57,9 +57,11 @@ import { issuanceRefusal } from "./gameStart";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { numberVar } from "./variables";
 import {
+  CLAWBACK_DEBT,
   memberAccount,
   postTransfer,
   postTransferOn,
+  postTransferPair,
   registerToken,
   tokenDef,
   CYCLE_POOL_FAUCET,
@@ -210,10 +212,51 @@ function keyTooLong(key: string): string | null {
     : null;
 }
 
+/**
+ * ONE SEGMENT OF A KEY, ESCAPED SO IT CANNOT BE MISTAKEN FOR TWO.
+ *
+ * Two things collapse distinct occurrences into one key, and both were live:
+ *
+ *  - THE SEPARATOR. Every builder joins on `:`, and an id that contains a
+ *    colon moves the boundary. `questCompleted(v, "q:1", "c", u)` and
+ *    `questCompleted(v, "q", "1:c", u)` produced the byte-identical key, so
+ *    the second occurrence read as a duplicate and that member was not paid
+ *    while `mint` reported ok. `registerToken` does no slug validation, so a
+ *    seed or a fork migration can put a colon in a token slug too.
+ *  - THE CASE. `token_ledger.idempotency_key` is UNIQUE under a
+ *    case-INSENSITIVE collation (`utf8mb4_uca1400_ai_ci` locally,
+ *    `utf8mb4_0900_ai_ci` in CI), so `usr-aB1` and `usr-Ab1` are ONE row.
+ *    Every id generator in this build is lowercase today, which makes this a
+ *    fork hazard rather than a live one, and a fork is exactly who will hit
+ *    it.
+ *
+ * So `:`, `%` and every uppercase letter are percent-encoded, with LOWERCASE
+ * hex digits so the output itself contains no uppercase and the collation has
+ * nothing left to fold. Escaping is not normalising: two ids that differ only
+ * in case still produce two different keys, which is the point. `%` has to be
+ * encoded or the escape is ambiguous with a literal one.
+ *
+ * The cost is length, and length is already checked: `keyTooLong` refuses
+ * loudly at `MAX_KEY` rather than letting the database truncate. An id of all
+ * capitals costs three characters each.
+ */
+const esc = (segment: string | number): string =>
+  String(segment).replace(/[%:A-Z]/g, (c) => `%${c.charCodeAt(0).toString(16)}`);
+
 export const keys = {
-  questCompleted: (v: string, questId: string, claimId: string, userId: string) =>
-    `quest.completed:${v}:${questId}:${claimId}:${userId}`,
-  gratitudeGiven: (v: string, noteId: string) => `gratitude.given:${v}:${noteId}`,
+  /**
+   * THE TOKEN SLUG IS PART OF THE KEY AND IS BUILT HERE.
+   *
+   * It used to be appended at the call site as `${keys.questCompleted(...)}:${slug}`,
+   * which cost two things: the slug went in unescaped, so a colon in a slug
+   * moved the boundary the same way a colon in an id did, and the generated
+   * key table in `docs/ECONOMICS.md` printed a shape the ledger never holds,
+   * because the generator reads this object and the suffix was not in it.
+   * One rule pays one member one token, so the token belongs in the key.
+   */
+  questCompleted: (v: string, questId: string, claimId: string, userId: string, tokenSlug: string) =>
+    `quest.completed:${esc(v)}:${esc(questId)}:${esc(claimId)}:${esc(userId)}:${esc(tokenSlug)}`,
+  gratitudeGiven: (v: string, noteId: string) => `gratitude.given:${esc(v)}:${esc(noteId)}`,
   /**
    * `cycleKey` is the canonical cycle id, and CHANGING ITS SPELLING PAYS
    * EVERY SEAT AGAIN. This key is what tells the ledger a seat has already
@@ -224,15 +267,23 @@ export const keys = {
    * renames the historical keys in the same change. A future edit to this
    * format needs the same treatment or it mints value out of a rename.
    */
-  roleCycle: (v: string, cycleKey: string, seatId: string, userId: string) =>
-    `role.cycle:${v}:${cycleKey}:${seatId}:${userId}`,
+  roleCycle: (v: string, cycleKey: string, seatId: string, userId: string, tokenSlug: string) =>
+    `role.cycle:${esc(v)}:${esc(cycleKey)}:${esc(seatId)}:${esc(userId)}:${esc(tokenSlug)}`,
   journeyStage: (v: string, journeyId: string, stage: string, userId: string) =>
-    `journey.stage_reached:${v}:${journeyId}:${stage}:${userId}`,
+    `journey.stage_reached:${esc(v)}:${esc(journeyId)}:${esc(stage)}:${esc(userId)}`,
   welcomeAboard: (v: string, questNo: number | string, userId: string) =>
-    `welcome_aboard.quest:${v}:${questNo}:${userId}`,
-  transfer: (v: string, transferRowId: string) => `transfer:${v}:${transferRowId}`,
-  reversal: (v: string, eventKey: string) => `reversal:${v}:${eventKey}`,
-  voiceClaim: (v: string, claimRowId: string) => `voice-claim:${v}:${claimRowId}`,
+    `welcome_aboard.quest:${esc(v)}:${esc(questNo)}:${esc(userId)}`,
+  transfer: (v: string, transferRowId: string) => `transfer:${esc(v)}:${esc(transferRowId)}`,
+  /**
+   * `eventKey` IS NOT ESCAPED, and that is deliberate. It is a whole
+   * occurrence key, not a segment: it is already canonical, its colons are
+   * its own structure, and escaping them would triple the length of every
+   * mirror key against a ceiling `keyTooLong` already finds tight. There is
+   * no injection to close here either, because the only two segments are the
+   * village (a constant) and a key that the ledger already holds as unique.
+   */
+  reversal: (v: string, eventKey: string) => `reversal:${esc(v)}:${eventKey}`,
+  voiceClaim: (v: string, claimRowId: string) => `voice-claim:${esc(v)}:${esc(claimRowId)}`,
 };
 
 // ── The cycle ───────────────────────────────────────────────────────────────
@@ -656,6 +707,84 @@ function reverseClaimProblem(
 }
 
 /**
+ * The sources that ARE a clawback, and so may never be clawed back again.
+ *
+ * `reversal` is the mirror this file writes. `payment_reversal` is the leg
+ * the refund and dispute handlers write after a bank has taken the money
+ * back, and it is the one the old prefix guard could not see, because those
+ * postings are keyed `ord:<id>:reversal-leg1` and `pp:<id>:reversal:<period>`
+ * — outside the `reversal:` namespace entirely. `stay_night` is not here:
+ * a burnt grace night is a charge, and a charge can be undone.
+ */
+const CLAWBACK_SOURCES: readonly string[] = Object.freeze(["reversal", "payment_reversal"]);
+
+/**
+ * `token_ledger.description` is `varchar(500)` (0005), and MySQL runs strict.
+ */
+const MAX_DESCRIPTION = 500;
+
+/**
+ * What the mirror row says, with the original key kept and the NOTE clipped.
+ *
+ * A 600-character note used to reach MySQL whole and THROW `ER_DATA_TOO_LONG`
+ * out of a function typed `Promise<MintOutcome>`. `sourceRef` one line above
+ * was already clamped and this was not. It matters most where it is worst to
+ * throw: `settleClaim` compare-and-sets the claim to a TERMINAL state before
+ * it calls this, so the exception escapes past the `if (!back.ok)` repair
+ * branch, the "refund failed, voice still held" note is never written, and
+ * the member loses the voice AND the record that says so. The Hypha webhook
+ * clips its note to 280 against a `voice-claim:local:<id>` key, which leaves
+ * about 26 characters of headroom: a thin margin is not a guard.
+ *
+ * THE KEY SURVIVES AND THE NOTE GIVES WAY, in that order, because the key is
+ * what an auditor uses to find the posting that was undone and the note is
+ * commentary. Clipping is marked so nobody reads a truncated sentence as the
+ * whole one.
+ */
+function reversalDescription(note: string | undefined, originalKey: string): string {
+  if (!note) return originalKey.slice(0, MAX_DESCRIPTION);
+  const tail = ` (${originalKey})`;
+  const room = MAX_DESCRIPTION - tail.length;
+  if (room <= 0) return `${originalKey}`.slice(0, MAX_DESCRIPTION);
+  const clipped = note.length <= room ? note : `${note.slice(0, Math.max(0, room - 3))}...`;
+  return `${clipped}${tail}`;
+}
+
+/**
+ * WHAT A PAIR LEG IS, since no column says so.
+ *
+ * `postTransferPair` is the platform's both-or-neither primitive and the one
+ * production caller is `executeSwap`, which keys its two legs
+ * `ord:<orderId>:leg1` and `ord:<orderId>:leg2` with the same `source` and
+ * the same `source_ref`. Nothing on the row records the pairing, and adding
+ * a `pair_key` column is a migration, so this DERIVES it from the shape:
+ *
+ *   a posting is a pair leg when its key ends in `:leg1` or `:leg2` and a
+ *   posting exists whose key is the same prefix with the other suffix and
+ *   whose `source` is the same.
+ *
+ * The suffix alone is not enough and that is why the source is in it:
+ * `ord:<orderId>:leg1` is ALSO the key of three ordinary single postings
+ * (a fiat exchange settlement, a stay purchase, a manual stay purchase),
+ * each of which has no sibling row and each of which stays reversible.
+ * `ord:<id>:reversal-leg1` ends in `-leg1`, not `:leg1`, and is not matched.
+ *
+ * Returns the sibling's key, so a refusal can name it.
+ */
+async function pairSiblingKey(pool: Pool, key: string, source: string): Promise<string | null> {
+  const m = /^(.*):leg([12])$/.exec(key);
+  if (!m) return null;
+  const sibling = `${m[1]}:leg${m[2] === "1" ? "2" : "1"}`;
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT `idempotency_key` FROM `token_ledger` WHERE `idempotency_key` = ? AND `source` = ? LIMIT 1",
+    [sibling, source],
+  );
+  // Byte-exact, like every other key read here: the collation would happily
+  // hand back a different key that merely collates equal.
+  return rows.some((r) => String(r.idempotency_key) === sibling) ? sibling : null;
+}
+
+/**
  * Undo one posting with a mirror that has its own key.
  *
  * Four rules, each of which is a way this goes wrong:
@@ -684,22 +813,99 @@ export async function reverse(
   originalKey: string,
   opts: ReverseOpts = {},
 ): Promise<MintOutcome> {
-  if (originalKey.startsWith("reversal:")) {
+  /*
+   * THE STRING GUARD IS CASE-FOLDED NOW, AND IT IS NO LONGER THE GUARD.
+   *
+   * It used to be `originalKey.startsWith("reversal:")`, a byte-exact JS test
+   * in front of a row lookup that runs under a case-INSENSITIVE collation.
+   * `REVERSAL:local:X` failed the test and found the mirror row anyway, so a
+   * reversal could be reversed: the value the clawback took came back, the
+   * member who was paid twice kept both, and the derived mirror key
+   * `reversal:local:REVERSAL:local:X` did not collide with anything, so the
+   * UNIQUE index said nothing either. It chained to depth four, which lets
+   * the attacker pick the final direction, and conservation stayed at zero
+   * through every step because the faucet absorbs the difference.
+   *
+   * Folding the case closes that one spelling. It does not close the class,
+   * because a string is a claim about a row and the row is the fact, so the
+   * two tests below decide instead: the stored key must match BYTE for byte,
+   * and the row's own `source` must not be a clawback.
+   */
+  if (originalKey.trim().toLowerCase().startsWith("reversal:")) {
     return { ok: false, error: "a reversal cannot itself be reversed" };
   }
   const mirrorKey = keys.reversal(villageId(), originalKey);
   const tooLong = keyTooLong(mirrorKey);
   if (tooLong) return { ok: false, error: tooLong };
 
-  // Four columns rather than `SELECT 1`: the row IS the instruction now.
+  // Six columns rather than `SELECT 1`: the row IS the instruction now, and
+  // the two extra ones are what stop a string standing in for it.
   const [orig] = await pool.query<RowDataPacket[]>(
-    "SELECT `from_account`, `to_account`, `token_type`, `amount` FROM `token_ledger` " +
-      "WHERE `idempotency_key` = ? LIMIT 1",
+    "SELECT `idempotency_key`, `source`, `from_account`, `to_account`, `token_type`, `amount` " +
+      "FROM `token_ledger` WHERE `idempotency_key` = ? LIMIT 1",
     [originalKey],
   );
   const row = orig[0];
   if (!row) {
     return { ok: false, error: "there is no such posting to reverse" };
+  }
+
+  /*
+   * THE KEY THE CALLER PASSED MUST BE THE KEY THE ROW HOLDS, byte for byte.
+   *
+   * `WHERE idempotency_key = ?` answers under the column's collation, which
+   * folds case and ignores trailing spaces, so this lookup happily returns a
+   * row whose key is NOT the one asked for. Reading it back and comparing in
+   * JS is the only way to make the match as narrow as the caller believes it
+   * is, and it needs no collation change: switching the column to `_bin`
+   * would also change what the UNIQUE index calls a duplicate, which is the
+   * thing that currently defeats the sequential and padded double-reversal
+   * attacks. Narrow the READ, leave the index alone.
+   */
+  const storedKey = String(row.idempotency_key);
+  if (storedKey !== originalKey) {
+    return {
+      ok: false,
+      error:
+        `no posting is keyed ${JSON.stringify(originalKey)}. The ledger's collation matched it to ` +
+        `${JSON.stringify(storedKey)}, which is a different key, and a reversal is derived from an ` +
+        "exact posting or from nothing",
+    };
+  }
+
+  /*
+   * A CLAWBACK MAY NOT BE CLAWED BACK, decided by the row's source.
+   *
+   * The rule was enforced only by the `reversal:` prefix on the key, and
+   * EVERY REAL CLAWBACK IN THIS BUILD IS KEYED OUTSIDE THAT NAMESPACE:
+   * `ord:<orderId>:reversal-leg1` and `pp:<purchaseId>:reversal:<periodKey>`
+   * from the payment handlers, and the stays refund route. Each carries
+   * source `payment_reversal`, each was reversible, and reversing one pays a
+   * member back money the bank has already taken off the village.
+   *
+   * `stay_night` is deliberately NOT here: a grace-window burn is an ordinary
+   * charge, not an undo, and a village that burnt a night wrongly has to be
+   * able to give it back.
+   */
+  const source = String(row.source);
+  if (CLAWBACK_SOURCES.includes(source)) {
+    return {
+      ok: false,
+      error:
+        `that posting is itself a clawback (source "${source}"), and reversing one restores value ` +
+        "that was already taken back. Post the correction as its own occurrence instead",
+    };
+  }
+
+  const sibling = await pairSiblingKey(pool, storedKey, source);
+  if (sibling) {
+    return {
+      ok: false,
+      error:
+        `that posting is one leg of an atomic pair whose other leg is keyed ${JSON.stringify(sibling)}. ` +
+        "Reversing one leg alone dismantles the both-or-neither promise the pair exists for: " +
+        "a member who paid for a swap would keep nothing. Use reversePair() with both keys",
+    };
   }
 
   // The mirror runs the opposite way: what the original credited, this debits.
@@ -726,28 +932,164 @@ export async function reverse(
     amount: mirror.amount,
     source: "reversal",
     // The clawback may take a member below zero, and below zero is the truth
-    // once the value has been spent onward. Honoured only because "reversal"
-    // is in ALLOW_NEGATIVE_SOURCES: the flag on its own grants nothing.
-    allowNegative: true,
+    // once the value has been spent onward. `CLAWBACK_DEBT` is a capability
+    // the ledger issues and checks by identity, so this is the only function
+    // in the build that can create clawback debt: the flag used to be `true`,
+    // which any caller could write beside the string "reversal".
+    allowNegative: CLAWBACK_DEBT,
     // Prefix, because source_ref is varchar(120) and a quest occurrence key can
     // run past it. A prefix is enough for the allowance query, which matches on
     // `gratitude.given:<village>:%`, and the whole key rides in the note so a
     // human reading the row can still find what was undone.
     sourceRef: originalKey.slice(0, MAX_SOURCE_REF),
-    description: opts.note ? `${opts.note} (${originalKey})` : originalKey,
+    description: reversalDescription(opts.note, originalKey),
     idempotencyKey: mirrorKey,
   });
   if (!res.ok && !res.duplicate) return { ok: false, error: res.error ?? "the ledger refused the reversal" };
   return { ok: true, duplicate: res.duplicate, balance: res.toBalance };
 }
 
-/** Has this posting already been mirrored? */
+/**
+ * Undo BOTH legs of an atomic pair, in one transaction, or neither.
+ *
+ * `reverse()` mirrors one row, and one row is the wrong unit for a swap. A
+ * pair exists because a member must never be debited without being credited,
+ * and reversing leg2 alone did exactly that: the member paid 100 into the
+ * treasury, the 40 they received went back, and they kept nothing. The
+ * mirror even posted with `allowNegative` although `exchange_swap` is
+ * deliberately outside the keystone set, because the mirror's own source is
+ * `reversal`, which is inside it. Both invariants stayed green.
+ *
+ * So the pair is undone through the same primitive that made it. Two mirrors
+ * in one `postTransferPair`, which brings three properties with it that a
+ * pair of `reverse()` calls could never have:
+ *
+ *  - both or neither, under one transaction and one lock order;
+ *  - NO DEBT. `postTransferPair` refuses `allowNegative` outright, so a
+ *    member who has already spent what the swap gave them cannot have the
+ *    swap undone behind their back: the whole thing refuses and a person
+ *    settles it. That refusal is the honest one here, unlike a single
+ *    clawback, where the negative IS the truth;
+ *  - one duplicate answer for the pair, not two half-answers.
+ *
+ * Legs may be passed in either order. Each mirror carries the mirror key of
+ * its own leg, so replaying is a duplicate rather than a second refund.
+ */
+export async function reversePair(
+  pool: Pool,
+  keyLeg1: string,
+  keyLeg2: string,
+  opts: { note?: string } = {},
+): Promise<MintOutcome> {
+  if (keyLeg1 === keyLeg2) {
+    return { ok: false, error: "a pair needs two distinct keys, and these are the same one" };
+  }
+  for (const k of [keyLeg1, keyLeg2]) {
+    if (k.trim().toLowerCase().startsWith("reversal:")) {
+      return { ok: false, error: "a reversal cannot itself be reversed" };
+    }
+    const tooLong = keyTooLong(keys.reversal(villageId(), k));
+    if (tooLong) return { ok: false, error: tooLong };
+  }
+
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT `idempotency_key`, `source`, `from_account`, `to_account`, `token_type`, `amount` " +
+      "FROM `token_ledger` WHERE `idempotency_key` IN (?, ?)",
+    [keyLeg1, keyLeg2],
+  );
+  // Byte-exact both times: the collation matches keys this caller did not ask for.
+  const legs = [keyLeg1, keyLeg2].map((k) => rows.find((r) => String(r.idempotency_key) === k));
+  for (let i = 0; i < 2; i++) {
+    if (!legs[i]) {
+      return { ok: false, error: `there is no posting keyed ${JSON.stringify([keyLeg1, keyLeg2][i])} to reverse` };
+    }
+  }
+  const [a, b] = legs as [RowDataPacket, RowDataPacket];
+
+  for (const r of [a, b]) {
+    const source = String(r.source);
+    if (CLAWBACK_SOURCES.includes(source)) {
+      return {
+        ok: false,
+        error: `${String(r.idempotency_key)} is itself a clawback (source "${source}") and may not be reversed`,
+      };
+    }
+  }
+  if (String(a.source) !== String(b.source)) {
+    return {
+      ok: false,
+      error:
+        `these two postings carry different sources ("${String(a.source)}" and "${String(b.source)}"), ` +
+        "so they were never one pair",
+    };
+  }
+  const sibling = await pairSiblingKey(pool, String(a.idempotency_key), String(a.source));
+  if (sibling !== String(b.idempotency_key)) {
+    return {
+      ok: false,
+      error:
+        `${JSON.stringify(keyLeg1)} and ${JSON.stringify(keyLeg2)} are not the two legs of one pair: ` +
+        "a pair is keyed <prefix>:leg1 and <prefix>:leg2 under one source",
+    };
+  }
+
+  const res = await postTransferPair(pool, [
+    {
+      from: String(a.to_account), to: String(a.from_account),
+      tokenType: String(a.token_type), amount: Number(a.amount),
+      source: "reversal",
+      sourceRef: String(a.idempotency_key).slice(0, MAX_SOURCE_REF),
+      description: reversalDescription(opts.note, String(a.idempotency_key)),
+      idempotencyKey: keys.reversal(villageId(), String(a.idempotency_key)),
+    },
+    {
+      from: String(b.to_account), to: String(b.from_account),
+      tokenType: String(b.token_type), amount: Number(b.amount),
+      source: "reversal",
+      sourceRef: String(b.idempotency_key).slice(0, MAX_SOURCE_REF),
+      description: reversalDescription(opts.note, String(b.idempotency_key)),
+      idempotencyKey: keys.reversal(villageId(), String(b.idempotency_key)),
+    },
+  ]);
+  if (!res.ok && !res.duplicate) return { ok: false, error: res.error ?? "the ledger refused the pair reversal" };
+  return { ok: true, duplicate: res.duplicate, balance: 0 };
+}
+
+/**
+ * Has this posting already been mirrored?
+ *
+ * IT USED TO MATCH ON THE MIRROR KEY ALONE — `SELECT 1 ... WHERE
+ * idempotency_key = ?` — and never looked at `source`, at either account, or
+ * at the amount. So anything at all written under `keys.reversal(v, K)`
+ * answered yes: a one-unit mint to a third party made `isReversed(K)` true
+ * with no reversal in existence, and `reverse(K)` then hit the UNIQUE index,
+ * reported SUCCESS AS A DUPLICATE, and moved nothing. The victim kept the
+ * money the village was trying to take back and every return value said the
+ * clawback had happened.
+ *
+ * The namespace is reserved for source `reversal` at leg validation now, so
+ * that squat is refused at the write. This is the reader's half of the same
+ * rule: a mirror is a row that reverses THIS row, so it is compared to it —
+ * exact key, source `reversal`, the two accounts swapped, same token, same
+ * minor units. Anything else is not a reversal of this posting whatever it
+ * is keyed.
+ */
 export async function isReversed(pool: Pool, originalKey: string): Promise<boolean> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT 1 FROM `token_ledger` WHERE `idempotency_key` = ? LIMIT 1",
-    [keys.reversal(villageId(), originalKey)],
+    "SELECT `idempotency_key`, `source`, `from_account`, `to_account`, `token_type`, `amount` " +
+      "FROM `token_ledger` WHERE `idempotency_key` IN (?, ?)",
+    [originalKey, keys.reversal(villageId(), originalKey)],
   );
-  return rows.length > 0;
+  const original = rows.find((r) => String(r.idempotency_key) === originalKey);
+  const mirror = rows.find((r) => String(r.idempotency_key) === keys.reversal(villageId(), originalKey));
+  if (!original || !mirror) return false;
+  return (
+    String(mirror.source) === "reversal" &&
+    String(mirror.from_account) === String(original.to_account) &&
+    String(mirror.to_account) === String(original.from_account) &&
+    String(mirror.token_type) === String(original.token_type) &&
+    Number(mirror.amount) === Number(original.amount)
+  );
 }
 
 // ── Gratitude, and the allowance that is never stored ───────────────────────
@@ -1551,7 +1893,7 @@ export async function mintForConfirmedClaim(
       // token, and each is its own ledger row: without this segment the second
       // rule collides with the first, reads as a duplicate, and the member is
       // quietly paid in one token instead of two.
-      idempotencyKey: `${keys.questCompleted(villageId(), claim.questId, claim.id, claim.userId)}:${r.tokenSlug}`,
+      idempotencyKey: keys.questCompleted(villageId(), claim.questId, claim.id, claim.userId, r.tokenSlug),
     });
     if (res.ok && !res.duplicate) minted.push({ token: r.tokenSlug, amount: human });
     // A refusal from the ledger itself is the same class of news as a rule the
@@ -1729,7 +2071,7 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
         sourceRef: seatId,
         description: `Thanks for holding a seat through ${cycleKey}`,
         // Two seats are two thanks, and the same seat next moon is another.
-        idempotencyKey: `${keys.roleCycle(villageId(), cycleKey, seatId, userId)}:${r.tokenSlug}`,
+        idempotencyKey: keys.roleCycle(villageId(), cycleKey, seatId, userId, r.tokenSlug),
       });
       if (res.ok && !res.duplicate) {
         paid.add(userId);
