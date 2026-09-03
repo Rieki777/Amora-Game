@@ -226,6 +226,51 @@ describe.skipIf(!configured)("a proposed quest and the reward a human types", ()
     expect(await questProposalQueue(pool)).toHaveLength(1);
   });
 
+  it("clips over-long prose instead of losing the proposal", async () => {
+    // Same class as the external proposal inbox: strict MySQL refuses an
+    // over-long string, so an unclipped vendor field is a lost record.
+    const r = await proposeQuest(pool, propose({
+      prose: {
+        title: "T".repeat(400),
+        subtitle: "S".repeat(900),
+        duration: "D".repeat(300),
+        circle: "C".repeat(400),
+        description: "x".repeat(20_000),
+      },
+    }));
+    expect(r.ok, !r.ok ? r.error : "").toBe(true);
+    // Clipped to the width on `quests`, which is NARROWER than the one on
+    // `quest_proposals` for four of these. Clipping to the table in front of
+    // you lands the proposal and then throws at accept, which is the worst
+    // place for it to happen. This test caught exactly that.
+    const [row] = await questProposalQueue(pool);
+    expect(row.prose.title.length).toBe(200);
+    expect(row.prose.subtitle!.length).toBe(160);
+    expect(row.prose.duration!.length).toBe(64);
+    expect(row.prose.circle!.length).toBe(64);
+  });
+
+  it("clips again at ACCEPT, because a steward's edit never passes propose", async () => {
+    const p = await proposeQuest(pool, propose());
+    const r = await acceptQuestProposal(pool, quests, {
+      id: p.ok ? p.id : "",
+      decidedBy: "u1",
+      reward: { gratitude: "50" },
+      edits: { subtitle: "S".repeat(900), circle: "C".repeat(400) },
+    });
+    expect(r.ok, !r.ok ? r.error : "").toBe(true);
+    const [q] = await quests.all();
+    expect(q.subtitle!.length).toBe(160);
+    expect(q.circle!.length).toBe(64);
+  });
+
+  it("REFUSES an over-long identifier rather than merging two batches", async () => {
+    const r = await proposeQuest(pool, propose({ batchId: "b".repeat(70) }));
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain("longer than 64 characters");
+    expect(await questProposalQueue(pool)).toHaveLength(0);
+  });
+
   it("drops a proposal carrying an email address before it is stored", async () => {
     const r = await proposeQuest(pool, propose({ prose: { title: "Ask ada@example.org about the swale" } }));
     expect(r.ok).toBe(false);

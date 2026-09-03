@@ -135,6 +135,34 @@ const PROPOSABLE_SEAT_FIELDS = [
   "recruiting",
 ] as const;
 
+/**
+ * The id a proposed seat gets, which is never the vendor's string as sent.
+ *
+ * `org_roles.id` DOUBLES AS A URL SLUG AND AS A PATH SEGMENT. The public org
+ * export builds filesystem-shaped paths from it and refuses anything that is
+ * not `^[a-z0-9][a-z0-9-]{0,63}$`, because there is no legitimate seat called
+ * `../../etc/passwd`. That guard is right and it fails CLOSED in the wrong
+ * direction for us: a seat whose id a vendor supplied as "Water Steward!"
+ * would be created, would render on the map, and would then be silently absent
+ * from every federated document forever, with nothing anywhere saying why.
+ *
+ * So the vendor's id is slugified rather than trusted or refused. Slugified
+ * and not dropped, because a batch describing relations between its own seats
+ * needs those references to keep pointing at the same rows; and never used raw,
+ * because a namespace we do not control has no business minting ids in ours.
+ * A string with nothing slug-shaped left in it falls back to one derived from
+ * the proposal, which is always a valid slug by construction.
+ */
+function seatIdFor(vendorId: unknown, fallback: string): string {
+  const slug = String(vendorId ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/, "");
+  return /^[a-z0-9][a-z0-9-]{0,63}$/.test(slug) ? slug : fallback;
+}
+
 function seatPayload(seat: ProposedSeat): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of PROPOSABLE_SEAT_FIELDS) {
@@ -258,6 +286,25 @@ export function register(app: Express, deps: Deps): void {
    * header: this is the redaction path, and a queue that kept the vendor's
    * original would leave the text a steward removed as the only surviving
    * version of the record.
+   *
+   * ── ONE LIMIT, STATED RATHER THAN PAPERED OVER ──────────────────────────
+   *
+   * This is NOT one transaction. `createDraft`, `addChange` and
+   * `markProposalDecided` each take a pool and open their own, and giving them
+   * a shared connection would mean changing three functions other lanes call.
+   * So a process that dies halfway through a batch leaves an OPEN draft
+   * carrying some of the seats, with some proposals marked accepted and the
+   * rest still in the queue, and accepting the rest afterwards would build a
+   * second draft duplicating nothing but describing half the same
+   * reorganisation.
+   *
+   * What makes that survivable rather than silent: the draft is `open`, which
+   * means it is inert, previewable and withdrawable, and every seat in it is
+   * a `create_seat` that `previewDraft` blocks on an id collision. So the
+   * damage is a steward seeing two half-drafts and withdrawing one, and never
+   * a village whose chart quietly gained twelve seats twice. Worth fixing when
+   * `orgDrafts` grows a connection-taking variant; not worth changing three
+   * shared functions for today.
    */
   const acceptInto = async (
     proposals: ExternalProposalRow[],
@@ -305,7 +352,7 @@ export function register(app: Express, deps: Deps): void {
       const payload = edits[p.id] ?? p.payload;
       for (const seat of seatsIn(payload)) {
         seats += 1;
-        const seatId = String(seat.id ?? `orgrole-${p.id}-${seats}`).slice(0, 64);
+        const seatId = seatIdFor(seat.id, `orgrole-${p.id.toLowerCase()}-${seats}`);
         const r = await addChange(getPool(), made.id, {
           op: "create_seat",
           orgRoleId: seatId,

@@ -232,6 +232,18 @@ describe.skipIf(!DB_CONFIGURED)("a steward who is not an admin", () => {
     const q = await call("GET", "/api/review/queue", undefined, kiraToken);
     const batch = (q.json.batches ?? []).find((b: any) => b.batchId === BATCH);
     const first = batch.items[0];
+    /*
+     * WHICH one is first is not knowable in advance, and an earlier version of
+     * this test assumed it was "Proposed Seat 1". `received_at` is a timestamp
+     * at SECOND precision, so all twelve land on the same value and the tie is
+     * broken by `id`, which is random. That test passed twice and would have
+     * failed about eleven times in twelve, which is the worst kind of green.
+     *
+     * So the name being replaced is read off the row rather than assumed, and
+     * the assertions below are about THAT name.
+     */
+    const replaced = String((first.payload as Record<string, unknown>).name);
+    expect(replaced).toMatch(/^Proposed Seat \d+$/);
 
     // THE EDIT. The server has re-validated an edited payload at accept since
     // the draft queue was written and no client had ever sent one. This is a
@@ -258,7 +270,7 @@ describe.skipIf(!DB_CONFIGURED)("a steward who is not an admin", () => {
     });
     // The steward's version landed, and the vendor's did not.
     expect(names).toContain("Well Keeper, as the village calls it");
-    expect(names).not.toContain("Proposed Seat 1");
+    expect(names).not.toContain(replaced);
     expect(names.filter((n) => n.startsWith("Proposed Seat"))).toHaveLength(11);
 
     // The provenance 0130 added, on the draft a month from now.
@@ -278,6 +290,7 @@ describe.skipIf(!DB_CONFIGURED)("a steward who is not an admin", () => {
     );
     const stored = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload;
     expect(stored.name).toBe("Well Keeper, as the village calls it");
+    expect(stored.name).not.toBe(replaced);
     expect(row.status).toBe("accepted");
     expect(row.created_ref).toBe(accepted.json.draftId);
 
@@ -290,6 +303,24 @@ describe.skipIf(!DB_CONFIGURED)("a steward who is not an admin", () => {
   it("refuses a second accept on a batch that is already decided", async () => {
     const again = await call("POST", `/api/review/batches/${BATCH}/accept`, {}, kiraToken);
     expect(again.status).toBe(404);
+  });
+
+  it("gives every proposed seat an id that the public export will accept", async () => {
+    // `org_roles.id` doubles as a URL slug AND as a path segment, and the
+    // federated export refuses anything that is not slug-shaped, because there
+    // is no legitimate seat called `../../etc/passwd`. That guard fails closed
+    // in the wrong direction here: a seat created with a vendor's raw string
+    // would render on the map and be silently absent from every federated
+    // document forever, with nothing saying why.
+    const [rows] = await pool.query<any[]>( // module-review-ok: reading back the scratch schema this suite provisioned
+      "SELECT org_role_id FROM org_draft_changes",
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(String(r.org_role_id), `${r.org_role_id} must be a slug`).toMatch(
+        /^[a-z0-9][a-z0-9-]{0,63}$/,
+      );
+    }
   });
 
   it("publishes NO agent name at the anonymous tier, and still counts the seat", async () => {

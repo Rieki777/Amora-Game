@@ -215,12 +215,18 @@ export function register(app: Express, deps: Deps): void {
     res.json({ success: true });
   });
 
+  /*
+   * THE ONE DOOR ONTO `publishDraft`, and `visionNeverApplies.test.ts` holds
+   * it to that. It reads the 400 characters BEFORE the call and asserts this
+   * route's path is in them, so a comment written between the two breaks a
+   * true test with a false failure. Reasoning goes here, above the handler,
+   * and the handler stays tight. `draftChangeCap` in orgDrafts.ts carries the
+   * argument for the cap: it applies only to a draft a machine proposed, and a
+   * founder typing in the admin panel is never capped by it.
+   */
   app.post("/api/admin/org/drafts/:id/publish", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const actor = await authedUser(req);
-    // The cap is measured against the village's own size and applies only to a
-    // draft a machine proposed; `draftChangeCap` says why, and a draft a
-    // founder typed is never capped by it.
     const roster = ((await members.all()) as any[]).length;
     const r = await publishDraft(getPool(), req.params.id, actor?.id ?? null, draftChangeCap(roster));
     if (!r.ok) return res.status(409).json({ error: r.error });

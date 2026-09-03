@@ -155,6 +155,57 @@ const str = (v: unknown): string | null => {
   return s === "" ? null : s;
 };
 
+/**
+ * Content, clipped to the column it lands in.
+ *
+ * MySQL is strict by default and an over-long string is ER_DATA_TOO_LONG, so
+ * an unclipped vendor field is not a truncated field, it is a lost proposal
+ * and a 500. server/lib/externalProposals.ts carries the full argument and the
+ * measurement, including why identifiers are refused instead of clipped.
+ */
+const clip = (v: unknown, n: number): string | null => {
+  const s = str(v);
+  return s === null ? null : s.slice(0, n);
+};
+
+const idTooLong = (v: unknown): boolean =>
+  v !== null && v !== undefined && String(v).trim().length > 64;
+
+/**
+ * The narrower of the two columns each field passes through.
+ *
+ * READ OFF `quests`, NOT OFF `quest_proposals`, and that is the whole reason
+ * this constant exists rather than a number at each call site. A proposal is
+ * on its way to the board: `quest_proposals.circle` is varchar(120) and
+ * `quests.circle` is varchar(64), so clipping to the table in front of you
+ * lands the proposal and then throws at accept, which is the worst possible
+ * place for it. A test caught exactly that and this is the fix.
+ *
+ * Every number here is read from a migration: 0001 for the originals, 0004 for
+ * `gratitude` becoming varchar(64), 0012 for the two gates, 0068 for the story
+ * layer. `description`, `impact`, `story` and `rationale` are TEXT on both
+ * sides, and TEXT is 65,535 BYTES rather than characters, so their ceiling is
+ * set well under it.
+ */
+const W = {
+  title: 200,
+  subtitle: 160,
+  firstStep: 400,
+  deliverable: 400,
+  duration: 64,
+  difficulty: 32,
+  circle: 64,
+  icon: 64,
+  roleRequired: 64,
+  minStage: 64,
+  requiresRole: 64,
+  gratitude: 64,
+  sourceRef: 400,
+  prose: 8000,
+  step: 500,
+  tag: 80,
+} as const;
+
 const iso = (v: unknown): string | null => {
   if (v === null || v === undefined) return null;
   const d = v instanceof Date ? v : new Date(String(v));
@@ -188,6 +239,19 @@ export async function proposeQuest(pool: Pool, input: ProposeQuestInput): Promis
     return { ok: false, error: "This proposal carried an email address, so none of it was stored." };
   }
 
+  // Identity is refused rather than clipped: a shortened batch id merges two
+  // reviews and a shortened module id attributes one integration's work to
+  // another.
+  if (
+    idTooLong(input.villageId) ||
+    idTooLong(input.moduleId) ||
+    idTooLong(input.batchId) ||
+    idTooLong(input.correlationId) ||
+    idTooLong(input.sourceProposalId) ||
+    idTooLong(input.proposedBy)
+  ) {
+    return { ok: false, error: "An identifier on this proposal is longer than 64 characters, so nothing was stored." };
+  }
   const moduleId = str(input.moduleId) ?? "local";
   const [[open]] = await pool.query<RowDataPacket[]>(
     "SELECT COUNT(*) AS n FROM quest_proposals WHERE batch_id = ? AND status = 'proposed'",
@@ -215,24 +279,24 @@ export async function proposeQuest(pool: Pool, input: ProposeQuestInput): Promis
         input.batchId,
         str(input.correlationId),
         str(input.sourceProposalId),
-        title.slice(0, 200),
-        str(input.prose.subtitle),
-        str(input.prose.description),
-        str(input.prose.impact),
-        str(input.prose.story),
-        str(input.prose.firstStep),
-        JSON.stringify(list(input.prose.steps)),
-        str(input.prose.deliverable),
-        JSON.stringify(list(input.prose.tips)),
-        JSON.stringify(list(input.prose.tags)),
-        str(input.prose.duration),
-        str(input.prose.difficulty),
-        str(input.prose.circle),
-        str(input.prose.icon),
-        str(input.prose.roleRequired),
-        str(input.rationale),
-        str(input.quote),
-        str(input.sourceRef),
+        title.slice(0, W.title),
+        clip(input.prose.subtitle, W.subtitle),
+        clip(input.prose.description, W.prose),
+        clip(input.prose.impact, W.prose),
+        clip(input.prose.story, W.prose),
+        clip(input.prose.firstStep, W.firstStep),
+        JSON.stringify(list(input.prose.steps).map((v) => v.slice(0, W.step))),
+        clip(input.prose.deliverable, W.deliverable),
+        JSON.stringify(list(input.prose.tips).map((v) => v.slice(0, W.step))),
+        JSON.stringify(list(input.prose.tags).map((v) => v.slice(0, W.tag))),
+        clip(input.prose.duration, W.duration),
+        clip(input.prose.difficulty, W.difficulty),
+        clip(input.prose.circle, W.circle),
+        clip(input.prose.icon, W.icon),
+        clip(input.prose.roleRequired, W.roleRequired),
+        clip(input.rationale, W.prose),
+        clip(input.quote, W.prose),
+        clip(input.sourceRef, W.sourceRef),
         dedupeKey,
         str(input.proposedBy),
         input.proposedByKind ?? "agent",
@@ -413,29 +477,35 @@ export async function acceptQuestProposal(
   const count = (await questsRepo.all()).length;
   const quest: QuestRecord = {
     id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    title: title.slice(0, 200),
-    subtitle: str(prose.subtitle),
-    description: str(prose.description),
-    impact: str(prose.impact),
-    story: str(prose.story),
-    firstStep: str(prose.firstStep),
-    steps: list(prose.steps),
-    deliverable: str(prose.deliverable),
-    tips: list(prose.tips),
-    tags: list(prose.tags),
-    duration: str(prose.duration),
-    difficulty: str(prose.difficulty) ?? "Beginner",
-    circle: str(prose.circle),
-    icon: str(prose.icon) ?? "Star",
-    roleRequired: str(prose.roleRequired),
+    title: title.slice(0, W.title),
+    // Clipped again here, and not only at propose time. A steward's edit
+    // arrives through the accept route and never passes through `proposeQuest`,
+    // so a paste into the textarea is a second way an over-long string reaches
+    // a sized column. `quests` has its own widths and this is the last place
+    // anything can be done about it.
+    subtitle: clip(prose.subtitle, W.subtitle),
+    description: clip(prose.description, W.prose),
+    impact: clip(prose.impact, W.prose),
+    story: clip(prose.story, W.prose),
+    firstStep: clip(prose.firstStep, W.firstStep),
+    steps: list(prose.steps).map((v) => v.slice(0, W.step)),
+    deliverable: clip(prose.deliverable, W.deliverable),
+    tips: list(prose.tips).map((v) => v.slice(0, W.step)),
+    tags: list(prose.tags).map((v) => v.slice(0, W.tag)),
+    duration: clip(prose.duration, W.duration),
+    difficulty: clip(prose.difficulty, W.difficulty) ?? "Beginner",
+    circle: clip(prose.circle, W.circle),
+    icon: clip(prose.icon, W.icon) ?? "Star",
+    roleRequired: clip(prose.roleRequired, W.roleRequired),
     // The five a human typed. Nothing on the proposal row could have set them.
-    gratitude: String(input.reward.gratitude).trim(),
+    // A human typed these, and a human can paste. Same ceilings.
+    gratitude: String(input.reward.gratitude).trim().slice(0, W.gratitude),
     stayCreditReward:
       input.reward.stayCreditReward === null || input.reward.stayCreditReward === undefined
         ? null
         : Math.trunc(Number(input.reward.stayCreditReward)),
-    minStage: str(input.reward.minStage),
-    requiresRole: str(input.reward.requiresRole),
+    minStage: clip(input.reward.minStage, W.minStage),
+    requiresRole: clip(input.reward.requiresRole, W.requiresRole),
     status: "Open",
     order: count + 1,
     isExample: false,

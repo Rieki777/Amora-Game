@@ -269,6 +269,81 @@ describe.skipIf(!configured)("the vendor proposal inbox", () => {
     expect(row.audience).toBe("steward");
   });
 
+  it("takes the ISO timestamp the envelope specifies, which MySQL refuses raw", async () => {
+    // MEASURED, not reasoned about. A DATETIME column handed
+    // "2026-08-14T09:00:00.000Z" raises ER_TRUNCATED_WRONG_VALUE, so passing
+    // the vendor's own field straight through would throw inside the INSERT,
+    // lose the whole proposal, and answer 500 to a vendor that sent exactly
+    // what the work order asked for. The first version of this file did that,
+    // and every other test in it passed, because none of them set the field.
+    const r = await landProposal(pool, {
+      ...base,
+      sourceOccurredAt: "2026-08-14T09:00:00.000Z",
+      payload: { name: "Water Steward" },
+    });
+    expect(r.ok, !r.ok ? r.message : "").toBe(true);
+    expect((await proposalQueue(pool))[0].sourceOccurredAt).toBe("2026-08-14T09:00:00.000Z");
+  });
+
+  it("keeps a proposal whose source timestamp is nonsense, with the date nulled", async () => {
+    // A malformed date is one bad field on an otherwise real record. Losing
+    // the record over it would be the wrong trade every time, and it is the
+    // same rule as an unresolvable reference one test up.
+    const r = await landProposal(pool, {
+      ...base,
+      sourceOccurredAt: "last Thursday-ish",
+      payload: { name: "Water Steward" },
+    });
+    expect(r.ok).toBe(true);
+    expect((await proposalQueue(pool))[0].sourceOccurredAt).toBeNull();
+  });
+
+  // ── OVER-LONG FIELDS. THE CLASS THE DATE BUG BELONGED TO ────────────────
+  //
+  // MySQL is strict by default, so an over-long string is ER_DATA_TOO_LONG and
+  // the INSERT throws: not a truncated field, a lost proposal and a 500 to a
+  // vendor that did nothing wrong. Every sized column in this schema had that
+  // shape, and every other test in this file passed the whole time, because
+  // none of them set a long value. Coverage of the guards is not coverage of
+  // the writes.
+
+  it("clips over-long CONTENT to its column instead of losing the record", async () => {
+    const r = await landProposal(pool, {
+      ...base,
+      quote: "q".repeat(20_000),
+      sourceRef: "s".repeat(900),
+      subjectRef: "subject".repeat(80),
+      payload: { name: "Water Steward" },
+    });
+    expect(r.ok, !r.ok ? r.message : "").toBe(true);
+    const [row] = await proposalQueue(pool);
+    expect(row.sourceRef!.length).toBe(400);
+    expect(row.subjectRef!.length).toBe(200);
+    expect(row.quote!.length).toBe(8000);
+  });
+
+  it("REFUSES an over-long identifier, because clipping one corrupts it", async () => {
+    // A shortened batch id merges two reviews into one. A shortened module id
+    // attributes one integration's work to another, which is exactly the
+    // attribution this table exists to make possible.
+    const r = await landProposal(pool, {
+      ...base,
+      batchId: "b".repeat(70),
+      payload: { name: "Water Steward" },
+    });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toBe("identifier_too_long");
+    expect(await proposalQueue(pool)).toHaveLength(0);
+    expect((await recentDrops(pool)).map((d) => d.reason)).toEqual(["identifier_too_long"]);
+  });
+
+  it("separates hashed parts with something that cannot appear inside one", async () => {
+    // A space would let ("a b", "c") and ("a", "b c") hash to the same row.
+    expect(identityKeyFor({ moduleId: "a b", kind: "c" })).not.toBe(
+      identityKeyFor({ moduleId: "a", kind: "b c" }),
+    );
+  });
+
   it("keeps an unstated confidence as null, because zero is a different claim", async () => {
     await landProposal(pool, { ...base, payload: { name: "Water Steward" } });
     expect((await proposalQueue(pool))[0].confidence).toBeNull();
