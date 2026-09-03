@@ -2011,6 +2011,7 @@ so a coordinator that loses its context can pick it up.
   two lines in `server/index.ts` (the import and the register call, nothing adjacent), so the ratchet
   costs nothing. The close-dispatcher wrapper is the one exception and lives where `SUBJECT_CLOSERS`
   lives.
+- **Migration numbers can be invalidated from above.** `scripts/check-migration-numbers.mjs` refuses a merge whose new migrations are numbered BELOW anything the base branch has since reached, and a fully green pull request goes red the moment another lane lands a higher number on `main`. Before landing the build on `main`, the merge agent simulates it (`git worktree add <scratch> --detach <branch>; cd <scratch> && git merge --no-edit origin/main; GITHUB_BASE_REF=main node scripts/check-migration-numbers.mjs`, no node_modules needed) and renumbers the build's migrations above `main`'s highest if the gate says so. Renumbering is allowed BEFORE a migration has run on any real instance and never after, because `_migrations_applied` keys on the filename.
 - **New documents are guarded the day they land:** `scripts/check-doc-links.mjs` now globs every `.md` under `docs/` and the root (PR #141), so `docs/GOVERNANCE.md` must name only paths that exist; run it before pushing, and do not edit that script while #141 is open.
 - **Every lane ships red-to-green tests**, runs `pnpm check`, `pnpm check:tests` cold, its own suites
   alone and inside the full run, `node scripts/check-voice.mjs`, and regenerates `docs/GOVERNANCE.md`
