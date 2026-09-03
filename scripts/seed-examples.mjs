@@ -1,10 +1,19 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S npx tsx
 /**
  * Seed standing examples into a target schema.
  *
- *   node scripts/seed-examples.mjs --url "mysql://user:pass@host:port/schema"
- *   node scripts/seed-examples.mjs --url "..." --module library
- *   node scripts/seed-examples.mjs --url "..." --clear
+ *   npx tsx scripts/seed-examples.mjs --url "mysql://user:pass@host:port/schema"
+ *   npx tsx scripts/seed-examples.mjs --url "..." --module library
+ *   npx tsx scripts/seed-examples.mjs --url "..." --clear
+ *
+ * RUN IT UNDER tsx, NOT plain node. It imports the reward parser from
+ * shared/questRewards.ts, and node cannot resolve a TypeScript module: under
+ * `node` this script now dies at import with ERR_MODULE_NOT_FOUND. That is
+ * deliberate and it is the cheaper failure. It used to carry its own copy of
+ * the parser, which disagreed with the shared one about range ordering,
+ * negative clamping and truncation, and wrote bounds no error ever mentioned.
+ * A loud import error beats a quiet wrong number in the database.
+ * `measure:provisioning` already runs an .mjs under tsx the same way.
  *
  * Every row written here carries is_example = 1 and is INERT: nothing in this
  * script touches the ledger, escrow, Stripe, or the capability gate. The unsafe
@@ -19,6 +28,7 @@ import mysql from "mysql2/promise";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseRewardRange } from "../shared/questRewards";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SEED_FILE = path.resolve(__dirname, "..", "server", "seeds", "examples-seed.json");
@@ -148,18 +158,12 @@ if (want("progression")) {
 }
 
 // ── quests ───────────────────────────────────────────────────────────────────
-// gratitude_min/max are DERIVED, never authored: shared/questRewards.ts is the
-// only parser, and en dash / em dash / hyphen / "to" all separate a range.
-function parseRange(raw) {
-  const s = String(raw ?? "").trim();
-  const parts = s.split(/\s*(?:–|—|-|to)\s*/i).map((p) => Number(p.replace(/[^\d.]/g, "")));
-  if (parts.length >= 2 && parts.every(Number.isFinite)) return { min: parts[0], max: parts[1] };
-  const n = Number(s.replace(/[^\d.]/g, ""));
-  return Number.isFinite(n) && s ? { min: n, max: n } : { min: 0, max: 0 };
-}
 if (want("quests")) {
   for (const q of seed.quests.quests) {
-    const r = parseRange(q.gratitude);
+    // gratitude_min/max are DERIVED, never authored: parseRewardRange is the
+    // parser, the same one server/lib/examples.ts and server/repos/quests.ts
+    // use, so this script and the shipped path write identical bounds.
+    const r = parseRewardRange(q.gratitude);
     await ins("quests", {
       id: q.id, title: q.title, description: q.description, impact: q.impact,
       gratitude: q.gratitude, gratitude_min: r.min, gratitude_max: r.max,
