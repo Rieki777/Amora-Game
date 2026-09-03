@@ -2255,6 +2255,27 @@ its votes attributed to the being it speaks for on every roll and read-back. The
 `clans` lanes own it; nothing in the org chart's agent model may assume an agent never has a
 `users` row.
 
+### 19H. Rulings relayed by the economics session (2026-09-03), pending his word to this session
+
+The economics session reports these rulings from the founder the same day. The dry-run ones match
+what sections 21.1 and 22 specify and are taken as settled: dry-run warnings never block a launch
+and stay attached to the proposal so stewards see them at vote time; any member may run a dry run;
+expired gratitude is shown as underutilisation; a trial moon's payouts stay paid; the preview is
+binding. Two change governance arithmetic and are recorded as RELAYED until the founder says them
+here:
+
+- **Every token, Voice included, is buyable through a money contribution.** Section 7 records the
+  opposite as a closed hole (exploit 2: a purchasable voice-kind token reproduced as a weight token
+  and then refused; `weightTokenProblem` in `server/lib/governanceWeights.ts` still refuses it). If
+  confirmed, the guard is relaxed deliberately, the Birthing document and every ballot show each
+  holder's share, and the document says plainly that Voice can be bought and that transparency is
+  the protection.
+- **Voice decays by a village-set percentage per cycle, default 1 percent.** The frozen weights at a
+  ballot's open read the balance the ledger holds at that instant, so decay posted at cycle close
+  by settlement is the balance quorum reads, with no change to the engine, provided decay is a
+  ledger posting to a sink (conservation holds) and never a rewrite of a balance. The digest shows
+  it as voice that waned this moon.
+
 ### The mandate that follows
 
 > "your role now is to respond to my ideas for improvement with a final execution plan. Then you're
