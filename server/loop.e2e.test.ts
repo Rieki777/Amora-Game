@@ -938,6 +938,61 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       message: "Anonymous thanks.",
     });
     expect(unauthenticated.status).toBe(401);
+
+    /*
+     * THANKING SOMEBODY BY THE ONLY NAME THIS SITE EVER SHOWS YOU.
+     *
+     * The wall's recipient field was `type="email" required`, and no surface
+     * in this build prints a member's address: the browser refused everything
+     * a member could actually have obtained. A picker would want a member
+     * directory, which is its own privacy question, so the field takes the
+     * handle that is already public on every profile and the server resolves
+     * it. Both spellings still reach the same person.
+     */
+    const peerHandle = (await api("GET", "/api/profile", undefined, peerToken)).json.handle;
+    expect(typeof peerHandle).toBe("string");
+    expect(peerHandle.length).toBeGreaterThan(0);
+
+    const byHandle = await api(
+      "POST",
+      "/api/game/gratitude/send",
+      { to: `@${peerHandle}`, amount: 1, message: "By handle, which is all I can see." },
+      doerToken,
+    );
+    expect(byHandle.status).toBe(200);
+    expect(byHandle.json.entry.toId).toBe(peerId);
+
+    // Bare, with no leading @, reaches the same person: an address is the one
+    // with an @ in the MIDDLE.
+    const bareHandle = await api(
+      "POST",
+      "/api/game/gratitude/send",
+      { to: peerHandle, amount: 1, message: "Bare handle, same person." },
+      doerToken,
+    );
+    expect(bareHandle.status).toBe(200);
+    expect(bareHandle.json.entry.toId).toBe(peerId);
+
+    // A handle nobody wears says so, and says which of the two things the
+    // sender got wrong. A generic failure here sends somebody hunting for an
+    // email address they were never going to find.
+    const ghost = await api(
+      "POST",
+      "/api/game/gratitude/send",
+      { to: "@nobody-lives-here", amount: 1, message: "Into the void." },
+      doerToken,
+    );
+    expect(ghost.status).toBe(404);
+    expect(String(ghost.json.error)).toContain("No villager with that handle");
+
+    // An empty recipient is a 400 and never a lookup.
+    const nobody = await api(
+      "POST",
+      "/api/game/gratitude/send",
+      { to: "   ", amount: 1, message: "To whom?" },
+      doerToken,
+    );
+    expect(nobody.status).toBe(400);
   });
 
   it("S1: every admin mutation writes an audit row naming a real person", async () => {

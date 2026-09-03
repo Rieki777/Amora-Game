@@ -455,7 +455,7 @@ import {
 import { usersRepo } from "./repos/users";
 import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } from "./repos/gratitude";
 import { claimsRepo as claimsRepoFactory, questsRepo as questsRepoFactory } from "./repos/quests";
-import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
+import { asBudget, sendGratitude, type GratitudeBudget, type GratitudeDeps } from "./lib/gratitude";
 import { recentEvents, recordEvent } from "./lib/events";
 import { checkToolLink } from "./lib/toolcheck";
 import { canSeeTool } from "../shared/toolsVisibility";
@@ -3924,17 +3924,16 @@ const gratitudeDeps: GratitudeDeps = {
   stageMultiplierFor: async (user: any) => Math.max(0, numberVar(`progression.multiplier.${await stageOf(user)}`)),
 };
 
-function gratitudeBudget(user: any) {
-  return budgetFor(gratitudeDeps, user);
-}
+/** The one allowance (R73), in the older shape `budget` has always been sent in: `asBudget` renames
+ *  `cycleKey` and computes nothing. Why this stopped reading `budgetFor`: server/lib/gratitude.ts. */
+const gratitudeBudget = async (u: any): Promise<GratitudeBudget> => asBudget(await gratitudeAllowance(u));
 
 /**
  * The same multiplier, for a caller that holds an id and no member row.
  *
- * The economy engine's give path needs it (R73: one allowance, so
- * `allowanceFor` is `gratitude.base_budget` times the giver's stage the same
- * way `budgetFor` is), and it takes a userId because it is called from inside
- * `give` before the giver's row has been read.
+ * The economy engine's give path needs it (R73: one allowance, and `allowanceFor`
+ * is `gratitude.base_budget` times the giver's stage), and it takes a userId
+ * because it is called from inside `give` before the giver's row has been read.
  *
  * A member nobody can find gets 0, which is a refusal and never an invented
  * number: `give` locks the giver's row a moment later and refuses an unknown
@@ -16265,13 +16264,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
     /*
      * WHO IT IS FOR: an email the sender typed, or an id an API caller holds.
      *
-     * The email path is the one members use and it matches
-     * `/api/game/gratitude/send`, which has taken a typed address since the
-     * beginning. That is deliberate rather than lazy: a picker needs a member
-     * DIRECTORY endpoint, and a list of everyone's names and ids readable by
-     * anyone signed in is a privacy surface with its own question to answer.
-     * Typing the address of the person in front of you at the market answers
-     * none of it.
+     * THE DIRECTORY IS STILL REFUSED: a picker needs one, and a list of every
+     * member's name and id readable by anyone signed in is a privacy surface
+     * with its own question to answer. It never justified the EMAIL though.
+     * `/api/game/gratitude/send`, which this used to name as the precedent for
+     * asking, takes a public `@handle` now (`resolveTyped`, lib/gratitude.ts),
+     * which leaves sending TOKENS the one door still asking for an address.
      */
     const typedEmail = String(toEmail ?? "").trim();
     const recipient = typedEmail
@@ -20799,8 +20797,8 @@ ${inner}
   app.post("/api/game/gratitude/send", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to send " + mergedConfig().currency.nameLower });
-    const { toEmail, amount, message } = req.body ?? {};
-    const outcome = await sendGratitude(gratitudeDeps, { fromUser: user, toEmail, amount, message });
+    const { to, toEmail, amount, message } = req.body ?? {};
+    const outcome = await sendGratitude(gratitudeDeps, { fromUser: user, to, toEmail, amount, message });
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     await addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(outcome.recipient.name)}`, { actorUserId: user.id, entityType: "user", entityRef: outcome.recipient.id });
     await notify({
