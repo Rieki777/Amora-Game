@@ -32,6 +32,7 @@ import {
   isNeedWeight,
   needKeyProblem,
   needLabelFor,
+  NEED_DEPTHS,
   type NeedDepth,
   type NeedSubject,
   type NeedWeight,
@@ -165,10 +166,14 @@ export function scopeSummary(rows: NeedScopeRow[]): {
   deepestTarget: NeedDepth | null;
 } {
   const live = rows.filter((r) => r.active);
-  const order: NeedDepth[] = ["deprived", "unmet", "alive", "satisfied", "thriving"];
+  // The ladder comes from shared/needs.ts and is never restated here. A second
+  // copy of the order is how one screen comes to think Alive outranks
+  // Satisfied.
   let deepest: NeedDepth | null = null;
   for (const r of live) {
-    if (deepest === null || order.indexOf(r.depthTarget) > order.indexOf(deepest)) deepest = r.depthTarget;
+    if (deepest === null || NEED_DEPTHS.indexOf(r.depthTarget) > NEED_DEPTHS.indexOf(deepest)) {
+      deepest = r.depthTarget;
+    }
   }
   return {
     answered: rows.length > 0,

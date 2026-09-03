@@ -33,6 +33,11 @@
  * scripts/check-admin-reach.mjs carries four ALLOWED lines naming this file and
  * saying to delete them when that panel lands. Same posture the land lane took.
  *
+ * A LANE THAT WANTS THE FIGURES WITHOUT HTTP imports `needsCoverage` and
+ * `needSeatings` from server/lib/needs.ts, which is where they live. The test
+ * run and the health snapshot both read the same two figures, and re-deriving
+ * either from its own SQL is how a preview and a report come to disagree.
+ *
  * THIS MODULE IS SHARED WITH LANE N4. The member's own card (`member_needs`)
  * registers its routes here rather than in a second module, because
  * server/index.ts is under a no-net-lines ratchet that exempts exactly one
@@ -44,8 +49,6 @@ import { recordEvent } from "../lib/events";
 import {
   coverageReport,
   linkNeed,
-  needsCoverage,
-  needSeatings,
   readScope,
   retireNeed,
   scopeProblem,
@@ -212,12 +215,3 @@ export function register(app: Express, deps: Deps): void {
     res.json({ success: true });
   });
 }
-
-/**
- * The two derived reads, exported for a lane that wants them without HTTP.
- *
- * The test run (lane D1) and the health snapshot (lane H1) both read the same
- * two figures, and re-deriving either of them from their own SQL is how a
- * preview and a report come to disagree.
- */
-export { needsCoverage, needSeatings };
