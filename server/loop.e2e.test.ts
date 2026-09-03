@@ -2615,10 +2615,22 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       data: { object: { id: "cs_xloop_1", payment_intent: "pi_xloop_1", metadata: { module: "exchange", orderId: "xo-loop-1" } } },
     };
     expect((await webhook(settle)).status).toBe(200);
+    // `/api/game/ledger` answers in MINOR units, so an assertion about it has
+    // to say which scale it means. Reading `decimals` off the registry states
+    // the arithmetic instead of restating a number the registry owns: at
+    // decimals 0 this is 30 and at 4 it is 300000, and the assertion is the
+    // same sentence either way.
+    const [[creditToken]] = await testDb.conn.query<any[]>(
+      "SELECT decimals FROM tokens WHERE slug = 'stay-credits'",
+    );
+    const creditScale = 10 ** Number(creditToken?.decimals ?? 0);
     const doerBal = await api("GET", "/api/game/ledger", undefined, doerToken);
-    expect(doerBal.json.balances["stay-credits"]?.balance).toBe(30);
-    expect(doerBal.json.entries.some((e: any) => e.source === "exchange_purchase" && e.amount === 30)).toBe(true);
+    expect(doerBal.json.balances["stay-credits"]?.balance).toBe(30 * creditScale);
+    expect(doerBal.json.entries.some((e: any) => e.source === "exchange_purchase" && e.amount === 30 * creditScale)).toBe(true);
     // Stock came DOWN — treasury sold what it held, minted nothing.
+    // `treasuryStock` answers in WHOLE tokens, which is what the buy guard,
+    // the market lens and this desk all compare against, so 470 is 470 at any
+    // decimals. It is deliberately NOT scaled here.
     const adminView = await api("GET", "/api/admin/exchange", undefined, founderToken);
     expect(adminView.json.stock["stay-credits"]).toBe(470);
     expect(adminView.json.orders.find((o: any) => o.id === "xo-loop-1").status).toBe("paid");
@@ -3762,7 +3774,17 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       headers: { "Content-Type": "application/json", "stripe-signature": `t=${at},v1=${createHmac("sha256", "whsec_looptest").update(`${at}.${seedPayload}`).digest("hex")}` },
       body: seedPayload,
     });
-    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["swap-a"]?.balance).toBe(100);
+    // Both sides of a swap can sit at different scales, so each token's own
+    // decimals are read and the assertions below state the human number times
+    // its own scale. At decimals 0 every number here is unchanged.
+    const [swapTokenRows] = await testDb.conn.query<any[]>(
+      "SELECT slug, decimals FROM tokens WHERE slug IN ('swap-a','swap-b')",
+    );
+    const scaleOf = (slug: string) =>
+      10 ** Number(swapTokenRows.find((t: any) => String(t.slug) === slug)?.decimals ?? 0);
+    const scaleA = scaleOf("swap-a");
+    const scaleB = scaleOf("swap-b");
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["swap-a"]?.balance).toBe(100 * scaleA);
 
     // ── THE QUOTE: receive-driven, and it shows its work. ──
     const quote = await api("POST", "/api/exchange/swap/quote", { payToken: "swap-a", receiveToken: "swap-b", receiveQuantity: 10 }, peerToken);
@@ -3800,8 +3822,8 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // Assert on the BODY so a refusal names itself instead of hiding as 409.
     expect(swap.json).toMatchObject({ success: true });
     const after = (await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances;
-    expect(after["swap-a"].balance).toBe(96);
-    expect(after["swap-b"].balance).toBe(10);
+    expect(after["swap-a"].balance).toBe((100 - 4) * scaleA);
+    expect(after["swap-b"].balance).toBe(10 * scaleB);
     // Exactly two ledger rows, opposite directions across the treasury.
     const [legs] = await testDb.conn.query<any[]>(
       "SELECT from_account, to_account, token_type, amount FROM token_ledger WHERE source = 'exchange_swap' AND source_ref = ?",
@@ -3810,6 +3832,14 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(legs.length).toBe(2);
     expect(legs.filter((l: any) => l.to_account === "sys:treasury").length).toBe(1);
     expect(legs.filter((l: any) => l.from_account === "sys:treasury").length).toBe(1);
+    // WHAT EACH LEG ACTUALLY POSTED. Counting the rows and reading their
+    // directions leaves the amounts unchecked, which is the half a units bug
+    // lives in: two legs in the right directions carrying a ten-thousandth of
+    // the trade look exactly like this from a row count.
+    const payLeg = legs.find((l: any) => String(l.token_type) === "swap-a");
+    const receiveLeg = legs.find((l: any) => String(l.token_type) === "swap-b");
+    expect(Number(payLeg.amount)).toBe(4 * scaleA);
+    expect(Number(receiveLeg.amount)).toBe(10 * scaleB);
 
     // Replay of the SAME intent returns the SAME receipt and moves nothing.
     const replay = await api("POST", "/api/exchange/swap", {
@@ -3818,7 +3848,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(replay.status).toBe(200);
     expect(replay.json.replay).toBe(true);
     expect(replay.json.receiptNo).toBe(swap.json.receiptNo);
-    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["swap-b"].balance).toBe(10);
+    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["swap-b"].balance).toBe(10 * scaleB);
 
     // A quote that went stale is refused WITH the fresh one attached.
     await api("POST", "/api/admin/exchange/tokens/swap-b/price", { priceMinor: 220, note: "Wet-season adjustment" }, founderToken);
@@ -3846,6 +3876,12 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     }, peerToken);
     expect(capped.status).toBe(409);
     expect(capped.json.code).toBe("MEMBER_CAP");
+    // THE NUMBER, not only the code. The per-member allowance is 100 whole
+    // swap-b and 10 of them are spent, so 90 are left. A cap comparing a
+    // MINOR usage against a whole-token allowance would return the same code
+    // here and report 0 remaining, so the code alone cannot tell a binding
+    // cap from one that has stopped meaning anything.
+    expect(capped.json.remaining).toBe(90);
 
     // A halted token refuses both quote and execute, and resume needs words.
     expect((await api("POST", "/api/admin/exchange/tokens/swap-b/halt", { reason: "Checking the rate" }, founderToken)).status).toBe(200);

@@ -383,6 +383,29 @@ has never hurt anyone: the ledger is empty.
 away. The engine reports that as `unpayable` rather than paying zero silently,
 which is right, but nothing stops the rule being saved.
 
+**The exchange is the first module to answer the units question in full, and its
+answer is the shape the others can copy.** `server/lib/exchange.ts` runs in WHOLE
+tokens throughout: quotes, `exchange_orders.quantity` and `pay_quantity`, the
+per-cycle swap caps a steward types, and every figure the module hands back to a
+caller. The ledger runs in minor units. The two meet at exactly six places, three
+writing and three reading. Writing: the settle leg in `settleExchangeOrder` and
+both legs of `executeSwap` each call `toLedgerUnits` with their own token's slug,
+which matters on a swap because the two sides can sit at different scales.
+Reading: `treasuryStock`, `swapCycleUsage` and `swappableBalance` each call
+`fromLedgerUnits` before returning, so the twelve reads of those three functions
+in `server/index.ts`, every one of which weighs the figure against a whole-token
+quantity, a steward-typed cap or a person's eyes, keep both sides in one unit
+with no edit of their own.
+`quoteSwap` is untouched: it never sees a slug, its prices are cents per whole
+token, and its ceil-toward-the-treasury proof is stated over integers. The place
+a second conversion is easiest to add by accident is `swappableBalance`, whose
+`held` adds a HUMAN sum from `exchange_orders.quantity` to a MINOR sum from
+`token_ledger.amount`; only the second half converts, and dividing the whole sum
+takes the human half down twice and quietly stops the chargeback hold holding.
+`server/lib/exchange.units.test.ts` runs every one of these at decimals 0 and at
+decimals 4 against a real schema, because at decimals 0 alone each conversion is
+the identity and proves nothing.
+
 ---
 
 ## 8. What is enforced, and what is only convention
