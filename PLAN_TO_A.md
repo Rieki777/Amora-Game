@@ -131,12 +131,31 @@ its own coordinator is integrating.
 
 Two critical findings, both structural.
 
-1. **`ci.yml` is one job of 33 sequential steps with no `if: always()`, and
-   `pnpm test` is step 28.** Any of the 27 guards before it failing means the
-   suite never runs, and the build still reports a single red step. This is not
-   hypothetical: CI was red for five commits this way, and for those commits
-   nothing ran the tests at all. Split the job, or mark the suite `if: always()`,
-   so a guard failure and a test failure are different facts.
+1. **`ci.yml` is one job of sequential steps with no `if: always()`, and the
+   test suite is the second-to-last of them.** Any guard before it failing
+   means the suite never runs, and the build still reports a single red step.
+   This is not hypothetical: CI was red for five commits this way, and for
+   those commits nothing ran the tests at all. Split the job, or mark the
+   suite `if: always()`, so a guard failure and a test failure are different
+   facts.
+
+   The count is deliberately not written here any more. This entry said "33
+   sequential steps" and "`pnpm test` is step 28" when it was written on
+   2026-09-03, and both were stale by that afternoon: the fork env audit and
+   the village-fact guard landed the same day and pushed the suite back twice.
+   Three lanes had already been briefed on a number from an earlier reading
+   and would have reported it back as completeness. Measure it instead, which
+   takes one command and is never stale:
+
+   ```bash
+   grep -cE '^      - name: ' .github/workflows/ci.yml   # steps in the verify job
+   grep -n  '^      - name: ' .github/workflows/ci.yml   # and where the suite sits
+   ```
+
+   At b5ef673 that reads 35 steps with the suite at 33, so 32 guards gate one
+   test run. The number moves every time a lane adds a gate, and the finding
+   gets worse each time, which is the argument for fixing the structure rather
+   than tracking the figure.
 2. **Nothing checks that a client fetch reaches a route that exists.** An audit
    pointed the member-facing quest-claim button at a nonexistent endpoint and the
    suite stayed green. A guard comparing every `fetch("/api/...")` in
