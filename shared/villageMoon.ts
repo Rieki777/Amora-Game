@@ -155,21 +155,53 @@ export function formatMoonWindow(startsAt: Date | string, endsAt: Date | string)
 }
 
 /**
- * The short label, the one that replaces every cycle id a member used to see.
+ * THE COUNT ON ITS OWN, and the one place the three standings become words.
+ *
+ * "Moon 47" when there is a count, "Before Moon 1" for a lunation earlier than
+ * the anchor, and NOTHING AT ALL for a village that has not set one. That
+ * empty string is the point of the function: a surface with no count prints no
+ * moon number instead of "Moon 0" or a negative, and every caller composes
+ * around whatever it gets back.
  *
  * Keyed by the standing union rather than typed `Record<string, string>`, so
  * a fourth standing added later is a compile error here instead of an empty
  * span on somebody's profile.
  */
+export function moonOrdinalWords(standing: MoonStanding, ordinal: number | null): string {
+  const forms: Record<MoonStanding, () => string> = {
+    counted: () => `Moon ${ordinal}`,
+    before: () => "Before Moon 1",
+    unanchored: () => "",
+  };
+  return forms[standing]();
+}
+
+/**
+ * The same words, for a caller holding a lunation number and the anchor.
+ *
+ * This is what the calendar surfaces call. They know which lunation a day
+ * falls in (`shared/lunar.ts` hands them `cycleNumber` on every month) and
+ * they are handed the anchor once with their payload, so they never assemble
+ * a whole `VillageMoon` just to print four characters.
+ */
+export function moonCountLabel(cycleNumber: number, moonOneCycle: number | null): string {
+  return moonOrdinalWords(
+    moonStanding(cycleNumber, moonOneCycle),
+    villageMoonOrdinal(cycleNumber, moonOneCycle),
+  );
+}
+
+/**
+ * The short label, the one that replaces every cycle id a member used to see.
+ *
+ * The count comes from `moonOrdinalWords` and is never spelled out again here:
+ * two functions deciding what an unanchored village reads is two functions
+ * that can disagree about it.
+ */
 export function villageMoonLabel(moon: VillageMoon | null | undefined): string {
   if (!moon) return "";
   const window = formatMoonWindow(moon.startsAt, moon.endsAt);
-  const forms: Record<MoonStanding, () => string> = {
-    counted: () => (window ? `Moon ${moon.ordinal}, ${window}` : `Moon ${moon.ordinal}`),
-    before: () => (window ? `Before Moon 1, ${window}` : "Before Moon 1"),
-    unanchored: () => window,
-  };
-  return forms[moon.standing]();
+  return [moonOrdinalWords(moon.standing, moon.ordinal), window].filter(Boolean).join(", ");
 }
 
 /**

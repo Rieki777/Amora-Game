@@ -41,7 +41,7 @@ import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
 import { CrowdpoolAdminTab, ForumCategoriesEditor, ToolsCategoriesEditor } from "@/components/admin/ModuleConfigPanels";
 import { CONTENT_SECTIONS } from "@/components/admin/contentSections";
 import { navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
-import { SETUP_STEPS, measureSetup, setupIsComplete } from "@/components/admin/setupProgress";
+import { IDENTITY_WIZARD_FIELDS, SETUP_STEPS, measureSetup, setupIsComplete } from "@/components/admin/setupProgress";
 import TokenNamingLink from "@/components/admin/TokenNamingLink";
 import TokensTab from "@/components/admin/TokensTab";
 import SetupSection from "@/components/admin/SetupSection";
@@ -9648,7 +9648,7 @@ export function SetupWizard({ password, onOpenTab }: { password: string; onOpenT
   /* `project` only. The two `currency` calls came out with the dead boxes, and
      narrowing the type is what stops a third one going back in by hand. */
   const brandField = (group: "project", key: string, label: string, defaultVal: string) => (
-    <div>
+    <div key={key}>
       <label className="text-xs font-medium text-gray-500 block mb-1">{label}</label>
       <input
         type="text"
@@ -9746,10 +9746,10 @@ export function SetupWizard({ password, onOpenTab }: { password: string; onOpenT
 
       <SetupSection {...step} id="identity" n={1} title="Identity" subtitle="What your project is called.">
         <div className="grid md:grid-cols-2 gap-4 mb-4">
-          {brandField("project", "name", "Project name", defaults.project.name)}
-          {brandField("project", "tagline", "Tagline", defaults.project.tagline)}
-          {brandField("project", "memberName", "What a member is called", defaults.project.memberName)}
-          {brandField("project", "location", "Location", defaults.project.location)}
+          {/* catalystName is a LABEL and not a role: renaming it changes no permission (see client/src/lib/gameApi.ts).
+              It is deliberately NOT one of the measured Identity fields in setupProgress.ts, because it ships with a
+              working default and counting it would leave Identity unfinished forever for a village happy with it. */}
+          {IDENTITY_WIZARD_FIELDS.map(([key, label]) => brandField("project", key, label, defaults.project[key] ?? ""))}
           {/*
             THE TWO CURRENCY BOXES ARE GONE, and they were dead when they were
             here. `mergedConfig()` (server/index.ts) computes

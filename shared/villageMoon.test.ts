@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatMoonWindow,
   isAnchorDateAcceptable,
+  moonCountLabel,
   moonStanding,
   parseAnchorDate,
   villageMoon,
@@ -100,6 +101,51 @@ describe("the window, in words", () => {
 
   it("says nothing rather than Invalid Date when it cannot read an instant", () => {
     expect(formatMoonWindow("not a date", "2026-04-17T00:00:00Z")).toBe("");
+  });
+});
+
+describe("the count on its own, for the calendar surfaces", () => {
+  /*
+   * The calendar grid, the wheel, the moon roll and the .ics feed all print
+   * the moon number beside dates they already have, so they take the count
+   * without a window. Same three standings, same refusal to invent one.
+   */
+  it("names the village's own count and never the moon's place in the lunar year", () => {
+    // Lunation 342 is the seventh moon since a village anchored at 336. Seven
+    // is the number a member reads, whatever position that moon holds in the
+    // lunar year it falls in: that position still exists, still carries the
+    // moon's NAME, and is no longer a number any surface prints.
+    expect(moonCountLabel(342, 336)).toBe("Moon 7");
+    expect(moonCountLabel(336, 336)).toBe("Moon 1");
+  });
+
+  it("keeps counting past thirteen instead of resetting with the lunar year", () => {
+    expect(moonCountLabel(365, 336)).toBe("Moon 30");
+    expect(moonCountLabel(400, 336)).toBe("Moon 65");
+  });
+
+  it("says before the count rather than zero or a negative", () => {
+    expect(moonCountLabel(335, 336)).toBe("Before Moon 1");
+    expect(moonCountLabel(300, 336)).toBe("Before Moon 1");
+  });
+
+  it("says nothing at all for a village that has not started counting", () => {
+    expect(moonCountLabel(342, null)).toBe("");
+  });
+
+  it("reads as before Moon 1 while a founder's future first moon has not arrived", () => {
+    // The third standing: an anchor ahead of today is not an error, it is a
+    // village whose count starts later. Everything before it is "before".
+    expect(moonCountLabel(342, 400)).toBe("Before Moon 1");
+    expect(moonCountLabel(400, 400)).toBe("Moon 1");
+  });
+
+  it("never prints Moon 0 or a negative for any anchor and any lunation", () => {
+    for (const anchor of [null, 0, 1, 300, 336, 400]) {
+      for (const cycle of [0, 1, 299, 335, 336, 337, 500]) {
+        expect(moonCountLabel(cycle, anchor), `cycle ${cycle} anchored at ${anchor}`).not.toMatch(/Moon (0|-\d)/);
+      }
+    }
   });
 });
 

@@ -1623,7 +1623,11 @@ export const VARIABLES: VariableDef[] = [
     category: "Calendar",
     label: "The solar event that opens the village year",
     description:
-      "Moon 1 begins at the first new moon after this event. Twelve or thirteen moons follow, as the sky gives them, until the first new moon after the next one. Villages in the south often choose the June solstice.",
+      // This said "Moon 1 begins ...". Those are now the village count's
+      // words: Moon 1 is the village's first moon ever, set by
+      // `village.first_moon_at`, and it never comes round again. The year's
+      // first moon is a different thing and this dial is the one that moves it.
+      "The year's first moon begins at the first new moon after this event. Twelve or thirteen moons follow, as the sky gives them, until the first new moon after the next one. Villages in the south often choose the June solstice.",
     type: "choice",
     default: "december_solstice",
     choices: [
