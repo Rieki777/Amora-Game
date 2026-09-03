@@ -45,7 +45,13 @@ import {
   type HeadCounts,
   type VoteChoice,
 } from "../../shared/governanceEngine";
-import { applyDelegatedVotes } from "./delegation";
+import {
+  applyDelegatedVotes,
+  deleteDelegatedRow,
+  hiddenChoiceView,
+  revokeDelegation,
+  type OwnVoteFacts,
+} from "./delegation";
 import { delegatedRowsCountOn, evaluationRulesFor } from "../../shared/ballotSubjects";
 // Dispatcher lane: the proposal timing 0135 freezes onto the ballot at open.
 import { DEFAULT_TIMING, timingOf, type ProposalTiming } from "../../shared/governanceKinds";
@@ -790,13 +796,99 @@ export async function withdrawBallot(pool: Pool, input: WithdrawBallotInput): Pr
   return { ok: true, ballot: withdrawn!, votesDiscarded: votes };
 }
 
+export interface UncastResult {
+  /** 1 when a delegated row went, 0 when there was none to take back. */
+  removed: number;
+  /**
+   * False when the ballot is not taking votes. A caller reporting "0 removed"
+   * has to be able to say whether nothing was following here or whether the
+   * window had already shut, and those read the same in a count.
+   */
+  eligible: boolean;
+  /** True when this act also ended the member's live delegation. */
+  delegationEnded: boolean;
+  /** Set only when the act was refused, in the sentence the member reads. */
+  error?: string;
+}
+
 /**
- * A member's own vote, for honest ballot pages.
+ * TAKE MY VOTE BACK: the guarded door onto the one DELETE this engine
+ * performs against `ballot_votes`.
+ *
+ * Both ways a copied choice can be repudiated end at
+ * `deleteDelegatedRow` in server/lib/delegation.ts, which is the only
+ * statement that removes a vote row and is guarded on `followed_user_id IS
+ * NOT NULL` so it can never reach a vote somebody made themselves. Withdrawing
+ * a delegation reaches it through the derivation, which finds nobody deciding
+ * that member any more and removes the row; this function is the per-ballot
+ * door, for a member who wants their voice back on one open vote.
+ *
+ * WHY IT ENDS THE DELEGATION TOO, by default. A row taken back while the
+ * delegation still carries is a row the very next derivation writes again,
+ * because the delegation is what put it there. A member who presses "take my
+ * vote back" and watches the same choice reappear an instant later has been
+ * told the control works when it does not. So the act takes the whole voice
+ * back, and the answer says so in `delegationEnded`. A caller that wants the
+ * bare delete (the derivation does) passes `endDelegation: false`.
+ *
+ * AND WHY QUORUM FALLS. The seat is not cast afterwards. It is not an
+ * abstain: an abstain is a choice somebody made, and nobody made one here.
+ * That is the same empty-versus-zero rule the rest of this file keeps.
+ */
+export async function uncastDelegatedVote(
+  pool: Pool,
+  ballotId: string,
+  userId: string,
+  opts?: { endDelegation?: boolean },
+): Promise<UncastResult> {
+  const ballot = await ballotById(pool, ballotId);
+  if (!ballot) return { removed: 0, eligible: false, delegationEnded: false, error: "No such ballot" };
+  if (ballot.status !== "open") {
+    return {
+      removed: 0,
+      eligible: false,
+      delegationEnded: false,
+      error: `This ballot is ${ballot.status.replace("_", " ")}. Votes are on the record once it closes`,
+    };
+  }
+  // One clock, the same subtraction castVote makes.
+  if (Date.parse(ballot.closesAt) <= Date.now()) {
+    return {
+      removed: 0,
+      eligible: false,
+      delegationEnded: false,
+      error: "The voting period has ended. Votes are locked until a human closes the ballot",
+    };
+  }
+  // THE DELETE COMES FIRST, AND THE DELEGATION GOES ONLY IF SOMETHING WENT.
+  // A member who delegated to somebody who has not voted has no row here to
+  // take back, and revoking anyway would end their delegation while the
+  // answer said "there was nothing here". Two different acts, and the caller
+  // gets told which one happened.
+  const removed = await deleteDelegatedRow(pool, ballotId, userId);
+  const endDelegation = opts?.endDelegation !== false;
+  const delegationEnded = removed > 0 && endDelegation ? await revokeDelegation(pool, userId) : false;
+  // Everyone downstream of this member moves too, so the whole ballot is
+  // re-derived rather than this one row patched. Same reason as everywhere
+  // else: a routine that worked out who was affected would be a second copy
+  // of the resolution rule.
+  if (delegationEnded) await applyDelegatedVotes(pool, ballotId);
+  return { removed, eligible: true, delegationEnded };
+}
+
+/**
+ * A member's own vote, RAW, for the derivation and for anything counting.
  *
  * DELEGATION (0137): `followedUserId` is null on a vote this member made, and
  * otherwise names the member whose choice was copied here, at the END of the
  * chain. A member who handed their voice to B and was decided by C four hops
  * away reads C, because C is the concentration a delegator is owed a sight of.
+ *
+ * SERVE `ownVoteView` BELOW, NEVER THIS (0138). This function answers what is
+ * in the row. While a ballot is open and choices are hidden, a delegated row's
+ * choice is not the delegator's to read yet, and `ownVoteView` is the path
+ * that holds it back. Sending this straight to a page reopens the disclosure
+ * channel that acceptance and suppression were built to close.
  */
 export async function voteOf(pool: Pool, ballotId: string, userId: string): Promise<{ choice: VoteChoice; reason: string | null; followedUserId: string | null } | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
@@ -810,6 +902,72 @@ export async function voteOf(pool: Pool, ballotId: string, userId: string): Prom
     reason: r.reason ?? null,
     followedUserId: r.followed_user_id === null || r.followed_user_id === undefined ? null : String(r.followed_user_id),
   };
+}
+
+/**
+ * A MEMBER'S OWN ROW AS A PAGE MAY READ IT (0138). The serving path.
+ *
+ * `voteOf` says what is in the row; this says what the member is owed right
+ * now. The difference is one rule and it is the whole of it: while a ballot is
+ * OPEN and the village hides choices, a row somebody else decided reports that
+ * it was cast and who decided it, and not what it said. At the close the
+ * choice arrives with everybody else's.
+ *
+ * `choicesHidden` DEFAULTS TO HIDDEN, which is the founder's ruling (Q12) and
+ * the fail-safe direction: a caller that forgets to read the village's setting
+ * holds a choice back, and a caller that forgets it in the other design leaks
+ * one. The lane that builds the voter-identity control passes the village's
+ * answer here; `voterIdentityNow()` in server/lib/delegation.ts resolves it.
+ *
+ * `nameOf` is optional because most callers already have a name resolver and
+ * a member reading "Cast, following Ren" is owed a person rather than an id.
+ * Without one the sentence names no id at all, which is the safe shape: an id
+ * in player-facing copy is not a name, it is a leak of the identifier.
+ *
+ * `have` EXISTS FOR THE LIST PATHS. A page of ballot cards already reads the
+ * viewer's row in the join that fetches their weight, and it cannot afford a
+ * second query per card. Handing that row in skips the read and runs the same
+ * one rule, which is the point: a list that shaped its own answer would be a
+ * second copy of the suppression and would leak the first time the two drift.
+ */
+export async function ownVoteView(
+  pool: Pool,
+  ballot: Pick<BallotRow, "id" | "status">,
+  userId: string,
+  opts?: {
+    nameOf?: (id: string) => Promise<string> | string;
+    choicesHidden?: boolean;
+    have?: { choice: unknown; reason?: unknown; followed_user_id?: unknown } | null;
+  },
+): Promise<OwnVoteFacts | null> {
+  // `have: null` MEANS "I looked and there was no row", which is a different
+  // answer from not passing `have` at all. Reading it as the second would send
+  // a list path back to the database once per card to be told the same thing.
+  const supplied = opts !== undefined && opts.have !== undefined;
+  const raw = opts?.have ?? null;
+  const row = supplied
+    ? raw && raw.choice
+      ? {
+          choice: String(raw.choice) as VoteChoice,
+          reason: raw.reason === null || raw.reason === undefined ? null : String(raw.reason),
+          followedUserId:
+            raw.followed_user_id === null || raw.followed_user_id === undefined
+              ? null
+              : String(raw.followed_user_id),
+        }
+      : null
+    : await voteOf(pool, ballot.id, userId);
+  if (!row) return null;
+  const followedName =
+    row.followedUserId && opts?.nameOf ? await opts.nameOf(row.followedUserId) : null;
+  return hiddenChoiceView({
+    ballotStatus: ballot.status,
+    choicesHidden: opts?.choicesHidden !== false,
+    choice: row.choice,
+    reason: row.reason,
+    followedUserId: row.followedUserId,
+    followedName,
+  });
 }
 
 /** Every vote, with weight: the Hypha voter-list posture, votes on the record. */

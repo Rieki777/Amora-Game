@@ -255,12 +255,12 @@ import {
   objectionsFor,
   openBallot,
   openBallotFor,
+  ownVoteView,
   rowToBallot,
   ruleObjection,
   standingObjectionCount,
   talliesFor,
   voteCount,
-  voteOf,
   votesFor,
   withdrawBallot,
   type BallotRow,
@@ -24650,7 +24650,7 @@ ${inner}
       silent: await Promise.all(
         rollRows.map(async (r: any) => ({ name: await nameOf(String(r.user_id)), weight: Number(r.weight) })),
       ),
-      myVote: viewerId ? await voteOf(pool, b.id, viewerId) : null,
+      myVote: viewerId ? await ownVoteView(pool, b, viewerId, { nameOf }) : null,
       // The viewer's own frozen weight: null means they are outside this
       // electorate, and 0 means they are inside it holding nothing.
       myWeight: myWeightRow ? Number(myWeightRow.weight) : null,
@@ -24944,7 +24944,7 @@ ${inner}
     );
     const [mine] = viewerId
       ? await pool.query<any[]>(
-          "SELECT e.weight, v.choice FROM ballot_electorate e " +
+          "SELECT e.weight, v.choice, v.followed_user_id FROM ballot_electorate e " +
             "LEFT JOIN ballot_votes v ON v.ballot_id = e.ballot_id AND v.user_id = e.user_id " +
             "WHERE e.ballot_id = ? AND e.user_id = ?",
           [b.id, viewerId],
@@ -24981,7 +24981,7 @@ ${inner}
       unity: unityPctOf(tallies),
       quorum: quorumPctOf(tallies, b.totalWeight),
       votedCount: Number(counts?.voted ?? 0),
-      myVote: row?.choice ? { choice: row.choice, reason: null } : null,
+      myVote: await ownVoteView(pool, b, String(viewerId ?? ""), { have: row ?? null }),
       myWeight: row ? Number(row.weight) : null,
     };
   }

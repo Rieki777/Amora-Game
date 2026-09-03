@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import mysql from "mysql2/promise";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
 import { castVote, openBallot } from "../lib/ballots";
-import { setDelegation } from "../lib/delegation";
+import { acceptDelegations, liveDelegationOf, setDelegation } from "../lib/delegation";
 import { register } from "./delegation";
 
 const configured = testDbConfigured();
@@ -111,6 +111,19 @@ const clearDelegations = async () => {
   await pool.query("DELETE FROM delegations WHERE delegator_id LIKE 'u-%'"); // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
 };
 
+/**
+ * Give a delegation AND have it accepted, which is what makes it carry
+ * (0138). The cases below that are about what the routes SAY about a
+ * carrying delegation say the handshake in one line; the handshake itself is
+ * proven through the routes further down.
+ */
+const handed = async (delegator: string, delegate: string) => {
+  const result = await setDelegation(pool, delegator, delegate);
+  if (!result.ok) throw new Error(`delegation refused: ${result.error}`);
+  const taken = await acceptDelegations(pool, delegate, delegator);
+  if (taken.changed !== 1) throw new Error(`acceptance did not land: ${JSON.stringify(taken)}`);
+};
+
 describe.skipIf(!configured)("delegation routes (MySQL)", () => {
   beforeAll(async () => {
     db = await provisionTestDb();
@@ -122,12 +135,15 @@ describe.skipIf(!configured)("delegation routes (MySQL)", () => {
     await db?.drop();
   });
 
-  it("registers four routes on the paths server/index.ts mounts", () => {
+  it("registers seven routes on the paths server/index.ts mounts", () => {
     const handlers = handlersFor({ id: "u-ann" });
     expect([...handlers.keys()].sort()).toEqual([
       "DELETE /api/governance/delegation",
       "GET /api/governance/concentration",
       "GET /api/governance/delegation",
+      "POST /api/governance/delegation/accept",
+      "POST /api/governance/delegation/decline",
+      "POST /api/governance/delegation/uncast",
       "PUT /api/governance/delegation",
     ]);
   });
@@ -169,20 +185,21 @@ describe.skipIf(!configured)("delegation routes (MySQL)", () => {
 
   it("names who actually decides, never only who was named", async () => {
     await clearDelegations();
-    await setDelegation(pool, "u-ben", "u-cai");
+    await handed("u-ben", "u-cai");
     const handlers = handlersFor({ id: "u-ann" });
     const put = await call(handlers.get("PUT /api/governance/delegation")!, { body: { delegateId: "u-ben" } });
     expect(put.status).toBe(200);
-    expect(put.body).toMatchObject({
-      delegateTo: "u-ben",
-      delegateToName: "Ben",
-      decidedBy: "u-cai",
-      decidedByName: "Cai",
-      hops: 2,
-    });
+    // AN OFFER RESOLVES NOWHERE UNTIL IT IS ACCEPTED (0138). Ann named Ben,
+    // and until Ben says yes nobody decides for her, which is what the answer
+    // has to say or she will read a chain that is not carrying her voice.
+    expect(put.body).toMatchObject({ delegateTo: "u-ben", delegateToName: "Ben", pending: true, hops: 0 });
+    expect(String(put.body.message)).toContain("until they accept");
 
+    await call(handlersFor({ id: "u-ben" }).get("POST /api/governance/delegation/accept")!, {
+      body: { delegatorId: "u-ann" },
+    });
     const mine = await call(handlers.get("GET /api/governance/delegation")!);
-    expect(mine.body).toMatchObject({ delegateTo: "u-ben", decidedBy: "u-cai", hops: 2 });
+    expect(mine.body).toMatchObject({ delegateTo: "u-ben", accepted: true, decidedBy: "u-cai", hops: 2 });
     expect(mine.body.chain.map((c: any) => c.userId)).toEqual(["u-ann", "u-ben", "u-cai"]);
   });
 
@@ -210,11 +227,24 @@ describe.skipIf(!configured)("delegation routes (MySQL)", () => {
     expect(opened.ok).toBe(true);
     const handlers = handlersFor({ id: "u-ann" });
     await call(handlers.get("PUT /api/governance/delegation")!, { body: { delegateId: "u-ben" } });
+    await call(handlersFor({ id: "u-ben" }).get("POST /api/governance/delegation/accept")!, {
+      body: { delegatorId: "u-ann" },
+    });
     await castVote(pool, opened.ok ? opened.ballot.id : "", "u-ben", "yes");
 
     const mine = await call(handlers.get("GET /api/governance/delegation")!);
     const here = mine.body.votes.find((v: any) => v.ballotId === (opened.ok ? opened.ballot.id : ""));
-    expect(here).toMatchObject({ choice: "yes", followedUserId: "u-ben", followedName: "Ben" });
+    // THE ROW IS CAST AND THE CHOICE IS HELD BACK (0138). Ann reads that her
+    // vote was cast and who decided it, and reads what it said at the close,
+    // with everybody else's. Serving the choice here is the disclosure
+    // channel acceptance and suppression exist to close.
+    expect(here).toMatchObject({
+      choice: null,
+      choiceHidden: true,
+      followedUserId: "u-ben",
+      followedName: "Ben",
+    });
+    expect(String(here.sentence)).toContain("Cast, following Ben");
 
     // Taking it back says so, and says what it moved.
     const gone = await call(handlers.get("DELETE /api/governance/delegation")!);
@@ -232,8 +262,8 @@ describe.skipIf(!configured)("delegation routes (MySQL)", () => {
 
   it("serves concentration to any signed-in member, heaviest first, summing to the roster", async () => {
     await clearDelegations();
-    await setDelegation(pool, "u-ann", "u-ben");
-    await setDelegation(pool, "u-ben", "u-cai");
+    await handed("u-ann", "u-ben");
+    await handed("u-ben", "u-cai");
     const out = await call(handlersFor({ id: "u-ann" }).get("GET /api/governance/concentration")!);
     expect(out.status).toBe(200);
     expect(out.body.memberCount).toBe(3);
@@ -245,5 +275,166 @@ describe.skipIf(!configured)("delegation routes (MySQL)", () => {
       decidedByName: "Cai",
       hops: 2,
     });
+  });
+
+  // ── 0138: the handshake, the withheld bloc, and taking a vote back ────────
+
+  it("offers a delegation rather than starting it, and shows the offer to both sides", async () => {
+    await clearDelegations();
+    const ann = handlersFor({ id: "u-ann" });
+    const ben = handlersFor({ id: "u-ben" });
+    const put = await call(ann.get("PUT /api/governance/delegation")!, { body: { delegateId: "u-ben" } });
+    expect(put.body).toMatchObject({ pending: true, accepted: false });
+
+    // The delegator sees that she is waiting.
+    const hers = await call(ann.get("GET /api/governance/delegation")!);
+    expect(hers.body).toMatchObject({ delegateTo: "u-ben", accepted: false, decidedBy: null, hops: 0 });
+
+    // The delegate sees who is asking, by name.
+    const his = await call(ben.get("GET /api/governance/delegation")!);
+    expect(his.body).toMatchObject({ pendingToMe: 1, carriedByMe: 0 });
+    expect(his.body.offeredToMe[0]).toMatchObject({ delegatorId: "u-ann", delegatorName: "Ann", accepted: false });
+
+    // And nothing carries yet.
+    expect((await liveDelegationOf(pool, "u-ann"))?.acceptedAt).toBeNull();
+  });
+
+  it("accepts, and says how many voices it now carries", async () => {
+    await clearDelegations();
+    await setDelegation(pool, "u-ann", "u-ben");
+    await setDelegation(pool, "u-cai", "u-ben");
+    const out = await call(handlersFor({ id: "u-ben" }).get("POST /api/governance/delegation/accept")!);
+    expect(out.status).toBe(200);
+    expect(out.body).toMatchObject({ accepted: 2, wasOffered: 2, hadNone: false });
+    expect(out.body.delegators.map((d: any) => d.name).sort()).toEqual(["Ann", "Cai"]);
+    expect((await liveDelegationOf(pool, "u-ann"))?.acceptedAt).not.toBeNull();
+  });
+
+  it("tells a delegate nothing was offered without calling it a failure", async () => {
+    await clearDelegations();
+    const out = await call(handlersFor({ id: "u-ben" }).get("POST /api/governance/delegation/accept")!);
+    expect(out.body).toMatchObject({ success: true, accepted: 0, wasOffered: 0, hadNone: true });
+    expect(String(out.body.message)).toContain("Nobody has offered you their voice");
+  });
+
+  it("refuses an account with no voice the right to carry somebody else's", async () => {
+    await clearDelegations();
+    await setDelegation(pool, "u-ann", "u-ben");
+    const out = await call(handlersFor({ id: "u-ben" }, false).get("POST /api/governance/delegation/accept")!);
+    expect(out.status).toBe(403);
+    expect(String(out.body.error)).toContain("carry anybody's voice");
+  });
+
+  it("lets the delegate hand a voice back, and the seat is uncast again", async () => {
+    await clearDelegations();
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "delegation-route-decline",
+      title: "Handing it back",
+      docMarkdown: "# As checked",
+      method: "custom",
+      weightMode: "equal",
+      unityPct: 80,
+      quorumPct: 20,
+      durationDays: 7,
+      openedBy: "u-cai",
+      electorate: ROSTER.map((m) => ({ userId: m.id, weight: 1 })),
+    });
+    const ballotId = opened.ok ? opened.ballot.id : "";
+    await handed("u-ann", "u-ben");
+    await castVote(pool, ballotId, "u-ben", "yes");
+
+    const out = await call(handlersFor({ id: "u-ben" }).get("POST /api/governance/delegation/decline")!, {
+      body: { delegatorId: "u-ann" },
+    });
+    expect(out.body).toMatchObject({ declined: 1, wasLive: 1, hadNone: false });
+    expect(await liveDelegationOf(pool, "u-ann")).toBeNull();
+    const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT user_id FROM ballot_votes WHERE ballot_id = ?",
+      [ballotId],
+    );
+    expect(rows.map((r: any) => String(r.user_id))).toEqual(["u-ben"]);
+  });
+
+  it("takes a vote back on one ballot, ends the delegation, and says both", async () => {
+    await clearDelegations();
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "delegation-route-uncast",
+      title: "Taking it back",
+      docMarkdown: "# As checked",
+      method: "custom",
+      weightMode: "equal",
+      unityPct: 80,
+      quorumPct: 20,
+      durationDays: 7,
+      openedBy: "u-cai",
+      electorate: ROSTER.map((m) => ({ userId: m.id, weight: 1 })),
+    });
+    const ballotId = opened.ok ? opened.ballot.id : "";
+    await handed("u-ann", "u-ben");
+    await castVote(pool, ballotId, "u-ben", "yes");
+
+    const ann = handlersFor({ id: "u-ann" });
+    const out = await call(ann.get("POST /api/governance/delegation/uncast")!, { body: { ballotId } });
+    expect(out.status).toBe(200);
+    expect(out.body).toMatchObject({ removed: 1, hadNone: false, delegationEnded: true });
+    expect(await liveDelegationOf(pool, "u-ann")).toBeNull();
+    // A second press is answered honestly rather than as a failure.
+    const again = await call(ann.get("POST /api/governance/delegation/uncast")!, { body: { ballotId } });
+    expect(again.body).toMatchObject({ removed: 0, hadNone: true });
+    // And a request that names no ballot is refused in words.
+    const blank = await call(ann.get("POST /api/governance/delegation/uncast")!, { body: {} });
+    expect(blank.status).toBe(400);
+    expect(String(blank.body.error)).toContain("names the vote");
+  });
+
+  it("shows the withheld bloc and both denominators on a live ballot", async () => {
+    await clearDelegations();
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "delegation-route-bloc",
+      title: "Who is holding this up",
+      docMarkdown: "# As checked",
+      method: "custom",
+      weightMode: "equal",
+      unityPct: 80,
+      quorumPct: 20,
+      durationDays: 7,
+      openedBy: "u-cai",
+      // Two of the three accounts are on this roll, so the two denominators
+      // are genuinely different numbers and a page cannot swap them unseen.
+      electorate: [
+        { userId: "u-ann", weight: 1 },
+        { userId: "u-ben", weight: 1 },
+      ],
+    });
+    const ballotId = opened.ok ? opened.ballot.id : "";
+    await handed("u-ann", "u-ben");
+
+    const out = await call(handlersFor({ id: "u-cai" }).get("GET /api/governance/concentration")!, {
+      query: { ballotId },
+    });
+    expect(out.status).toBe(200);
+    expect(out.body.labels).toMatchObject({
+      electorate: "of the people asked on this vote",
+      allAccounts: "of every account in the village",
+    });
+    expect(out.body.onBallot).toMatchObject({
+      ballotId,
+      stillOpen: true,
+      carriesDelegations: true,
+      electorateCount: 2,
+      accountCount: 3,
+      withheldSeats: 1,
+    });
+    const ben = out.body.onBallot.rows.find((r: any) => r.userId === "u-ben");
+    expect(ben).toMatchObject({ name: "Ben", unvotedDelegations: 1, votedHere: false, effectiveVotesOnRoll: 2 });
+    expect(ben.shareOfElectorate).toBeCloseTo(1, 10);
+    expect(ben.effectiveVotesAllAccounts).toBe(2);
+    expect(ben.shareOfAllAccounts).toBeCloseTo(2 / 3, 10);
+    // With no ballot named the answer says so rather than inventing one.
+    const wide = await call(handlersFor({ id: "u-cai" }).get("GET /api/governance/concentration")!);
+    expect(wide.body.onBallot).toBeNull();
   });
 });
