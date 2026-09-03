@@ -812,7 +812,7 @@ function AdminGate({ onAuth }: { onAuth: (token: string) => void }) {
               {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
-          {error && <p className="text-red-500 text-xs">{error}</p>}
+          {error && <p role="alert" className="text-red-500 text-xs">{error}</p>}
           <button
             type="submit"
             disabled={checking}
@@ -1261,7 +1261,7 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
                 {isCards ? "Raw JSON (advanced edits)" : "Edit JSON"}
               </label>
               {parseError && (
-                <span className="text-xs text-red-500">{parseError}</span>
+                <span role="alert" className="text-xs text-red-500">{parseError}</span>
               )}
             </div>
             <textarea

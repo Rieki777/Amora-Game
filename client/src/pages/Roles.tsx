@@ -337,14 +337,19 @@ export default function Roles() {
                 <PeopleLockNote people={people} seats={seatCounts.seats} held={seatCounts.held} />
               </div>
             )}
-            {roles === null && !failed && (
-              <div className="text-center text-muted-foreground py-16">Loading roles…</div>
-            )}
-            {failed && (
-              <div className="text-center text-muted-foreground py-16">
-                The roles list is catching its breath. Please refresh in a moment.
-              </div>
-            )}
+            {/* Same always-present polite region as Circles.tsx: the node is
+                in the DOM from first paint, so the change from the loading
+                line to the failure line is the thing announced. */}
+            <div role="status">
+              {roles === null && !failed && (
+                <div className="text-center text-muted-foreground py-16">Loading roles…</div>
+              )}
+              {failed && (
+                <div className="text-center text-muted-foreground py-16">
+                  The roles list is catching its breath. Please refresh in a moment.
+                </div>
+              )}
+            </div>
 
             {groups.map(({ title, subtitle, roles: groupRoles }) => (
               <div className="mb-14" key={title}>

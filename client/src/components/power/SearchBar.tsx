@@ -214,7 +214,7 @@ export default function SearchBar({
 
       {askAnswer && (
         <div className="mt-3 bg-card border border-border rounded-xl p-4 text-sm text-left">
-          {askAnswer.error && <p className="text-red-600 text-xs">{askAnswer.error}</p>}
+          {askAnswer.error && <p role="alert" className="text-red-600 text-xs">{askAnswer.error}</p>}
           {askAnswer.match && (
             <p className="text-foreground">
               That sounds like{" "}

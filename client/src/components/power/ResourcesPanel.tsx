@@ -258,7 +258,7 @@ export default function ResourcesPanel({
                       onChange={(e) => setPurpose(e.target.value)}
                     />
                   </label>
-                  {problem && <p className="text-xs text-red-600">{problem}</p>}
+                  {problem && <p role="alert" className="text-xs text-red-600">{problem}</p>}
                   <button
                     type="button"
                     disabled={busy || !amountMinor || !purpose.trim()}
