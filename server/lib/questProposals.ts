@@ -396,28 +396,20 @@ export function rewardProblem(reward: HumanReward | null | undefined): string | 
     return "Type what this quest pays before it goes on the board. Nobody else can set that.";
   }
   /*
-   * THE DIGIT TEST, and it is here because `parseRewardRange` cannot be
-   * relied on for this. Its own header says "anything unparseable comes back
-   * valid: false with zeros, so callers can refuse rather than silently
-   * treating a typo as free work", and it does the opposite for one whole
-   * class of input: a label with NO DIGITS AT ALL strips to the empty string,
-   * `Number("")` is 0, `Number.isFinite(0)` is true, and the function returns
-   * `{min: 0, max: 0, valid: true}`. So "some hearts" parses as a valid reward
-   * of nothing.
+   * THE DIGIT TEST THAT USED TO BE HERE IS GONE, and the note survives it.
    *
-   * That matters most exactly here. Under the default cap mode the advertised
-   * label IS the payout contract, so a steward who typed words into this box
-   * would put a quest on the board advertising "some hearts" and paying zero,
-   * with nothing refusing anywhere. This is the gate that stands between a
-   * proposal and the board, so it makes its own check.
+   * `parseRewardRange` documented itself as returning valid:false for anything
+   * unparseable and did the opposite for one whole class: a label with NO
+   * DIGITS stripped to the empty string, `Number("")` is 0, `Number.isFinite`
+   * is true, and it came back `{min: 0, max: 0, valid: true}`. "some hearts"
+   * was a valid reward of nothing, and under the default cap mode the
+   * advertised label IS the payout contract.
    *
-   * A deliberate "0" is still allowed. Caps fail closed in this platform and
-   * zero means zero, which is a real thing a village may want beside a stay
-   * credit. What is refused is a label that never named a number.
+   * This gate carried its own digit check for that. The parser now makes the
+   * same judgement itself, so the check is redundant and one place decides
+   * again instead of two. The test in this file's suite that pinned the old
+   * behaviour has been flipped to assert the new one.
    */
-  if (!/[0-9]/.test(label)) {
-    return `This village could not read "${label}" as an amount. Write a number, or a range like 50-100.`;
-  }
   const range = parseRewardRange(label);
   if (!range.valid) {
     return `This village could not read "${label}" as an amount. Write a number, or a range like 50-100.`;

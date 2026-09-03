@@ -113,14 +113,17 @@ describe.skipIf(!configured)("a proposed quest and the reward a human types", ()
     expect(rewardProblem({ gratitude: "0", stayCreditReward: 2 })).toBeNull();
   });
 
-  it("records the parser defect this gate exists to cover", () => {
-    // NOT A TEST OF MY CODE. `parseRewardRange` documents itself as returning
-    // valid:false for anything unparseable, and for a label with no digits it
-    // returns valid TRUE with zeros: the label strips to "", Number("") is 0,
-    // and 0 is finite. Pinned here so that whoever fixes shared/questRewards.ts
-    // sees this line go red and knows the digit test above can then come out.
+  it("reads a label naming no number as invalid, which it did not always", () => {
+    // THIS TEST USED TO ASSERT THE OPPOSITE, and the flip is the point of it.
+    // `parseRewardRange` documented itself as returning valid:false for
+    // anything unparseable and returned valid TRUE with zeros for a label with
+    // no digits: the label stripped to "", Number("") is 0, and 0 is finite.
+    // So "some hearts" was a valid reward of nothing. It was pinned here as a
+    // tripwire, with a note saying whoever fixed the parser would see it go
+    // red. That happened, the parser is fixed, and the redundant digit guard
+    // this file used to carry in `rewardProblem` has come out with it.
     const parsed = parseRewardRange("some hearts");
-    expect(parsed.valid).toBe(true);
+    expect(parsed.valid).toBe(false);
     expect(parsed.max).toBe(0);
   });
 
