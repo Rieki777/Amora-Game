@@ -53,6 +53,7 @@ import { register as registerOrgSeatingRoutes } from "./routes/orgSeatings";
 import { register as registerOrgRoutes } from "./routes/org";
 import { register as registerGovernanceWeightRoutes } from "./routes/governanceWeights";
 import { register as registerGovernanceWizardRoutes } from "./routes/governanceWizard";
+import { register as registerDelegationRoutes } from "./routes/delegation";
 import { register as registerGovernanceApprovalRoutes } from "./routes/governanceApprovals";
 import { holdingHasLapsed, runTermWatch } from "./lib/stewardship";
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
@@ -26771,6 +26772,7 @@ ${inner}
     isAdmin, authedUser, adminActor, getPool, members, firstName, notify, weightModeNow,
   });
   registerGovernanceWizardRoutes(app, { authedUser, getPool, capabilityCtx, weightModeNow });
+  registerDelegationRoutes(app, { authedUser, getPool, capabilityCtx, members, firstName });
   registerGovernanceApprovalRoutes(app, { authedUser, mayAct, getPool, members, firstName, notify });
 
   /**
