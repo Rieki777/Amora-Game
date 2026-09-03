@@ -17,7 +17,7 @@ given where each is described.
    owns the engine. Read that section before assuming its shape.
 4. **The decimals sweep**, last, with the dry run as the safety net.
 
-You are one of three sessions on this. The governance session owns the shared
+You are one of three sessions on this. **Read "The governance contract" below before deliverable 3**: it carries the founder's rulings that bind money to governance and the dry-run engine's interface. The governance session owns the shared
 simulation engine, the coordinator lands every merge, and there is a written plan
 both of them are working from. See "Who you work with".
 
@@ -307,10 +307,10 @@ are the difference between a green run and a true one.
 
 ## Working here
 
-- **Your own worktree, at a SHORT path.** From
-  `C:/Users/taren/Desktop/Amora/hotfix`:
-  `git worktree add -b wt/econ C:/Users/taren/Desktop/Amora/ECON main`, then copy
-  `.env` into it and `pnpm install`. A deep path breaks `git show <rev>:<path>` on
+- **Your own worktree, at a SHORT path, cut from `origin/main`.** From any clean checkout
+  (`C:/Users/taren/Desktop/Amora/wt-govbrief` is one; `hotfix` is another lane's live worktree
+  today, never cut from it): `git fetch origin && git worktree add -b wt/econ
+  C:/Users/taren/Desktop/Amora/ECON origin/main`, then copy `.env` into it and `pnpm install`. A deep path breaks `git show <rev>:<path>` on
   Windows and the migration guard then reports nonsense.
 - **Copy `.env` or your green means nothing.** Without it about a third of the
   suite skips. An unfiltered run with no database now exits 1 and says so.
@@ -322,6 +322,175 @@ are the difference between a green run and a true one.
   `grep -hoE "node scripts/check-[a-z0-9-]+\.mjs" .github/workflows/*.yml | sort -u`
 - **Migrations are immutable once shipped** and apply at boot with no gate. A
   deploy is a schema change.
+
+---
+
+---
+
+## The governance contract, from the governance session (2026-09-03)
+
+Written by the governance coordinator after reading this prompt. Everything below is either a
+ruling the founder has made (cited to `docs/GOVERNANCE_EVOLUTION_PROMPT.md` on
+`wt/governance-build`, sections 19 to 19G, 20.8, 20.11 and 21) or a seam the two builds share.
+Where this section and the text above disagree, this section is the newer reading; say so to the
+governance session if you think it is wrong.
+
+### The two kinds of decision, and what that does to money
+
+Every proposal the village votes on is one of two kinds, classified once in a table the governance
+build exports (`server/lib/governanceKinds.ts`, or wherever the dispatcher lane put it; read it):
+
+- **A TOKEN_SEND** (a payout, a distribution, a founding allocation, a power transfer that moves
+  balances) **executes the moment its ballot closes passed** when its timing is "at acceptance",
+  which is the default for this kind. A seated steward's NO vote on a token send fails it at close,
+  with a recorded reason; there is no window after it executes. **A minted token cannot be
+  un-minted by governance**: a veto reaches a payout only while its ballot is open, never after.
+- **A GAME_CHANGE** (a setting, a mint rule, a pool dial, a threshold, a role, a module, the vote
+  mode) **never executes at close**. It lands at `lands_at`, the later of the next boundary of the
+  village's active cycle clock and 72 hours after the close, unless a steward vetoes inside that
+  window. Its default timing is the new moon.
+
+Consequences you must build to:
+
+1. **Mint rules and cycle-timed dials land through `applyDueGovernance`**, the governance build's
+   five-minute scheduler job (`server/lib/applyDue.ts`), which also runs from the human cycle close.
+   `applyPendingRules` (the mint-rule promotion at `pending_from_cycle`) is being routed through it
+   and the intended landing cycle is passed in rather than recomputed from `new Date()`. **Do not
+   build a second "later" mechanism in the economy**, and do not move the promotion back into
+   `runSettlement`. If the economy needs something to happen at a boundary, it registers a hook the
+   landing job calls, or asks the governance session.
+2. **Settlement reads the value in force during the cycle it settles.** A cycle-timed dial or a mint
+   rule cannot be applied while an ended, unclosed cycle exists; the landing job refuses it. If
+   `runSettlement` reads a dial at run time rather than at the cycle it settles, that is a defect the
+   dry run must flag and the economics session must fix.
+3. **A bundle waits as a whole.** A proposal mixing a payout with a Game change lands as one Game
+   change at one instant. Your model does not need to handle a half-applied bundle: the changeset
+   applies in two phases (validate everything, then apply with irreversible ledger writes LAST) and
+   writes one `governance_element_ledger` row per element (`ballot_id`, `element_index`, kind, the
+   row written, old value, new value). Read that ledger for "what changed this moon"; never
+   re-derive it.
+4. **`reverse()` taking its amount from the caller is in your path and on ours.** Trial moons and
+   sunset clauses (brief section 21.2) schedule a REVERSION of a Game change; a reversion never
+   claws back a token that was paid under the trial value. But every reversal the economy offers
+   must take its amount from the posting it reverses, or the governance override and redaction
+   paths inherit the 1,000,000-credit hole. Fix `reverse()` before either build lands.
+
+### The cycle clock is governance's, and it is a setting now
+
+The founder ruled the cycle rhythm is a village setting again, lunar by default (19 Q5, 19F).
+`shared/cycleClock.ts` (built in Phase 1b) is the one clock: `boundsFor`, `idFor`, `parseId`,
+`startOf`, `nextBoundaryAfter`, `cycleNumberAt`, with the lunar implementation unchanged from
+`shared/lunar.ts` and a calendar implementation under its own id prefix. **Every cycle id, cap,
+allowance and settlement boundary in the economy reads the clock through that seam**, never
+`shared/lunar.ts` directly, and past cycles keep the ids they closed under. A `cycle.mode` switch is
+a constitutional Game change that lands only at an instant that is a boundary under both clocks
+with the open cycle settled first. Your model must simulate a village on either clock.
+
+### Voice, weight and decimals
+
+- **`village-voice` is THE Voice.** The founder settled it (19B, 19F). Governance changes the
+  default of `governance.weight_token` from `gratitude` to `village-voice`; ruling 4 in
+  `scripts/generate-token-doc.mjs` has already been rewritten by the governance docgen lane
+  ("half built": the switch is reversible and holdings survive; what was missing was the village's
+  own vote, which now exists as the `governance_mode` subject). Coordinate before you touch that
+  generator again: two lanes editing one generator produce a guard that is red for both.
+- **Quorum and unity are pure token weight** (19F), computed over `village-voice` balances (or
+  heads under one-person-one-vote). Your decimals sweep therefore changes the number every ballot
+  is decided on. The governance surfaces that must move with the sweep, and that the governance
+  build owns: `server/lib/governanceWeights.ts` (`weightsFor`, `shareOfTotal`), the standing and
+  weights routes, `MyStanding`, `WeightRecord`, `voteBars.ts`, the Birthing document's distribution
+  table, and the admin mint form's units hint. **Hand the governance session the exact
+  `toLedgerUnits` / `fromLedgerUnits` contract you settle on and the commit it lands in**, and do not
+  convert inside `postTransfer` (the prompt above says why).
+- **Share of total voice is one function.** `shareOfTotal` lives in `governanceWeights.ts`
+  (governance-owned) and both the dry run's concentration flag and the ballot page call it. Do not
+  write a second one in the economics model; import it.
+- **The founding allocation** (19 Q2, 19G): before the Birthing, catalysts issue `village-voice`
+  through ONE faucet exempted from the launch gate in `server/lib/gameStart.ts`, recorded as a
+  proposal-shaped entry, with each catalyst's share of the total shown. The governance `birthing`
+  lane builds the exemption; **your conservation invariant and your generated token document must
+  accept and describe it**, and your dry run must model a village whose only pre-launch supply is
+  that allocation. Self-grant is allowed there with transparency as the protection.
+- **A non-human seat votes** (19G): a river or a mountain holds a voting seat through a human or a
+  bot representative, and whether its weight counts toward quorum is a setting, excluded by
+  default. Your model's concentration figures must be able to attribute a seat's Voice to its
+  representative.
+
+### The shared dry run: the engine's contract, strawman
+
+The governance session owns the engine and will build it in its Phase 2 as the `dryrun-engine`
+lane, on top of `server/lib/proposalDryRun.ts` (Phase 1b), which already shares the changeset
+validator with the executor so the thing previewed is the thing that will run. Build your model
+against this contract; if you need it changed, say so before you build, and we change it together.
+
+```ts
+// shared/dryRun/types.ts  (governance-owned; both models import it)
+export interface VillageSnapshot {          // read once, then plain data; no pool, no connection
+  atIso: string; clock: CycleClockSpec;      // lunar | calendar, timezone
+  tokens: TokenSpec[];                       // slug, kind, decimals, faucet, sinks
+  balances: Record<string, Record<string, bigint>>; // accountId -> slug -> minor units
+  mintRules: MintRuleSpec[]; variables: Record<string, string>;
+  members: MemberSpec[];                     // id, stage, seats, isRepresentative?, representsSeatId?
+  modules: Record<string, Lifecycle>;
+}
+export interface ProposedChange { kind: ChangeItemKind; key?: string; from?: unknown; to?: unknown; timing: 'at_acceptance' | 'next_moon'; expiresAfterCycles?: number }
+export interface SimInput { snapshot: VillageSnapshot; changes: ProposedChange[]; cycles: number; seed: number; concurrency?: number }
+export interface DomainModel {
+  name: 'governance' | 'economics';
+  step(state: SimState, cycle: number, rng: Rng): SimState;   // pure; returns a new state
+  flags(state: SimState, cycle: number): Flag[];               // plain-language, actionable
+  invariants(state: SimState): Violation[];                    // conservation, non-negative non-faucets
+}
+export interface SimResult { baseline: CycleResult[]; proposed: CycleResult[]; diff: Diff[]; flags: Flag[]; violations: Violation[]; seed: number }
+export function simulate(input: SimInput, models: DomainModel[]): SimResult   // writes nothing: takes no pool, no connection, no fs
+```
+
+Rules the engine enforces so the cardinal rule is structural: `simulate` receives plain data and
+has no import path to the pool; the snapshot is taken by a governance-owned reader that opens a
+READ-ONLY connection (`SET TRANSACTION READ ONLY`) and returns plain objects; models are pure
+functions of state; the seed is part of the input and printed in the output; the diff is against
+a baseline run of the same snapshot with no changes. Your economics model implements
+`DomainModel` and owns everything in `step` that moves balances: settlement, mint rules,
+allowances, sinks, exits, the pool. The governance model owns thresholds, weights, concentration,
+windows and landing instants. The engine composes them in a fixed order per cycle (governance
+landings first, then the economics step, then flags and invariants from both) and stops at the
+first violation with the cycle and the posting named.
+
+### Who owns which file (so the merge agent never takes either side)
+
+| Governance session owns | Economics session owns | Shared, edit by category only |
+|---|---|---|
+| `server/lib/applyDue.ts`, `changeset.ts`, `governanceKinds.ts`, `proposalDryRun.ts`, `stewardship.ts`, `delegation.ts`, `governanceWeights.ts`, `ballots.ts`, `mechanics.ts`, `governanceWindows.ts`, `moonDigest.ts`, `shared/cycleClock.ts`, `shared/governanceEngine.ts`, `shared/ballotSubjects.ts`, `shared/dryRun/*`, `server/routes/governance*.ts`, `delegation.ts`, `constitution.ts`, `scripts/generate-governance-doc.mjs` and its guard, `docs/GOVERNANCE.md` | `server/lib/economy.ts`, `ledger.ts`, `spending.ts`, `exit.ts`, `voiceClaim.ts`, `economySeed.ts`, `gratitude.ts`, the mint-rule routes, `server/lib/dryRun/economicsModel.ts`, `scripts/generate-token-doc.mjs` and its guard (tell governance before editing ruling text), `docs/TOKENS.md`, `docs/ECONOMICS.md` and its guard | `shared/gameVariables.ts` (Governance category is governance's; Gratitude, Economy and Ledger categories are economics'; the Cycle keys are governance's), `server/index.ts` (two exempt lines per route module; no net lines), the settlement job registration (governance registers `applyDueGovernance`; economics owns `runSettlement`; neither reaches into the other's body) |
+
+### Numbers, branches and how to reach us
+
+- **Migration numbers:** governance holds 0132 to 0139 and 0144; the bridge lane holds 0140 to
+  0143; **economics takes 0145 to 0149**. Re-measure three ways immediately before creating a
+  file; a green pull request is invalidated from above when another lane lands a higher number,
+  and every lane renumbers at landing time from whatever the ceiling is then (never after a
+  migration has run on a real instance).
+- **Branches:** governance integrates on `wt/governance-build`; cut your worktree from
+  `origin/main`, never from `C:/Users/taren/Desktop/Amora/hotfix`, which is another lane's live
+  worktree today. Land through the coordinator.
+- **The generated documents are a pair.** `docs/TOKENS.md` and `docs/GOVERNANCE.md` each carry a
+  guard; a change that moves either regenerates BOTH in the same commit, or the other guard goes
+  red on the next merge. The governance doc reads `SUBJECT_CLOSERS`, the Governance dials and the
+  clock; yours reads the registry and the faucets; the dry-run engine's types will be read by both.
+- **Reach the governance session** with `SendMessage` to the session named "Amora Governance engine
+  documentation" (the coordinator of the `gb-*` swarm), and the bridge and economy-fixes session as
+  "amora-ec". Say which file you are about to touch when it is on the shared list, before you touch
+  it, and expect the same.
+
+### Two more questions for Rye, from the governance side
+
+5. **Should the dry run's proposal preview be frozen into the ballot document?** Governance's
+   storytelling rule (21.1) freezes the dry run's effects into a constitutional proposal's document
+   so the village votes on what it saw. If the numbers move between proposing and landing, the
+   landing job re-validates and refuses with the element named. That answers your question 3 for
+   Game changes; for a payout, the preview is the amount, and the amount is frozen.
+6. **When a trial moon changes the cycle pool and the moon pays out under it, is that payout the
+   village's to keep?** The governance reading is yes: a reversion undoes the dial, never the
+   tokens. Say so if he rules otherwise.
 
 ---
 
