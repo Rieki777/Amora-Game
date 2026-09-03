@@ -49,7 +49,7 @@ what, where, what breaks without it.
 | `SCHEDULER_ENABLED` | (2026-09-02) Turns the background scheduler off when set to `0`/`off`/`false`/`no`. **Unset means ON**, which is correct. | Set by accident: loans never settle, cycles never close, digests never send, and the only signal is one boot-log line saying NOT STARTED and naming this variable |
 | `HYPHA_LISTENER_*` | (2026-09-02) Fifteen variables for a village running its OWN Base listener process (`server/lib/hypha/selfHostedListener.ts`) instead of the shared ReGen hub. **The web process imports none of them**, so setting them changes nothing until that second process is started. Required: `CONTRACT_ADDRESS`, `RPC_URL`, `WEBHOOK_URL`, `WEBHOOK_SECRET`, `START_BLOCK` on a first run, and at least one of `PASSED_TOPIC0`/`FAILED_TOPIC0`. Optional: `AGREEMENT_ID_TOPIC_INDEX` (0-3), `SPACE_ID`, `CONFIRMATIONS`, `POLL_INTERVAL_MS`, `MAX_ATTEMPTS`, `DATA_DIR`, `CHECKPOINT_PATH`, `DEADLETTER_PATH`. | The listener refuses to start and names the first missing one. The shared hub path (`GOVERNANCE_HUB_SECRET`) is unaffected |
 | `GOOGLE_TOKEN_ENDPOINT` | (dev/CI only) Points the Google token exchange at a local stand-in. Enforced: a value that is not an http loopback address is logged and ignored, and the real Google endpoint is used. | Google is used, which is correct in production |
-| `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests. The harness creates a uniquely-named `village_test_*` schema per provision and drops it after; never point it at the app schema. It also keeps a `village_tpl_*` TEMPLATE schema, migrated once and cloned per suite, swept after 24 hours — so the account needs CREATE/DROP DATABASE rights and will show two families of scratch schema. `pnpm measure:provisioning` prints what that costs. | DB suites skip loudly |
+| `TEST_DATABASE_URL` | (dev/CI only, local .env) scratch-schema MySQL for DB-backed tests. The harness creates a uniquely-named `village_test_*` schema per provision and drops it after; never point it at the app schema. It also keeps a `village_tpl_*` TEMPLATE schema, migrated once and cloned per suite, swept after 24 hours — so the account needs CREATE/DROP DATABASE rights and will show two families of scratch schema. `pnpm measure:provisioning` prints what that costs. | DB suites skip AND an unfiltered run fails; `ALLOW_NO_TEST_DB=1` accepts the smaller suite |
 
 ## Account recovery
 
@@ -1463,14 +1463,20 @@ it. Four new files now sit beside it:
   a founder with no terminal experience can hand to their own Claude
   session.
 
-**A verified trap while building this, worth recording here too:** running
-`pnpm test` with `TEST_DATABASE_URL` unset does not fail and does not warn.
+**A verified trap while building this, and how it was closed.** Running
+`pnpm test` with `TEST_DATABASE_URL` unset used to neither fail nor warn.
 Every database-backed test file skips itself through `describe.skipIf`, the
-run still exits 0, and nothing on screen says a third of the suite did not
-run except the summary line's own skip count. A green run with the variable
-unset proves nothing about every database-backed test: the skip count is the
-number worth reading, not the exit code. `.env.example` and
-`docs/PROVISIONING.md` both say so now.
+run exited 0, and nothing on screen said a third of the suite had not run
+except the summary line's own skip count. Re-measured 2026-09-02: 91 files,
+1,190 tests, exit code 0.
+
+Since 2026-09-02 an unfiltered run with the variable unset FAILS, prints the
+count and names both ways forward. The smaller suite is still available and
+now costs a word: `ALLOW_NO_TEST_DB=1 pnpm test`. `CI` and `REQUIRE_TEST_DB`
+(`pnpm test:full`) outrank that waiver, so a run that declared the database
+mandatory cannot be silenced by an env var in somebody's `.env`. The decision
+is one function, `hollowRunVerdict` in `server/db/provisioningReport.ts`, with
+its table in `server/db/provisioningReport.test.ts`.
 ## `VILLAGE_SECRETS_KEY`: your integration secrets at rest (2026-08-30, secrets lane)
 
 **Set this before you set any key in Admin, Integrations.** Without it that

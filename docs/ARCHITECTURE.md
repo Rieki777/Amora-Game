@@ -1545,8 +1545,12 @@ schema you find there is not evidence of a live run.
 
 Sources: CI uses a
 `mysql:8` service container; locally, `TEST_DATABASE_URL` in `.env` points
-at a scratch-capable server — never the app schema. No `TEST_DATABASE_URL`
-→ DB-backed suites **skip loudly** rather than pass hollowly.
+at a scratch-capable server, never the app schema. No `TEST_DATABASE_URL`
+→ the DB-backed suites skip AND the run **fails** (`hollowRunVerdict` in
+`server/db/provisioningReport.ts`), because a skipped third that exits 0
+cannot be told apart from a pass. `ALLOW_NO_TEST_DB=1` opts into the smaller
+suite; a filtered run needs no opt-out; `CI` and `REQUIRE_TEST_DB` outrank
+the opt-out.
 
 **Migrate once, clone per suite (2026-08-22).** 44 test files provision a
 schema and 47 calls do it, so "applies every migration" used to mean applying

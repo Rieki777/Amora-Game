@@ -52,10 +52,18 @@ so it is right on the day you run it. Prefer it to this block when the two disag
 
 ### Running the suite honestly
 
-- **`pnpm test:full`, not `pnpm test`, before any "green" claim.** A bare `pnpm test`
-  with no `TEST_DATABASE_URL` skips 87 files (about a third of the tests, the ledger and
-  every route among them) and still exits 0. `test:full` turns that skip into a failure.
-  Either way the run now prints what it did not do, after the summary.
+- **A whole run with no `TEST_DATABASE_URL` now FAILS.** It used to skip 91 files
+  (1,190 tests on 2026-09-02, about a third of the suite, the ledger and every route
+  among them) and still exit 0, which is a false green nobody can distinguish from a
+  real one. A skip is not a pass. The run still prints what it did not do, after the
+  summary, and now the exit code says the same thing.
+  - No database and you want the smaller suite anyway: `ALLOW_NO_TEST_DB=1 pnpm test`.
+    That is a documented path (`CONTRIBUTING.md`), it just costs a word now.
+  - Running one file or a glob is unaffected: a filtered run makes no claim about the
+    suite, so it needs no opt-out.
+  - `pnpm test:full` (REQUIRE_TEST_DB=1) is still the stricter form and still what to
+    run before a "green" claim: it also fails when the variable is SET and no schema
+    was provisioned, which is a database that could not be reached.
 - **Build first.** The 41 e2e suites boot `dist/index.js`. A run whose bundle is older than
   the source it was built from is now refused by name (`server/db/distFreshness.ts`), so a
   green result cannot be about yesterday's code.
@@ -149,7 +157,8 @@ time so `/health` cannot report a build that isn't running.
 - It is **order-dependent**. Never filter with `vitest -t`; run whole files or the whole suite.
 - DB-backed suites need `TEST_DATABASE_URL` in the local `.env` (the S5 harness in
   `server/db/testDb.ts` drops/recreates a scratch schema — never point it at the app schema).
-  Without it they skip loudly rather than pass hollowly.
+  Without it they skip, and an unfiltered run fails on the way out (`ALLOW_NO_TEST_DB=1`
+  accepts the smaller suite). See "Running the suite honestly" above.
 - **Provisioning migrates once per run, not once per suite.** Every file in `drizzle/` provisions
   a schema, and that count only grows (it was 44 when this line was written and `ls drizzle/*.sql
   | wc -l` is the only figure worth trusting);
