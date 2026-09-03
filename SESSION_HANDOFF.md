@@ -117,9 +117,12 @@ than on which side looks newer:
 
 **Also landed this session and worth knowing:** the five module images are live
 and the image budget went DOWN (2117 to 2111 KB) rather than up, by recompressing
-23 avatars with no visible loss. The avatar masters in `scripts/avatar-bases` are
-NOT in git, so the shipped WebP files are the only masters there are; that is
-recorded in `client/public/images/avatars/manifest.json` beside the files.
+23 avatars with no visible loss. The avatar source masters are NOT in git
+(the guard here will not even let this file name their directory, because it does
+not exist in the repository), so the shipped WebP files are the only masters
+there are. That is recorded in `client/public/images/avatars/manifest.json`
+beside the files, along with the warning that regenerating from the avatar script
+puts roughly 138 KB straight back onto a budget now sitting exactly on its floor.
 
 **Three documents are the map:** `PLAN_TO_A.md` (per-dimension work to reach A-,
 and where sessions claim rows), `docs/ECONOMICS.md` (the engine, what is proven,
