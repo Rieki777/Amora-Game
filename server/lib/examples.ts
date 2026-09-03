@@ -29,6 +29,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
+import { parseRewardRange } from "../../shared/questRewards";
 import { stringVar } from "./variables";
 import { loadTokenRegistry } from "./ledger";
 import { badgeProblem } from "./badges";
@@ -351,22 +352,6 @@ async function ins(conn: Pool | PoolConnection, table: string, row: Record<strin
   return r?.affectedRows ?? 0;
 }
 
-/**
- * gratitude_min/max are DERIVED, never authored. shared/questRewards.ts is the
- * one parser in the app; this mirrors its separator set (en dash, em dash,
- * hyphen, the word "to") for seed data only. A bare number yields min === max.
- */
-function parseRange(raw: unknown): { min: number; max: number } {
-  const s = String(raw ?? "").trim();
-  if (!s) return { min: 0, max: 0 };
-  const parts = s.split(/\s*(?:–|—|-|to)\s*/i).map((p) => Number(p.replace(/[^\d.]/g, "")));
-  if (parts.length >= 2 && parts.every((n) => Number.isFinite(n))) {
-    return { min: parts[0], max: parts[1] };
-  }
-  const n = Number(s.replace(/[^\d.]/g, ""));
-  return Number.isFinite(n) ? { min: n, max: n } : { min: 0, max: 0 };
-}
-
 /** Units come from the registry, never from seed data — a wrong unit poisons
  *  the MAX(unit) label on the regen totals tile. */
 const REGEN_UNITS: Record<string, string> = {
@@ -509,7 +494,10 @@ export async function seedExamples(
 
     case "quests":
       for (const q of block.quests ?? []) {
-        const range = parseRange(q.gratitude);
+        // gratitude_min/max are DERIVED, never authored. shared/questRewards.ts
+        // parses the label, here and on every other write path, so an example
+        // quest and a real one cannot disagree about what the board advertises.
+        const range = parseRewardRange(q.gratitude);
         n += await ins(p, "quests", {
           id: q.id, title: q.title, description: q.description, impact: q.impact,
           gratitude: q.gratitude, gratitude_min: range.min, gratitude_max: range.max,
