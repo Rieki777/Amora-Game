@@ -974,6 +974,12 @@ describe.skipIf(!configured)("the village economy engine", () => {
     });
 
     it("reaches that state through the governed path, with nobody typing the row", async () => {
+      // GREEN EITHER WAY, on purpose, and it is the only test here that is.
+      // It measures `queueRuleChange` and `applyPendingRules`, which this
+      // change does not touch: its job is to prove the row the tests around
+      // it measure is reachable without an admin typing it, not to prove the
+      // clamp. Removing the clamp leaves this one passing.
+      //
       // THE HOLE THIS CLOSES. `queueRuleChange` refuses an amount above the
       // ceiling, and skips that check entirely when the change carries a
       // ceiling and no amount. A village voting "the most it can pay" down
@@ -1074,6 +1080,11 @@ describe.skipIf(!configured)("the village economy engine", () => {
     });
 
     it("leaves the shipped default alone: eleven quests at 25 under a ceiling of 250 issue 275", async () => {
+      // GREEN EITHER WAY, and that is the point: a regression guard on the
+      // reading rather than a proof of the clamp. If somebody later reads the
+      // column as a per-cycle budget, this is the test that goes red and says
+      // which village it would have stopped paying.
+      //
       // THE READING, pinned. This is `rule-quest.completed-credits` as
       // `economySeed.ts` ships it, and 275 is what "25 Village Credits when a
       // steward confirms finished work" promises for eleven confirmed quests.

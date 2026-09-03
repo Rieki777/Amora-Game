@@ -242,6 +242,30 @@ a row that already exists, and the governed path after launch
 (`shared/mintRuleKeys.ts`) offers the same three fields on the same rows. A
 deleted rule is a payout the village could never make again.
 
+**The ceiling bounds ONE OCCURRENCE, in the rule's own human units.** Ten confirmed
+quests against `amount 25, ceiling 250` issue 250 and an eleventh issues 25 more, for
+275 in eleven ledger rows, and that is the rule working: 25 is what the village
+promised for each confirmed quest, and the ceiling says no single payment may exceed
+250. This column is **not** a per-cycle budget. Reading it as one would stop the
+shipped `role.cycle credits, amount 25, ceiling 250` after the tenth seat in every
+village holding more than ten seats, and nobody has decided that. A per-cycle budget
+is a real question and it needs its own column and a founder's answer.
+
+Until 2026-09-03 the ceiling bound nothing anywhere. `clampToCeiling` was exported and
+documented and had no caller under `server/`: the only reference to it in the whole
+repository was one unit test. So a rule left at `amount 25, ceiling 5` posted 25, and
+a member's balance read 25. That row needs nobody to type it. `queueRuleChange` refuses
+an amount above the ceiling and skips that check entirely when a change carries a
+ceiling and no amount, which is the exact shape a governance ballot on the field
+labelled "the most it can pay" produces, so a village that voted its ceiling down went
+on paying the old number. Both mint paths clamp now, `mintForConfirmedClaim` and
+`runSettlement` together, because fixing the quest path alone would have left every
+seat in the village paid over the ceiling once a moon. A ceiling of 0 mints nothing
+and names itself: "this rule's ceiling is 0, so it can pay no Village Credits at all.
+Raise the ceiling or pause the rule." That is the same fail-closed reading of zero the
+swap caps use, and it is what `mintRuleValueProblem` already promised a village when it
+said a ceiling is zero or more and zero means zero.
+
 A rule the engine cannot honour is REPORTED rather than skipped. `ruleCannotPay`
 answers why, `reportUnpayable` logs it, and both `mintForConfirmedClaim` and
 `runSettlement` return the list. This exists because a village once enabled a
