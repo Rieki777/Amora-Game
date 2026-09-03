@@ -288,7 +288,7 @@ import {
   tokenNameClash, slugFreezeRefusal,
   RECOGNITION_FAUCET,
   balanceOf,
-  balancesFor,
+  balancesFor, PLATFORM_TOKEN,
   checkLedgerInvariants,
   CYCLE_POOL_FAUCET,
   entriesForMember,
@@ -13256,11 +13256,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       const held = await balancesFor(getPool(), memberAccount(viewer.id));
       const stays = await staysForUser(getPool(), viewer.id);
       mine = {
-        balance,
+        balance, balanceDecimals: tokenDef(STAY_CREDIT)?.decimals ?? 0, // minor units + scale
         balances: Object.fromEntries(
           Object.entries(held)
             .filter(([slug]) => tokenDef(slug)?.active !== false)
-            .map(([slug, n]) => [slug, { name: tokenDef(slug)?.name ?? slug, balance: n }]),
+            .map(([slug, n]) => [slug, { name: tokenDef(slug)?.name ?? slug, balance: n, decimals: tokenDef(slug)?.decimals ?? 0 }]), // MINOR units + scale
         ),
         stays: stays.map((s) => ({
           ...s,
@@ -17262,9 +17262,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
        * no registry row keeps showing its slug: that is a drift worth seeing
        * and not a name worth inventing.
        */
-      tokenNames: Object.fromEntries(
-        Object.keys(ledger).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
-      ),
+      tokenNames: Object.fromEntries(Object.keys(ledger).map((s) => [s, tokenDef(s)?.name ?? s])),
+      tokenDecimals: Object.fromEntries(Object.keys(ledger).map((s) => [s, tokenDef(s)?.decimals ?? 0])), // THE SCALE OF EACH OF THOSE NUMBERS. `ledger` is the INT column verbatim, so it is MINOR units: Voice at decimals 3 ships 10000 for a member who earned 10, and this payload handed that straight to a card that printed it while their profile chip, off loadStanding, said 10 in the same second. Divide at the render site, through client/src/lib/tokenAmount.ts, which carries the why and why it has to land BEFORE every token moves to 4 decimals.
       wallet: { address: user.walletAddress ?? null, verifiedAt: user.walletVerifiedAt ?? null },
       onchain,
       economicsEnabled,
@@ -17424,7 +17423,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       const stage = stageIndex(await stageOf(viewer));
       const roles = roleIdsFor(viewer.id);
       mine = {
-        balance: await balanceOf(getPool(), memberAccount(viewer.id), LIBRARY_CREDIT),
+        balance: await balanceOf(getPool(), memberAccount(viewer.id), LIBRARY_CREDIT), balanceDecimals: tokenDef(LIBRARY_CREDIT)?.decimals ?? 0, // minor units + scale
         loans: await loansForUser(getPool(), viewer.id),
         strikes: await noShowStrikes(getPool(), viewer.id),
         eligible: Object.fromEntries(items.map((i) => {
@@ -18360,9 +18359,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
         // The same live registry read `/api/wallet` carries, for the same
         // reason: `balances` is keyed by slug, and the wallet page rendered
         // the slug as though it were the currency's name.
-        tokenNames: Object.fromEntries(
-          Object.keys(held).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
-        ),
+        tokenNames: Object.fromEntries(Object.keys(held).map((s) => [s, tokenDef(s)?.name ?? s])),
+        tokenDecimals: Object.fromEntries(Object.keys(held).map((s) => [s, tokenDef(s)?.decimals ?? 0])), // ...and the SCALE of each. `balances` is MINOR units, and the Tokens page and the profile wallet card both render this map raw. See client/src/lib/tokenAmount.ts.
         orders,
         canBuy: hasCapability("exchange.buy", ctx),
         canSwap: hasCapability("exchange.swap", ctx),
@@ -23374,7 +23372,7 @@ ${inner}
       stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
       stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
-      gratitude: { balance: user.recognitionBalance ?? 0, budget: await gratitudeBudget(user) },
+      gratitude: { balance: user.recognitionBalance ?? 0, decimals: tokenDef(PLATFORM_TOKEN)?.decimals ?? 0, budget: await gratitudeBudget(user) }, // `balance` is the cached MINOR-unit column; `decimals` is what turns it into the number on the card
       quests: claims.map((c: any) =>
         questCredits.has(c.id) ? { ...c, credited: questCredits.get(c.id) } : c,
       ),
@@ -24324,7 +24322,7 @@ ${inner}
     for (const id of sendPeers) sendNames.set(id, (await members.byId(id))?.name ?? null);
     const summed = await balanceOf(getPool(), memberAccount(user.id), "gratitude");
     const raw = await balancesFor(getPool(), memberAccount(user.id));
-    const balances: Record<string, { name: string; balance: number }> = {};
+    const balances: Record<string, { name: string; balance: number; decimals: number }> = {};
     for (const [slug, balance] of Object.entries(raw)) {
       // Hidden tokens stay out of the member's view, the same rule
       // loadStanding applies to the profile chips. The BALANCE is untouched in
@@ -24334,7 +24332,7 @@ ${inner}
       // that is a drift worth seeing, not a token someone chose to hide.
       const def = tokenDef(slug);
       if (def && !def.active) continue;
-      balances[slug] = { name: def?.name ?? slug, balance };
+      balances[slug] = { name: def?.name ?? slug, balance, decimals: def?.decimals ?? 0 }; // MINOR units + scale
     }
     res.json({
       // The column is a cache of the ledger. If these ever disagree the ledger
@@ -24351,7 +24349,8 @@ ${inner}
       entries: entries.map((e) => ({
         tokenType: e.tokenType,
         tokenName: tokenDef(e.tokenType)?.name ?? e.tokenType,
-        amount: e.amount,
+        amount: e.amount, // `token_ledger.amount` verbatim: an INT of MINOR units. A Voice row reading 10000 is ten, and the journey feed printed it as ten thousand.
+        decimals: tokenDef(e.tokenType)?.decimals ?? 0,
         source: e.source,
         sourceRef: e.sourceRef,
         description: e.description,
@@ -30516,7 +30515,8 @@ ${inner}
       gratitudeSent: log.filter((g) => g.fromId === user.id),
       gratitudeReceived: log.filter((g) => g.toId === user.id),
       ledger: await entriesForMember(getPool(), user.id),
-      balances: await balancesFor(getPool(), memberAccount(user.id)),
+      balances: await balancesFor(getPool(), memberAccount(user.id)), // MINOR units, so the file is the ledger and not a rounding of it
+      tokenDecimals: Object.fromEntries(allTokens().map((t) => [t.slug, t.decimals])), // ...and what turns those rows into the numbers the member reads. Without it a Voice balance of 10000 in a downloaded file is unreadable by the one person entitled to read it.
       stageEvents: stageEventsRepo.all().filter((e: any) => e.userId === user.id),
       submissions: submissionsRepo.all().filter((s: any) => s.userId === user.id),
       notifications: notifRows,

@@ -21,6 +21,7 @@ import { Coins, CreditCard, ExternalLink, ReceiptText, Wallet as WalletIcon } fr
 import { ExamplesBanner } from "@/components/ExamplesBanner";
 import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
 import InfoTip from "@/components/InfoTip";
+import { decimalsOf, formatTokenAmount } from "@/lib/tokenAmount";
 
 /**
  * The plain mechanics behind a balance row, keyed on the token's slug. The
@@ -115,6 +116,18 @@ export default function Wallet() {
    * registry row, which is a drift worth seeing.
    */
   const tokenNames: Record<string, string> = data?.mine?.tokenNames ?? {};
+  /*
+   * And the SCALE of each. `mine.balances` is `token_balances.balance`
+   * verbatim, which is an INT of MINOR units: Village Voice carries decimals
+   * 3, so a member who earned 10 arrives here as 10000. This page printed that
+   * number while the Standing chip on their own profile, off the same ledger
+   * through `loadStanding`, said 10. The wallet is the one they believe.
+   *
+   * Absent map means every token is whole, which is what every token was
+   * before Voice. See client/src/lib/tokenAmount.ts for why this landed before
+   * the move to 4 decimals rather than inside it.
+   */
+  const tokenDecimals: Record<string, number> = data?.mine?.tokenDecimals ?? {};
 
   return (
     <Layout>
@@ -162,7 +175,9 @@ export default function Wallet() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {Object.entries(balances).map(([slug, bal]) => (
                     <div key={slug} className="border border-border rounded-lg px-3 py-2">
-                      <p className={`text-lg font-bold ${Number(bal) < 0 ? "text-red-600" : "text-foreground"}`}>{bal}</p>
+                      <p className={`text-lg font-bold ${Number(bal) < 0 ? "text-red-600" : "text-foreground"}`}>
+                        {formatTokenAmount(Number(bal), decimalsOf(tokenDecimals, slug))}
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         {tokenNames[slug] ?? slug}
                         <InfoTip tip={tokenTip(slug)} label={`What ${tokenNames[slug] ?? slug} is`} />

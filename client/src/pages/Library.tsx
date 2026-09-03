@@ -14,6 +14,7 @@ import { Image } from "@/components/Image";
 import InfoTip from "@/components/InfoTip";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
 import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -91,7 +92,13 @@ export default function Library() {
           {user && data?.mine && (
             <div className="bg-card border border-border rounded-xl p-5">
               <p className="text-sm text-foreground">
-                Your credits: <span className="font-bold">{data.mine.balance}</span>
+                {/* Library credits carry decimals 0 today, so this reads
+                    exactly as it always has. It goes through the shared
+                    formatter anyway: on the day every token moves to 4
+                    decimals, a surface that never divides is wrong by
+                    10,000x, and the ones that were "fine" are the ones
+                    nobody thinks to check. See client/src/lib/tokenAmount.ts. */}
+                Your credits: <span className="font-bold">{formatTokenAmount(Number(data.mine.balance ?? 0), Number(data.mine.balanceDecimals ?? 0))}</span>
                 {data.mine.strikes > 0 && (
                   <span className="text-xs text-amber-700 ml-2">({data.mine.strikes} no-show{data.mine.strikes > 1 ? "s" : ""} on record)</span>
                 )}

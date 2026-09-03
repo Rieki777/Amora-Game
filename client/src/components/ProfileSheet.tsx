@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { authToken } from "@/lib/gameApi";
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -33,17 +34,14 @@ interface Sheet {
   moonsOnTheLand?: number;
 }
 
-/**
- * Minor units to the number a member reads.
+/*
+ * This card's own copy of the minor-units rule is gone.
  *
- * The ledger stores integers, so the village voice rides in thousandths and
- * 100 on the row is 0.1 on the chip. Trailing zeros come off, because "0.10
- * Voice" reads like a price.
+ * It was RIGHT, and being right in one file is what caused the damage: the
+ * wallet had no copy at all and printed 10000 for the same ten Voice this chip
+ * printed correctly, an inch apart on the same profile. One rule, one file, so
+ * a surface can only be wrong by forgetting to call it, which is visible.
  */
-const show = (balance: number, decimals: number): string => {
-  if (decimals <= 0) return String(balance);
-  return (balance / 10 ** decimals).toFixed(decimals).replace(/0+$/, "").replace(/\.$/, "");
-};
 
 const card = "bg-white rounded-2xl shadow-lg p-8";
 const heading = "text-2xl font-display font-bold text-teal-deep mb-6";
@@ -84,7 +82,7 @@ export default function ProfileSheet() {
                 key={s.token}
                 className="rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800"
               >
-                {show(s.balance, s.decimals)} {s.name}
+                {formatTokenAmount(s.balance, s.decimals)} {s.name}
               </li>
             ))}
           </ul>

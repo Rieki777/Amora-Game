@@ -16,6 +16,7 @@ import Layout from "@/components/Layout";
 import { useEffect, useState } from "react";
 import { useRoute } from "wouter";
 import { authToken } from "@/lib/gameApi";
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -40,9 +41,10 @@ interface PublicSheet {
   party?: Party[];
 }
 
-/** Minor units to the number a member reads. */
-const show = (balance: number, decimals: number): string =>
-  decimals > 0 ? (balance / 10 ** decimals).toFixed(decimals).replace(/\.?0+$/, "") : String(balance);
+/* The minor-units rule lives once, in client/src/lib/tokenAmount.ts. This page
+   carried a second spelling of it that agreed with the profile chip's third
+   spelling by luck, while the wallet had none at all and printed 10000 Voice
+   for the same ten. */
 
 export default function PublicProfile() {
   const [, params] = useRoute("/profile/:handle");
@@ -141,7 +143,7 @@ export default function PublicProfile() {
                     key={s.token}
                     className="rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-teal-deep"
                   >
-                    {show(s.balance, s.decimals)} {s.name}
+                    {formatTokenAmount(s.balance, s.decimals)} {s.name}
                   </li>
                 ))}
               </ul>

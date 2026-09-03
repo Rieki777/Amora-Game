@@ -8955,7 +8955,7 @@ function LedgerTab({ password }: { password: string }) {
                 <tr className="border-t border-gray-100">
                   <th className="px-4 py-2">Account</th>
                   <th className="px-4 py-2">Token</th>
-                  <th className="px-4 py-2">Balance</th>
+                  <th className="px-4 py-2">Balance (ledger units)</th>{/* on purpose: this table is the conservation proof and the proof is over the INT column, so a Voice row reads 10000 for ten. Every MEMBER-facing surface divides, through client/src/lib/tokenAmount.ts */}
                   <th className="px-4 py-2">Issued to date</th>
                 </tr>
               </thead>
