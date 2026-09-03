@@ -59,6 +59,7 @@ import { VARIABLES_BY_KEY, applyTimingOf, ringOf } from "../../shared/gameVariab
 import { isMintRuleKey } from "../../shared/mintRuleKeys";
 import { asChangeItem, type ChangeInput, type ChangeItem } from "./mechanics";
 import { kindOfItem, kindOfSet, type GovernanceKind } from "../../shared/governanceKinds";
+import { keyIsVetoLocked } from "./stewardship";
 import { setVariable, type SetResult } from "./variables";
 import { applyMintRuleChanges } from "./economy";
 import { setWeight, weightChangeProblem, weightTokenProblem } from "./governanceWeights";
@@ -269,8 +270,68 @@ export async function validateElements(
     return refuse(index, item.kind, "this build cannot carry out a change of that kind yet");
   }
 
+  const mixed = notVetoableMixRefusal(elements);
+  if (mixed) return refuse(mixed.index, mixed.itemKind, mixed.problem);
+
   elements.sort((a, b) => rankOf(a.item.kind) - rankOf(b.item.kind) || a.index - b.index);
   return { ok: true, elements, kind: kindOfSet(elements.map((e) => e.item.kind)) };
+}
+
+/**
+ * IS THIS ELEMENT ONE NO STEWARD MAY STOP?
+ *
+ * `server/lib/stewardship.ts` owns the list of keys that make up the reach of
+ * the seat, and `keyIsVetoLocked` is its answer. Asked per element, here,
+ * because the change set is the dispatcher's and the key list is the seat's.
+ *
+ * A `role` element with `seat` or `unseat` is the same class: those acts are
+ * about the seat itself. This build refuses `role` inside a change set at
+ * validation anyway (`EXECUTABLE_ITEM_KINDS` in `server/lib/mechanics.ts`), and
+ * the branch is here so the day a lane widens that set the mixing rule already
+ * covers it rather than being remembered.
+ */
+export function elementIsNotVetoable(item: ChangeItem): boolean {
+  if (item.kind === "role") return item.act === "seat" || item.act === "unseat";
+  const key = (item as { key?: unknown }).key;
+  return key !== undefined && keyIsVetoLocked(String(key));
+}
+
+/**
+ * A SET MAY NOT MIX AN UNSTOPPABLE ELEMENT WITH ANY OTHER KIND.
+ *
+ * Three rules collided on one row and nothing said which won. A bundle waits as
+ * a whole under one instant and one window (19F); a set holding any Game change
+ * is wholly a Game change; and an act about the seat itself is not vetoable.
+ * Read one way, a faction publishes one proposal that edits the veto map and
+ * reallocates forty percent of the voting weight, and the whole thing lands
+ * with nobody able to stop the half that was meant to be stoppable. Read the
+ * other way, a steward gets a veto over the edit to their own reach whenever it
+ * travels with anything else.
+ *
+ * Both readings are the failure the rule exists to prevent, so the mix is
+ * refused at validation, before a vote is ever held on it, and the refusal
+ * NAMES BOTH ELEMENTS: the unstoppable one and the one it may not travel with.
+ * A set made only of unstoppable elements is fine, and so is a set with none.
+ */
+export function notVetoableMixRefusal(
+  elements: readonly ValidatedElement[],
+): { index: number; itemKind: string; problem: string } | null {
+  const locked = elements.filter((e) => elementIsNotVetoable(e.item));
+  if (locked.length === 0 || locked.length === elements.length) return null;
+  const other = elements.find((e) => !elementIsNotVetoable(e.item));
+  if (!other) return null;
+  const nameOf = (e: ValidatedElement): string => {
+    const key = (e.item as { key?: unknown }).key;
+    return key === undefined ? e.item.kind : String(key);
+  };
+  return {
+    index: locked[0].index,
+    itemKind: locked[0].item.kind,
+    problem:
+      `${nameOf(locked[0])} decides what a steward may stop, so nobody may stop a change to it, and it cannot travel ` +
+      `with item ${other.index + 1} (${nameOf(other)}), which a steward may stop. Split them into two proposals: ` +
+      "one proposal, one answer to the question of who can stop it",
+  };
 }
 
 /** The value in force for a dial right now, or null when it sits at its default. */
@@ -293,7 +354,21 @@ async function currentWeight(deps: ChangesetDeps, userId: string): Promise<numbe
 
 export interface ElementLedgerInput {
   ballotId: string;
+  /** The proposal the ballot was held on, so a reversion can join the trail. */
+  proposalId?: string | null;
   elementIndex: number;
+  /**
+   * Where this write fell in the WRITE_ORDER sequence, so the trail can be
+   * read back in the order the writes actually happened.
+   *
+   * `element_index` is the order a MEMBER read ("item 2 of 4") and the key the
+   * row is stored under; the two are different facts and the ledger carries
+   * both. Before the key moved to (ballot, element index) this was the
+   * autoincrement id doing double duty, which is why re-keying the table would
+   * otherwise have quietly lost the harder-to-undo-last property the executor
+   * is built around.
+   */
+  writeSeq?: number;
   elementKind: string;
   sentence: string;
   wroteTable: string | null;
@@ -309,13 +384,26 @@ export interface ElementLedgerInput {
  */
 export async function recordElement(pool: Pool, input: ElementLedgerInput): Promise<void> {
   try {
+    /*
+     * KEYED ON (ballot, element index), SO A RETRY OVERWRITES ITS OWN ROW.
+     *
+     * A landing that throws halfway is tried again on the next tick, and the
+     * elements that succeeded the first time write again. With an autoincrement
+     * key that produced two rows for one element and a trail saying the dial
+     * moved twice, which is the one thing a ledger must never say.
+     */
     await pool.query(
       "INSERT INTO governance_element_ledger " +
-        "(ballot_id, element_index, element_kind, sentence, wrote_table, wrote_id, old_value, new_value) " +
-        "VALUES (?,?,?,?,?,?,?,?)",
+        "(ballot_id, proposal_id, element_index, write_seq, element_kind, sentence, wrote_table, wrote_id, old_value, new_value) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?) " +
+        "ON DUPLICATE KEY UPDATE proposal_id = VALUES(proposal_id), write_seq = VALUES(write_seq), " +
+        "element_kind = VALUES(element_kind), sentence = VALUES(sentence), wrote_table = VALUES(wrote_table), " +
+        "wrote_id = VALUES(wrote_id), new_value = VALUES(new_value), applied_at = CURRENT_TIMESTAMP",
       [
         input.ballotId,
+        input.proposalId ?? null,
         input.elementIndex,
+        input.writeSeq ?? input.elementIndex,
         input.elementKind,
         input.sentence.slice(0, 1000),
         input.wroteTable,
@@ -335,7 +423,7 @@ export async function elementsFor(pool: Pool, ballotId: string): Promise<
 > {
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT element_index, element_kind, sentence, old_value, new_value, applied_at " +
-      "FROM governance_element_ledger WHERE ballot_id = ? ORDER BY id",
+      "FROM governance_element_ledger WHERE ballot_id = ? ORDER BY write_seq, element_index",
     [ballotId],
   );
   return rows.map((r) => ({
@@ -398,8 +486,15 @@ export async function applyChangeSet(deps: ChangesetDeps, input: ApplySetInput):
   let landsAtCycle: number | null = null;
   let touchedCaches = false;
 
+  /*
+   * The position in the applied sequence, which is `WRITE_ORDER`'s and not the
+   * proposal's. `validated.elements` is already sorted into it, so this counter
+   * IS the order the writes happen in.
+   */
+  let writeSeq = 0;
   for (const el of validated.elements) {
     const item = el.item;
+    writeSeq += 1;
 
     if (item.kind === "dial" || item.kind === "mode_switch") {
       const key = item.kind === "dial" ? item.key : "governance.weight_mode";
@@ -420,7 +515,9 @@ export async function applyChangeSet(deps: ChangesetDeps, input: ApplySetInput):
       );
       await recordElement(deps.pool, {
         ballotId: input.ballotId,
+        proposalId: input.proposalRef,
         elementIndex: el.index,
+        writeSeq,
         elementKind: item.kind,
         sentence: el.sentence,
         wroteTable: "game_variables",
@@ -455,7 +552,9 @@ export async function applyChangeSet(deps: ChangesetDeps, input: ApplySetInput):
       }
       await recordElement(deps.pool, {
         ballotId: input.ballotId,
+        proposalId: input.proposalRef,
         elementIndex: el.index,
+        writeSeq,
         elementKind: item.kind,
         sentence: el.sentence,
         wroteTable: "module_settings",
@@ -478,7 +577,9 @@ export async function applyChangeSet(deps: ChangesetDeps, input: ApplySetInput):
         });
         await recordElement(deps.pool, {
           ballotId: input.ballotId,
+          proposalId: input.proposalRef,
           elementIndex: el.index,
+          writeSeq,
           elementKind: item.kind,
           sentence: el.sentence,
           wroteTable: "governance_weights",
@@ -516,6 +617,7 @@ export async function applyChangeSet(deps: ChangesetDeps, input: ApplySetInput):
       );
       await recordElement(deps.pool, {
         ballotId: input.ballotId,
+        proposalId: input.proposalRef,
         elementIndex: el?.index ?? 0,
         elementKind: "mint_rule",
         sentence: `${q.key} is queued to become ${q.to} at cycle ${q.fromCycle}`,
@@ -667,5 +769,28 @@ export async function recordMechanicsChangeRow(
 export const changeSetWaitsForCycleClose = (changeSet: readonly { key?: string }[]): boolean =>
   changeSet.some((c) => {
     const def = VARIABLES_BY_KEY[String(c?.key ?? "")];
+    return def ? applyTimingOf(def) === "cycle-close" : false;
+  });
+
+/**
+ * A SET THAT MAY ONLY LAND ON A BOUNDARY.
+ *
+ * Wider than `changeSetWaitsForCycleClose` above, and the two answer different
+ * questions. That one asks whether a set must wait for an ENDED cycle to be
+ * settled before it lands, which is about a moon nobody has paid yet. This one
+ * asks whether the set moves a number the RUNNING cycle is being settled
+ * against, which is about a member already spending against a ceiling. A dial
+ * whose apply timing is `cycle-close` (the claim window, the gratitude budgets,
+ * every stage multiplier) and every minting rule are both.
+ *
+ * A set answering yes here snaps its landing instant forward to the next
+ * boundary of the active clock on EVERY path, `at_acceptance` included.
+ */
+export const changeSetSnapsToBoundary = (changeSet: readonly { key?: string; kind?: string }[]): boolean =>
+  changeSet.some((c) => {
+    if (String(c?.kind ?? "") === "mint_rule") return true;
+    const key = String(c?.key ?? "");
+    if (isMintRuleKey(key)) return true;
+    const def = VARIABLES_BY_KEY[key];
     return def ? applyTimingOf(def) === "cycle-close" : false;
   });

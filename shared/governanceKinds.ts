@@ -41,12 +41,19 @@
  *
  * ── THE CARVE-OUT THE SEAT CANNOT VETO ─────────────────────────────────────
  *
- * `role_seat` and `role_unseat` are Game changes in every ordinary sense, and
- * they execute AT PASS with no window anyway. The reason is the failure they
- * would otherwise cause: a steward whose removal is a vetoable Game change
- * vetoes their own removal, then vetoes the edit to the veto map that would
- * exempt it, and the village has no door out that does not run through the
- * person it is trying to remove. `NO_WINDOW_SUBJECTS` is that door.
+ * Two different carve-outs, and keeping them apart is the fix of 2026-09-03.
+ *
+ * `role_seat` and `role_unseat` execute AT PASS with no window at all
+ * (`NO_WINDOW_SUBJECTS`), because the founder's own R90 asks for a seated
+ * steward to act immediately and because a steward whose removal waits inside
+ * a window they hold is a seat nobody can remove.
+ *
+ * An edit to the veto map is the same danger one step removed, and it takes
+ * the OTHER carve-out: `notVetoable` on the landing, which keeps the instant,
+ * the countdown and the notice and takes away only the door a steward would
+ * otherwise walk through. Section 20.11 states it in those words: such a
+ * change keeps its timing and its window and is not vetoable. Folding the two
+ * into one flag is what let a veto-map edit execute at close with nobody told.
  */
 
 /** How the two clocks are named everywhere. */
@@ -63,10 +70,32 @@ export type ProposalTiming = (typeof PROPOSAL_TIMINGS)[number];
  */
 export const DEFAULT_TIMING: ProposalTiming = "next_moon";
 
-/** Read a stored or posted timing, total over every input. Unknown means the default. */
-export function timingOf(raw: unknown): ProposalTiming {
+/**
+ * THE DEFAULT IS PER KIND, and the audit of 2026-09-03 is why.
+ *
+ * 19F gives one reason for the new-moon default: "to carry a pattern of new
+ * activities starting then". A payout for work already finished is not a new
+ * activity, and under a flat next_moon default a quest payout voted on day two
+ * of a lunation waits twenty-seven days and then acquires a post-close steward
+ * window that 19D says a token send cannot have. So a TOKEN_SEND that says
+ * nothing means at acceptance, and a GAME_CHANGE that says nothing means the
+ * next moon. A proposer who states a timing gets the one they stated.
+ */
+export function defaultTimingFor(kind: GovernanceKind): ProposalTiming {
+  return kind === "token_send" ? "at_acceptance" : "next_moon";
+}
+
+/**
+ * Read a stored or posted timing, total over every input.
+ *
+ * The `fallback` says what an unreadable or absent value means. Pass
+ * `defaultTimingFor(kind)` at the moment a proposal is opened, where the kind
+ * is known; the bare call keeps the Game-change default, which is the
+ * fail-safe direction for a column read back off a row.
+ */
+export function timingOf(raw: unknown, fallback: ProposalTiming = DEFAULT_TIMING): ProposalTiming {
   const text = String(raw ?? "").trim().toLowerCase();
-  return (PROPOSAL_TIMINGS as readonly string[]).includes(text) ? (text as ProposalTiming) : DEFAULT_TIMING;
+  return (PROPOSAL_TIMINGS as readonly string[]).includes(text) ? (text as ProposalTiming) : fallback;
 }
 
 /** The two words a member reads for the two timings. */
@@ -167,19 +196,6 @@ export const NO_WINDOW_SUBJECTS: ReadonlySet<string> = new Set([
   "village_launch",
 ]);
 
-/**
- * SETTINGS THAT EXECUTE AT PASS WITH NO WINDOW, for the same reason.
- *
- * The veto map decides what a steward may stop. A steward who can stop an edit
- * to it holds the map, and the village's own vote about its own training wheels
- * runs through the person wearing them.
- */
-export const NO_WINDOW_KEYS: ReadonlySet<string> = new Set([
-  "governance.steward_subjects",
-  "governance.auto_execute_subjects",
-  "governance.steward_council",
-]);
-
 /** Does this subject skip the window entirely and execute the moment it carries? */
 export function executesAtPassWithNoWindow(subjectType: string): boolean {
   return NO_WINDOW_SUBJECTS.has(String(subjectType).toLowerCase());
@@ -202,10 +218,36 @@ export interface LandingInput {
   timing: ProposalTiming;
   /** The village's window, already floored. */
   vetoHours: number;
-  /** The next new moon strictly after a given instant, from the cycle clock. */
-  nextNewMoonAfter: (after: Date) => Date;
+  /**
+   * The first cycle boundary strictly after an instant, under the village's
+   * ACTIVE clock. Lunar by default, and a village on calendar months gets its
+   * own boundary here, which is why the parameter is not called "new moon"
+   * however often the rulings say moon.
+   */
+  nextBoundaryAfter: (after: Date) => Date;
   /** True for a subject that executes at pass with no window at all. */
   noWindow?: boolean;
+  /**
+   * TRUE WHEN NOBODY MAY STOP THIS ONE, and the window stays anyway.
+   *
+   * Section 20.11: "Seat and unseat of a steward-capable role, and edits to the
+   * veto map, keep their timing and window like any Game change but are NOT
+   * vetoable." Not vetoable is a different fact from no window: the village
+   * still sees the instant, the countdown still runs, the digest still names
+   * it, and the one thing that cannot happen is a steward stopping it. Folding
+   * the two into one flag is what made a veto-map edit execute at close with no
+   * notice to anybody, which is the harm the rule was written against.
+   */
+  notVetoable?: boolean;
+  /**
+   * TRUE WHEN THIS DECISION MAY ONLY LAND ON A BOUNDARY.
+   *
+   * A cycle-timed dial, a minting rule or a stage multiplier changes the basis
+   * a running cycle is being settled against. Landing one mid-cycle moves a
+   * ceiling under a member who is already spending against it, so the instant
+   * snaps forward to the next boundary on EVERY path, at_acceptance included.
+   */
+  snapToBoundary?: boolean;
 }
 
 export interface Landing {
@@ -215,6 +257,8 @@ export interface Landing {
   vetoClosesAt: Date | null;
   /** True when the close itself executes it and there is no window. */
   executesAtClose: boolean;
+  /** False when no steward may stop this one, whatever the window says. */
+  vetoable: boolean;
   /** The sentence a member reads on the decision page. */
   because: string;
 }
@@ -222,7 +266,7 @@ export interface Landing {
 /**
  * THE ONE PLACE THAT DECIDES WHEN A CARRIED DECISION HAPPENS.
  *
- * Four rules, and every one of them is the founder's sentence read literally:
+ * Five rules, and every one of them is the founder's sentence read literally:
  *
  *  1. A subject with no window executes at close, always. (The seat carve-out.)
  *  2. A TOKEN_SEND chosen `at_acceptance` executes at close. The steward's brake
@@ -231,11 +275,13 @@ export interface Landing {
  *     closes, so it lands at `closesAt + vetoHours`. "At acceptance" buys the
  *     proposer the earliest instant the ruling allows and never an instant the
  *     ruling forbids.
- *  4. Anything chosen `next_moon` lands at the LATER of the next new moon after
- *     the close and `closesAt + vetoHours`. That is the late-carry rule: a vote
- *     that carries with more than three days of the lunation left lands on the
- *     moon; a vote that carries on the last day lands three days into the new
- *     one, because a steward is owed 72 hours whatever the sky is doing.
+ *  4. Anything chosen `next_moon` lands at the LATER of the next boundary of the
+ *     active clock and `closesAt + vetoHours`. That is the late-carry rule: a
+ *     vote that carries with more than three days of the cycle left lands on the
+ *     boundary; a vote that carries on the last day lands three days into the
+ *     next one, because a steward is owed 72 hours whatever the sky is doing.
+ *  5. A set that must land on a boundary snaps forward to the first boundary at
+ *     or after whatever the four rules above produced, on every path.
  *
  * A TOKEN_SEND chosen `next_moon` is rule 4 like everything else, and a steward
  * may veto it inside its window, because the founder's later ruling ("stewards
@@ -245,45 +291,95 @@ export interface Landing {
 export function landingFor(input: LandingInput): Landing {
   const windowMs = Math.max(0, input.vetoHours) * 60 * 60 * 1000;
   const windowClose = new Date(input.closesAt.getTime() + windowMs);
+  const vetoable = !input.notVetoable;
 
   if (input.noWindow) {
     return {
       landsAt: null,
       vetoClosesAt: null,
       executesAtClose: true,
+      vetoable: false,
       because: "This one takes effect the moment it carries. A seat is not something the seat can hold on to.",
     };
   }
 
-  if (input.kind === "token_send" && input.timing === "at_acceptance") {
+  const snapped = (at: Date): Date => {
+    if (!input.snapToBoundary) return at;
+    /*
+     * STRICTLY AFTER OR AT. `nextBoundaryAfter` is strict, so an instant that
+     * already sits exactly on a boundary would otherwise be pushed a whole
+     * cycle further out for no reason a member could read.
+     */
+    const boundary = input.nextBoundaryAfter(new Date(at.getTime() - 1));
+    return boundary.getTime() >= at.getTime() ? boundary : at;
+  };
+
+  const stopper = vetoable
+    ? "A steward can stop it until then."
+    : "Nobody can stop this one: the village decided it about the seat itself, so the seat has no say in it.";
+
+  if (input.kind === "token_send" && input.timing === "at_acceptance" && !input.snapToBoundary) {
     return {
       landsAt: null,
       vetoClosesAt: null,
       executesAtClose: true,
+      vetoable: false,
       because: "This decision sends tokens as soon as it is accepted, so it takes effect the moment the vote closes.",
     };
   }
 
   if (input.timing === "at_acceptance") {
+    const at = snapped(windowClose);
     return {
-      landsAt: windowClose,
-      vetoClosesAt: windowClose,
+      landsAt: at,
+      vetoClosesAt: at,
       executesAtClose: false,
-      because: `This changes the Game, so it lands ${input.vetoHours} hours after the vote closes. A steward can stop it until then.`,
+      vetoable,
+      because:
+        at.getTime() > windowClose.getTime()
+          ? `This one moves a number the running cycle is being settled against, so it waits for the cycle to turn. ${stopper}`
+          : `This changes the Game, so it lands ${input.vetoHours} hours after the vote closes. ${stopper}`,
     };
   }
 
-  const moon = input.nextNewMoonAfter(input.closesAt);
-  const landsAt = moon.getTime() > windowClose.getTime() ? moon : windowClose;
+  const boundary = input.nextBoundaryAfter(input.closesAt);
+  const later = boundary.getTime() > windowClose.getTime() ? boundary : windowClose;
+  const landsAt = snapped(later);
   return {
     landsAt,
     vetoClosesAt: landsAt,
     executesAtClose: false,
+    vetoable,
     because:
-      moon.getTime() > windowClose.getTime()
-        ? "This starts with the next new moon. A steward can stop it until then."
+      boundary.getTime() > windowClose.getTime()
+        ? `This starts with the next new moon. ${stopper}`
         : `The new moon is less than ${input.vetoHours} hours away, so this lands ${input.vetoHours} hours after the vote closes instead. A steward is owed the whole window.`,
   };
+}
+
+/** The subject a village votes on when it wants the vote and not the effect. */
+export const ADVISORY_SUBJECT = "advisory";
+
+/**
+ * A BINDING BALLOT CANNOT BE OPENED ON A SUBJECT NOBODY CAN CLOSE.
+ *
+ * PLAN_TO_A item 3. The close dispatcher runs the closer registered for a
+ * ballot's subject type and does nothing at all when there is none, and until
+ * now nobody was told: the village voted, the vote carried, and the thing it
+ * decided never happened. An advisory vote is the one honest shape of that,
+ * and it is opened on the `advisory` subject on purpose, so every OTHER
+ * subject with no closer is refused at the door with the advisory door named.
+ *
+ * Returns null when the ballot may open.
+ */
+export function noCloserRefusal(subjectType: string, hasCloser: boolean): string | null {
+  const type = String(subjectType ?? "").trim().toLowerCase();
+  if (hasCloser || type === ADVISORY_SUBJECT) return null;
+  return (
+    `Nothing in this build carries out a decision about ${type || "that"}, so a binding vote on it would carry and then ` +
+    "change nothing, with nobody told. Hold it as a practice vote instead: an advisory ballot runs on the real engine, " +
+    "counts the real roll and changes nothing on purpose."
+  );
 }
 
 /**

@@ -540,6 +540,23 @@ export const VARIABLES: VariableDef[] = [
     max: 720,
     unit: "hours",
   },
+  // A decision that carried and then never landed. It happens: the auto-apply
+  // brake sits off for a season, a village goes quiet, a landing keeps throwing.
+  // Without a limit the row waits forever and a member reads a countdown that
+  // never reaches zero, which is the one outcome nobody can act on.
+  {
+    key: "governance.landing_expiry_cycles",
+    category: "Governance",
+    label: "Cycles a passed decision waits before it is written off",
+    criticality: "structural",
+    description:
+      "A decision the village passed is stamped with the instant it takes effect. If it is still sitting there this many cycles after that instant, it is closed and the village is told. The door back is to withdraw and rewrite it, which keeps everybody who backed it. Set it higher for a village that turns the automatic landing off for long stretches.",
+    type: "integer",
+    default: "3",
+    min: 1,
+    max: 12,
+    unit: "cycles",
+  },
   {
     key: "governance.change_cooldown_days",
     category: "Governance",
