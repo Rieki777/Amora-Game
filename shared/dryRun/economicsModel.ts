@@ -238,11 +238,17 @@ function setBalance(book: Book, account: string, slug: string, value: bigint): v
  * is worse than no preview. It throws, because a broken posting is a defect in
  * this model and not news about the village.
  */
-function assertConservation(book: Book, slug: string, context: string): void {
+export function assertConserved(
+  balances: Record<string, Record<string, bigint>>,
+  slug: string,
+  context: string,
+): void {
   let sum = BigInt(0);
-  const accounts = Object.keys(book.balances);
+  const accounts = Object.keys(balances);
   for (let i = 0; i < accounts.length; i += 1) {
-    sum += balanceOf(book, accounts[i], slug);
+    const row = balances[accounts[i]] ?? {};
+    const held = row[slug];
+    if (held !== undefined) sum += held;
   }
   if (sum !== BigInt(0)) {
     throw new Error(
@@ -282,7 +288,7 @@ function post(
   setBalance(book, to, slug, balanceOf(book, to, slug) + amount);
   book.lastDebitSource[from] = source;
   book.postings += 1;
-  assertConservation(book, slug, `${source} of ${String(amount)} from ${from} to ${to}`);
+  assertConserved(book.balances, slug, `${source} of ${String(amount)} from ${from} to ${to}`);
   return true;
 }
 

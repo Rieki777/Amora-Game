@@ -24,7 +24,7 @@ import {
   describeAssumptions,
   parseEconomicsAssumptions,
 } from "./economicsAssumptions";
-import { economicsModel, readEconomicsMemo } from "./economicsModel";
+import { assertConserved, economicsModel, readEconomicsMemo } from "./economicsModel";
 import { makeRng } from "./rng";
 import { initialState, simulate } from "./simulate";
 import type { ClockMode } from "../cycleClock";
@@ -388,25 +388,26 @@ describe("economics model, invariants", () => {
     expect(codes).toContain("econ_negative_balance");
   });
 
-  it("throws from inside step the moment a posting fails to balance", () => {
-    // The model's own guard, proved by making it impossible to satisfy: a
-    // token whose faucet IS the account it pays cannot post at all, so the
-    // nearest reachable proof of the guard is a hand-built book. This asserts
-    // the message shape the guard uses, which is what a broken model would
-    // surface.
+  it("throws from the guard step runs after every posting", () => {
+    // `assertConserved` is the check `post` calls after EVERY two-account
+    // move, so a cycle that returns at all is a cycle that balanced the whole
+    // way through. Exercised directly here, because the public path cannot be
+    // made to break it on purpose, which is the point.
     const { stepped } = runOneCycle("lunar");
-    expect(() => {
-      const totals: Record<string, bigint> = {};
-      for (const account of Object.keys(stepped.balances)) {
-        const row = stepped.balances[account] ?? {};
-        for (const slug of Object.keys(row)) totals[slug] = (totals[slug] ?? BigInt(0)) + row[slug];
-      }
-      for (const slug of Object.keys(totals)) {
-        if (totals[slug] !== BigInt(0)) {
-          throw new Error(`economics.conservation broke on "${slug}"`);
-        }
-      }
-    }).not.toThrow();
+    expect(() => assertConserved(stepped.balances, "village-voice", "the cycle")).not.toThrow();
+    expect(() => assertConserved(stepped.balances, "credits", "the cycle")).not.toThrow();
+
+    const oneLegged = { ...stepped.balances, "sys:voice-mint": {} };
+    let message = "";
+    try {
+      assertConserved(oneLegged, "village-voice", "a posting with one leg");
+    } catch (e) {
+      message = String((e as Error).message);
+    }
+    expect(message).toContain("economics.conservation broke");
+    expect(message).toContain("village-voice");
+    expect(message).toContain("10000");
+    expect(message).toContain("a posting with one leg");
   });
 });
 
