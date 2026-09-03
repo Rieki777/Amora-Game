@@ -40,6 +40,9 @@ export type TabSlot = {
   event?: string;
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
+  /** Named after a token: the bar paints the village's word for it and keeps
+   *  `path` exactly where it is. See NavLink.token in config/nav.ts. */
+  token?: "recognition";
 };
 
 /**
@@ -49,7 +52,7 @@ export type TabSlot = {
 export const TAB_SLOTS: TabSlot[] = [
   { path: "/", label: "Home", Icon: Home },
   { path: "/quests", label: "Quests", Icon: Scroll },
-  { path: "/gratitude", label: "Gratitude", Icon: Heart },
+  { path: "/gratitude", label: "Gratitude", Icon: Heart, token: "recognition" },
   { path: "/circles", label: "Circles", Icon: Users },
   { event: "open-mobile-menu", label: "More", Icon: Menu },
 ];

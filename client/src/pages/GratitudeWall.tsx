@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import { useAuth } from "@/contexts/AuthContext";
 import { gameFetch, fetchGameMe, GameMe } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Heart, Send, Sparkles } from "lucide-react";
@@ -25,7 +26,7 @@ export default function GratitudeWall() {
   // member's standing ("your budget unlocks as you progress") when in truth
   // they may have had a full budget all along.
   const [me, setMe] = useState<GameMe | null | undefined>(undefined);
-  const [currency, setCurrency] = useState("Gratitude");
+  const currency = useTokenName("Recognition");
   const [form, setForm] = useState({ toEmail: "", amount: 10, message: "" });
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
@@ -36,10 +37,6 @@ export default function GratitudeWall() {
       .then((d) => setWall(Array.isArray(d) ? d : []))
       .catch(() => { /* silent */ });
     fetchGameMe().then(setMe);
-    fetch("/api/game/config")
-      .then((r) => r.json())
-      .then((c) => setCurrency(c?.currency?.name ?? "Gratitude"))
-      .catch(() => { /* silent */ });
   };
 
   useEffect(load, []);
