@@ -2221,6 +2221,32 @@ notifications join the ballot-surfaces lane (email through the existing mail pat
   rulings. Maia's shelf (`docs/knowledge`) gets the same section so the assistant can answer
   "where does this come from".
 
+### 19G. Rulings of 2026-09-03, midday: the eight defaults, and non-human seats vote
+
+> "1. default 2. default 3. default 4. default
+> 5. a non-human seat should be voting! Either it is held by an actual human or a bot that is meant
+> to vote to represent that PoV. However, it can also be excluded from quorum (make this a setting
+> too whether to include or exclude from quorum with the default excluded)
+> 6. default 7. default 8. default"
+
+**What it settles.** Section 20.11's eight defaults stand as rulings: the veto window is at least
+72 hours and until it lands; a steward's no fails token payments only and never a ballot the
+steward is the subject of; payouts execute at acceptance by default and Game changes at the new
+moon; no trial of a pricing dial; a window gates the opening only and anything coming back opens
+outside it; names, amounts and reasons are members-only by default with a per-village opt-in whose
+copy says other people keep copies forever; erasure wins over the freeze, with a hash keeping the
+ballot provably unaltered.
+
+**Q5, corrected.** A non-human seat is a VOTING seat. Its representative, a human member or a bot
+built to hold that being's point of view, is expected to vote it. Whether the seat's weight counts
+toward QUORUM is a village setting, `governance.nonhuman_in_quorum`, default excluded. Coordinator's
+reading of "excluded": the seat's weight is left out of the quorum numerator and denominator, so an
+absent representative can never stall the village, and its vote still counts toward unity, because
+a point of view that was voted is agreement or disagreement like any other. When the setting is
+"included", the seat's weight counts like any member's and section 20.11's absent-representative rule
+(weight leaves the denominator after `governance.absent_cycles` cycles without a vote) applies.
+Flagged for him.
+
 ### The mandate that follows
 
 > "your role now is to respond to my ideas for improvement with a final execution plan. Then you're
