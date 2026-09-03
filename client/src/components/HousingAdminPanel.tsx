@@ -217,8 +217,8 @@ export default function HousingAdminPanel({ password }: { password: string }) {
         </p>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {sent && <p className="text-sm text-emerald-700">{sent}</p>}
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {sent && <p role="status" className="text-sm text-emerald-700">{sent}</p>}
 
       <div className="flex gap-2">
         <input

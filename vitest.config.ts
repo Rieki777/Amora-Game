@@ -54,6 +54,14 @@ export default defineConfig({
      * and the per-migration-file price. The cost this comment block warns about
      * below was real and invisible, which is how it reached five minutes of
      * every CI job. A number nobody prints is a number nobody defends.
+     *
+     * IT ALSO DECIDES THE EXIT CODE. Its globalTeardown fails a whole run that
+     * provisioned no scratch schema at all, which is what a run with no
+     * TEST_DATABASE_URL is: 91 database-gated files skipped, 1,190 tests not
+     * run, and until 2026-09-02 an exit code of 0 that nobody could tell apart
+     * from a pass. `ALLOW_NO_TEST_DB=1` accepts the smaller suite on purpose;
+     * a filtered run needs no opt-out. `hollowRunVerdict` in that file is the
+     * whole decision, and `server/db/provisioningReport.test.ts` is its table.
      */
     globalSetup: ["server/db/provisioningReport.ts"],
     // Most client tests are still pure-logic (`.test.ts`, environment

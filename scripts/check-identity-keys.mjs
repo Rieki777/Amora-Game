@@ -170,11 +170,19 @@ export const NEUTRAL = {
  * has typed it into the live Admin screen.
  */
 export const KNOWN_PENDING = [
-  {
-    key: "project.country",
-    since: "2026-08-31",
-    why: "an ISO code, so it carries no name, and it still says which country the live village is in",
-  },
+  // project.country was here from 2026-08-31 and GRADUATED on 2026-09-02.
+  // The reason it could go first, ahead of the other three, is that it was the
+  // only one of the four with no reader: `defaultDisplayCurrency` takes it as
+  // an argument and never looks at it, and nothing else in server/, shared/ or
+  // client/src/ touches it. Blanking a key nothing renders cannot repeat the
+  // outage, because there is no fallback anybody is standing on. The other
+  // three all render somewhere, so they still wait on the founder.
+  // project.location and project.footerBlurb were here too and GRADUATED
+  // on 2026-09-03, on main, after reading the live village's own
+  // app_config.brand and confirming it stores its own copy of both. That
+  // is the ordering this guard exists to enforce, and it is the opposite
+  // of country's reason above: those two DO render, so they had to wait
+  // for the founder; country never rendered anywhere, so it did not.
   {
     key: "project.fiatCurrency",
     since: "2026-08-31",
@@ -183,14 +191,15 @@ export const KNOWN_PENDING = [
 ];
 
 /**
- * 2026-08-31: five. THIS NUMBER ONLY EVER FALLS.
+ * 2026-08-31: five. 2026-09-02: three, when project.country graduated.
+ * THIS NUMBER ONLY EVER FALLS.
  *
  * It has to equal KNOWN_PENDING.length, so adding an entry means editing a
  * number a line under the sentence forbidding it. That is the point: the list
  * cannot grow by accident, only by a deliberate edit that shows up in a diff
  * next to this comment.
  */
-export const PENDING_CEILING = 2;
+export const PENDING_CEILING = 1;
 
 // ── Reading the config ──────────────────────────────────────────────────────
 

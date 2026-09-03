@@ -42,8 +42,9 @@ import type { Pool } from "mysql2/promise";
 import type { Capability, CapabilityCtx } from "../../shared/capabilities";
 import type { CrewsRepo } from "./crews";
 import type { WeightModeSnapshot } from "./governanceWeights";
-import type { NotifyInput, NotifyResult } from "./notify";
+import type { NotifyDeps, NotifyInput, NotifyResult } from "./notify";
 import type { LapseContext } from "./orgChart";
+import type { StayRow } from "./stays";
 import type { ClaimsRepo, QuestsRepo } from "../repos/quests";
 import type { DbCollection, DbDocument, Row } from "../repos/store-db";
 import type { MemberRecord, UsersRepo } from "../repos/users";
@@ -168,6 +169,18 @@ export interface AppDeps {
   crewsRepo: CrewsRepo;
 
   /**
+   * The map's own words: what this village calls a circle, a seat, a quest.
+   * Its own document, because the scene importer replaces it wholesale.
+   */
+  mapVocabRepo: DbDocument<any>;
+
+  /**
+   * The Welcome Walk, per language. An EMPTY document means the map artifact
+   * runs its own seed, which is what an untouched fork should get.
+   */
+  mapWalkRepo: DbDocument<any>;
+
+  /**
    * The founding team's own working tracker: checkboxes, kanban, decisions,
    * copy, resource links. One document, read and written whole.
    *
@@ -263,6 +276,50 @@ export interface AppDeps {
    * have handled.
    */
   notify(input: NotifyInput): Promise<NotifyResult>;
+
+  /**
+   * What the nightly stay posting says to humans, as the two callbacks
+   * `runNightlyPosting` takes.
+   *
+   * Passed rather than imported so the scheduler job and the admin catch-up
+   * button keep speaking with one voice: both build their hooks from this,
+   * and the dedupe keys carry the date, so one warning per stay per day
+   * survives however many times either fires.
+   */
+  stayPostingHooks(): {
+    onLowBalance: (stay: StayRow, nightsLeft: number) => Promise<void>;
+    onStopped: (stay: StayRow, balance: number) => Promise<void>;
+  };
+
+  /**
+   * The notification spine's own dependencies, as one bundle.
+   *
+   * WIDER THAN `notify`, and taken only by a domain that calls a producer
+   * inside server/lib/ which takes the spine itself (messaging's
+   * `onMessageSent` is the case this was added for). Prefer `notify` for
+   * telling one member one thing; this carries the pool and the member
+   * lookup with it.
+   */
+  notifyDeps: NotifyDeps;
+
+  /**
+   * One alert to EVERY admin and founder, deduped per recipient.
+   *
+   * The suffix on the dedupe key is what keeps "each admin hears it once" and
+   * "the event fires once" separate concerns.
+   */
+  notifyAdmins(type: string, title: string, dedupeKey: string, link?: string): Promise<void>;
+
+  /**
+   * Tell whoever raised a report that a steward has read it and closed it.
+   *
+   * Three domains raise reports (forum, messages, place photographs) and all
+   * three say the same sentence, deliberately: "resolved" and "dismissed"
+   * read alike so a reporter is never handed a verdict about another member.
+   * Passed rather than imported for the same reason `notify` is, and so the
+   * one wording stays in one place while those three domains move out.
+   */
+  notifyReportReviewed(reporterId: string, reportId: string, where: "forum" | "message" | "place"): Promise<NotifyResult>;
 
   // MAIL, AND THE ABUSE GUARDS AROUND IT
   // For a domain that answers somebody who has no account, so the notify

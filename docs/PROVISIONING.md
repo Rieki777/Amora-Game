@@ -252,6 +252,51 @@ This is the only place any of this gets set. Nothing in the repository, and
 nothing this walkthrough has had you type into Railway, carries your
 village's name or look.
 
+### What the wizard reaches, and the nineteen pages it does not
+
+The wizard covers the whole shell and the whole product: your header, footer,
+logo, tab icon, colours, fonts, every link, every screen a signed-in member
+coordinates through. Finish it and a member sees your village and nothing
+else.
+
+Nineteen public brochure pages are a separate matter, and this walkthrough
+used to end without saying so. They are the story a village tells visitors who
+are not members yet, and they ship as compiled pages carrying the first
+village's story: its land, its history, its four journey pages, its love
+letter, its reasons for being in the country it is in. Verify what yours is
+showing right now with:
+
+```
+node scripts/check-brand-refs.mjs
+```
+
+Its last line counts them. As of 2026-09-02 it reads 39 references across 19
+pages, and the exact list of files is the `SHOPFRONT` array in that script.
+
+Three things are true about them and it is worth having all three:
+
+1. **They are not a bug and no guard will ever clean them.** A village's own
+   prose about its own land is supposed to carry that village's name. The
+   design intent is that a fork REPLACES these pages the way it replaces its
+   logo.
+2. **Replacing them today needs somebody who can edit code**, which is the one
+   thing the rest of this walkthrough is built to avoid. Five pieces of that
+   prose have already been lifted out into Admin and you can write those now:
+   the Team page, the Legal and Jurisdiction Notices, the two Love Letter
+   covenant paragraphs (the ones your members are asked to sign, which
+   described somebody else's jungle until they moved), the FAQs, and the
+   milestones. Everything else on those pages is still compiled in.
+3. **There is no switch to hide them.** They are routed and linked from the
+   footer with no per-page visibility setting, so a village that has not
+   rewritten them is publishing them.
+
+Until the remaining prose moves into the database, the honest options are: ask
+whoever holds your deploy to rewrite those pages before you announce your
+address, or launch on the member-facing product and leave the brochure pages
+unlinked in your own announcements. Say which one you picked to whoever
+supports your instance, because it decides whether your public address is
+ready to hand out.
+
 ## 8. Payments, if you are selling anything
 
 Skip this section entirely if this village will not take card payments yet.
@@ -280,6 +325,34 @@ environment variable), and so on. Add these when you actually want the
 feature, not before. `docs/FORK_RUNBOOK.md`'s environment variable table has
 the full reasoning for each one.
 
+`node scripts/fork-init.mjs` groups these for you: it prints the handful that
+are genuinely your next steps, then names the rest by feature so you can come
+back to one when you want it.
+
+Two of these are worth knowing about early, because their failure is quiet:
+
+- **Aerial imagery for the Living Map** needs `SATELLITE_PROVIDER` set to one
+  of five sources, plus that source's own key. Start with `village-upload`,
+  which takes your own photograph through Admin and needs no account, no key
+  and no third-party licence. Unset, the land page says nothing is configured
+  rather than showing a picture of somewhere else.
+- **`BACKUP_EXPORT_TOKEN`** is what authenticates the uploads half of your
+  backup. Without it the database dump keeps succeeding and looks healthy
+  while your members' uploaded files are in no backup at all. Generate it the
+  same way as the other secrets and mirror it into the backup workflow.
+
+If you ever suspect `.env.example` has fallen behind the code, check rather
+than guess:
+
+```
+node scripts/fork-env-audit.mjs
+```
+
+It fails when the server reads a variable the template does not name. That had
+happened to 25 variables by 2026-09-02, seven of them founder-facing, and eight
+of the 25 were unreachable by grep as well, because the code reads them through
+a string (`keyEnv: "MAPBOX_TOKEN"`) rather than as `process.env.MAPBOX_TOKEN`.
+
 ## 10. Confirm it actually works
 
 Run the automated smoke test, which registers throwaway members and walks
@@ -302,12 +375,12 @@ curl -s https://<your-domain>/.well-known/village.json | jq '.supports, .publicK
 This walkthrough provisions a live instance; it does not cover running the
 automated test suite. If you or a technical helper does run `pnpm test`
 locally, know this first: without `TEST_DATABASE_URL` set in a local `.env`,
-roughly a third of the suite (every database-backed test file) skips itself
-and the run still exits 0, with nothing on screen calling that out except
-the summary line's own skip count. A green `pnpm test` with that variable
-unset is not a passing suite; it is an unrun third of one. Set it before
-trusting any local test result, and read the actual pass and skip counts,
-not just the exit code.
+roughly a third of the suite (every database-backed test file, 91 of them)
+skips itself. The run now FAILS rather than exiting 0, and prints what it
+skipped and why, because a green result on an unrun third is not something
+anyone can tell apart from a real one. If you want the smaller suite anyway,
+run `ALLOW_NO_TEST_DB=1 pnpm test` and read the pass and skip counts as the
+result.
 
 ## Which version you are running, and how to hold still
 
