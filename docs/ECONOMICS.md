@@ -389,19 +389,26 @@ which is right, but nothing stops the rule being saved.
 
 **Enforced by code or by a gate:**
 
-- Every boot runs `checkLedgerInvariants` and refuses to serve on any problem:
+- Every boot runs `checkLedgerInvariants`. It refuses to serve on any
+  CORRUPTION, and separately REPORTS a loss it will not take the village
+  offline for. The last row below is that second kind, and it is the
+  panel-visible half of the 10.2 fix: a charge with no delivery leaves the
+  books balanced, so nothing else in this file could ever have seen it.
 
 <!-- generated:conservation start -->
-`checkLedgerInvariants` (`server/lib/ledger.ts`) runs 6 reads at every boot and refuses with one sentence per offending row. These are the sentences, with the tables each read:
+`checkLedgerInvariants` (`server/lib/ledger.ts`) runs 7 reads at every boot and emits one sentence per offending row. These are the sentences, with the tables each read and whether the village refuses to serve on it:
 
-| Boot refuses with | Reading |
-| --- | --- |
-| `<kind> token "<slug>" is marked transferable: only credit tokens are ever sent between members` | `tokens` |
-| `hypha token "<token_type>" has <n> ledger row(s): this platform must never move it` | `token_ledger`, `tokens` |
-| `ledger rows exist for unregistered token "<token_type>"` | `token_ledger`, `tokens` |
-| `conservation broken for "<token_type>": balances sum to <s>, not 0` | `token_balances` |
-| `cache drift <account_id>/<token_type>: cached=<cached> actual=<actual>` | `token_balances` |
-| `non-faucet account <account_id> is negative: <balance> <token_type>` | `ledger_accounts`, `token_balances` |
+| The sentence | Reading | Refuses boot |
+| --- | --- | --- |
+| `<kind> token "<slug>" is marked transferable: only credit tokens are ever sent between members` | `tokens` | **yes** |
+| `hypha token "<token_type>" has <n> ledger row(s): this platform must never move it` | `token_ledger`, `tokens` | **yes** |
+| `ledger rows exist for unregistered token "<token_type>"` | `token_ledger`, `tokens` | **yes** |
+| `conservation broken for "<token_type>": balances sum to <s>, not 0` | `token_balances` | **yes** |
+| `cache drift <account_id>/<token_type>: cached=<cached> actual=<actual>` | `token_balances` | **yes** |
+| `non-faucet account <account_id> is negative: <balance> <token_type>` | `ledger_accounts`, `token_balances` | **yes** |
+| `<lostCount> gratitude note(s) charged <units> and delivered nothing (earliest <first_id>, latest <last_at>)` | `gratitude_log`, `token_ledger` | no, reported only |
+
+6 of these refuse boot and 1 does not. The difference is deliberate and is read out of the function's own `ok` expression rather than written here: a corruption means a village whose books do not add up must not serve, while a LOSS is real, worth a founder's attention, and no reason to take the village offline.
 
 Conservation is checked against `token_balances`, which is a CACHE, and the cache is separately checked against a recomputation from `token_ledger`. Both are needed: the sum of a wrong cache can still be zero.
 <!-- generated:conservation end -->

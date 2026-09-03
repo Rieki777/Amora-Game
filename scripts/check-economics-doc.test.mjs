@@ -94,6 +94,119 @@ check("READER: invariantChecks pairs every boot read with the refusal it produce
   }
 });
 
+check("READER: invariantChecks separates a boot REFUSAL from a reported FINDING", () => {
+  // The seventh read, added by the gratitude charge-without-delivery fix,
+  // pushes into `uncredited` rather than `problems` and is deliberately not
+  // part of `ok`. The reader must carry that difference into the document:
+  // calling a loss a boot refusal, or a boot refusal a loss, are both worse
+  // than not rendering.
+  const checks = invariantChecks(ROOT);
+  const refusing = checks.filter((c) => c.refusesBoot);
+  const reporting = checks.filter((c) => !c.refusesBoot);
+  assert.ok(refusing.length >= 6, `expected at least 6 boot refusals, read ${refusing.length}`);
+  assert.ok(reporting.length >= 1, "the uncredited finding must be read as NOT refusing boot");
+  assert.match(reporting.map((c) => c.message).join("\n"), /charged .* and delivered nothing/);
+  // Every finding names the accumulator it lands in, which is what the
+  // refusesBoot flag is derived from.
+  for (const c of checks) assert.ok(c.into, "every finding must name the accumulator it was pushed into");
+  assert.ok(refusing.every((c) => c.into === "problems"), "boot refusals come from `problems`");
+});
+
+check("READER: the seventh read's placeholders name the COLUMN, not the coercion", () => {
+  // `${Number(lost[0].units)}` must render as <units>, not as
+  // <Number(lost[0].units)>, and `${new Date(lost[0].last_at).toISOString()}`
+  // as <last_at>, not <toISOString>. A founder reads this table.
+  const lost = invariantChecks(ROOT).find((c) => !c.refusesBoot);
+  assert.ok(lost, "the reported finding is gone from the reader's view");
+  assert.match(lost.message, /<units>/, "the summed column must be named");
+  assert.match(lost.message, /<last_at>/, "the date column must be named, not the method reading it");
+  assert.ok(!/toISOString/.test(lost.message), "the coercion must not reach the document");
+  assert.ok(!/Number\(/.test(lost.message), "the coercion must not reach the document");
+});
+
+/*
+ * Synthetic ledger.ts trees, so the reader's REFUSALS can be exercised without
+ * touching server/lib/ledger.ts. The widening that let it read `uncredited`
+ * had to not become a licence to guess, and these are the cases that hold that
+ * line: a read whose finding cannot be found is still a throw, and so is an
+ * `ok` expression the reader cannot follow.
+ */
+const READER_FIXTURES = fs.mkdtempSync(path.join(os.tmpdir(), "economics-reader-"));
+let readerSeq = 0;
+
+function ledgerTree(body) {
+  readerSeq += 1;
+  const root = path.join(READER_FIXTURES, `t${readerSeq}`);
+  fs.mkdirSync(path.join(root, "server", "lib"), { recursive: true });
+  fs.writeFileSync(path.join(root, "server", "lib", "ledger.ts"), body);
+  return root;
+}
+
+const TWO_READS = `
+export async function checkLedgerInvariants(pool: any) {
+  const problems: string[] = [];
+  const [a] = await pool.query("SELECT slug FROM tokens WHERE bad = 1");
+  for (const r of a) problems.push(\`token "\${r.slug}" is bad\`);
+  const [b] = await pool.query("SELECT id FROM token_ledger WHERE worse = 1");
+  for (const r of b) problems.push(\`row \${r.id} is worse\`);
+  return { ok: problems.length === 0, problems };
+}
+`;
+
+check("READER FIXTURE: a plain two-read function reads as two boot refusals", () => {
+  const checks = invariantChecks(ledgerTree(TWO_READS));
+  assert.strictEqual(checks.length, 2);
+  assert.ok(checks.every((c) => c.refusesBoot), "both come from the accumulator that gates ok");
+  assert.strictEqual(checks[0].message, 'token "<slug>" is bad');
+  assert.deepStrictEqual(checks.map((c) => c.into), ["problems", "problems"]);
+});
+
+check("READER FIXTURE: a read whose finding is missing still THROWS", () => {
+  // The anchor rule, unchanged by the widening. This is the exact shape that
+  // caught the seventh read before it could print six invariants over seven.
+  const body = TWO_READS.replace("for (const r of b) problems.push(`row ${r.id} is worse`);", "");
+  assert.throws(
+    () => invariantChecks(ledgerTree(body)),
+    /runs 2 read\(s\) and produced 1 finding\(s\)/,
+    "a read with no finding must refuse, never render the shorter list",
+  );
+});
+
+check("READER FIXTURE: a second accumulator outside `ok` is read as reported-only", () => {
+  const body = TWO_READS
+    .replace("const problems: string[] = [];", "const problems: string[] = [];\n  const notes: string[] = [];")
+    .replace("for (const r of b) problems.push", "for (const r of b) notes.push")
+    .replace("return { ok: problems.length === 0, problems };", "return { ok: problems.length === 0, problems, notes };");
+  const checks = invariantChecks(ledgerTree(body));
+  assert.strictEqual(checks.length, 2);
+  assert.strictEqual(checks[0].refusesBoot, true, "problems gates ok");
+  assert.strictEqual(checks[1].refusesBoot, false, "notes does not gate ok");
+  assert.strictEqual(checks[1].into, "notes");
+});
+
+check("READER FIXTURE: an `ok` the reader cannot follow THROWS rather than guessing", () => {
+  // Reporting a loss as a boot refusal, or a refusal as a loss, are both worse
+  // than not rendering. So the gating set is derived, and an undecipherable
+  // `ok` is a refusal to render rather than a default.
+  const body = TWO_READS.replace("return { ok: problems.length === 0, problems };", "return { ok: someFlag, problems };");
+  assert.throws(
+    () => invariantChecks(ledgerTree(body)),
+    /cannot tell which findings refuse boot/,
+  );
+});
+
+check("READER FIXTURE: no `ok` property at all THROWS", () => {
+  const body = TWO_READS.replace("return { ok: problems.length === 0, problems };", "return { problems };");
+  assert.throws(() => invariantChecks(ledgerTree(body)), /no longer returns an object literal with an `ok` property/);
+});
+
+check("READER FIXTURE: a finding built from a variable THROWS, not half a sentence", () => {
+  const body = TWO_READS.replace("problems.push(`row ${r.id} is worse`)", "problems.push(someMessage)");
+  assert.throws(() => invariantChecks(ledgerTree(body)), /the reader cannot print what it found/);
+});
+
+fs.rmSync(READER_FIXTURES, { recursive: true, force: true });
+
 check("READER: refusalsFrom reads BOTH branches of a ternary refusal", () => {
   // This is the case that caught the first draft of the reader: sendRefusal
   // returns two of its sentences out of a ternary, and a reader that skipped

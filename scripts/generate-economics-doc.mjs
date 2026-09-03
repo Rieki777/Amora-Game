@@ -229,9 +229,147 @@ export function occurrenceKeys(root = ROOT) {
  * means the shape moved and this throws rather than dropping an invariant
  * from the document in silence.
  */
+/**
+ * One string, template literal, or `+` chain of them, rendered with its
+ * interpolations turned into `<placeholder>`. Returns null for anything else.
+ *
+ * ONE READER FOR BOTH THE REFUSALS AND THE INVARIANTS, because they kept
+ * meeting the same shapes one at a time. `sendRefusal` wraps a sentence across
+ * a `+` to fit the line and so does the uncredited finding in
+ * `checkLedgerInvariants`; each was found separately, by a reader that could
+ * not read it, and fixing it in one place left the other blind. The `+` join
+ * is strict: every leaf must itself be readable, so a genuine
+ * `"..." + someVariable` still returns null and the caller still throws
+ * rather than printing half a sentence.
+ */
+/**
+ * The name to print inside `<...>` for one interpolated expression.
+ *
+ * NAME THE COLUMN BEING READ, NOT THE FUNCTION READING IT. `${r.kind}` is
+ * plainly `<kind>`, but the uncredited finding interpolates
+ * `${Number(lost[0].units)}` and
+ * `${new Date(lost[0].last_at).toISOString()}`, and printing those verbatim
+ * puts the coercion wrapper in a table a founder reads. The rule is one line
+ * and it is not a guess: take the last property access that is NOT the callee
+ * of a call, which is the value being read rather than the method reading it,
+ * so `Number(lost[0].units)` gives `units` and
+ * `new Date(lost[0].last_at).toISOString()` gives `last_at` rather than
+ * `toISOString`.
+ *
+ * Falls back to the expression's own collapsed text when there is no such
+ * access at all (`${recognitionName()}` has none), because an honest ugly
+ * placeholder beats an invented pretty one.
+ */
+function placeholderFor(node) {
+  const named = [];
+  const visit = (n) => {
+    if (ts.isPropertyAccessExpression(n)) {
+      const isCallee =
+        n.parent && (ts.isCallExpression(n.parent) || ts.isNewExpression(n.parent)) && n.parent.expression === n;
+      if (!isCallee) named.push(n.name.text);
+    }
+    n.forEachChild(visit);
+  };
+  visit(node);
+  return named.length ? named[named.length - 1] : node.getText().replace(/\s+/g, " ");
+}
+
+function literalText(node) {
+  if (!node) return null;
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isTemplateExpression(node)) {
+    let s = node.head.text;
+    for (const span of node.templateSpans) {
+      s += `<${placeholderFor(span.expression)}>`;
+      s += span.literal.text;
+    }
+    return s;
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = literalText(node.left);
+    const right = literalText(node.right);
+    return left === null || right === null ? null : left + right;
+  }
+  return null;
+}
+
+/**
+ * The string-array accumulators a function declares, by name.
+ *
+ * `checkLedgerInvariants` collects its output into local `const x = []`
+ * declarations, and which one a finding lands in is the whole difference
+ * between "boot refuses" and "a founder should read this". Read rather than
+ * assumed: hardcoding the names would have to be edited every time the
+ * function grows another, and editing it is exactly what nobody does.
+ */
+function accumulators(fn) {
+  const names = [];
+  eachChild(fn, (n) => {
+    if (!ts.isVariableDeclaration(n) || !ts.isIdentifier(n.name)) return;
+    if (n.initializer && ts.isArrayLiteralExpression(n.initializer) && n.initializer.elements.length === 0) {
+      names.push(n.name.text);
+    }
+  });
+  return names;
+}
+
+/**
+ * Which accumulators decide `ok`, read out of the return statement.
+ *
+ * THIS IS THE PART THAT MUST NOT BE GUESSED. `checkLedgerInvariants` returns
+ * `{ ok: problems.length === 0, problems, uncredited }`, so `problems` gates
+ * boot and `uncredited` deliberately does not: the first are corruptions and a
+ * village whose books do not add up must not serve, the second is a real loss
+ * that is no reason to take the village offline. Writing "problems blocks,
+ * uncredited does not" into this file would be a fact about today that the
+ * document would keep printing after somebody changed it.
+ *
+ * So the set is derived from the `ok` expression itself, and an `ok` this
+ * reader cannot follow is a THROW rather than a shrug: reporting a finding as
+ * a boot refusal, or a boot refusal as a finding, are both worse than
+ * refusing to render.
+ */
+function bootGating(fn, names) {
+  let okExpr;
+  eachChild(fn, (n) => {
+    if (okExpr || !ts.isReturnStatement(n) || !n.expression) return;
+    if (!ts.isObjectLiteralExpression(n.expression)) return;
+    const ok = n.expression.properties.find(
+      (p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "ok",
+    );
+    if (ok) okExpr = ok.initializer;
+  });
+  if (!okExpr) {
+    fail(
+      "economics-doc: checkLedgerInvariants() no longer returns an object literal with an `ok` " +
+        "property. The document states which findings refuse boot and which are only reported, and " +
+        "that distinction is read from `ok`. It will not guess at it.",
+    );
+  }
+  const gating = new Set();
+  eachChild(okExpr, (n) => {
+    if (!ts.isPropertyAccessExpression(n) || n.name.text !== "length") return;
+    if (ts.isIdentifier(n.expression) && names.includes(n.expression.text)) gating.add(n.expression.text);
+  });
+  if (!gating.size) {
+    fail(
+      `economics-doc: checkLedgerInvariants()'s \`ok\` is computed from something other than the ` +
+        `length of ${names.join(", ")}, and this reader cannot tell which findings refuse boot. ` +
+        "Teach it the new shape rather than letting the document guess.",
+    );
+  }
+  return gating;
+}
+
 export function invariantChecks(root = ROOT) {
   const abs = path.join(root, "server", "lib", "ledger.ts");
   const fn = functionNamed(abs, "checkLedgerInvariants");
+
+  const names = accumulators(fn);
+  if (!names.length) {
+    fail("economics-doc: checkLedgerInvariants() declares no string accumulator; the reader cannot follow it");
+  }
+  const gating = bootGating(fn, names);
 
   const found = [];
   let pendingSql = null;
@@ -282,48 +420,56 @@ export function invariantChecks(root = ROOT) {
         }
         return;
       }
+      /*
+       * A push into ANY of the function's accumulators, not just `problems`.
+       *
+       * This used to name `problems` alone, and the day a seventh read landed
+       * whose finding goes into `uncredited` the reader paired six findings
+       * with seven reads and REFUSED, which is what brought this change about.
+       * It refused rather than printing six, and that is the behaviour to
+       * keep: widening the match is teaching it a real shape, and the count
+       * check below is untouched.
+       */
       const isPush =
         ts.isPropertyAccessExpression(callee) &&
         callee.name.text === "push" &&
         ts.isIdentifier(callee.expression) &&
-        callee.expression.text === "problems";
+        names.includes(callee.expression.text);
       if (!isPush) return;
+      const into = callee.expression.text;
       if (!pendingSql) {
         fail(
-          "economics-doc: checkLedgerInvariants() pushes a problem with no query before it. " +
-            "The reader pairs each refusal with the read that produced it and can no longer do so.",
+          `economics-doc: checkLedgerInvariants() pushes into ${into} with no query before it. ` +
+            "The reader pairs each finding with the read that produced it and can no longer do so.",
         );
       }
-      const arg = n.arguments[0];
-      let message;
-      if (ts.isNoSubstitutionTemplateLiteral(arg) || ts.isStringLiteral(arg)) {
-        message = arg.text;
-      } else if (ts.isTemplateExpression(arg)) {
-        message = arg.head.text;
-        for (const span of arg.templateSpans) {
-          const e = span.expression;
-          message += ts.isPropertyAccessExpression(e) ? `<${e.name.text}>` : `<${e.getText()}>`;
-          message += span.literal.text;
-        }
-      } else {
+      const message = literalText(n.arguments[0]);
+      if (message === null) {
         fail(
-          `economics-doc: a problems.push() in checkLedgerInvariants() no longer carries a string ` +
-            `or template literal (${ts.SyntaxKind[arg.kind]}); the reader cannot print what it refuses.`,
+          `economics-doc: a ${into}.push() in checkLedgerInvariants() no longer carries a string, ` +
+            `template literal, or concatenation of them (${ts.SyntaxKind[n.arguments[0].kind]}); ` +
+            "the reader cannot print what it found.",
         );
       }
-      found.push({ order: pendingQueryOrder, sql: pendingSql, message: message.replace(/\s+/g, " ").trim() });
+      found.push({
+        order: pendingQueryOrder,
+        sql: pendingSql,
+        message: message.replace(/\s+/g, " ").trim(),
+        into,
+        refusesBoot: gating.has(into),
+      });
       pendingSql = null;
     }
   });
 
   if (!found.length) {
-    fail("economics-doc: checkLedgerInvariants() no longer pushes any problem; the reader found no invariants");
+    fail("economics-doc: checkLedgerInvariants() no longer pushes any finding; the reader found no invariants");
   }
   if (found.length !== order) {
     fail(
       `economics-doc: checkLedgerInvariants() runs ${order} read(s) and produced ${found.length} ` +
-        "refusal(s). One of them is a read whose refusal this reader could not find, which means " +
-        "the document would print fewer invariants than boot actually enforces.",
+        `finding(s), into ${names.join(", ")}. One of them is a read whose finding this reader could ` +
+        "not find, which means the document would print fewer invariants than boot actually enforces.",
     );
   }
   return found;
@@ -350,31 +496,8 @@ export function refusalsFrom(root, relFile, fnName) {
   const abs = path.join(root, relFile);
   const fn = functionNamed(abs, fnName);
   const out = [];
-  const textOf = (node) => {
-    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-    if (ts.isTemplateExpression(node)) {
-      let s = node.head.text;
-      for (const span of node.templateSpans) {
-        const e = span.expression;
-        s += ts.isPropertyAccessExpression(e) ? `<${e.name.text}>` : `<${e.getText().replace(/\s+/g, " ")}>`;
-        s += span.literal.text;
-      }
-      return s;
-    }
-    /*
-     * A `+` chain of literals is ONE sentence wrapped to fit the line, and it
-     * has to be joined rather than refused. `checkGive`'s share refusal is
-     * written that way today. The join is strict: every leaf must itself be a
-     * literal this function can read, so a genuine `"..." + variable` still
-     * throws instead of printing half a sentence.
-     */
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-      const left = textOf(node.left);
-      const right = textOf(node.right);
-      return left === null || right === null ? null : left + right;
-    }
-    return null;
-  };
+  // Shared with invariantChecks; see literalText's own note for why.
+  const textOf = literalText;
   /*
    * A refusal that cannot be read is a FAILURE, never a skip.
    *
@@ -565,17 +688,29 @@ export const REGIONS = {
   /** What every boot refuses. */
   conservation(f, root) {
     const checks = invariantChecks(root);
-    // Backticked, because a refusal carries `<token_type>` placeholders and a
+    // Backticked, because a finding carries `<token_type>` placeholders and a
     // markdown renderer eats an unbackticked angle bracket as an HTML tag.
     const rows = checks.map((c) => [
       cell(`\`${c.message}\``),
       cell(tablesIn(c.sql).map((t) => `\`${t}\``).join(", ")),
+      cell(c.refusesBoot ? "**yes**" : "no, reported only"),
     ]);
+    const refusing = checks.filter((c) => c.refusesBoot).length;
+    const reporting = checks.length - refusing;
     return [
       `\`checkLedgerInvariants\` (\`server/lib/ledger.ts\`) runs ${checks.length} reads at every boot and ` +
-        "refuses with one sentence per offending row. These are the sentences, with the tables each read:",
+        "emits one sentence per offending row. These are the sentences, with the tables each read " +
+        "and whether the village refuses to serve on it:",
       "",
-      table(["Boot refuses with", "Reading"], rows),
+      table(["The sentence", "Reading", "Refuses boot"], rows),
+      "",
+      reporting === 0
+        ? `All ${refusing} refuse boot.`
+        : `${refusing} of these refuse boot and ${reporting} ${reporting === 1 ? "does" : "do"} not. ` +
+          "The difference is deliberate and is read out of the function's own `ok` expression rather " +
+          "than written here: a corruption means a village whose books do not add up must not serve, " +
+          "while a LOSS is real, worth a founder's attention, and no reason to take the village " +
+          "offline.",
       "",
       "Conservation is checked against `token_balances`, which is a CACHE, and the cache is " +
         "separately checked against a recomputation from `token_ledger`. Both are needed: the sum " +
