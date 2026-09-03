@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { useModule, useModules, useHypha } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
 import { Coins, CreditCard, ExternalLink, ReceiptText, Wallet as WalletIcon } from "lucide-react";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
 import { ExampleRefusal, readRefusal } from "@/components/ExampleRefusal";
@@ -49,6 +50,7 @@ const headers = (): Record<string, string> => {
 const usd = (minor: number) => `$${(Number(minor || 0) / 100).toFixed(2)}`;
 
 export default function Wallet() {
+  const tokenName = useTokenName("Recognition");
   const modules = useModules();
   const exchangeModule = useModule("exchange");
   const hypha = useHypha();
@@ -126,7 +128,7 @@ export default function Wallet() {
           <p className="text-muted-foreground max-w-xl mx-auto">
             One room, one ledger: every token the village lives by leaves its
             thread here, the way roots share water under a forest floor.{" "}
-            <InfoTip tip="Gratitude is thanks for work, never pay. Earned when someone appreciates a real contribution; it cannot be bought.">Gratitude</InfoTip>,{" "}
+            <InfoTip tip={`${tokenName}: thanks for work, never pay. Earned when someone appreciates a real contribution, and never bought.`}>{tokenName}</InfoTip>,{" "}
             <InfoTip tip="Stay credits are nights at the village, earned through work exchange and spent when you book a stay.">stay credits</InfoTip> and{" "}
             <InfoTip tip="Library credits pay the Material Library's deposit: set aside while you borrow, back when the tool comes home.">library credits</InfoTip>{" "}
             each carry their own story. Your own balances also sit on{" "}
@@ -179,7 +181,7 @@ export default function Wallet() {
               <Coins className="w-4 h-4 text-teal-deep" />
               <p className="font-semibold text-foreground text-sm">
                 Buy tokens
-                <InfoTip tip="Money flows in and never back out: the village sells its own credit tokens and never buys them back. Gratitude is never for sale." label="How buying works" />
+                <InfoTip tip={`Money flows in and never back out: the village sells its own credit tokens and never buys them back. Nothing puts ${tokenName} up for sale.`} label="How buying works" />
               </p>
             </div>
             {status === "failed" ? (

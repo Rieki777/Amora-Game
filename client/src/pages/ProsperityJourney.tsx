@@ -1,7 +1,8 @@
 import Layout from "@/components/Layout";
-import { altOr, useBrandImages, useGameConfig, useVillageLinks } from "@/lib/gameApi";
+import { altOr, useBrandImages, useVillageLinks } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
 import { useVillageName } from "@/hooks/useVillageName";
+import { useTokenName, useValueTokenName } from "@/hooks/useTokenNames";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -27,7 +28,7 @@ import {
 } from "lucide-react";
 
 
-const buildJourneySteps = (villageName: string) => [
+const buildJourneySteps = (villageName: string, tokenName: string) => [
   {
     id: "community-call",
     stage: "Researcher",
@@ -40,7 +41,7 @@ const buildJourneySteps = (villageName: string) => [
     link: "",
     linkText: "Join Community Call",
     external: true,
-    details: ["Understand our economic vision", "Learn how Gratitude tracks contributions", "Meet other entrepreneurs", "Ask questions live"]
+    details: ["Understand our economic vision", `Learn how ${tokenName} tracks contributions`, "Meet other entrepreneurs", "Ask questions live"]
   },
   {
     id: "prosperity-packet",
@@ -98,12 +99,12 @@ const buildJourneySteps = (villageName: string) => [
     id: "launch",
     stage: "Builder",
     title: "Launch Your Business",
-    description: `Integrate with the Gratitude contribution system and begin serving the ${villageName} community.`,
+    description: `Integrate with the ${tokenName} contribution system and begin serving the ${villageName} community.`,
     icon: PartyPopper,
     link: "",
     linkText: "",
     external: false,
-    details: ["Integrate Gratitude tracking", "Set up community dashboard", "Train your team", "Celebrate your launch"]
+    details: [`Integrate ${tokenName} tracking`, "Set up community dashboard", "Train your team", "Celebrate your launch"]
   },
   {
     id: "impact",
@@ -118,13 +119,13 @@ const buildJourneySteps = (villageName: string) => [
   },
 ];
 
-const ariTiers = [
+const ariTiers = (tokenName: string) => [
   {
     tier: "Seed",
     color: "bg-amber/10 text-amber border-amber/20",
     description: "Early stage, establishing presence",
     focus: "Primary village impact",
-    metrics: ["Families served", "Gratitude generated per week", "Community meals contributed"]
+    metrics: ["Families served", `${tokenName} generated per week`, "Community meals contributed"]
   },
   {
     tier: "Sprout",
@@ -152,9 +153,10 @@ const ariTiers = [
 const PACKET_SUBJECT = "Prosperity Packet Request";
 
 export default function ProsperityJourney() {
-  const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
+  const valueName = useValueTokenName();
+  const tokenName = useTokenName("Recognition");
   const villageName = useVillageName();
-  const journeySteps = buildJourneySteps(villageName);
+  const journeySteps = buildJourneySteps(villageName, tokenName);
   const brand = useBrandImages();
   // This village's own destinations. Blank hides the control that would use
   // one, which is the whole point: the renderer below already draws no button
@@ -254,7 +256,7 @@ export default function ProsperityJourney() {
               className="text-xl text-muted-foreground leading-relaxed mb-8"
             >
               Launch a business that serves the community and regenerates our ecosystem. 
-              Every contribution is tracked in Gratitude, our way of acknowledging value before
+              Every contribution is tracked in {tokenName}, our way of acknowledging value before
               we can pay in cash. Advance your impact through our ARI tiers.
             </motion.p>
 
@@ -305,10 +307,10 @@ export default function ProsperityJourney() {
                 <Heart className="w-12 h-12 text-gold mx-auto mb-4" />
               </motion.div>
               <h2 className="font-display text-xl font-semibold text-foreground mb-3">
-                Gratitude Economy
+                {tokenName} Economy
               </h2>
               <p className="text-muted-foreground text-sm">
-                All businesses integrate with our contribution tracking system. Revenue shares are acknowledged in Gratitude (the recognition signal, with no financial value of its own), and each cycle a real pool of {valueName} is shared across everyone's Gratitude. As {villageName} matures, {valueName} can convert to cash, equity, or community currency.
+                All businesses integrate with our contribution tracking system. Revenue shares are acknowledged in {tokenName} (the recognition signal, with no financial value of its own), and each cycle a real pool of {valueName} is shared across everyone's {tokenName}. As {villageName} matures, {valueName} can convert to cash, equity, or community currency.
               </p>
             </motion.div>
 
@@ -535,7 +537,7 @@ export default function ProsperityJourney() {
           </motion.div>
 
           <div className="grid md:grid-cols-4 gap-6 max-w-6xl mx-auto">
-            {ariTiers.map((tier, index) => (
+            {ariTiers(tokenName).map((tier, index) => (
               <motion.div
                 key={tier.tier}
                 initial={{ opacity: 0, y: 20 }}

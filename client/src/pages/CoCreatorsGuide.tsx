@@ -1,7 +1,8 @@
 import Layout from "@/components/Layout";
 import { useHypha } from "@/modules/ModuleProvider";
-import { useGameConfig, useVillageLinks } from "@/lib/gameApi";
+import { useVillageLinks } from "@/lib/gameApi";
 import { useVillageName } from "@/hooks/useVillageName";
+import { useTokenName, useValueTokenName } from "@/hooks/useTokenNames";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -36,14 +37,11 @@ import {
   Vote,
 } from "lucide-react";
 
-interface ScrollNavPill {
-  id: string;
-  label: string;
-}
+type ScrollNavPill = { id: string; label: string };
 
-const navPills: ScrollNavPill[] = [
+const navPills = (tokenName: string): ScrollNavPill[] => [
   { id: "r-ikigai", label: "R-Ikigai" },
-  { id: "recognition", label: "Gratitude Economy" },
+  { id: "recognition", label: `${tokenName} Economy` },
   { id: "voice", label: "Voice & Governance" },
   { id: "hypha", label: "Hypha Platform" },
   { id: "spaces", label: "The Four Spaces" },
@@ -57,7 +55,7 @@ const navPills: ScrollNavPill[] = [
 // server and read through useHypha) — the live [YOUR-DHO-SLUG] placeholder
 // this file used to ship is gone. Cards carry suffixes; the render resolves.
 
-const buildHyphaActions = (villageName: string) => [
+const buildHyphaActions = (villageName: string, tokenName: string) => [
   {
     icon: ClipboardList,
     title: "Start with an Agreement",
@@ -72,10 +70,10 @@ const buildHyphaActions = (villageName: string) => [
   },
   {
     icon: Receipt,
-    title: "Claim Your Gratitude",
+    title: `Claim Your ${tokenName}`,
     subtitle: "After completing a task, pay period, or season",
     description:
-      `When you've done the work, completed a quest, finished a season as a role holder, or reached a milestone, you come back and propose a Contribution Claim. Detail what you delivered, what ${villageName} gained, and claim your Gratitude. This is how the value you create becomes visible and rewarded.`,
+      `When you've done the work, completed a quest, finished a season as a role holder, or reached a milestone, you come back and propose a Contribution Claim. Detail what you delivered, what ${villageName} gained, and claim your ${tokenName}. This is how the value you create becomes visible and rewarded.`,
     cta: "Propose a Contribution",
     suffix: "/agreements/create/propose-contribution",
     color: "border-sage/30 bg-sage/5",
@@ -108,11 +106,10 @@ const buildHyphaActions = (villageName: string) => [
   },
 ];
 
-// A function of the live value-token name (Admin → Tokens): a fork's rename
-// reaches every card below without a code change.
-const recognitionItems = (valueName: string, villageName: string) => ({
+// A function of both live token names (Admin → Tokens), so a rename reaches every card below.
+const recognitionItems = (tokenName: string, valueName: string, villageName: string) => ({
   earn: [
-    { label: "Quests", range: "40-300 Gratitude" },
+    { label: "Quests", range: `40-300 ${tokenName}` },
     { label: "Circle Roles", range: "200-500/month" },
     { label: "Land Stewardship Shifts", range: "60-120" },
     { label: "Business Revenue Share", range: "Variable" },
@@ -124,7 +121,7 @@ const recognitionItems = (valueName: string, villageName: string) => ({
     "Represents community trust",
   ],
   spend: [
-    `Each cycle, a real pool of ${valueName} is shared across everyone's Gratitude`,
+    `Each cycle, a real pool of ${valueName} is shared across everyone's ${tokenName}`,
     "Village dues & utilities",
     "Cafe & shop services",
     `Future: ${valueName} convert to cash or equity as ${villageName} matures`,
@@ -143,7 +140,7 @@ const recognitionItems = (valueName: string, villageName: string) => ({
    no background at all. Amber and green headings moved off text-amber and
    text-green-600 for the same reason: both are light accents that disappear on
    a light panel. */
-const spaces = [
+const spaces = (tokenName: string) => [
   {
     id: "village-steward",
     title: "Village Steward Space",
@@ -166,7 +163,7 @@ const spaces = [
     color: "bg-amber-light",
     textColor: "text-gold",
     icon: TrendingUp,
-    description: "Manages business interests and Gratitude economy",
+    description: `Manages business interests and ${tokenName} economy`,
   },
   {
     id: "land",
@@ -247,9 +244,10 @@ const ctaCards = [
 
 export default function CoCreatorsGuide() {
   const hypha = useHypha();
-  const valueName = useGameConfig()?.currency?.value?.name ?? "village tokens";
+  const valueName = useValueTokenName();
+  const tokenName = useTokenName("Recognition");
   const villageName = useVillageName();
-  const hyphaActions = buildHyphaActions(villageName);
+  const hyphaActions = buildHyphaActions(villageName, tokenName);
   const progressionStages = buildProgressionStages(villageName);
   // The one external card points at this village's own events page.
   // No events page, no card: better an absent invitation than one that
@@ -258,7 +256,7 @@ export default function CoCreatorsGuide() {
   const cards = ctaCards
     .map((card) => (card.external ? { ...card, href: eventsUrl } : card))
     .filter((card) => card.href);
-  const recognition = recognitionItems(valueName, villageName);
+  const recognition = recognitionItems(tokenName, valueName, villageName);
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
     if (element) {
@@ -301,7 +299,7 @@ export default function CoCreatorsGuide() {
         <div className="container py-4">
           <div className="overflow-x-auto scrollbar-hide">
             <div className="flex gap-2 min-w-min">
-              {navPills.map((pill) => (
+              {navPills(tokenName).map((pill) => (
                 <motion.button
                   key={pill.id}
                   onClick={() => scrollToSection(pill.id)}
@@ -334,7 +332,7 @@ export default function CoCreatorsGuide() {
               </h2>
               <p className="text-muted-foreground text-lg">
                 The intersection of what you love, what you're good at, what {villageName} needs,
-                and what earns you Gratitude.
+                and what earns you {tokenName}.
               </p>
             </div>
 
@@ -482,13 +480,13 @@ export default function CoCreatorsGuide() {
           >
             <div className="mb-12 text-center">
               <h2 className="font-display text-4xl md:text-5xl font-bold text-foreground mb-3">
-                The Gratitude Economy
+                The {tokenName} Economy
               </h2>
               <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Two tokens, two jobs. Gratitude is the recognition signal. It acknowledges the
-                work, time, and resources you contribute to {villageName}, and carries no financial value
-                of its own. {valueName} are the tracked value: each cycle the community shares a
-                real pool of {valueName} across everyone's Gratitude, and as {villageName} matures they
+                Two tokens, two jobs. The work, time, and resources you contribute to
+                {villageName} are acknowledged in {tokenName}, the recognition signal, which carries
+                no financial value of its own. {valueName} are the tracked value: each cycle the community shares a
+                real pool of {valueName} across everyone's {tokenName}, and as {villageName} matures they
                 can convert to cash, equity, or community currency.
               </p>
             </div>
@@ -507,7 +505,7 @@ export default function CoCreatorsGuide() {
                   <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
                     <TrendingUp className="w-6 h-6 text-green-600" />
                   </div>
-                  <h3 className="font-bold text-xl text-foreground">Earn Gratitude</h3>
+                  <h3 className="font-bold text-xl text-foreground">Earn {tokenName}</h3>
                 </div>
                 <div className="space-y-3">
                   {recognition.earn.map((item, idx) => (
@@ -534,7 +532,7 @@ export default function CoCreatorsGuide() {
                   <div className="w-12 h-12 rounded-lg bg-teal-100 flex items-center justify-center">
                     <Heart className="w-6 h-6 text-teal-deep" />
                   </div>
-                  <h3 className="font-bold text-xl text-foreground">Hold Gratitude</h3>
+                  <h3 className="font-bold text-xl text-foreground">Hold {tokenName}</h3>
                 </div>
                 <div className="space-y-3">
                   {recognition.hold.map((item, idx) => (
@@ -585,7 +583,7 @@ export default function CoCreatorsGuide() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="px-4 py-2 bg-primary/10 rounded-lg text-sm font-medium text-primary">
-                    Gratitude Earned
+                    {tokenName} Earned
                   </div>
                   <ArrowRight className="w-5 h-5 text-muted-foreground" />
                 </div>
@@ -804,7 +802,7 @@ export default function CoCreatorsGuide() {
                   </h3>
                   <p className="text-cream/70 text-sm leading-relaxed">
                     Every proposal puts one question to the community: does this contribution serve
-                    {villageName} at the level of Gratitude being requested? Not hours logged, hours are
+                    {villageName} at the level of {tokenName} being requested? Not hours logged, hours are
                     not a contribution. What matters is the actual value created, articulated
                     clearly, and assessed honestly by your peers. The more you contribute, the more
                     weight your voice carries in those votes.
@@ -868,7 +866,7 @@ export default function CoCreatorsGuide() {
                 {[
                   { label: "Sense", emoji: "🌀", description: "Find where your gifts are most needed. A quest waiting. A gap in the land. A conversation that sparks something." },
                   { label: "Propose", emoji: "✍️", description: "Open your intention to the community in Hypha. Consent-based: the check is simply whether this serves us." },
-                  { label: "Create", emoji: "🌱", description: "Do the work. Document it. Return and claim the Gratitude that reflects the value you actually created." },
+                  { label: "Create", emoji: "🌱", description: `Do the work. Document it. Return and claim ${tokenName} for the value you actually created.` },
                 ].map((step) => (
                   <div key={step.label} className="rounded-xl bg-white/10 border border-white/20 p-5">
                     <div className="text-2xl mb-2">{step.emoji}</div>
@@ -902,7 +900,7 @@ export default function CoCreatorsGuide() {
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
-              {spaces.map((space, idx) => (
+              {spaces(tokenName).map((space, idx) => (
                 <motion.div
                   key={space.id}
                   initial={{ opacity: 0, y: 20 }}
