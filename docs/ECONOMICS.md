@@ -365,6 +365,25 @@ minor units and post them unchanged, so a departing member's settlement would be
 multiplied by ten thousand. **The units question has to be answered per caller**,
 with a test per path.
 
+**The five do-not-convert sites, named, so a later sweep does not helpfully fix
+them.** `sweepBalances` (`server/lib/exit.ts`) and the voice-claim debit in
+`requestVoiceClaim` (`server/lib/voiceClaim.ts`) both read
+`token_balances.balance`, which is a SUM over `token_ledger.amount`, and post it
+back unchanged: minor in, minor out, with no human number anywhere on the path.
+The voice claim's other three legs (the confirm posting, the refund, and
+`retryRefund`) already convert at the boundary with `toLedgerUnits` over the
+human `voice_claims.amount` column, and `toLedgerUnits` reads the registry's
+`decimals` at call time, so all three stay correct at 0, 3 or 4 with no edit.
+Two of those hand the value to `reverse()` as an ASSERTION against the ledger
+row it mirrors, so a second conversion there turns every correct refund into a
+loud mismatch. All five now carry a marker comment saying which they are. What
+`exit.ts` did need was the opposite direction: the `swept` map and the two exit
+desk sentences handed minor units to a person, and all three now divide with
+`fromLedgerUnits`. `server/lib/exit.test.ts` pins both halves at once, at
+decimals 0, 3 and 4, because a test reading only the ledger row stays green over
+an admin toast that says 300000, and a test reading only the toast stays green
+over a settlement multiplied by ten thousand.
+
 **One token is already inconsistent with itself, at zero decimals, today.** Village
 Voice has 3 decimals now, and the two ways it can be issued disagree:
 
