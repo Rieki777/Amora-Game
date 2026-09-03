@@ -10,6 +10,11 @@
  * off the query string on first render, so a link carrying them lands someone
  * on the right home in the right hamlet and a shared link keeps the context.
  *
+ * `hamlet` is resolved at first render and `type` is not, and the difference
+ * is 0131. Which homes exist became this village's own answer rather than a
+ * constant compiled into this file, so it arrives over the network and the
+ * link's `type` is held raw until it does. See `preselectedHome`.
+ *
  * NOTHING PRODUCES `hamlet=` YET, measured 2026-08-14: zero hits for
  * `hamlet=` outside two comments and one column comment, and the map artifact
  * (docs/prototypes/grounds-v0.html) contains no `/reserve` link at all. The
@@ -33,15 +38,26 @@ import { useEffect, useMemo, useState } from "react";
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
 import { Home, ArrowLeft, Check, MapPin } from "lucide-react";
-import { hamletNumbers } from "@/lib/housingForm";
+import { hamletNumbers, homeChoices, preselectedHome, type PublicHome } from "@/lib/housingForm";
 
-/** The four home types the platform ships knowing about, matching the server. */
-const HOME_TYPES = [
-  { key: "tiny-home", label: "Tiny Home", size: "200 to 400 sq ft" },
-  { key: "casita", label: "Casita", size: "400 to 800 sq ft" },
-  { key: "family-home", label: "Family Home", size: "800 to 1,500 sq ft" },
-  { key: "villa", label: "Villa", size: "1,500+ sq ft" },
-] as const;
+/*
+ * THE FOUR HOME TYPES THAT USED TO LIVE HERE ARE GONE (0131).
+ *
+ * They were a module constant carrying a label and a size for each key, a
+ * SECOND COPY of the four tiers in Housing.tsx, and the two copies had
+ * already drifted into different wording for the same home: one page hyphenated
+ * the range and the other spelled it out, for identical figures. Nothing in
+ * this repository imports anything under client/src/pages, so neither copy was
+ * reachable by any test and no gate could see the drift. Both are recorded in
+ * drizzle/0131_a_village_names_its_own_homes.sql and deliberately not repeated
+ * here, because client/src/lib/housingForm.test.ts fails on any of those
+ * literals appearing in this file.
+ *
+ * Both surfaces now read the village's own homes off the one route this page
+ * was already fetching. A village that has published none cannot take a
+ * reservation for a home it has not described, and this page says so rather
+ * than offering four homes nobody chose.
+ */
 
 interface HousingEntry {
   structureKey: string;
@@ -64,10 +80,16 @@ export default function ReserveHome() {
   }, [params]);
   const arrivedFrom = params.get("from") === "map" ? "map" : "site";
 
-  const [homeType, setHomeType] = useState(() => {
-    const t = params.get("type") ?? "";
-    return HOME_TYPES.some((h) => h.key === t) ? t : "";
-  });
+  /*
+   * The home a link asked for, held raw until the village's own homes land.
+   *
+   * It CANNOT be resolved at first render any more, because which homes exist
+   * is now this village's answer and arrives over the network. Trusting the
+   * string would preselect a home a founder has since cleared, and the person
+   * would submit a request for a home this village does not offer.
+   */
+  const wantedType = params.get("type") ?? "";
+  const [homeType, setHomeType] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -80,6 +102,8 @@ export default function ReserveHome() {
   const [hp, setHp] = useState("");
 
   const [entries, setEntries] = useState<HousingEntry[] | null>(null);
+  /** The homes this village published (0131). Same route, same round trip. */
+  const [homes, setHomes] = useState<PublicHome[] | null>(null);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -87,20 +111,42 @@ export default function ReserveHome() {
   useEffect(() => {
     let alive = true;
     fetch("/api/housing/public")
-      .then((r) => (r.ok ? r.json() : { entries: [] }))
+      .then((r) => (r.ok ? r.json() : { entries: [], homes: [] }))
       .then((d) => {
-        if (alive) setEntries(Array.isArray(d?.entries) ? d.entries : []);
+        if (!alive) return;
+        setEntries(Array.isArray(d?.entries) ? d.entries : []);
+        setHomes(Array.isArray(d?.homes) ? d.homes : []);
       })
       /*
-       * A failed read leaves this as an empty list, which means every hamlet
-       * reads as unset and every number is labelled an example. Fail-closed:
-       * a network blip must never promote example numbers to real ones.
+       * A failed read leaves both as empty lists. For hamlets that means
+       * every number is labelled an example; for homes it means this page
+       * offers none. Fail-closed both ways: a network blip must never promote
+       * example numbers to real ones, and must never offer a home this
+       * village has not described.
        */
-      .catch(() => alive && setEntries([]));
+      .catch(() => {
+        if (!alive) return;
+        setEntries([]);
+        setHomes([]);
+      });
     return () => {
       alive = false;
     };
   }, []);
+
+  /*
+   * Resolve the link's `?type=` once, when the homes arrive, and never over a
+   * choice the person has already made. `preselectedHome` is the predicate
+   * and it lives in @/lib/housingForm so a test can run it: presence in the
+   * published list is the whole of it, so a stale link lands on the form with
+   * nothing chosen rather than on a home this village no longer offers.
+   */
+  useEffect(() => {
+    if (homes === null) return;
+    setHomeType((current) => current || preselectedHome(homes, wantedType));
+  }, [homes, wantedType]);
+
+  const choices = homeChoices(homes);
 
   /*
    * Presence in `entries` IS the predicate, and it has THREE answers. See
@@ -183,6 +229,49 @@ export default function ReserveHome() {
     );
   }
 
+  /*
+   * NO HOMES PUBLISHED, SO NOTHING TO RESERVE (0131).
+   *
+   * This page used to offer four homes the platform shipped knowing about,
+   * with their sizes, so a village that had never described a home still took
+   * reservations against another village's square footage. The server refuses
+   * a homeType outside the four keys, so the form cannot be submitted with
+   * nothing chosen anyway:
+   * the choice is between saying this plainly and drawing a chooser that
+   * offers homes nobody at this village chose.
+   *
+   * `unknown` is NOT this state and must never render it. It is the in-flight
+   * window, and a page that announces "no homes yet" for the length of a
+   * round trip and then draws four has told a visitor something false.
+   */
+  if (choices.kind === "none") {
+    return (
+      <Layout>
+        <section className="py-24 bg-background">
+          <div className="container max-w-2xl text-center">
+            <div className="w-14 h-14 rounded-full bg-teal/10 flex items-center justify-center mx-auto mb-6">
+              <Home className="w-7 h-7 text-teal" />
+            </div>
+            <h1 className="font-display text-3xl font-bold text-foreground mb-4">
+              The homes are not listed yet
+            </h1>
+            <p className="text-muted-foreground mb-8">
+              Nobody here has published what the homes are or what they cost, so there is
+              nothing to hold for you today. Come back, or reach the founding team through
+              the housing page and tell them what you are looking for.
+            </p>
+            <Link
+              href="/housing"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-teal text-white font-medium"
+            >
+              Back to housing
+            </Link>
+          </div>
+        </section>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <section className="py-16 bg-background">
@@ -226,27 +315,41 @@ export default function ReserveHome() {
               <legend className="font-display text-lg font-semibold text-foreground mb-3">
                 Which home?
               </legend>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {HOME_TYPES.map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    onClick={() => setHomeType(t.key)}
-                    aria-pressed={homeType === t.key}
-                    className={`text-left p-4 rounded-xl border transition ${
-                      homeType === t.key
-                        ? "border-teal bg-teal/10"
-                        : "border-border bg-card hover:border-teal/40"
-                    }`}
-                  >
-                    <span className="flex items-center gap-2 font-medium text-foreground">
-                      <Home className="w-4 h-4 text-teal" />
-                      {t.label}
-                    </span>
-                    <span className="block text-sm text-muted-foreground mt-1">{t.size}</span>
-                  </button>
-                ))}
-              </div>
+              {/* The village's own homes, named and sized in its own words.
+                  A home with no size and no price cannot reach this list:
+                  the server publishes a home type only once it has a name and
+                  one of the two, so a button here always says something about
+                  the home behind it. Blank fields draw nothing. */}
+              {choices.kind === "unknown" ? (
+                <p className="text-sm text-muted-foreground">Loading the homes.</p>
+              ) : (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {choices.homes.map((home) => (
+                    <button
+                      key={home.homeType}
+                      type="button"
+                      onClick={() => setHomeType(home.homeType)}
+                      aria-pressed={homeType === home.homeType}
+                      className={`text-left p-4 rounded-xl border transition ${
+                        homeType === home.homeType
+                          ? "border-teal bg-teal/10"
+                          : "border-border bg-card hover:border-teal/40"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 font-medium text-foreground">
+                        <Home className="w-4 h-4 text-teal" />
+                        {home.name}
+                      </span>
+                      {home.size && (
+                        <span className="block text-sm text-muted-foreground mt-1">{home.size}</span>
+                      )}
+                      {home.price && (
+                        <span className="block text-sm text-muted-foreground">{home.price}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </fieldset>
 
             <div className="grid sm:grid-cols-2 gap-4">

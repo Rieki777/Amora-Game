@@ -9943,7 +9943,7 @@ function SettingsTab({ password }: { password: string }) {
      * shipping inside Admin's own chunk. A placeholder is content: whatever it
      * says is what the next person copies, and half of them will leave it.
      */
-    { key: "acres", label: "Size of the land", valueHint: "how many", noteHint: "acres, hectares", where: "Master plan" },
+    { key: "acres", label: "Size of the land", valueHint: "how many", noteHint: "acres, hectares, manzanas (blank shows acres)", where: "Master plan" },
     { key: "appraisal", label: "Appraised value", valueHint: "what it came to", noteHint: "when it was made", where: "Master plan, investor page" },
     { key: "appreciation", label: "Change in land value", valueHint: "up or down by", noteHint: "over what period", where: "Investor page" },
     { key: "projectedReturn", label: "Projected return", valueHint: "what your model says", noteHint: "what the model assumes", where: "Investor page" },

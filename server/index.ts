@@ -61,6 +61,9 @@ import { register as registerMapSceneRoutes } from "./routes/mapScene";
 import { register as registerBadgesRoutes } from "./routes/badges";
 import { register as registerMessagingRoutes } from "./routes/messaging";
 import { register as registerStaysRoutes } from "./routes/stays";
+import { register as registerSitePullRoutes } from "./routes/sitePull";
+import { register as registerBrandPreviewRoutes } from "./routes/brandPreview";
+import { register as registerBrandUploadRoutes } from "./routes/brandUploads";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -1034,7 +1037,7 @@ const DEFAULT_BRAND = {
   // brings its own font hosts a CSS file with the @font-face (their server,
   // their volume, their licence), points fontImportUrl at it, and names the
   // face first in fontDisplay. Emitted — sanitised — by /api/brand/theme.css.
-  identityPack: { description: "", never: "", references: [] as Array<{url:string;thumbUrl?:string}>, rightsAck: undefined as undefined | { at: string } },
+  identityPack: { description: "", never: "", references: [] as Array<{url:string;thumbUrl?:string|null;name?:string;mimeType?:string;kind?:"image"|"file"}>, rightsAck: undefined as undefined | { at: string } },
   theme: { seed: "", character: "", place: "", fontImportUrl: "", fontDisplay: "", fontBody: "", fontAccent: "", fontFaceName: "", fontFaceUrl: "" },
 };
 
@@ -1086,7 +1089,7 @@ const DEFAULT_SETTINGS = {
    * Anything a village types here is its own claim about its own land.
    */
   landFacts: {
-    acres: { value: "", note: "" },
+    acres: { value: "", note: "acres" }, // the unit, printed as the master plan tile's own label. Change it and the page changes with it.
     appraisal: { value: "", note: "" },
     appreciation: { value: "", note: "" },
     projectedReturn: { value: "", note: "" },
@@ -18782,96 +18785,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     });
   });
 
-  // â”€â”€ Brand images: upload + compress â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
-  // Hero photos come straight off phones at 3-8MB, which would make the site
-  // slower than the pasted URLs it replaces. Everything is resized and re-encoded
-  // to WebP on the way in. Files land in the mounted volume, so they survive
-  // redeploys, and are served publicly by /api/uploads/:filename.
-  const brandImageUpload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 25 * 1024 * 1024 },
-    fileFilter: (_req, file, cb) => {
-      const ok = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"].includes(file.mimetype);
-      if (ok) cb(null, true);
-      else cb(new Error("Please upload a JPG, PNG, WebP or AVIF image"));
-    },
-  });
-
-  app.post("/api/admin/brand/image", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    brandImageUpload.single("file")(req, res, async (err: any) => {
-      if (err) return res.status(400).json({ error: err.message || "Upload failed" });
-      if (!req.file) return res.status(400).json({ error: "Missing file" });
-      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      try {
-        const sharp = (await import("sharp")).default;
-        const filename = `brand-${stamp}.webp`;
-        /*
-         * ASSERTED, not assumed. This pipeline dropped metadata because that
-         * is sharp's default, and a guarantee that rests on a dependency's
-         * default is a guarantee nobody checks: a `.withMetadata()` added two
-         * files away for a good reason would turn it into a live disclosure
-         * with nothing raising. Encode to a buffer, read the buffer back, and
-         * only then write.
-         */
-        const encoded = await sharp(req.file.buffer)
-          .rotate() // honour EXIF orientation before resizing
-          .resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true })
-          .webp({ quality: 82 })
-          .toBuffer({ resolveWithObject: true });
-        const brandMarkers = await readMetadataMarkers(encoded.data);
-        if (brandMarkers.length) throw new LocationDataSurvived(brandMarkers);
-        const info = encoded.info;
-        writeToVolume(UPLOADS_DIR, filename, encoded.data);
-
-        // A card thumbnail served at 2000px is absurd, and it is what every
-        // illustrated list would have done: the pipeline resized once and
-        // stopped. One extra encode here saves the same bytes on every view
-        // for the life of the image. Best-effort — a village with no thumb
-        // gets the full image, which is slower but never broken.
-        let thumbFilename: string | null = null;
-        try {
-          thumbFilename = `brand-${stamp}.thumb.webp`;
-          const thumb = await sharp(req.file.buffer)
-            .rotate()
-            .resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true })
-            .webp({ quality: 76 })
-            .toBuffer();
-          const thumbMarkers = await readMetadataMarkers(thumb);
-          if (thumbMarkers.length) throw new LocationDataSurvived(thumbMarkers);
-          writeToVolume(UPLOADS_DIR, thumbFilename, thumb);
-        } catch (thumbErr) {
-          console.error("[BRAND IMAGE] thumbnail failed, full size only", thumbErr);
-          thumbFilename = null;
-        }
-
-        return res.json({
-          url: `/api/uploads/${filename}`,
-          filename,
-          thumbUrl: thumbFilename ? `/api/uploads/${thumbFilename}` : null,
-          width: info.width,
-          height: info.height,
-          bytes: info.size,
-          originalBytes: req.file.size,
-          format: "webp",
-        });
-      } catch (e) {
-        // This used to write the ORIGINAL bytes — up to 25 MB straight off a
-        // phone — and return a 200 indistinguishable from a successful
-        // compression. The admin saw "uploaded", and every visitor thereafter
-        // paid 25 MB on a link measured at 50 KB/s. A silent fallback that
-        // makes the product worse than doing nothing is not a fallback; it is
-        // a defect with good manners. Refuse, and say why.
-        console.error("[BRAND IMAGE] compression unavailable, refusing upload", e);
-        return res.status(503).json({
-          error:
-            "Image processing is unavailable on this server, so the image was not saved. " +
-            "Storing it uncompressed would make every page slower for every member. " +
-            "Check that the `sharp` dependency installed correctly for this platform.",
-        });
-      }
-    });
-  });
+  registerBrandUploadRoutes(app, { isAdmin, uploadsDir: UPLOADS_DIR });
 
   // ── Village font package: upload + licence acknowledgment ────────────────
   // The foundation catalogue (shared/fontCatalog.ts) is all-OFL and always
@@ -19576,6 +19490,7 @@ ${inner}
 
   registerMilestonesRoutes(app, { isAdmin, guardCapability, milestonesRepo });
   registerLandRoutes(app, { isAdmin, authedUser, guardCapability, getPool, uploadsDir: UPLOADS_DIR });
+  registerBrandPreviewRoutes(app, { isAdmin, getPool, brandRepo });
 
   // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -19901,6 +19816,7 @@ ${inner}
     res.json(await latestRates(getPool()));
   });
 
+  registerSitePullRoutes(app, { isAdmin, adminActor, overLimit, clientIp, uploadsDir: UPLOADS_DIR });
   // Brand overlay: the Setup Wizard reads/writes this to white-label the site live.
   app.get("/api/admin/brand", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });

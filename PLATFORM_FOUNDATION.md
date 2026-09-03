@@ -25,10 +25,20 @@ ReGen Civics and hard-won there:
 ## The fastest path: the Setup Wizard (`/admin` → "Make This Yours")
 
 Most of a new project's identity can be set **live from the browser**, no code
-deploy, via the Setup Wizard — the first item in admin. It writes a brand
-overlay (the `brand` row of the `app_config` table) that `/api/game/config` merges over the
-`gameConfig.ts` defaults, so blank fields keep Amora's values as suggestions
-until a project changes them. The wizard covers, in order:
+deploy, via the Setup Wizard, the first item in admin. It writes a brand
+overlay into the `brand` row of the `app_config` table, and
+`/api/game/config` merges that over the `gameConfig.ts` defaults, so blank
+fields keep the platform's values as suggestions until a project changes
+them.
+
+The overlay is a DATABASE ROW and there is no file. It is read through
+`dbDocument(getPool(), "brand", DEFAULT_BRAND)` at `server/index.ts:1361`,
+defined in `server/repos/store-db.ts`. That read is cached in the
+process and only boot fills the cache, so a change written to the row by SQL
+or by a script does not reach a running server. `GET /api/admin/brand/preview`
+reads the row directly and says when the two disagree.
+
+The wizard covers, in order:
 
 1. **Identity**: project name, tagline, member name, location, the links and
    the footer line. Instantly reflected across the game layer (profile,

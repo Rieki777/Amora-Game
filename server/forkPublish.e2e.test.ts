@@ -376,6 +376,14 @@ describe.skipIf(!DB_CONFIGURED)("a village with its own people still publishes t
      * not something an HTTP suite can assert. What it CAN hold is the
      * contract: what a village writes reaches a stranger, unchanged, with no
      * account.
+     *
+     * THE ACRES FIXTURE IS A HECTARES VILLAGE ON PURPOSE, and for a while this
+     * file was the only place the defect was written down. The master plan
+     * printed a hardcoded "Total Acres" over this exact payload, so a village
+     * that measures in hectares published its land at 40% of its real size and
+     * this test called it a pass, because it only ever asked about `value`.
+     * The unit is half the claim. It gets asserted here, and the tile built
+     * from it gets asserted in client/src/pages/MasterPlan.test.tsx.
      */
     const put = await call("PUT", "/api/admin/settings", {
       landFacts: {
@@ -387,6 +395,10 @@ describe.skipIf(!DB_CONFIGURED)("a village with its own people still publishes t
 
     const anon = await http("/api/settings").then((r) => r.json());
     expect(anon?.landFacts?.acres?.value, "and a stranger reads them").toBe("40");
+    expect(
+      anon?.landFacts?.acres?.note,
+      "the unit a village measures in reaches the page that states its size",
+    ).toBe("hectares");
     expect(anon?.landFacts?.appraisal?.note, "including the line under the figure").toBe("March 2027");
     // Untouched keys stay blank rather than picking anything up.
     expect(String(anon?.landFacts?.projectedReturn?.value ?? ""), "an unstated figure stays unstated").toBe("");

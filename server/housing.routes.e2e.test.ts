@@ -347,11 +347,26 @@ describe.skipIf(!DB_CONFIGURED)("housing routes: the guards nothing was testing"
     const onConfig = await call("GET", "/api/map/config", { token: null });
     expect(onConfig.status).toBe(200);
     /*
-     * The same body from both transports, deep-equal. Two readers of one
-     * predicate is the whole design; two readers that have drifted is three
-     * lanes disagreeing about which hamlets are examples.
+     * THE SAME HAMLET ANSWER FROM BOTH TRANSPORTS, deep-equal. Two readers of
+     * one predicate is the whole design; two readers that have drifted is
+     * three lanes disagreeing about which hamlets are examples.
+     *
+     * This used to compare the WHOLE public body to the map block, which said
+     * the same thing while `entries` and `configured` were all the body had.
+     * 0131 gave the public route a second subject, `homes`, and the two are
+     * deliberately not the same list: the map paints hamlets and knows
+     * nothing about what a home is called or what it costs, so shipping the
+     * home descriptions on every uncredentialed map fetch would be paying for
+     * them where nothing draws them. The invariant this case exists for is
+     * named field by field below, which is stronger than a deep-equal that
+     * has to be relaxed every time either side grows a key.
      */
-    expect(onConfig.json?.housing).toEqual(stillThere.json);
+    expect(onConfig.json?.housing?.entries).toEqual(stillThere.json?.entries);
+    expect(onConfig.json?.housing?.configured).toEqual(stillThere.json?.configured);
+    expect(
+      onConfig.json?.housing?.homes,
+      "the map block carries hamlet counts and no home descriptions",
+    ).toBeUndefined();
   });
 
   it("holds the founder's view behind the capability and not behind a login", async () => {
@@ -883,5 +898,175 @@ describe.skipIf(!DB_CONFIGURED)("housing routes: the guards nothing was testing"
 
     expect((await call("PUT", `/api/housing/reservations/${made.json.id}/status`, { body: { status: "withdrawn" } })).status).toBe(200);
     expect(await openNow(), "and it gives the home back").toMatchObject({ taken: 0, open: 3 });
+  });
+
+  /* ── THE HOMES A VILLAGE OFFERS (0131) ────────────────────────────────────
+   *
+   * The four tiers were a module constant in client/src/pages/Housing.tsx
+   * with a second copy of their sizes in client/src/pages/ReserveHome.tsx, so
+   * every village that deployed this platform published one American
+   * village's dollars and square footage under its own name with no field
+   * able to change them. These cases hold the two routes that replaced them,
+   * over HTTP, where a founder and a stranger actually meet them.
+   *
+   * The cases below use the `homeKey` home types in a fixed order and run
+   * after every hamlet case, so nothing here disturbs the counts above.
+   */
+
+  it("publishes no homes at all until a village describes one", async () => {
+    // THE STATE THIS CHANGE EXISTS TO PRODUCE, over the wire. Every fork
+    // starts here and the live village lands here the moment 0131 applies.
+    const pub = await call("GET", "/api/housing/public", { token: null });
+    expect(pub.status).toBe(200);
+    expect(pub.json.homes, "a village that has described nothing publishes nothing").toEqual([]);
+
+    // And the founder still gets all four rows to type into.
+    const founderView = await call("GET", "/api/housing/home-types");
+    expect(founderView.status).toBe(200);
+    expect(founderView.json.rows.map((r: any) => r.homeType)).toEqual([
+      "tiny-home",
+      "casita",
+      "family-home",
+      "villa",
+    ]);
+    expect(founderView.json.rows.every((r: any) => r.isPublished === false)).toBe(true);
+  });
+
+  it("keeps both home-type routes behind the same appointment as the counts", async () => {
+    // Every refusal with its positive control in the same case: a route that
+    // 500s on everything refuses everything, and a suite of refusals alone
+    // calls that a pass.
+    expect((await call("GET", "/api/housing/home-types", { token: null })).status).toBe(401);
+    expect(
+      (await call("PUT", "/api/housing/home-types/casita", { body: { name: "X" }, token: null })).status,
+    ).toBe(401);
+
+    // Signed in and not appointed. map.publish is absent from STAGE_UNLOCKS,
+    // so nobody reaches it by climbing.
+    expect((await call("GET", "/api/housing/home-types", { token: strangerToken })).status).toBe(403);
+    expect(
+      (await call("PUT", "/api/housing/home-types/casita", { body: { name: "X" }, token: strangerToken })).status,
+    ).toBe(403);
+
+    // The cartographer holds map.publish through a badge and is not an admin.
+    expect((await call("GET", "/api/housing/home-types", { token: cartographerToken })).status).toBe(200);
+    expect(
+      (await call("PUT", "/api/housing/home-types/tiny-home", {
+        body: { name: "Cabina" },
+        token: cartographerToken,
+      })).status,
+      "the same key that sets a hamlet's numbers describes a home",
+    ).toBe(200);
+  });
+
+  it("does not publish a home that has only a name", async () => {
+    // The cartographer named tiny-home above and gave it neither a size nor a
+    // price. A card with a heading and nothing under it is the empty
+    // scaffolding this change removes.
+    const pub = await call("GET", "/api/housing/public", { token: null });
+    expect(pub.json.homes.find((h: any) => h.homeType === "tiny-home")).toBeUndefined();
+    const rows = (await call("GET", "/api/housing/home-types")).json.rows;
+    expect(rows.find((r: any) => r.homeType === "tiny-home")).toMatchObject({
+      name: "Cabina",
+      isPublished: false,
+    });
+  });
+
+  it("publishes a non-imperial size and a non-USD price exactly as typed", async () => {
+    /*
+     * THE POINT OF THE WHOLE CHANGE, end to end. The platform has no opinion
+     * about a village's units or its currency: nothing converts, rounds,
+     * reformats or appends a symbol anywhere between the founder's keyboard
+     * and a stranger's screen.
+     */
+    const size = "0,5 hectáreas";
+    const price = "₡45.000.000 a ₡60.000.000";
+    expect(
+      (await call("PUT", "/api/housing/home-types/casita", {
+        body: { name: "Casita", size, price, features: "Covered patio\nKitchen, bathroom and a porch" },
+      })).status,
+    ).toBe(200);
+
+    const pub = await call("GET", "/api/housing/public", { token: null });
+    const home = pub.json.homes.find((h: any) => h.homeType === "casita");
+    expect(home).toMatchObject({ name: "Casita", size, price });
+    // A comma inside a feature stays inside it: the list splits on newlines
+    // and on nothing else.
+    expect(home.features).toEqual(["Covered patio", "Kitchen, bathroom and a porch"]);
+  });
+
+  it("carries no identity on the uncredentialed read, and does carry it on the gated one", async () => {
+    const pub = await call("GET", "/api/housing/public", { token: null });
+    const home = pub.json.homes.find((h: any) => h.homeType === "casita");
+    expect(Object.keys(home).sort()).toEqual([
+      "description",
+      "features",
+      "homeType",
+      "name",
+      "price",
+      "size",
+    ]);
+    // The positive control: the identity really is there to omit.
+    const rows = (await call("GET", "/api/housing/home-types")).json.rows;
+    expect(rows.find((r: any) => r.homeType === "casita").updatedBy).toBe(founderId);
+  });
+
+  it("writes only the field it was sent and leaves the others alone", async () => {
+    // A control that sends one field cannot revert the four it never
+    // mentioned. Restating the row is what silently destroyed a founder's
+    // hamlet name on the availability route before the absence rule landed.
+    const before = (await call("GET", "/api/housing/home-types")).json.rows
+      .find((r: any) => r.homeType === "casita");
+    expect((await call("PUT", "/api/housing/home-types/casita", { body: { price: "ask us" } })).status).toBe(200);
+    const after = (await call("GET", "/api/housing/home-types")).json.rows
+      .find((r: any) => r.homeType === "casita");
+    expect(after.price).toBe("ask us");
+    expect(after.name, "the name survived a price edit").toBe(before.name);
+    expect(after.size, "and so did the size").toBe(before.size);
+    expect(after.features, "and so did the features").toBe(before.features);
+  });
+
+  it("unpublishes a home when the founder clears its name", async () => {
+    // The empty state again, reached the way a founder actually reaches it.
+    expect((await call("PUT", "/api/housing/home-types/casita", { body: { name: null } })).status).toBe(200);
+    const pub = await call("GET", "/api/housing/public", { token: null });
+    expect(pub.json.homes.find((h: any) => h.homeType === "casita")).toBeUndefined();
+
+    // And putting the name back publishes it again, with the size and price
+    // that were never cleared.
+    expect((await call("PUT", "/api/housing/home-types/casita", { body: { name: "Casita" } })).status).toBe(200);
+    const again = await call("GET", "/api/housing/public", { token: null });
+    expect(again.json.homes.find((h: any) => h.homeType === "casita")).toMatchObject({
+      name: "Casita",
+      price: "ask us",
+    });
+  });
+
+  it("refuses a home type it does not know, and a value that is not text", async () => {
+    // A free-text home type is a typo that quietly becomes a category nobody
+    // reports on, and it is also a home whose Reserve button the POST refuses.
+    expect((await call("PUT", "/api/housing/home-types/mansion", { body: { name: "Mansion" } })).status).toBe(400);
+    // A coercion here would store a number as though it were a founder's own
+    // words about their own price.
+    expect((await call("PUT", "/api/housing/home-types/villa", { body: { price: 150000 } })).status).toBe(400);
+  });
+
+  it("makes every home it publishes a home a stranger can actually ask for", async () => {
+    // The two lists have to be one list, or a founder publishes a card whose
+    // button meets a 400 on the last click.
+    const pub = await call("GET", "/api/housing/public", { token: null });
+    expect(pub.json.homes.length).toBeGreaterThan(0);
+    for (const home of pub.json.homes) {
+      const asked = await call("POST", "/api/housing/reservations", {
+        body: {
+          homeType: home.homeType,
+          name: "Wren Ask",
+          email: `wren-${home.homeType}-${PORT}@example.test`,
+        },
+        token: null,
+        ip: "10.9.0.1",
+      });
+      expect(asked.status, `a published ${home.homeType} is a reservable ${home.homeType}`).toBe(200);
+    }
   });
 });

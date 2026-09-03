@@ -393,7 +393,69 @@ jobs:
   # independent of the database jobs on purpose, so one gap never hides the
   # other, and the alarm job below names which half is red.
   # ---------------------------------------------------------------------------
+  uploads-configured:
+    # Has anybody switched the uploads backup on? One question, asked once, so
+    # the answer can be a SKIP rather than a failure.
+    #
+    # This used to be the first step of uploads-backup and it exited 1, which
+    # made the whole workflow red and opened the "Backups are failing" issue on
+    # every run of every village that had not set two secrets. That is every
+    # village today. An alarm that is always ringing is not an alarm, and
+    # teaching the reader to ignore it is the exact defect the alarm was added
+    # to fix, one level up.
+    #
+    # Not configured is a SKIP and says so loudly in the run summary. Half
+    # configured is still a FAILURE, because somebody meant to switch this on
+    # and it will not work.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      configured: ${{ steps.gate.outputs.configured }}
+    steps:
+      - name: Is the uploads backup switched on
+        id: gate
+        env:
+          ORIGIN: ${{ secrets.BACKUP_EXPORT_ORIGIN }}
+          TOKEN: ${{ secrets.BACKUP_EXPORT_TOKEN }}
+        run: |
+          if [ -n "$ORIGIN" ] && [ -n "$TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Uploads backup is switched on."
+            exit 0
+          fi
+          if [ -n "$ORIGIN" ] || [ -n "$TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::error::The uploads backup is HALF configured, which will not work." >&2
+            [ -z "$ORIGIN" ] && echo "  BACKUP_EXPORT_ORIGIN is missing." >&2
+            [ -z "$TOKEN" ] && echo "  BACKUP_EXPORT_TOKEN is missing." >&2
+            echo "  Set both, or neither. Steps: docs/RUNBOOK.md." >&2
+            exit 1
+          fi
+          echo "configured=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::Uploads are NOT being backed up. The database is, this is the volume."
+          {
+            echo "### Uploads are not being backed up"
+            echo ""
+            echo "The database backup above is real and ran. This is about the uploads"
+            echo "volume, the photographs and documents members have added, which has no"
+            echo "backup on this deployment because it has never been switched on."
+            echo ""
+            echo "This is a SKIP and not a failure, so the run stays green and the alarm"
+            echo "stays meaningful. It will keep saying this until somebody acts."
+            echo ""
+            echo "To switch it on:"
+            echo ""
+            echo "1. \`openssl rand -hex 32\` gives you the value for BACKUP_EXPORT_TOKEN."
+            echo "2. Set BACKUP_EXPORT_TOKEN on the app service, and redeploy."
+            echo "3. Add the same value as a GitHub Actions repository secret."
+            echo "4. Add BACKUP_EXPORT_ORIGIN, the village base URL, no trailing slash."
+            echo ""
+            echo "Full procedure: docs/RUNBOOK.md, \"Turning on the uploads backup\"."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   uploads-backup:
+    needs: uploads-configured
+    if: needs.uploads-configured.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -648,7 +710,7 @@ jobs:
   # green run, so an open one always means a live problem and never an old one.
   # ---------------------------------------------------------------------------
   alarm:
-    needs: [backup, restore-drill, restore-drill-negative-control, uploads-backup, uploads-restore-drill]
+    needs: [backup, restore-drill, restore-drill-negative-control, uploads-configured, uploads-backup, uploads-restore-drill]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -663,6 +725,7 @@ jobs:
           R_NEG: ${{ needs.restore-drill-negative-control.result }}
           R_UP: ${{ needs.uploads-backup.result }}
           R_UPDRILL: ${{ needs.uploads-restore-drill.result }}
+          R_CONF: ${{ needs.uploads-configured.outputs.configured }}
         with:
           script: |
             const TITLE = "Backups are failing";
@@ -681,7 +744,16 @@ jobs:
               ["Uploads restore drill", process.env.R_UPDRILL,
                "An uploads archive was taken, but it is not a faithful copy of the volume."],
             ];
-            const broken = jobs.filter(([, result]) => result !== "success");
+            // A village that has never switched the uploads backup on has two
+            // jobs sitting at "skipped", and skipped is not success. Counting
+            // them as broken opened the alarm issue on every run of every
+            // village, permanently, which is how an alarm stops being read.
+            // Not switched on is reported and does not fail; the database
+            // backup beside it is unaffected either way.
+            const uploadsOn = process.env.R_CONF === "true";
+            const uploadsJobs = new Set(["Uploads export", "Uploads restore drill"]);
+            const broken = jobs.filter(([name, result]) =>
+              result !== "success" && (uploadsOn || !uploadsJobs.has(name)));
 
             // A job skipped because the job it needed failed is a consequence,
             // not a second independent fault. Saying so keeps one problem from
@@ -690,6 +762,14 @@ jobs:
               result === "skipped"
                 ? `- **${name}** did not run, because the job before it failed.`
                 : `- **${name}**: ${result}. ${why}`);
+            if (!uploadsOn) {
+              lines.push(
+                "- _The uploads volume has no backup on this deployment, and this run did " +
+                "not change that. It is not counted as a fault above because it has never " +
+                "been switched on. See the run summary, or docs/RUNBOOK.md, " +
+                "\"Turning on the uploads backup\"._",
+              );
+            }
 
             const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo,
