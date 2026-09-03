@@ -29,6 +29,7 @@ import { AdminGoLive } from "@/components/modules/GoLiveCard";
 import type { ModuleLifecycle } from "@shared/modules";
 import type { UploadsSweepReport } from "@shared/uploadsSweep";
 import { CIRCLE_STATUSES } from "@shared/draftKinds";
+import { stalemateWarningFor } from "@shared/ballotSubjects";
 
 import TypographyPanel from "@/components/TypographyPanel";
 import LookPanel from "@/components/LookPanel";
@@ -9209,6 +9210,14 @@ function VariablesTab({ password }: { password: string }) {
                 {list.map((v) => {
                   const draft = drafts[v.key] ?? v.value;
                   const dirty = draft !== v.value;
+                  /*
+                   * The founder's ruling of 2026-09-02 (Q11): a village may
+                   * set a bar above 97 and the Game warns it, in words, that
+                   * the closer to 100 it goes the likelier a stalemate is.
+                   * It is read off the value being TYPED, not the value
+                   * saved, so the warning arrives before the Save.
+                   */
+                  const ceiling = stalemateWarningFor(v.key, draft);
                   return (
                     <div key={v.key} className="border border-gray-200 rounded-xl px-4 py-3">
                       <div className="flex flex-wrap items-center gap-3">
@@ -9271,6 +9280,11 @@ function VariablesTab({ password }: { password: string }) {
                           </button>
                         )}
                       </div>
+                      {ceiling && (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3" role="status">
+                          {ceiling}
+                        </p>
+                      )}
                     </div>
                   );
                 })}

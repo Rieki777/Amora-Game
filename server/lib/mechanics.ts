@@ -27,11 +27,24 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import {
+  criticalityOf,
   ringOf,
   applyTimingOf,
   validateVariable,
   VARIABLES_BY_KEY,
 } from "../../shared/gameVariables";
+import {
+  criticalityOfItems,
+  dialsForSubject,
+  floorForCriticality,
+  methodForSubjects,
+  thresholdsForSubject,
+  CRITICALITY_FOR_ITEM_KIND,
+  SUBJECT_FOR_ITEM_KIND,
+  type ChangeItemKind,
+  type ThresholdSettings,
+} from "../../shared/ballotSubjects";
+import type { BallotMethod, Criticality, MethodDials } from "../../shared/governanceEngine";
 import {
   AMOUNT_FROM_SOURCE,
   MINT_RULE_FIELD_LABEL,
@@ -44,9 +57,207 @@ import {
   type MintRuleField,
 } from "../../shared/mintRuleKeys";
 
+/**
+ * -- WHAT A CHANGE SET IS MADE OF, AFTER Q9 ----------------------------------
+ *
+ * A change was a `{ key, to }` pair and the kind of thing it changed was read
+ * back off a prefix on the key. The founder's ruling of 2026-09-02 makes a
+ * proposal a LIST of connected changes that may be of different kinds, priced
+ * at the highest floor among them, so the kind is a field now.
+ *
+ * Every item carries `kind`, and every item that names a value carries `to`.
+ * The shapes are deliberately close to what each kind's existing writer
+ * already takes, so the dispatcher lane's executors are a switch and not a
+ * translation layer.
+ */
+export interface DialItem {
+  kind: "dial";
+  /** A registry key from `shared/gameVariables.ts`. */
+  key: string;
+  to: string;
+}
+
+export interface MintRuleItem {
+  kind: "mint_rule";
+  /** A `mint:<ruleId>:<field>` key from `shared/mintRuleKeys.ts`. */
+  key: string;
+  to: string;
+}
+
+export interface WeightAllocationItem {
+  kind: "weight_allocation";
+  /** Who the allocation is for. */
+  userId: string;
+  /** The weight they would carry, in the custom allocation table's units. */
+  to: string;
+  /** The note the allocation trail requires of every writer. */
+  note: string;
+}
+
+export interface ModeSwitchItem {
+  kind: "mode_switch";
+  /** A `governance.weight_mode` value. This is its only door. */
+  to: string;
+  /** Optional: the weight token to use, when switching into token mode. */
+  weightToken?: string;
+}
+
+export interface ModuleLifecycleItem {
+  kind: "module_lifecycle";
+  /** The module id from `shared/modules.ts`. */
+  moduleId: string;
+  /** The lifecycle it would move to. */
+  to: string;
+}
+
+export interface BrandFieldItem {
+  kind: "brand_field";
+  /** The brand field's path, as the brand writer already names it. */
+  field: string;
+  to: string;
+}
+
+export interface RoleItem {
+  kind: "role";
+  /** What the village would do to the role. */
+  act: "declare" | "seat" | "unseat";
+  /** The role, by id for a seat or unseat and by name for a declaration. */
+  role: string;
+  /** Who sits, for a seat or an unseat. */
+  userId?: string;
+}
+
+export type ChangeItem =
+  | DialItem
+  | MintRuleItem
+  | WeightAllocationItem
+  | ModeSwitchItem
+  | ModuleLifecycleItem
+  | BrandFieldItem
+  | RoleItem;
+
+/**
+ * What a caller may hand `validateChangeSet`: a typed item, or the untyped
+ * `{ key, to }` pair every existing caller and every stored change set uses.
+ *
+ * The untyped form is not deprecated and is not going away. It is the shape
+ * on disk in `mechanics_proposals.change_set` for every proposal ever made,
+ * and a validator that could not read it would refuse the village's own
+ * history. `asChangeItem` reads one into the union, which is the ONE place
+ * that decides what an untyped pair is.
+ */
+export type ChangeInput = ChangeItem | { key: string; to: string };
+
+/**
+ * Read an untyped pair into the union. A key with the minting prefix is a
+ * minting rule and everything else is a dial, which is exactly the rule the
+ * open-ballot route already applied inline to pick a subject type.
+ */
+export function asChangeItem(input: ChangeInput): ChangeItem {
+  if (input && typeof (input as any).kind === "string") return input as ChangeItem;
+  const key = String((input as any)?.key ?? "");
+  const to = String((input as any)?.to ?? "");
+  return isMintRuleKey(key) ? { kind: "mint_rule", key, to } : { kind: "dial", key, to };
+}
+
+/**
+ * The subject that prices this item, and the tier it carries.
+ *
+ * THE SUBJECT WINS WHEREVER IT HAS SPOKEN. A subject that declares its own
+ * floor has already said what it costs, in numbers somebody wrote a reason
+ * for: `mint_rule` asks 50 of quorum and deliberately nothing of unity,
+ * because R68's stated reason is awareness and awareness is quorum. Laying
+ * the structural tier over the top of that would raise its unity to 80 and
+ * quietly overrule the reason. So a named subject contributes the tier IT
+ * declared, and the kind's tier is the fallback for a kind whose subject sets
+ * no floor of its own.
+ */
+export function pricingOf(item: ChangeItem): { subject: string; criticality: Criticality } {
+  const subject = SUBJECT_FOR_ITEM_KIND[item.kind];
+  if (item.kind === "dial") {
+    const def = VARIABLES_BY_KEY[item.key];
+    return { subject, criticality: def ? criticalityOf(def) : "routine" };
+  }
+  const named = thresholdsForSubject(subject);
+  if (named) return { subject, criticality: named.criticality ?? "routine" };
+  return { subject, criticality: CRITICALITY_FOR_ITEM_KIND[item.kind] };
+}
+
+/**
+ * WHAT THIS WHOLE SET ASKS OF THE VILLAGE.
+ *
+ * Q9's default in one function: the highest floor among the elements, so a
+ * bundle is as hard to pass as its hardest part and nobody can smuggle a big
+ * change under a small one. The subject stamped on the ballot is the element
+ * that set the bar, because `ballots.subject_type` holds one word and the
+ * honest word is the one the price came from.
+ */
+export interface ChangeSetPrice {
+  /** The subject type to stamp on the ballot. */
+  subjectType: string;
+  /** Every subject in the set, in the order the items name them. */
+  subjects: string[];
+  /** The tier the set is priced at. */
+  criticality: Criticality;
+  /** The method the set is conducted by, or null for the village's own. */
+  method: BallotMethod | null;
+  /** Set when two elements want two different methods. */
+  conflict: string | null;
+  /** The dials to freeze. */
+  dials: MethodDials;
+}
+
+export function priceChangeSet(
+  changes: readonly ChangeInput[],
+  method: BallotMethod,
+  village: MethodDials,
+  settings?: ThresholdSettings,
+): ChangeSetPrice {
+  const items = changes.map(asChangeItem);
+  const priced = items.map(pricingOf);
+  const subjects = priced.map((p) => p.subject);
+  const criticality = criticalityOfItems(priced.map((p) => p.criticality));
+  const { method: fixed, conflict } = methodForSubjects(subjects);
+  const conducts = fixed ?? method;
+  /*
+   * The criticality tier is asked for as a subject-less target, because a
+   * dial's tier belongs to the dial and not to the word "mechanics". Every
+   * other floor arrives through the subjects.
+   */
+  const dials = raiseToTier(
+    dialsForSubject(subjects, conducts, village, settings),
+    criticality,
+    settings,
+  );
+  /*
+   * WHICH SUBJECT GETS STAMPED. The one whose own floor is the set's floor,
+   * preferring the first named, so a set of one behaves exactly as it did.
+   * `mechanics` sets no floor, so it only wins a set that is all dials.
+   */
+  let subjectType = subjects[0] ?? "mechanics";
+  let best = -1;
+  for (const subject of subjects) {
+    const floor = dialsForSubject(subject, conducts, village, settings);
+    const score = Math.max(floor.unityPct, floor.quorumPct);
+    if (score > best) {
+      best = score;
+      subjectType = subject;
+    }
+  }
+  return { subjectType, subjects, criticality, method: fixed, conflict, dials };
+}
+
+function raiseToTier(base: MethodDials, criticality: Criticality, settings?: ThresholdSettings): MethodDials {
+  const floor = floorForCriticality(criticality, settings);
+  return {
+    unityPct: Math.max(base.unityPct, floor.unityPct),
+    quorumPct: Math.max(base.quorumPct, floor.quorumPct),
+  };
+}
+
 export interface ProposedChange {
   key: string;
-  /** Effective value at proposal time — the baseline voters saw. */
+  /** Effective value at proposal time: the baseline voters saw. */
   from: string;
   to: string;
 }
@@ -94,57 +305,100 @@ export function mintRuleLabel(rule: MintRuleValues, field: MintRuleField): strin
  * Returns problems (empty = valid) and the normalized set with `from`
  * captured from the live effective values.
  *
- * ── TWO VOCABULARIES, AND THEY MAY NOT MIX (R81, R84) ───────────────────────
+ * -- TYPED ITEMS, AND WHAT EACH KIND STILL COSTS (Q9, 2026-09-02) ------------
  *
- * A change may name a game dial or a minting rule (`shared/mintRuleKeys.ts`).
- * A set may not name both, and the refusal is a design decision rather than an
- * implementation limit, so here is the reason where somebody will read it.
+ * A change set used to hold one vocabulary and the refusal to mix two of them
+ * was priced: "a ballot carries ONE threshold, and a set that is two subjects
+ * has no honest price". That reason is gone. `priceChangeSet` gives a mixed
+ * set an honest price, which is the highest floor among its elements, exactly
+ * as the founder ruled: a bundle is as hard to pass as its hardest part.
  *
- * A ballot carries ONE threshold, and the threshold is chosen by the ballot's
- * subject type (`shared/ballotSubjects.ts`). A minting rule change conducts at
- * a higher quorum floor than an ordinary dial, because R68 tiers thresholds by
- * what is being changed. A set holding both would have to pick one of the two
- * numbers and would be wrong about half of itself: either the dials get a
- * threshold nobody chose for them, or the mint gets conducted at the ordinary
- * one and passes on a quiet week, which is the exact outcome R68 exists to
- * prevent. The seam prices a SUBJECT, so a set that is two subjects has no
- * honest price.
+ * What has NOT gone is the second reason, and it is the one that still bites.
+ * A dial is written by `setVariable` the moment a proposal applies. A minting
+ * rule is queued into its own pending columns and promoted by the next
+ * settlement. `applyMechanicsProposal` runs both and reports `applied` and
+ * `queued` separately, and the decision page says "nothing has moved yet"
+ * over a queued rule. On a set holding both, that sentence would be said over
+ * a dial that had already moved, and half a change set is a state nobody
+ * voted for. The founder's own ruling on a part-failed set is that nothing
+ * applies. So the mix stays refused until the apply is atomic, and the
+ * refusal now says the true reason.
  *
- * They also land through different writers on different clocks. A dial is
- * written by `setVariable`; a minting rule is queued into its own pending
- * columns and promoted by the next settlement. A set mixing them could not be
- * applied atomically, and atomicity beats promptness on a change set here.
+ * THE ONE PLACE THAT LIFTS IT is `executableKinds`. Every kind in that set is
+ * one this build can apply; every kind outside it is refused with a sentence
+ * saying so rather than being voted on and then quietly doing nothing. The
+ * dispatcher lane widens the set as it lands each executor, and nothing else
+ * has to change here.
+ *
+ * -- WHY A FOUNDER-RING KEY IS STILL REFUSED INSIDE A DIAL ITEM -------------
+ *
+ * `governance.weight_mode` is constitutional and it is now votable (Q8), but
+ * only as a `mode_switch` item, which is priced at 97 and 97 and conducted by
+ * the one method that reads those numbers. If a dial item could carry it, the
+ * same change would have two prices depending on which shape somebody typed
+ * it in, and the cheaper one would win every time. One door, and it is the
+ * expensive one.
+ /**
+ * The kinds `applyMechanicsProposal` can actually carry out today. The
+ * dispatcher lane widens this as it lands each executor; a kind outside it is
+ * refused at validation rather than voted on and silently dropped.
  */
+export const EXECUTABLE_ITEM_KINDS: ReadonlySet<ChangeItemKind> = new Set<ChangeItemKind>(["dial", "mint_rule"]);
+
+/** The cap a change set may not pass. A proposal is read before it is voted on. */
+export const CHANGE_SET_CAP = 12;
+
+export interface ValidateChangeSetOptions {
+  /** Override what this build can execute. Defaults to `EXECUTABLE_ITEM_KINDS`. */
+  executableKinds?: ReadonlySet<ChangeItemKind>;
+}
+
 export async function validateChangeSet(
   pool: Pool,
-  changes: Array<{ key: string; to: string }>,
+  changes: readonly ChangeInput[],
   effectiveValueOf: (key: string) => string,
   cooldownDays: number,
   readMintRules?: MintRuleReader,
-): Promise<{ problems: ChangeSetProblem[]; normalized: ProposedChange[] }> {
+  options?: ValidateChangeSetOptions,
+): Promise<{ problems: ChangeSetProblem[]; normalized: ProposedChange[]; items: ChangeItem[] }> {
   const problems: ChangeSetProblem[] = [];
   const normalized: ProposedChange[] = [];
   if (!Array.isArray(changes) || changes.length === 0) {
-    return { problems: [{ key: "*", problem: "A proposal must change at least one dial" }], normalized };
+    return { problems: [{ key: "*", problem: "A proposal must change at least one dial" }], normalized, items: [] };
   }
-  if (changes.length > 12) {
+  if (changes.length > CHANGE_SET_CAP) {
     return {
-      problems: [{ key: "*", problem: "A proposal may move at most 12 dials. Split a larger rebalance into readable steps" }],
+      problems: [{ key: "*", problem: `A proposal may move at most ${CHANGE_SET_CAP} dials. Split a larger rebalance into readable steps` }],
       normalized,
+      items: [],
     };
   }
-  const keys = changes.map((c) => String(c?.key ?? ""));
-  const mintKeys = keys.filter(isMintRuleKey);
-  if (mintKeys.length > 0 && mintKeys.length < keys.length) {
+  const items = changes.map(asChangeItem);
+  const executable = options?.executableKinds ?? EXECUTABLE_ITEM_KINDS;
+  const unbuildable = Array.from(new Set(items.map((i) => i.kind).filter((k) => !executable.has(k))));
+  if (unbuildable.length > 0) {
+    return {
+      problems: [{
+        key: "*",
+        problem: `This build cannot yet carry out a change of this kind (${unbuildable.join(", ")}), so it will not take one to a vote`,
+      }],
+      normalized,
+      items,
+    };
+  }
+  const kinds = new Set(items.map((i) => i.kind));
+  if (kinds.has("dial") && kinds.has("mint_rule")) {
     return {
       problems: [{
         key: "*",
         problem:
-          "One proposal changes the game's dials, or it changes what the village mints. The village votes on those two at different thresholds, so they go up as two proposals",
+          "A dial changes the moment a proposal carries. A minting rule changes at the next moon. This build applies them one after the other, and a proposal should apply whole or not at all, so until it can they go up as two proposals",
       }],
       normalized,
+      items,
     };
   }
+  const mintKeys = items.filter((i) => i.kind === "mint_rule").map((i) => (i as MintRuleItem).key);
 
   /*
    * The rules this set names, read once. The pool is untouched when no mint
@@ -157,6 +411,7 @@ export async function validateChangeSet(
       return {
         problems: [{ key: "*", problem: "This build cannot take a minting rule to a vote from here" }],
         normalized,
+        items,
       };
     }
     const ids = mintKeys.map((k) => parseMintRuleKey(k)?.ruleId).filter((id): id is string => !!id);
@@ -164,11 +419,11 @@ export async function validateChangeSet(
   }
 
   const seen = new Set<string>();
-  for (const c of changes) {
-    const key = String(c?.key ?? "");
-    const to = String(c?.to ?? "").trim();
+  for (const item of items) {
+    const key = String((item as DialItem | MintRuleItem).key ?? "");
+    const to = String((item as DialItem | MintRuleItem).to ?? "").trim();
 
-    if (isMintRuleKey(key)) {
+    if (item.kind === "mint_rule") {
       const parsed = parseMintRuleKey(key);
       if (!parsed) {
         problems.push({ key, problem: "This build cannot read that as one of the village's minting rules" });
@@ -215,7 +470,18 @@ export async function validateChangeSet(
     }
     seen.add(key);
     if (ringOf(def) !== "open") {
-      problems.push({ key, problem: "This dial is founder-held and cannot be moved by proposal" });
+      /*
+       * `governance.weight_mode` is votable now (Q8) and this is not its
+       * door. Naming the door is the difference between a refusal a member
+       * can act on and a wall.
+       */
+      problems.push({
+        key,
+        problem:
+          key === "governance.weight_mode"
+            ? "How votes are counted is not an ordinary dial change. It goes up as a mode switch, which the whole village decides at the constitutional bar"
+            : "This dial is founder-held and cannot be moved by proposal",
+      });
       continue;
     }
     const invalid = validateVariable(def, to);
@@ -237,7 +503,7 @@ export async function validateChangeSet(
   }
 
   problems.push(...mintCeilingProblems(normalized, mintRules));
-  return { problems, normalized };
+  return { problems, normalized, items };
 }
 
 /** The one cooldown read, shared by both vocabularies so they cool alike. */

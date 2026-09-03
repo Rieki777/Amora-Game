@@ -8,10 +8,17 @@ import { describe, expect, it } from "vitest";
 import {
   dialsForMethod,
   evaluateBallot,
+  highestCriticality,
   methodForDecidesBy,
+  raiseDials,
+  requiredYesHeads,
+  stalemateWarning,
   villageBallotMethod,
   quorumPctOf,
   unityPctOf,
+  CRITICALITIES,
+  RECOMMENDED_CEILING_PCT,
+  TIER_FLOORS,
 } from "./governanceEngine";
 
 const t = (yesW: number, noW: number, abstainW = 0) => ({ yesW, noW, abstainW });
@@ -147,5 +154,175 @@ describe("decidesBy presets", () => {
     expect(dialsForMethod("consensus", village)).toEqual({ unityPct: 100, quorumPct: 20 });
     expect(dialsForMethod("consent", village)).toEqual({ unityPct: 0, quorumPct: 20 });
     expect(dialsForMethod("custom", village)).toEqual({ unityPct: 80, quorumPct: 20 });
+  });
+});
+
+/**
+ * WHAT AN ABSTENTION IS, PER SUBJECT (the founder's Q3 ruling, 2026-09-02).
+ *
+ * The Hypha rule stays the default and every case above still holds under it.
+ * A subject whose own sentence is "everybody has to say yes" asks for the
+ * other reading, and these cases pin that the two readings are genuinely
+ * different arithmetic and not a relabelling.
+ */
+describe("the abstain policy", () => {
+  it("keeps the Hypha rule when nobody asks for anything else", () => {
+    expect(quorumPctOf(t(1, 0, 1), 3)).toBeCloseTo(66.667, 2);
+    expect(quorumPctOf(t(1, 0, 1), 3, "counts_toward_quorum")).toBeCloseTo(66.667, 2);
+  });
+
+  it("leaves an abstention out of quorum entirely under no_answer", () => {
+    // The same ballot, read the other way: one yes, one abstention, three
+    // seats. Under the Hypha rule two of three took part; under no_answer
+    // only one of them answered.
+    expect(quorumPctOf(t(1, 0, 1), 3, "no_answer")).toBeCloseTo(33.333, 2);
+    // With nobody abstaining the two readings cannot differ.
+    expect(quorumPctOf(t(2, 1, 0), 3, "no_answer")).toBe(100);
+    expect(quorumPctOf(t(2, 1, 0), 3, "counts_toward_quorum")).toBe(100);
+  });
+
+  it("never touches unity, which is yes over yes plus no under either reading", () => {
+    expect(unityPctOf(t(2, 0, 5))).toBe(100);
+  });
+
+  it("turns a 100/100 ballot with one abstention from passed into no_quorum", () => {
+    const dials = { unityPct: 100, quorumPct: 100, totalWeight: 3 } as const;
+    const tallies = t(2, 0, 1);
+    // The rule as it shipped: everybody answered, nobody objected, it carried.
+    expect(evaluateBallot({ method: "custom", ...dials, tallies })).toBe("passed");
+    // The rule the founder asked for: an abstention is not an answer, so the
+    // village is short of participation and can be asked again.
+    expect(evaluateBallot({ method: "custom", ...dials, tallies, abstainPolicy: "no_answer" })).toBe("no_quorum");
+  });
+});
+
+describe("the yes-head floor", () => {
+  it("asks for nothing when the subject asks for nothing", () => {
+    expect(requiredYesHeads(undefined, 5)).toBeNull();
+    expect(requiredYesHeads(0, 5)).toBeNull();
+  });
+
+  it("reads `all` off the frozen roll, and a number as itself", () => {
+    expect(requiredYesHeads("all", 7)).toBe(7);
+    expect(requiredYesHeads("all", undefined)).toBe(0);
+    expect(requiredYesHeads(3, 7)).toBe(3);
+  });
+
+  it("fails a ballot that met both dials on weight and is short of yes heads", () => {
+    /*
+     * The case the weighted arithmetic cannot see: one heavy member and two
+     * light ones, quorum and unity both satisfied by two of the three, and a
+     * subject that asked for all three to say yes.
+     */
+    const input = {
+      method: "custom" as const,
+      unityPct: 80,
+      quorumPct: 50,
+      totalWeight: 12,
+      tallies: t(11, 0, 0),
+    };
+    expect(evaluateBallot(input)).toBe("passed");
+    expect(
+      evaluateBallot({
+        ...input,
+        minYesHeads: "all",
+        heads: { yesHeads: 2, noHeads: 0, abstainHeads: 0, electorateCount: 3 },
+      }),
+    ).toBe("failed");
+    expect(
+      evaluateBallot({
+        ...input,
+        minYesHeads: "all",
+        heads: { yesHeads: 3, noHeads: 0, abstainHeads: 0, electorateCount: 3 },
+      }),
+    ).toBe("passed");
+  });
+
+  it("fails closed when a subject asks for heads and the caller hands none", () => {
+    // Skipping the rule silently would mean a subject whose stated rule is
+    // not conducted by the only function that decides.
+    expect(
+      evaluateBallot({
+        method: "custom",
+        unityPct: 0,
+        quorumPct: 0,
+        totalWeight: 3,
+        tallies: t(3, 0, 0),
+        minYesHeads: "all",
+      }),
+    ).toBe("failed");
+  });
+
+  it("is checked after quorum, so too few people is still no_quorum", () => {
+    expect(
+      evaluateBallot({
+        method: "custom",
+        unityPct: 100,
+        quorumPct: 100,
+        totalWeight: 3,
+        tallies: t(1, 0, 0),
+        minYesHeads: "all",
+        heads: { yesHeads: 1, noHeads: 0, abstainHeads: 0, electorateCount: 3 },
+      }),
+    ).toBe("no_quorum");
+  });
+});
+
+describe("criticality tiers", () => {
+  it("ladders from routine to constitutional, and the floors only rise with it", () => {
+    expect(CRITICALITIES).toEqual(["routine", "structural", "constitutional"]);
+    let last = { unityPct: -1, quorumPct: -1 };
+    for (const c of CRITICALITIES) {
+      expect(TIER_FLOORS[c].unityPct, c).toBeGreaterThanOrEqual(last.unityPct);
+      expect(TIER_FLOORS[c].quorumPct, c).toBeGreaterThanOrEqual(last.quorumPct);
+      last = TIER_FLOORS[c];
+    }
+  });
+
+  it("asks nothing of a routine change, so a village keeps its own dials", () => {
+    expect(TIER_FLOORS.routine).toEqual({ unityPct: 0, quorumPct: 0 });
+    expect(raiseDials({ unityPct: 80, quorumPct: 20 }, TIER_FLOORS.routine)).toEqual({ unityPct: 80, quorumPct: 20 });
+  });
+
+  it("asks 97 and 97 of the most critical tier, which is the founder's number", () => {
+    expect(TIER_FLOORS.constitutional).toEqual({ unityPct: 97, quorumPct: 97 });
+    expect(RECOMMENDED_CEILING_PCT).toBe(97);
+  });
+
+  it("raises each dial on its own, so a floor never lowers half a pair", () => {
+    expect(raiseDials({ unityPct: 100, quorumPct: 10 }, { unityPct: 80, quorumPct: 50 })).toEqual({
+      unityPct: 100,
+      quorumPct: 50,
+    });
+  });
+
+  it("prices a list at its most critical element, and an empty list at routine", () => {
+    expect(highestCriticality([])).toBe("routine");
+    expect(highestCriticality(["routine", "routine"])).toBe("routine");
+    expect(highestCriticality(["routine", "constitutional", "structural"])).toBe("constitutional");
+    expect(highestCriticality(["structural", "routine"])).toBe("structural");
+  });
+});
+
+describe("the stalemate warning above the recommended ceiling", () => {
+  it("says nothing at or below 97, which is where the platform recommends stopping", () => {
+    expect(stalemateWarning(50)).toBeNull();
+    expect(stalemateWarning(96)).toBeNull();
+    expect(stalemateWarning(97)).toBeNull();
+  });
+
+  it("warns above it, and says why in plain words a player can act on", () => {
+    const w = stalemateWarning(100);
+    expect(w).toBeTruthy();
+    expect(w).toContain("stalemate");
+    expect(w).toContain("97");
+    // The founder's own reason, in the sentence: somebody leaving can freeze
+    // a Game the rest of the village wants to continue.
+    expect(w).toContain("freezes a Game");
+    expect(stalemateWarning(97.5)).toBeTruthy();
+  });
+
+  it("never warns about a number that is not a number", () => {
+    expect(stalemateWarning(Number.NaN)).toBeNull();
   });
 });

@@ -20,6 +20,8 @@
 
 import { GAME_CONFIG } from "./gameConfig";
 import { STAGE_UNLOCKS } from "./capabilities";
+import { TIER_FLOORS, type Criticality } from "./governanceEngine";
+import { MINT_RULE, SUBJECT_THRESHOLDS } from "./ballotSubjects";
 
 export type VariableType = "integer" | "decimal" | "percentage" | "boolean" | "choice" | "text";
 
@@ -72,6 +74,18 @@ export interface VariableDef {
   ring?: VariableRing;
   /** Apply-timing override. Absent = derived by applyTimingOf(). */
   applyTiming?: VariableApplyTiming;
+  /**
+   * HOW CRITICAL THIS DIAL IS, and therefore how much of the village has to
+   * show up and agree before it moves (the founder's ruling of 2026-09-02,
+   * Q11: nothing is un-votable, and the more critical it is the higher the
+   * bar). Absent = `routine`, which asks for nothing beyond the village's own
+   * unity and quorum, so a dial that says nothing behaves exactly as every
+   * dial behaved before this field existed.
+   *
+   * The tiers and their floors live in `shared/governanceEngine.ts`, because
+   * they are governance arithmetic and this registry is one of two readers.
+   */
+  criticality?: Criticality;
 }
 
 /**
@@ -437,6 +451,7 @@ export const VARIABLES: VariableDef[] = [
     key: "governance.auto_apply_enabled",
     category: "Governance",
     label: "Apply verified proposals automatically",
+    criticality: "structural",
     description:
       "When on, a proposal verified as passed on-chain applies itself: instantly for instant dials, at the next cycle close when the set touches any cycle-timed dial (the whole set waits together; a set applies atomically or not at all). Turning this OFF is the founder's emergency brake: verified proposals hold, stewards are notified, and applying becomes a human act until it is turned back on. Founder-held on purpose.",
     type: "boolean",
@@ -469,6 +484,10 @@ export const VARIABLES: VariableDef[] = [
     category: "Governance",
     label: "How voting weight is assigned",
     ring: "founder",
+    // What one vote MEANS. Changing it changes every decision the village
+    // ever makes after it, in both directions (Q8), so it carries the
+    // constitutional bar and travels only as a mode_switch item.
+    criticality: "constitutional",
     description:
       "What one member's vote weighs on an on-site ballot. Equal gives every eligible member the same single vote. Token weighs votes by each member's balance of the weight token at the moment a ballot opens. Custom weighs votes by the allocation table you keep under Voting weights, where a member with no allocation weighs zero. Whatever you choose, each ballot freezes the weights when it opens, and every allocation change is on a permanent record any member can read.",
     type: "choice",
@@ -484,6 +503,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Governance",
     label: "The weight token",
     ring: "founder",
+    criticality: "constitutional",
     description:
       "Which token weighs votes when the weight mode is token. Only tokens this platform itself governs can be chosen: a token governed on Hypha is a display-only mirror here, and a ballot may never make this platform a second source of truth for it. The default is the recognition token, which nobody can buy, so weight in the default posture is earned appreciation.",
     type: "text",
@@ -493,6 +513,7 @@ export const VARIABLES: VariableDef[] = [
     key: "governance.unity_pct",
     category: "Governance",
     label: "Unity needed to pass",
+    criticality: "structural",
     description:
       "Of the votes cast for or against, the share that must be in favor for a ballot run on the village's own dials to pass. Abstentions help a ballot reach quorum and take no side here. 100 asks for consensus in effect; the Hypha surface this inherits from runs at 80.",
     type: "percentage",
@@ -505,6 +526,7 @@ export const VARIABLES: VariableDef[] = [
     key: "governance.quorum_pct",
     category: "Governance",
     label: "Quorum needed to count",
+    criticality: "structural",
     description:
       "The share of the electorate's total voting weight that must show up, counting abstentions, before a ballot's outcome counts at all. Below this the ballot closes as no quorum, whatever the votes said. Each ballot freezes this number when it opens.",
     type: "percentage",
@@ -541,6 +563,7 @@ export const VARIABLES: VariableDef[] = [
     key: "governance.default_method",
     category: "Governance",
     label: "How village-wide ballots decide",
+    criticality: "structural",
     description:
       "The method a village-wide ballot uses when nothing more specific applies. Your own dials use the unity and quorum settings above. Majority means more than half of the votes cast carries it. Consensus means everyone who takes a side agrees. Consent means a decision passes when nobody sustains a reasoned objection. Hypha keeps the shipped loop: proposals go to your Hypha space for the binding vote.",
     type: "choice",
@@ -553,10 +576,128 @@ export const VARIABLES: VariableDef[] = [
       { value: "hypha", label: "Decide on Hypha", hint: "The shipped loop: the binding vote happens in your Hypha space." },
     ],
   },
+  // -- Governance: what each tier of change costs (Q11, 2026-09-02) ---------
+  //
+  // Every setting carries a criticality tier and the tier names the least
+  // unity and quorum a change to it may be decided on. These eight dials are
+  // where a village raises its own bars. They can only be raised: `min` on
+  // each one is the platform floor from `TIER_FLOORS`, so nothing here can
+  // walk a bar downwards, and `thresholdSettingsFrom` in
+  // `shared/ballotSubjects.ts` applies the same floor again on read so a
+  // value written by anything other than this validator cannot lower it
+  // either. One source for the number, two layers that refuse to go under it.
+  //
+  // They are constitutional themselves, because a village that can lower the
+  // bar for changing the bar has no bar.
+  {
+    key: "governance.tier_routine_quorum_pct",
+    category: "Governance",
+    label: "Routine changes: quorum floor",
+    description:
+      "The least share of the village's voting weight that must turn up before an ordinary change to the Game can be decided. Ordinary means a number the village tunes while it plays. 0 leaves it entirely to your own quorum setting above, which is the shipped posture. Raise it to ask for more attention on every change, however small.",
+    type: "percentage",
+    default: String(TIER_FLOORS.routine.quorumPct),
+    min: TIER_FLOORS.routine.quorumPct,
+    max: 100,
+    unit: "%",
+    criticality: "constitutional",
+  },
+  {
+    key: "governance.tier_routine_unity_pct",
+    category: "Governance",
+    label: "Routine changes: unity floor",
+    description:
+      "The least share of the votes cast for or against that must be in favour before an ordinary change to the Game carries. 0 leaves it entirely to your own unity setting above, which is the shipped posture.",
+    type: "percentage",
+    default: String(TIER_FLOORS.routine.unityPct),
+    min: TIER_FLOORS.routine.unityPct,
+    max: 100,
+    unit: "%",
+    criticality: "constitutional",
+  },
+  {
+    key: "governance.tier_structural_quorum_pct",
+    category: "Governance",
+    label: "Structural changes: quorum floor",
+    description:
+      "The least share of the village's voting weight that must turn up before a structural change can be decided. Structural means it changes how the village decides or who belongs to it: the unity and quorum settings themselves, how ballots decide, who may be admitted, what the village mints, and turning a part of the Game on or off. Cannot be set below the platform floor.",
+    type: "percentage",
+    default: String(TIER_FLOORS.structural.quorumPct),
+    min: TIER_FLOORS.structural.quorumPct,
+    max: 100,
+    unit: "%",
+    criticality: "constitutional",
+  },
+  {
+    key: "governance.tier_structural_unity_pct",
+    category: "Governance",
+    label: "Structural changes: unity floor",
+    description:
+      "The least share of the votes cast for or against that must be in favour before a structural change carries. The shipped number is the one this platform inherited from Hypha. Cannot be set below the platform floor.",
+    type: "percentage",
+    default: String(TIER_FLOORS.structural.unityPct),
+    min: TIER_FLOORS.structural.unityPct,
+    max: 100,
+    unit: "%",
+    criticality: "constitutional",
+  },
+  {
+    key: "governance.tier_constitutional_quorum_pct",
+    category: "Governance",
+    label: "Constitutional changes: quorum floor",
+    description:
+      "The least share of the village's voting weight that must turn up before a constitutional change can be decided. Constitutional means it changes the rules for changing the rules: how voting weight is assigned, which token carries weight, and these bars themselves. The shipped number is 97, which leaves room for 3 in 100 to be unreachable on the day. Going higher is allowed and the Game will warn you why it is risky.",
+    type: "percentage",
+    default: String(TIER_FLOORS.constitutional.quorumPct),
+    min: TIER_FLOORS.constitutional.quorumPct,
+    max: 100,
+    unit: "%",
+    criticality: "constitutional",
+  },
+  {
+    key: "governance.tier_constitutional_unity_pct",
+    category: "Governance",
+    label: "Constitutional changes: unity floor",
+    description:
+      "The least share of the votes cast for or against that must be in favour before a constitutional change carries. The shipped number is 97. Going higher is allowed and the Game will warn you why it is risky.",
+    type: "percentage",
+    default: String(TIER_FLOORS.constitutional.unityPct),
+    min: TIER_FLOORS.constitutional.unityPct,
+    max: 100,
+    unit: "%",
+    criticality: "constitutional",
+  },
+  {
+    key: "governance.subject_mint_rule_quorum_pct",
+    category: "Governance",
+    label: "Minting rule changes: quorum floor",
+    description:
+      "The least share of the village's voting weight that must turn up before a change to what the village mints can be decided. This one sits on top of the structural tier, so raising it asks for more attention on minting alone without moving every other structural change with it. Cannot be set below the platform floor.",
+    type: "percentage",
+    default: String(SUBJECT_THRESHOLDS[MINT_RULE].minQuorumPct),
+    min: SUBJECT_THRESHOLDS[MINT_RULE].minQuorumPct,
+    max: 100,
+    unit: "%",
+    criticality: "constitutional",
+  },
+  {
+    key: "governance.subject_mint_rule_unity_pct",
+    category: "Governance",
+    label: "Minting rule changes: unity floor",
+    description:
+      "The least share of the votes cast for or against that must be in favour before a change to what the village mints carries. 0 leaves it to the structural tier and your own unity setting.",
+    type: "percentage",
+    default: String(SUBJECT_THRESHOLDS[MINT_RULE].minUnityPct),
+    min: SUBJECT_THRESHOLDS[MINT_RULE].minUnityPct,
+    max: 100,
+    unit: "%",
+    criticality: "constitutional",
+  },
   {
     key: "membership.vouch_threshold",
     category: "Governance",
     label: "Vouches to admit a member",
+    criticality: "structural",
     description:
       "How many standing members must vouch for an applicant before membership completes on its own. 0 keeps vouching off and admission stays whatever your current process is. Vouching comes from contributors and up, a member may never vouch for themself, and every vouch is on the record.",
     type: "integer",
@@ -1808,6 +1949,16 @@ const CYCLE_APPLY_KEYS = new Set([
 export function applyTimingOf(def: VariableDef): VariableApplyTiming {
   if (def.applyTiming) return def.applyTiming;
   return CYCLE_APPLY_KEYS.has(def.key) ? "cycle-close" : "instant";
+}
+
+/**
+ * How critical this dial is. Absent means routine, which is the whole reason
+ * the field is optional: 149 dials are ordinary numbers a village tunes while
+ * it plays, and marking each of them "routine" by hand would be 149 chances
+ * to mark one of them wrong.
+ */
+export function criticalityOf(def: VariableDef): Criticality {
+  return def.criticality ?? "routine";
 }
 
 /** Parse a stored string into the type the caller expects. */

@@ -45,7 +45,17 @@
  * safe direction, so a subject type a later lane adds cannot inherit a
  * threshold nobody chose for it.
  */
-import { dialsForMethod, type BallotMethod, type MethodDials } from "./governanceEngine";
+import {
+  dialsForMethod,
+  highestCriticality,
+  raiseDials,
+  stalemateWarning,
+  TIER_FLOORS,
+  type AbstainPolicy,
+  type BallotMethod,
+  type Criticality,
+  type MethodDials,
+} from "./governanceEngine";
 
 export interface SubjectThresholds {
   /**
@@ -74,10 +84,32 @@ export interface SubjectThresholds {
    */
   method?: BallotMethod;
   /**
+   * How critical this subject is. The tier's floor is applied on top of the
+   * explicit numbers above, so a subject can say "constitutional" and inherit
+   * whatever the village has set that tier to without repeating a number.
+   */
+  criticality?: Criticality;
+  /**
+   * What an abstention is on this subject. Absent = the Hypha rule, which is
+   * that it counts toward quorum and takes no side on unity.
+   */
+  abstainPolicy?: AbstainPolicy;
+  /**
+   * How many people must vote yes, counted as HEADS. `"all"` means every seat
+   * on the frozen roll. Absent means the subject asks nothing of heads.
+   */
+  minYesHeads?: number | "all";
+  /**
    * The fact a member reads on the surface that opens this. A fact, never an
    * argument: it says what the numbers are and stops there.
    */
   why: string;
+}
+
+/** A subject's floors expressed as a tier, so a number lives in one place. */
+export function tierFloors(criticality: Criticality): { minUnityPct: number; minQuorumPct: number } {
+  const t = TIER_FLOORS[criticality];
+  return { minUnityPct: t.unityPct, minQuorumPct: t.quorumPct };
 }
 
 /**
@@ -184,6 +216,28 @@ export const LAUNCH_SUBJECT_REF = "start";
  */
 export const MINT_RULE = "mint_rule";
 
+/**
+ * ── THE THIRD ENTRY: HOW VOTES ARE COUNTED AT ALL ───────────────────────────
+ *
+ * The founder's ruling of 2026-09-02 (Q8): `governance.weight_mode` leaves
+ * the founder ring and becomes something the village votes on, in either
+ * direction, with holdings untouched by the switch. It gets its OWN subject
+ * type rather than riding an ordinary dial change, for two reasons.
+ *
+ * First, the price. Switching between one person one vote and one token one
+ * vote changes what every future vote in the village means. That is the
+ * constitutional tier by any reading, and a change set full of ordinary dials
+ * must never be able to carry it under the ordinary bar.
+ *
+ * Second, the door. `validateChangeSet` refuses every founder-ring key inside
+ * an ordinary dial item and goes on refusing it. A `mode_switch` item is the
+ * only way the key travels, so there is exactly one path and it is the
+ * expensive one.
+ *
+ * The executor is the dispatcher lane's; this file prices it.
+ */
+export const GOVERNANCE_MODE = "governance_mode";
+
 export const SUBJECT_THRESHOLDS: Readonly<Record<string, SubjectThresholds>> = {
   [VILLAGE_LAUNCH]: {
     minUnityPct: 100,
@@ -191,13 +245,52 @@ export const SUBJECT_THRESHOLDS: Readonly<Record<string, SubjectThresholds>> = {
     minElectorate: 3,
     everySeatWeighs: true,
     method: "custom",
-    why: "Starting the Game turns on token issuance, so it asks for every member on the roll to vote and every one of them to agree.",
+    /*
+     * THE BIRTHING IS THE ONE VOTE THAT ASKS FOR A YES FROM EVERYBODY.
+     *
+     * The founder's words, 2026-09-02 (Q3): "we need 100% saying yes as a
+     * collective 'Birthing' moment". Until this pair of fields, the engine
+     * read that sentence as "everybody answers and nobody objects", so one
+     * yes and two abstentions carried a launch at 100 and 100, and
+     * `ballotSubjects.test.ts` pinned it as a documented decision. It is now
+     * the wrong rule and the test is rewritten to this one.
+     *
+     * `no_answer` is the kinder half. An abstention on the Birthing is not a
+     * refusal, it is a question nobody has answered yet, so it leaves quorum
+     * short and the ballot closes `no_quorum` rather than `failed`. A missed
+     * quorum returns the subject and the vote can be asked again the same
+     * hour on a fresh freeze; a failure is terminal. The village that has not
+     * finished deciding is not a village that said no.
+     *
+     * `minYesHeads: "all"` is the founder's sentence said in heads, which is
+     * the unit he said it in. On today's floors it is also provable from the
+     * weights (100% quorum over a roll where every seat weighs something is
+     * every seat present, and 100% unity is nobody against), so it decides
+     * nothing today that the arithmetic did not already decide. It is here
+     * because the arithmetic proves it only while all three of those floors
+     * hold, and the rule is meant to outlive them.
+     */
+    abstainPolicy: "no_answer",
+    minYesHeads: "all",
+    why: "Starting the Game asks every member on the roll to vote yes. An abstention is not a yes, and a vote nobody cast is not a yes either.",
   },
   [MINT_RULE]: {
     minUnityPct: 0,
     minQuorumPct: 50,
     minElectorate: 0,
     why: "This one changes what the village mints, so it asks for more than half the village's voting weight to take part. How much of that has to agree is the village's own setting.",
+  },
+  [GOVERNANCE_MODE]: {
+    ...tierFloors("constitutional"),
+    minElectorate: 0,
+    criticality: "constitutional",
+    /*
+     * `custom` for this file's header reason: the ruling is a pair of numbers
+     * and `custom` is the only method that decides by the numbers a ballot
+     * freezes. A 97 stamped on a `majority` ballot would be read by nobody.
+     */
+    method: "custom",
+    why: "This one changes how every vote in the village is counted, so it asks the constitutional bar: almost everybody present, and almost everybody in favour.",
   },
 };
 
@@ -223,22 +316,313 @@ export function methodForSubject(
 }
 
 /**
+ * -- THE FLOORS ARE SETTINGS NOW, AND THE REGISTRY IS THE FLOOR UNDER THEM ---
+ *
+ * Section 7A's rule is that a governance number must be changeable without a
+ * deploy, and section 13.2 counted every number in this file as code. So each
+ * tier and each named subject reads a pair of `game_variables` keys, and the
+ * numbers written above stay as the floor beneath the setting: a village
+ * RAISES its bar and can never lower it below what this platform ships.
+ *
+ * Two reasons it is raise-only rather than free.
+ *
+ *  1. A village that can lower the bar for changing the bar has no bar. The
+ *     tier dials are themselves constitutional, so a simple majority on a
+ *     quiet week could otherwise walk the constitutional tier down to 10 and
+ *     then walk everything else through it.
+ *  2. R56 gives a village its own dials, and it keeps them: the village dials
+ *     are `governance.unity_pct` and `governance.quorum_pct` and nothing here
+ *     touches them. These keys move a FLOOR, and a floor that could move down
+ *     is not one.
+ *
+ * The Birthing has no keys at all. It is 100 and 100 by rule (Q11: the
+ * Birthing stays at 100 and 100 because it is the one vote where everyone is
+ * present by definition), and a setting that could only ever hold the one
+ * value it already has is a control that does nothing.
+ */
+export const TIER_SETTING_KEYS: Readonly<Record<Criticality, { unity: string; quorum: string }>> = {
+  routine: {
+    unity: "governance.tier_routine_unity_pct",
+    quorum: "governance.tier_routine_quorum_pct",
+  },
+  structural: {
+    unity: "governance.tier_structural_unity_pct",
+    quorum: "governance.tier_structural_quorum_pct",
+  },
+  constitutional: {
+    unity: "governance.tier_constitutional_unity_pct",
+    quorum: "governance.tier_constitutional_quorum_pct",
+  },
+};
+
+export const SUBJECT_SETTING_KEYS: Readonly<Record<string, { unity: string; quorum: string }>> = {
+  [MINT_RULE]: {
+    unity: "governance.subject_mint_rule_unity_pct",
+    quorum: "governance.subject_mint_rule_quorum_pct",
+  },
+};
+
+/** Every key whose value is a governance threshold percentage. */
+export const THRESHOLD_PERCENT_KEYS: readonly string[] = [
+  ...Object.values(TIER_SETTING_KEYS).flatMap((k) => [k.unity, k.quorum]),
+  ...Object.values(SUBJECT_SETTING_KEYS).flatMap((k) => [k.unity, k.quorum]),
+  "governance.unity_pct",
+  "governance.quorum_pct",
+];
+
+/** A village's own floors, already raised to the registry's. */
+export interface ThresholdSettings {
+  tiers: Readonly<Record<Criticality, MethodDials>>;
+  subjects: Readonly<Record<string, MethodDials>>;
+}
+
+const CRITICALITY_LIST: readonly Criticality[] = ["routine", "structural", "constitutional"];
+
+/**
+ * Read the village's threshold settings through one function, applying the
+ * registry floor as it goes, so no caller can hold a lowered number even for
+ * a line. `read` is whatever the caller already has for reading a percentage
+ * variable; the shared layer never touches a database.
+ */
+export function thresholdSettingsFrom(read: (key: string) => number): ThresholdSettings {
+  const pair = (keys: { unity: string; quorum: string }, floor: MethodDials): MethodDials =>
+    raiseDials({ unityPct: Number(read(keys.unity)) || 0, quorumPct: Number(read(keys.quorum)) || 0 }, floor);
+  const tiers = {} as Record<Criticality, MethodDials>;
+  for (const c of CRITICALITY_LIST) tiers[c] = pair(TIER_SETTING_KEYS[c], TIER_FLOORS[c]);
+  const subjects: Record<string, MethodDials> = {};
+  for (const [subject, keys] of Object.entries(SUBJECT_SETTING_KEYS)) {
+    const registry = SUBJECT_THRESHOLDS[subject];
+    subjects[subject] = pair(keys, {
+      unityPct: registry?.minUnityPct ?? 0,
+      quorumPct: registry?.minQuorumPct ?? 0,
+    });
+  }
+  return { tiers, subjects };
+}
+
+/** The registry's own floors, used when no village settings are supplied. */
+export function registryThresholdSettings(): ThresholdSettings {
+  return thresholdSettingsFrom(() => 0);
+}
+
+/** One subject's effective floor: the registry, its tier, and the settings. */
+export function floorForSubject(subjectType: string, settings?: ThresholdSettings): MethodDials {
+  const t = thresholdsForSubject(subjectType);
+  let floor: MethodDials = { unityPct: t?.minUnityPct ?? 0, quorumPct: t?.minQuorumPct ?? 0 };
+  const s = settings ?? registryThresholdSettings();
+  if (t?.criticality) floor = raiseDials(floor, s.tiers[t.criticality]);
+  const own = s.subjects[subjectType];
+  if (own) floor = raiseDials(floor, own);
+  return floor;
+}
+
+/** One criticality tier's effective floor. */
+export function floorForCriticality(criticality: Criticality, settings?: ThresholdSettings): MethodDials {
+  return (settings ?? registryThresholdSettings()).tiers[criticality];
+}
+
+/**
  * The dials a ballot on this subject freezes: the method's own answer, raised
  * to the subject's floor. Both halves are pure, so the surface that previews a
  * threshold and the route that stamps it are the same arithmetic.
+ *
+ * A LIST takes the highest floor among its elements (Q9): a bundle is as hard
+ * to pass as its hardest part, so nobody can smuggle a big change under a
+ * small one. The two dials are raised SEPARATELY, which is the same rule
+ * `raiseDials` already applies between a village and a floor: a set holding a
+ * mint rule (quorum 50, unity nothing) and a mode switch (97 and 97) asks for
+ * 97 and 97, and a set holding the mint rule alone still leaves unity where
+ * the village put it.
  */
 export function dialsForSubject(
-  subjectType: string,
+  subjectType: string | readonly string[],
   method: BallotMethod,
   village: MethodDials,
+  settings?: ThresholdSettings,
 ): MethodDials {
-  const base = dialsForMethod(method, village);
-  const floor = thresholdsForSubject(subjectType);
-  if (!floor) return base;
+  const subjects = typeof subjectType === "string" ? [subjectType] : subjectType;
+  let out = dialsForMethod(method, village);
+  for (const subject of subjects) out = raiseDials(out, floorForSubject(subject, settings));
+  return out;
+}
+
+/**
+ * The method a ballot over a LIST of subjects conducts.
+ *
+ * A subject that fixes its method fixes it for the whole set, and two subjects
+ * that fix two different methods cannot ride one ballot, so the caller is told
+ * rather than having one of the two silently win. `null` means the village's
+ * own method stands.
+ */
+export function methodForSubjects(
+  subjects: readonly string[],
+): { method: BallotMethod | null; conflict: string | null } {
+  const fixed = Array.from(
+    new Set(subjects.map((s) => thresholdsForSubject(s)?.method).filter((m): m is BallotMethod => !!m)),
+  );
+  if (fixed.length === 0) return { method: null, conflict: null };
+  if (fixed.length === 1) return { method: fixed[0], conflict: null };
   return {
-    unityPct: Math.max(base.unityPct, floor.minUnityPct),
-    quorumPct: Math.max(base.quorumPct, floor.minQuorumPct),
+    method: null,
+    conflict: `This asks the village two questions that are decided two different ways (${fixed.join(" and ")}). They go up as two decisions.`,
   };
+}
+
+/**
+ * What a change of this kind asks of the village, from either of the two ways
+ * a caller can name it: a list of subject types, or a criticality tier.
+ *
+ * ONE helper, because the control that shows "changing this needs 97 of 100
+ * to show up and 97 to agree" before anybody proposes, the route that stamps
+ * the dials at open, and the page that explains the vote afterwards all have
+ * to say the same numbers, and three copies of this lookup would not.
+ */
+export interface ThresholdTarget {
+  /** A subject type, or several for a bundle. */
+  subjects?: readonly string[];
+  /** A criticality tier, for a settings key that has no subject of its own. */
+  criticality?: Criticality;
+}
+
+export interface EffectiveThresholds extends MethodDials {
+  /** The method these numbers are conducted by, or null for the village's. */
+  method: BallotMethod | null;
+  /** Set when two subjects in the list fix two different methods. */
+  conflict: string | null;
+  /** The warning to render beside a bar set above the recommended ceiling. */
+  warning: string | null;
+}
+
+export function thresholdsFor(
+  target: ThresholdTarget,
+  method: BallotMethod,
+  village: MethodDials,
+  settings?: ThresholdSettings,
+): EffectiveThresholds {
+  const subjects = target.subjects ?? [];
+  const { method: fixed, conflict } = methodForSubjects(subjects);
+  const conducts = fixed ?? method;
+  let dials = dialsForSubject(subjects, conducts, village, settings);
+  if (target.criticality) dials = raiseDials(dials, floorForCriticality(target.criticality, settings));
+  /*
+   * The Birthing is exempt from the warning by rule (Q11). It is the one vote
+   * where everybody is present by definition: the village has not started, so
+   * nobody has joined it and drifted away again, and the whole point of the
+   * vote is that every catalyst is in the room.
+   */
+  const exempt = subjects.includes(VILLAGE_LAUNCH);
+  return {
+    ...dials,
+    method: fixed,
+    conflict,
+    warning: exempt ? null : stalemateWarning(Math.max(dials.unityPct, dials.quorumPct)),
+  };
+}
+
+/**
+ * The warning shown where a threshold dial is EDITED, given the key and the
+ * value being typed. Null for any other key, and for a value at or under the
+ * recommended ceiling.
+ */
+export function stalemateWarningFor(key: string, value: string | number): string | null {
+  if (!THRESHOLD_PERCENT_KEYS.includes(key)) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? stalemateWarning(n) : null;
+}
+
+/**
+ * How a ballot on this subject counts an abstention, and how many yes heads
+ * it asks for. A list takes the strictest answer among its elements, the same
+ * way the dials take the highest floor.
+ */
+export function evaluationRulesFor(
+  subjectType: string | readonly string[],
+): { abstainPolicy: AbstainPolicy; minYesHeads: number | "all" | undefined } {
+  const subjects = typeof subjectType === "string" ? [subjectType] : subjectType;
+  let abstainPolicy: AbstainPolicy = "counts_toward_quorum";
+  let minYesHeads: number | "all" | undefined;
+  for (const subject of subjects) {
+    const t = thresholdsForSubject(subject);
+    if (!t) continue;
+    if (t.abstainPolicy === "no_answer") abstainPolicy = "no_answer";
+    if (t.minYesHeads === "all") minYesHeads = "all";
+    else if (typeof t.minYesHeads === "number" && minYesHeads !== "all") {
+      minYesHeads = Math.max(typeof minYesHeads === "number" ? minYesHeads : 0, t.minYesHeads);
+    }
+  }
+  return { abstainPolicy, minYesHeads };
+}
+
+/**
+ * -- THE TYPED ITEMS A CHANGE SET IS MADE OF (Q9) ----------------------------
+ *
+ * A proposal is a LIST of changes voted as one, and the founder's own example
+ * mixes kinds: switch the vote mode AND distribute Voice, because they might
+ * be connected. Until this union a change set held a `{ key, to }` pair and
+ * one vocabulary, and the two vocabularies it did have were told apart by a
+ * string prefix on the key.
+ *
+ * The kinds are named for what a member is deciding, not for the table that
+ * gets written:
+ *
+ *   dial              a game variable moves within its bounds.
+ *   mint_rule         a minting rule changes what the village pays for what.
+ *   weight_allocation the custom allocation table gives somebody weight.
+ *   mode_switch       how votes are counted changes.
+ *   module_lifecycle  a part of the Game is turned on, opened or closed.
+ *   brand_field       a name, a word or an image the village calls itself by.
+ *   role              a role is declared, seated or handed back.
+ *
+ * Each kind names the subject that prices it, so a bundle is priced at the
+ * highest floor among its elements with no second table to keep in step.
+ * Execution belongs to the dispatcher lane; this file prices, and
+ * `server/lib/mechanics.ts` validates.
+ */
+export const CHANGE_ITEM_KINDS = [
+  "dial",
+  "mint_rule",
+  "weight_allocation",
+  "mode_switch",
+  "module_lifecycle",
+  "brand_field",
+  "role",
+] as const;
+export type ChangeItemKind = (typeof CHANGE_ITEM_KINDS)[number];
+
+/**
+ * Which subject prices each kind. `mechanics` sets no floor of its own, so a
+ * dial is priced by its own criticality tier instead (`criticalityOf` in
+ * `shared/gameVariables.ts`), which is what makes "everything can be voted,
+ * and the critical things cost more" true key by key rather than kind by kind.
+ */
+export const SUBJECT_FOR_ITEM_KIND: Readonly<Record<ChangeItemKind, string>> = {
+  dial: "mechanics",
+  mint_rule: MINT_RULE,
+  weight_allocation: "mechanics",
+  mode_switch: GOVERNANCE_MODE,
+  module_lifecycle: "mechanics",
+  brand_field: "mechanics",
+  role: "mechanics",
+};
+
+/**
+ * The tier each kind carries when its subject sets no floor of its own. A
+ * dial is absent because a dial's tier is a property of the dial, not of the
+ * kind: moving the sensing window and moving how votes are counted are both
+ * dials and are not the same size of decision.
+ */
+export const CRITICALITY_FOR_ITEM_KIND: Readonly<Record<Exclude<ChangeItemKind, "dial">, Criticality>> = {
+  mint_rule: "structural",
+  weight_allocation: "structural",
+  mode_switch: "constitutional",
+  module_lifecycle: "structural",
+  brand_field: "routine",
+  role: "structural",
+};
+
+/** The tier of a bundle: its most critical element, `routine` when empty. */
+export function criticalityOfItems(tiers: readonly Criticality[]): Criticality {
+  return highestCriticality(tiers);
 }
 
 /**
