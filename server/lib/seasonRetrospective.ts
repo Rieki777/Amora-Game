@@ -99,9 +99,24 @@ export async function buildRetrospective(
   // ── Seats ────────────────────────────────────────────────────────────────
   const [seats]: any = await pool.query(
     `SELECT r.id, r.name, r.seats, r.accountabilities, r.criticality,
+            -- AGENTS DO NOT COUNT IN EITHER OF THESE (0142). Every other
+            -- site in this audit merely reads wrong; this one does visible
+            -- harm. A held seat with no events against its
+            -- holder produces the observation "Held all season, with nothing
+            -- recorded against whoever held it", whose stated meaning is that
+            -- the holder may have needed support nobody offered. Events carry
+            -- an actor user id and an agent has none, so an agent seat would
+            -- trip that branch EVERY season and hand the village a suggestion
+            -- to go and support a piece of software.
+            --
+            -- everHeld gets the same filter for the same reason one branch up:
+            -- "Declared for this season and never held by anyone" is a true
+            -- and useful thing to say about a seat an agent is sitting in, and
+            -- counting the agent would have suppressed it.
             (SELECT COUNT(*) FROM org_role_assignments a
-              WHERE a.org_role_id = r.id AND a.ended_at IS NULL) AS held,
-            (SELECT COUNT(*) FROM org_role_assignments a2 WHERE a2.org_role_id = r.id) AS everHeld
+              WHERE a.org_role_id = r.id AND a.ended_at IS NULL AND a.is_agent = 0) AS held,
+            (SELECT COUNT(*) FROM org_role_assignments a2
+              WHERE a2.org_role_id = r.id AND a2.is_agent = 0) AS everHeld
        FROM org_roles r
       WHERE r.active = 1 AND r.is_example = 0`,
   );

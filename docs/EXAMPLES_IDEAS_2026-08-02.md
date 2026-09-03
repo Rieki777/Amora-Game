@@ -203,7 +203,7 @@ editor for them is a small addition that needs no decision.
 **Map.** STILL OPEN, and **not ours to take**. Circle icons unused on the
 canvas, member initials on filled seats, double-click focus mode. Another
 session is actively rebuilding the map (it has its own
-`FIXES_TO_MAKE_2026-08-04_VILLAGE_MAP.md` and a directions file), so these
+FIXES_TO_MAKE_2026-08-04_VILLAGE_MAP.md, since removed from the tree, and a directions file), so these
 belong to that work, not to a parallel edit of the same canvas.
 
 ### Cross-cutting

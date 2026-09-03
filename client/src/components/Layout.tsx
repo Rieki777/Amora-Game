@@ -572,6 +572,21 @@ export default function Layout({ children }: LayoutProps) {
                     </Link>
                   </li>
                 )}
+                {/* The review queue. Signed-in only, because a visitor has no
+                    use for it, and NOT gated on admin here: the whole point of
+                    that page is that a steward who is not an admin can open
+                    it, and a door only admins can see would put it back where
+                    it started. The page itself says plainly when the person
+                    looking may not open it, so a member who follows this link
+                    without the capability gets a sentence and never a blank
+                    screen. */}
+                {user && (
+                  <li>
+                    <Link href="/review" className="text-white hover:underline transition-colors text-sm block py-1.5">
+                      Review Queue
+                    </Link>
+                  </li>
+                )}
               </ul>
             </div>
 

@@ -618,6 +618,15 @@ export function buildOrgExport(input: OrgExportInput): OrgExport {
         accountabilities: r.accountabilities ?? [],
         whyItMatters: r.whyItMatters,
         seats: r.seats,
+        // AGENTS COUNT HERE, and that is the decision rather than an oversight
+        // (0142). This is a DISPLAY read: it says how many hold each seat, and
+        // a seat an agent sits in is held. The coverage question, "is somebody
+        // carrying this", is asked elsewhere with `peopleOnly`, and it is a
+        // different question with a different answer.
+        //
+        // Nothing about the agent leaves the village either way. This document
+        // carries counts and never people, so there is no agent name to reveal
+        // and the shape is unchanged by any of this.
         filled: holders.length,
         state: seatState(r, holders),
         stateSource: override ? "declared" : "records",

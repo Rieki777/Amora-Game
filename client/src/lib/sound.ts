@@ -74,6 +74,10 @@ export const SOUND_MANIFEST: Record<SoundMoment, SoundSpec> = {
     maxKb: 120,
   },
   gratitude: {
+    // village-ok: this manifest is a sourcing brief for whoever records the
+    // audio, and `moment` is never rendered anywhere (nothing in client/src or
+    // server reads it). It names the platform event, so it stays in the
+    // platform's own words rather than a village's configured token name.
     moment: "Gratitude was sent, and the same sound when it arrives",
     wanted: "One soft water drop into a still pool, with a little room tail",
     seconds: [0.4, 0.9],

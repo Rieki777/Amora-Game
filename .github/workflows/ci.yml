@@ -221,6 +221,18 @@ jobs:
         # would travel with it.
         run: node scripts/check-brand-refs.mjs
 
+      - name: Fork env audit
+        # .env.example is the only list of what a founder must set, and it
+        # calls itself the single source of truth. This compares it against
+        # every env read in server/ and shared/, so a variable the code
+        # started reading cannot stay unmentioned there.
+        #
+        # It sat unwired for its whole life: four documents named it, no
+        # workflow and no package script ran it, and it exited 1 the day it
+        # was wired in. A guard that does not run is a comment, and a path
+        # resolving is not a guard running.
+        run: node scripts/fork-env-audit.mjs
+
       - name: Voice guard
         # Shipped language follows the house writing rules (the Rye Voice
         # Profile). It reads only JSX text and string literals, parsed with
@@ -373,11 +385,17 @@ jobs:
         run: node scripts/check-artifact-budget.mjs
 
       - name: Doc link guard
-        # The builder documents route a newcomer to files by path, and they
-        # deliberately link instead of restating so they cannot drift from the
+        # The documentation routes a reader to files by path, and it
+        # deliberately links instead of restating so it cannot drift from the
         # code. That design has one failure mode: a file moves, every link to it
         # rots silently, and the first person to find out is the newcomer the
         # document exists to help.
+        #
+        # Scope is a glob: every .md under docs/ and at the repo root. It was a
+        # hand-written list of six for months, which is how ninety documents
+        # went unguarded and the one file appended to that list arrived with
+        # three dead references in it. Opting a document out now costs a line
+        # in the script's SKIPPED array with a reason attached.
         #
         # It runs BEFORE the build, with the other guards, because it reads
         # files that exist the moment the repo is cloned. Build outputs are
@@ -493,6 +511,40 @@ jobs:
 
       # (check-identity-keys.test.mjs used to run here as its own step. It now
       # runs in `Guard self-tests, all of them`, above, with the other eight.)
+
+      - name: Village facts in copy
+        # No village's PRICES, units, token names or staff in the pages every
+        # fork inherits. The step above guards the config; this one guards the
+        # copy, which is where these were found.
+        #
+        # In one day this platform was found publishing, under every village's
+        # name and with no admin field able to change any of it: four housing
+        # price bands with square footages and a Reserve button, "Total Acres"
+        # over a number a village meant as hectares, one token's name as
+        # display text in 93 places across 29 files, a real person's first name
+        # compiled into every fork, USD bands in the dropdown ON THE PAGE THAT
+        # COLLECTS MONEY, eight more with no settings hook, a deposit band and
+        # a hard dollar prefix. Every one survived because nothing was looking,
+        # and each was found by somebody reading a page.
+        #
+        # The brand guard structurally cannot see any of it. It matches four
+        # proper nouns and none of these facts contains one, and it exempts
+        # seventeen shopfront pages, which is exactly where the money and the
+        # units live. That exemption is about a village's own PROSE; it was
+        # never a decision to let a price band with a submit button travel to a
+        # fork.
+        #
+        # Ships with the 100 findings that exist today recorded per file and
+        # per rule in scripts/village-facts-pending.json, so this starts from a
+        # known state rather than from a hope. That list may only shrink, and
+        # the guard fails if a count grows, if a file nobody listed appears, if
+        # a listed count has fallen and the list still says the old number, or
+        # if the total and PENDING_CEILING disagree.
+        #
+        # Wired hard, not guarded with a skip-if-missing, for the reason the
+        # two steps above give: a step that quietly does nothing when its
+        # script is absent is the failure this whole file exists to stop.
+        run: node scripts/check-village-facts.mjs
 
       - name: E2E database isolation
         # Every suite that spawns the built server must hand it its own scratch

@@ -138,13 +138,13 @@ wip to painted, and a reduced-motion guard on every one of them.
 
 | Piece | File | Use it for |
 | --- | --- | --- |
-| `MoonProgress` | `natural/MoonProgress.tsx` | Any completion display: a quest, a stage, a pool, a checklist |
-| `Celebration` | `natural/Celebration.tsx` | Marking that something landed |
-| `BreathingLoader` | `natural/BreathingLoader.tsx` | Waiting. It replaces a spinner |
+| `MoonProgress` | `client/src/components/natural/MoonProgress.tsx` | Any completion display: a quest, a stage, a pool, a checklist |
+| `Celebration` | `client/src/components/natural/Celebration.tsx` | Marking that something landed |
+| `BreathingLoader` | `client/src/components/natural/BreathingLoader.tsx` | Waiting. It replaces a spinner |
 | Tokens | `client/src/index.css` | Recolouring the whole vocabulary at once |
 | `haptic()` | `client/src/lib/haptics.ts` | The one call into `navigator.vibrate` |
 | `playSound()` / `useSound()` | `client/src/lib/sound.ts` | The audio layer |
-| `useReducedMotion()` | `natural/useReducedMotion.ts` | Branching a composition, not just cancelling one |
+| `useReducedMotion()` | `client/src/components/natural/useReducedMotion.ts` | Branching a composition, not just cancelling one |
 
 Import from the barrel, `@/components/natural`, unless you want one component
 and nothing else.
@@ -155,7 +155,7 @@ and nothing else.
 through full, lit on the right limb, and never goes past full. A waning moon
 reads as progress being lost, which is a lie about a quest at 80%. Use
 `mode="lunation"` only where the thing being drawn really is cyclical, the
-gratitude cycle among them; that mode takes the phase `shared/lunar`'s
+gratitude cycle among them; that mode takes the phase `shared/lunar.ts`'s
 `moonPhase()` returns and is the only mode that lights the left limb.
 
 **A reading always travels with it.** The accessible name is always
