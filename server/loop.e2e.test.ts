@@ -2794,7 +2794,21 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(intake1.status).toBe(200);
     expect(intake1.json.award).toBe(75);
     expect(intake1.json.pendingSecondSignoff).toBe(false);
-    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(75);
+    /*
+     * `/api/game/ledger` returns `balance` as the RAW column, which is MINOR
+     * units, and ships `decimals` beside it for exactly this reason. Asserting
+     * the raw number pins the ledger's scale into the acceptance test: at
+     * decimals 0 a credit and a minor unit are the same integer, so every
+     * assertion below stayed green whether or not the library converted at its
+     * boundaries, and the suite was blind to a misvaluation of the whole scale
+     * factor. Divide by the scale the payload itself declares and the number
+     * asserted is the number a member is quoted, at any decimals.
+     */
+    const libraryCredits = async (token: string) => {
+      const row = (await api("GET", "/api/game/ledger", undefined, token)).json.balances["library-credit"];
+      return Number(row?.balance ?? 0) / 10 ** Number(row?.decimals ?? 0);
+    };
+    expect(await libraryCredits(peerToken)).toBe(75);
 
     // The per-member per-cycle cap is an AGGREGATE across donations.
     await api("PUT", "/api/admin/variables/library.intake_member_cycle_cap", { value: "100" }, founderToken);
@@ -2808,7 +2822,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const big = await api("POST", "/api/admin/library/intake", { name: "Chainsaw", appraisal: 300, donorUserId: peerId }, founderToken);
     expect(big.json.pendingSecondSignoff).toBe(true);
     expect(big.json.award).toBe(0);
-    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(75);
+    expect(await libraryCredits(peerToken)).toBe(75);
     const selfApprove = await api("POST", `/api/admin/library/items/${big.json.itemId}/approve`, {}, founderToken);
     expect(selfApprove.status).toBe(409);
     expect(String(selfApprove.json.error)).toContain("SECOND");
@@ -2817,7 +2831,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(secondSig.status).toBe(200);
     expect(secondSig.json.award).toBe(225);
     await api("PUT", `/api/admin/users/${doerId}/role`, { role: "member" }, founderToken);
-    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(300);
+    expect(await libraryCredits(peerToken)).toBe(300);
 
     // ── LOANS. Escrow is ceil(value × 25%); no credits, no loan — the
     // refusal names the deposit, and nothing here can go negative. ──
@@ -2835,7 +2849,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const reserved = await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, peerToken);
     expect(reserved.status).toBe(200);
     expect(reserved.json.escrow).toBe(25);
-    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(275);
+    expect(await libraryCredits(peerToken)).toBe(275);
     // The shelf shows one of everything: a second borrower waits.
     expect((await api("POST", `/api/library/items/${barrow.id}/reserve`, {}, doerToken)).status).toBe(409);
     // Open loans are open economic state: module-off refuses (invariant #13).
@@ -2853,7 +2867,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       (libBell.json.notifications ?? []).some((n: any) => n.type === "library" && String(n.title).includes("cancelled a reservation")),
       "a cancelled reservation reaches the stewards",
     ).toBe(true);
-    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(300);
+    expect(await libraryCredits(peerToken)).toBe(300);
 
     // Full circle: reserve → pickup → return → settle closed with DEFAULT
     // fees: computed wear = 5% of 100 = 5, zero damage, 20 released.
@@ -2872,7 +2886,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(settled.json.wearFee).toBe(5);
     expect(settled.json.damageFee).toBe(0);
     expect(settled.json.released).toBe(20);
-    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(295);
+    expect(await libraryCredits(peerToken)).toBe(295);
 
     // THE SINGLE TERMINAL: a second settle with a DIFFERENT story is refused
     // as already-settled, verifies the stored legs, and pays nothing twice.
@@ -2880,7 +2894,7 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       { outcome: "disputed", wearFee: 25, damageFee: 25 }, founderToken);
     expect(again.status).toBe(409);
     expect(again.json.outcome).toBe("closed"); // the stored story, not the racer's
-    expect((await api("GET", "/api/game/ledger", undefined, peerToken)).json.balances["library-credit"]?.balance).toBe(295);
+    expect(await libraryCredits(peerToken)).toBe(295);
     // The claim stamped the settled cycle in the same statement.
     const adminLoans = await api("GET", "/api/admin/library", undefined, founderToken);
     expect(String(adminLoans.json.loans.find((l: any) => l.id === loan2.json.loanId).settled_cycle_id)).toMatch(/^lunar-\d{6}$/);
