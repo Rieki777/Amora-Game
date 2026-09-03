@@ -66,7 +66,19 @@ export type Capability =
   | "intake.moderate" // work the queues strangers and members put things into
   | "library.keep" // keep the shared library: what comes in, what goes out
   | "story.tell" // say what the village is, in its own words, in public
-  | "dial.set"; // turn the village's own dials, within the open ring
+  | "dial.set" // turn the village's own dials, within the open ring
+  /*
+   * The steward's approval, and the refusal that carries a reason.
+   *
+   * A separate key from `proposal.decide` on purpose, because they are two
+   * different acts on the same ballot and a village should be able to split
+   * them. `proposal.decide` CLOSES a vote: it reads the tally and writes down
+   * what the village decided, which is a facilitation job. This one decides
+   * whether a proposal the village already passed takes effect, which is the
+   * veto the founder described as training wheels. A facilitator who can also
+   * veto is one person holding both ends of the decision.
+   */
+  | "steward.approve"; // approve a passed proposal, or refuse it with a reason
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -103,6 +115,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "library.keep",
   "story.tell",
   "dial.set",
+  "steward.approve",
 ];
 
 /**
@@ -153,6 +166,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "library.keep": "Keep the shared library and its loans",
   "story.tell": "Say what the village is, in public, in its own words",
   "dial.set": "Turn the village's own dials",
+  "steward.approve": "Approve a passed proposal, or refuse it with a reason",
 };
 
 /**
@@ -314,6 +328,14 @@ export const TRANSFERABLE: Record<Capability, boolean> = {
   "story.tell": true,
   "org.seat": true,
   "dial.set": true,
+  /*
+   * The steward's seat is the one power the founder designed to CHANGE HANDS,
+   * so it would be strange for the map to refuse to move it. He ruled that
+   * giving the power up is reversible and that the village fills the seat
+   * again by voting somebody into it, which is exactly this key crossing to a
+   * role the village declared.
+   */
+  "steward.approve": true,
   "event.manage": true,
   "exchange.manage": true,
   "forum.moderate": true,
@@ -520,6 +542,11 @@ export const DENIABLE: Record<Capability, boolean> = {
   "library.keep": true,
   "story.tell": true,
   "dial.set": true,
+  // A job the village handed out, the same family as `proposal.decide` two
+  // groups up. A warning badge pausing it stops nothing the village passed:
+  // an undecided proposal waits, which is the fail-safe direction, and the
+  // seat itself stays filled.
+  "steward.approve": true,
 };
 
 /**

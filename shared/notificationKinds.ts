@@ -122,6 +122,27 @@ export const NOTIFICATION_KINDS: Record<string, NotificationKind> = {
     many: "{n} advisory votes closed.",
     celebrate: false,
   },
+  // The steward's two answers, and the wait between them. Neither celebrates:
+  // a village that passed something already had its moment, and this is the
+  // last word on it rather than a second one.
+  ballot_approved: {
+    group: "decisions",
+    blurb: "A steward let a decision the village carried take effect.",
+    many: "{n} decisions were approved.",
+    celebrate: false,
+  },
+  ballot_refused: {
+    group: "decisions",
+    blurb: "A steward stopped a decision the village carried, and said why.",
+    many: "{n} decisions were refused, each with a reason.",
+    celebrate: false,
+  },
+  ballot_awaiting_steward: {
+    group: "decisions",
+    blurb: "A decision the village carried is waiting for somebody to hold the steward's seat.",
+    many: "{n} carried decisions are waiting for a steward.",
+    celebrate: false,
+  },
   ballot_expired: {
     group: "decisions",
     blurb: "A voting window ran out with nobody closing it. Closing is a human act, so the ballot waits for one.",
@@ -155,7 +176,7 @@ export const NOTIFICATION_KINDS: Record<string, NotificationKind> = {
   },
   term_expiring: {
     group: "decisions",
-    blurb: "The agreement to keep holding your seat is running out. Nothing was taken away; it is a moment to renew or hand it on.",
+    blurb: "The agreement to keep holding your seat is running out. On a seat that carries permissions those end with the term (0134), so it is the moment to renew or hand it on.",
     many: "{n} of your terms are running out.",
     celebrate: false,
   },

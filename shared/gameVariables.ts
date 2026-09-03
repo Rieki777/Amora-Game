@@ -458,6 +458,28 @@ export const VARIABLES: VariableDef[] = [
     default: "true",
     ring: "founder",
   },
+  // The steward gradient. Two lists, both settings, so the training wheels
+  // come off one subject at a time instead of by one boolean somebody has to
+  // be brave enough to flip. `governance.auto_apply_enabled` is untouched and
+  // still means exactly what it always meant: the mechanics brake.
+  {
+    key: "governance.steward_subjects",
+    category: "Governance",
+    label: "Which decisions wait for a steward",
+    description:
+      "A steward approves a proposal the village has already passed before it takes effect, and can refuse it with a reason. This names which kinds of decision wait for that approval. Leave it as all while the village is young; name a shorter list, or none, as it learns to trust its own agreements. A village with no steward and self-executing agreements is a healthy village, not a broken one. Advisory votes never wait, because they execute nothing.",
+    type: "text",
+    default: "all",
+  },
+  {
+    key: "governance.auto_execute_subjects",
+    category: "Governance",
+    label: "Which decisions carry themselves",
+    description:
+      "The other end of the same gradient: kinds of decision that apply themselves at the cycle boundary with nobody in the loop. Empty by default, so nothing carries itself until the village says so. A subject named here does not wait for a steward even when the list above names it.",
+    type: "text",
+    default: "none",
+  },
   {
     key: "governance.change_cooldown_days",
     category: "Governance",
