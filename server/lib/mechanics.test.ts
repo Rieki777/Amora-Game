@@ -22,6 +22,7 @@ import {
 import {
   CHANGE_ITEM_KINDS,
   GOVERNANCE_MODE,
+  HIGHEST_TIER_KEY,
   MINT_RULE,
   thresholdSettingsFrom,
   TIER_SETTING_KEYS,
@@ -595,5 +596,86 @@ describe("the cap on how much one proposal may move", () => {
     const { problems } = await validateChangeSet(noPool, thirteen, effective, 0);
     expect(problems.length).toBe(1);
     expect(problems[0].problem).toContain("at most 12");
+  });
+});
+
+/**
+ * THRESHOLDS FOR THRESHOLDS (19B). "they also can be changed by reaching the
+ * same amount they are set at can change their threshold again." So moving a
+ * bar costs whatever that bar currently asks, in either direction, and the
+ * price is read off the setting and never off the tier's name.
+ */
+describe("a change to a threshold is priced at that threshold's current bar", () => {
+  const village = { unityPct: 80, quorumPct: 20 };
+  const registry = thresholdSettingsFrom(() => 0);
+
+  it("prices a move of the constitutional tier at the constitutional tier", () => {
+    const priced = priceChangeSet(
+      [{ key: TIER_SETTING_KEYS.constitutional.quorum, to: "99" }],
+      "custom",
+      village,
+      registry,
+    );
+    expect(priced.dials).toEqual(TIER_FLOORS.constitutional);
+  });
+
+  it("prices a move of a bar the village has raised at the RAISED number, not the shipped one", () => {
+    const raised = thresholdSettingsFrom((k) =>
+      k === TIER_SETTING_KEYS.structural.unity || k === TIER_SETTING_KEYS.structural.quorum ? 97 : 0,
+    );
+    const priced = priceChangeSet(
+      [{ key: TIER_SETTING_KEYS.structural.quorum, to: "60" }],
+      "custom",
+      village,
+      raised,
+    );
+    // Lowering it costs exactly what it currently asks. That is the whole rule.
+    expect(priced.dials).toEqual({ unityPct: 97, quorumPct: 97 });
+  });
+
+  /*
+   * THE OVERRIDE TIER IS PRICED AT ITSELF, ON TOP OF ITS REGISTRY FLOOR.
+   *
+   * 19E reads "changing it is priced at the highest tier". Two readings fit:
+   * the tier the setting currently names, or the highest tier the platform
+   * has. The build takes the second as a FLOOR under the first, so a village
+   * that has raised its constitutional bar pays the raised number to move
+   * this setting, and a village that has named a cheaper tier still cannot
+   * walk its own override down on a quiet week. Recorded as a lane decision.
+   */
+  it("prices a move of the override tier at the constitutional floor, even when it names a cheaper tier", () => {
+    const structural = thresholdSettingsFrom(
+      () => 0,
+      (k) => (k === HIGHEST_TIER_KEY ? "structural" : ""),
+    );
+    const priced = priceChangeSet([{ key: HIGHEST_TIER_KEY, to: "routine" }], "custom", village, structural);
+    expect(priced.dials).toEqual(TIER_FLOORS.constitutional);
+  });
+
+  it("follows the constitutional bar upward when the village has raised it", () => {
+    const raised = thresholdSettingsFrom(
+      (k) => (k === TIER_SETTING_KEYS.constitutional.quorum ? 99 : 0),
+      (k) => (k === HIGHEST_TIER_KEY ? "constitutional" : ""),
+    );
+    const priced = priceChangeSet([{ key: HIGHEST_TIER_KEY, to: "structural" }], "custom", village, raised);
+    expect(priced.dials).toEqual({ unityPct: 97, quorumPct: 99 });
+  });
+
+  it("takes the harder of two bars when one set moves both", () => {
+    const priced = priceChangeSet(
+      [
+        { key: TIER_SETTING_KEYS.structural.quorum, to: "60" },
+        { key: TIER_SETTING_KEYS.constitutional.quorum, to: "99" },
+      ],
+      "custom",
+      village,
+      registry,
+    );
+    expect(priced.dials).toEqual(TIER_FLOORS.constitutional);
+  });
+
+  it("leaves an ordinary dial exactly where it was, so this rule reaches nothing else", () => {
+    const priced = priceChangeSet([{ key: "gratitude.base_budget", to: "150" }], "custom", village, registry);
+    expect(priced.dials).toEqual(village);
   });
 });

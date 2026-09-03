@@ -341,3 +341,177 @@ export function stalemateWarning(pct: number): string | null {
     `who has gone still counts as a seat that has not answered. ${RECOMMENDED_CEILING_PCT} is the highest number this platform recommends.`
   );
 }
+
+/**
+ * ── PEOPLE BESIDE WEIGHT, IN EVERY SENTENCE (19F) ───────────────────────────
+ *
+ * The founder's ruling of 2026-09-03: "Quorum SHOULD be pure token weight
+ * (not counting people, unless it's 1-person-1-vote but we STILL SHOW PEOPLE
+ * counts, even though the quorum is calculated by village-voice token
+ * weight)." So the arithmetic below adds no second quorum and changes no
+ * outcome. It answers the question a percentage cannot answer on its own:
+ * how many of us is that, today, on this roll.
+ *
+ * The audit's fourth risk is what these sentences exist to make visible. At
+ * 97% of the weight, a village where three people hold 97% of the weight is
+ * asking three people; the same 97% on nine equal seats is asking all nine.
+ * Both are true, both are consequences of pure weight, and a member reading
+ * "97% quorum" learns neither. The village keeps its dials. The Game says
+ * what the dials mean today.
+ *
+ * Everything here is pure and takes the roll as an argument, the same posture
+ * the rest of this file holds: the surface that previews a bar and the close
+ * that applies it read one arithmetic.
+ */
+
+/** One seat on a roll, as the people-and-weight arithmetic needs it. */
+export interface WeighedSeat {
+  weight: number;
+}
+
+/** The roll's whole weight, negatives floored at zero the way `openBallot` does. */
+export function totalWeightOf(roll: readonly WeighedSeat[]): number {
+  return roll.reduce((sum, seat) => sum + Math.max(0, Number(seat.weight) || 0), 0);
+}
+
+/** Whether every seat on the roll weighs the same, so the bar reads in heads. */
+export function everySeatWeighsAlike(roll: readonly WeighedSeat[]): boolean {
+  if (roll.length === 0) return false;
+  const first = Math.max(0, Number(roll[0].weight) || 0);
+  return roll.every((seat) => Math.max(0, Number(seat.weight) || 0) === first);
+}
+
+/**
+ * The FEWEST people who can hold `pct` of the roll's weight, biggest holders
+ * first. Null means the Game could not tell, which today has one cause: a
+ * roll carrying no weight at all. Null is never "nobody", and every caller
+ * renders the two differently, because "3 of 9" and "we cannot say" are
+ * different facts and a page that shows 0 for both is lying about one.
+ */
+export function fewestHoldersFor(roll: readonly WeighedSeat[], pct: number): number | null {
+  const total = totalWeightOf(roll);
+  if (!(total > 0)) return null;
+  const want = (Math.max(0, Number(pct) || 0) / 100) * total;
+  if (want <= 0) return 0;
+  const weights = roll
+    .map((seat) => Math.max(0, Number(seat.weight) || 0))
+    .sort((a, b) => b - a);
+  let held = 0;
+  for (let i = 0; i < weights.length; i += 1) {
+    held += weights[i];
+    // A hair of tolerance, because a percentage of a sum of floats lands just
+    // under the sum often enough to turn "all nine" into "ten of nine".
+    if (held >= want - 1e-9) return i + 1;
+  }
+  return weights.length;
+}
+
+/** What a pair of dials asks of THIS roll, counted in people and in weight. */
+export interface PeopleAndWeight {
+  /** Seats on the roll. */
+  people: number;
+  /** The roll's whole weight. */
+  totalWeight: number;
+  /** The bar these numbers describe. */
+  dials: MethodDials;
+  /** Fewest people who can meet the quorum bar, or null when it cannot be told. */
+  fewestForQuorum: number | null;
+  /** True when the quorum bar can only be met by every seat on the roll. */
+  needsEveryone: boolean;
+  /** True when every seat weighs the same, so weight and heads are one count. */
+  equalWeights: boolean;
+}
+
+export function peopleAndWeightFor(dials: MethodDials, roll: readonly WeighedSeat[]): PeopleAndWeight {
+  const fewestForQuorum = fewestHoldersFor(roll, dials.quorumPct);
+  return {
+    people: roll.length,
+    totalWeight: totalWeightOf(roll),
+    dials,
+    fewestForQuorum,
+    needsEveryone: fewestForQuorum !== null && roll.length > 0 && fewestForQuorum >= roll.length,
+    equalWeights: everySeatWeighsAlike(roll),
+  };
+}
+
+/** A percentage said the way a member reads one: 97, not 97.0000001. */
+function pct(n: number): string {
+  const v = Math.round((Number(n) || 0) * 100) / 100;
+  return String(v);
+}
+
+const people = (n: number): string => (n === 1 ? "1 person" : `${n} people`);
+
+/**
+ * THE HONEST SENTENCE FOR A BAR: what it asks, in weight and in people.
+ *
+ * The founder's number stays the subject of the sentence, because the bar IS
+ * a share of the weight. The people clause is the same fact said in the unit
+ * a member lives in.
+ */
+export function thresholdSentence(dials: MethodDials, roll: readonly WeighedSeat[]): string {
+  const r = peopleAndWeightFor(dials, roll);
+  const bar =
+    `${pct(dials.quorumPct)}% of the weight must show up and ` +
+    `${pct(dials.unityPct)}% of the weight cast must agree`;
+  if (r.people === 0) return `${bar}. Nobody holds a voice in this village yet, so there is no roll to count against.`;
+  if (r.fewestForQuorum === null) {
+    return `${bar}. Nobody on the roll of ${r.people} carries weight today, so the Game cannot say how many people that is.`;
+  }
+  if (r.equalWeights) {
+    return `${bar}. Today that is at least ${r.fewestForQuorum} of ${r.people} people, because every seat weighs the same.`;
+  }
+  return (
+    `${bar}. Today that is at least ${r.fewestForQuorum} of ${r.people} people, because ` +
+    `${people(r.fewestForQuorum)} hold ${pct(dials.quorumPct)}% of the weight.`
+  );
+}
+
+/** Where a ballot stands, counted both ways. */
+export interface ParticipationCounts {
+  /** Rows on the ballot: how many of the roll have voted. */
+  peopleVoted: number;
+  /** Seats frozen at open (`ballots.electorate_count`). */
+  people: number;
+  /** The weight those rows carry. */
+  weightVoted: number;
+  /** The weight frozen at open (`ballots.total_weight`). */
+  totalWeight: number;
+}
+
+/**
+ * THE HONEST SENTENCE FOR A BALLOT'S STATE. "3 of 9 people voted, holding 97%
+ * of the weight." One function, because the card, the decision page, the feed
+ * post and the notification all say this and four copies would drift.
+ */
+export function participationSentence(c: ParticipationCounts): string {
+  const votedPeople = Math.max(0, Math.trunc(c.peopleVoted));
+  const roll = Math.max(0, Math.trunc(c.people));
+  const head = `${votedPeople} of ${roll} ${roll === 1 ? "person" : "people"} voted`;
+  if (!(c.totalWeight > 0)) {
+    return `${head}. The roll carries no weight today, so no share of it can be worked out.`;
+  }
+  const share = pct((Math.max(0, c.weightVoted) / c.totalWeight) * 100);
+  return `${head}, holding ${share}% of the weight.`;
+}
+
+/**
+ * THE STALEMATE WARNING THE ROLL FIRES, BESIDE THE ONE THE NUMBER FIRES.
+ *
+ * `stalemateWarning` above fires above 97 because the founder said 97 is as
+ * high as he recommends. This one fires whenever the bar rounds to the whole
+ * roll, which is the same danger arriving from the other direction: on nine
+ * equal seats, 97% IS unanimity, and a village reading "97, and he said 97 is
+ * fine" has been told nothing about its own arithmetic.
+ *
+ * It warns and never refuses, which is the founder's posture on this dial.
+ */
+export function wholeRollWarning(dials: MethodDials, roll: readonly WeighedSeat[]): string | null {
+  const r = peopleAndWeightFor(dials, roll);
+  if (!r.needsEveryone) return null;
+  return (
+    `At ${pct(dials.quorumPct)}% of the weight, every one of the ${r.people} ` +
+    `${r.people === 1 ? "person" : "people"} on the roll has to vote before this can count. ` +
+    "One member who dies, leaves or stops playing holds it there until the roll changes."
+  );
+}

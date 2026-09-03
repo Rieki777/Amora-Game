@@ -12,8 +12,15 @@ import {
   methodForDecidesBy,
   raiseDials,
   requiredYesHeads,
+  everySeatWeighsAlike,
+  fewestHoldersFor,
+  participationSentence,
+  peopleAndWeightFor,
   stalemateWarning,
+  thresholdSentence,
+  totalWeightOf,
   villageBallotMethod,
+  wholeRollWarning,
   quorumPctOf,
   unityPctOf,
   CRITICALITIES,
@@ -324,5 +331,112 @@ describe("the stalemate warning above the recommended ceiling", () => {
 
   it("never warns about a number that is not a number", () => {
     expect(stalemateWarning(Number.NaN)).toBeNull();
+  });
+});
+
+/**
+ * PEOPLE BESIDE WEIGHT (19F). The founder ruled that quorum stays pure token
+ * weight and that people counts are shown beside it everywhere. These pin the
+ * arithmetic and the sentences, including the case the audit raised: a bar
+ * that is three people in one village and everybody in another.
+ */
+describe("people beside weight", () => {
+  /** Nine seats. Three of them hold 97 of the 100 weight between them. */
+  const concentrated = [
+    { weight: 40 },
+    { weight: 32 },
+    { weight: 25 },
+    { weight: 0.5 },
+    { weight: 0.5 },
+    { weight: 0.5 },
+    { weight: 0.5 },
+    { weight: 0.5 },
+    { weight: 0.5 },
+  ];
+  /** Nine seats under one person one vote, where every seat weighs one. */
+  const equalNine = Array.from({ length: 9 }, () => ({ weight: 1 }));
+
+  it("totals the roll's weight and floors a negative seat, the way openBallot does", () => {
+    expect(totalWeightOf(concentrated)).toBe(100);
+    expect(totalWeightOf([{ weight: 3 }, { weight: -5 }])).toBe(3);
+  });
+
+  it("counts the fewest holders of a share, biggest first", () => {
+    expect(fewestHoldersFor(concentrated, 97)).toBe(3);
+    expect(fewestHoldersFor(concentrated, 40)).toBe(1);
+    expect(fewestHoldersFor(concentrated, 100)).toBe(9);
+    expect(fewestHoldersFor(concentrated, 0)).toBe(0);
+  });
+
+  it("counts in heads when every seat weighs the same, which is what equal mode is", () => {
+    expect(fewestHoldersFor(equalNine, 97)).toBe(9);
+    expect(fewestHoldersFor(equalNine, 50)).toBe(5);
+    expect(everySeatWeighsAlike(equalNine)).toBe(true);
+    expect(everySeatWeighsAlike(concentrated)).toBe(false);
+  });
+
+  it("says it could not tell on a roll carrying no weight, and never says nobody", () => {
+    expect(fewestHoldersFor([{ weight: 0 }, { weight: 0 }], 50)).toBeNull();
+    expect(fewestHoldersFor([], 50)).toBeNull();
+  });
+
+  it("a 97/97 tier is satisfied by weight alone, and the sentence says how many people that is today", () => {
+    const dials = { unityPct: 97, quorumPct: 97 };
+    // The engine's own answer: three seats holding 97 of 100 carry it.
+    expect(
+      evaluateBallot({
+        method: "custom",
+        unityPct: 97,
+        quorumPct: 97,
+        totalWeight: 100,
+        tallies: t(97, 0),
+      }),
+    ).toBe("passed");
+    const sentence = thresholdSentence(dials, concentrated);
+    expect(sentence).toContain("97% of the weight must show up");
+    expect(sentence).toContain("at least 3 of 9 people");
+    expect(sentence).toContain("3 people hold 97% of the weight");
+  });
+
+  it("under equal mode the same tier reads in heads, and it is the whole roll", () => {
+    const dials = { unityPct: 97, quorumPct: 97 };
+    const sentence = thresholdSentence(dials, equalNine);
+    expect(sentence).toContain("at least 9 of 9 people");
+    expect(sentence).toContain("every seat weighs the same");
+    expect(peopleAndWeightFor(dials, equalNine).needsEveryone).toBe(true);
+    expect(peopleAndWeightFor(dials, concentrated).needsEveryone).toBe(false);
+  });
+
+  it("fires the stalemate warning whenever a tier rounds to the whole roll, and stays quiet otherwise", () => {
+    const dials = { unityPct: 97, quorumPct: 97 };
+    const warning = wholeRollWarning(dials, equalNine);
+    expect(warning).toContain("every one of the 9 people on the roll");
+    expect(wholeRollWarning(dials, concentrated)).toBeNull();
+  });
+
+  it("keeps the founder's above-97 warning as a warning, on any roll", () => {
+    // The audit asked for a refusal above 97. His ruling is a warning, and
+    // this pins that nothing here refuses.
+    expect(stalemateWarning(98)).toContain("stalemate");
+    expect(stalemateWarning(97)).toBeNull();
+  });
+
+  it("says a ballot's state in people and in weight", () => {
+    expect(
+      participationSentence({ peopleVoted: 3, people: 9, weightVoted: 97, totalWeight: 100 }),
+    ).toBe("3 of 9 people voted, holding 97% of the weight.");
+    expect(
+      participationSentence({ peopleVoted: 1, people: 1, weightVoted: 1, totalWeight: 1 }),
+    ).toBe("1 of 1 person voted, holding 100% of the weight.");
+  });
+
+  it("distinguishes a weightless roll from an empty one, and never prints a share of zero", () => {
+    expect(
+      participationSentence({ peopleVoted: 2, people: 9, weightVoted: 0, totalWeight: 0 }),
+    ).toContain("no weight today");
+    expect(thresholdSentence({ unityPct: 80, quorumPct: 20 }, [])).toContain("no roll to count against");
+    expect(thresholdSentence({ unityPct: 80, quorumPct: 20 }, [{ weight: 0 }])).toContain(
+      "cannot say how many people that is",
+    );
   });
 });

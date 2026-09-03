@@ -46,15 +46,22 @@
  * threshold nobody chose for it.
  */
 import {
+  CRITICALITIES,
   dialsForMethod,
   highestCriticality,
+  peopleAndWeightFor,
   raiseDials,
   stalemateWarning,
+  thresholdSentence,
   TIER_FLOORS,
+  wholeRollWarning,
   type AbstainPolicy,
   type BallotMethod,
   type Criticality,
   type MethodDials,
+  type PeopleAndWeight,
+  type VoteChoice,
+  type WeighedSeat,
 } from "./governanceEngine";
 
 export interface SubjectThresholds {
@@ -362,6 +369,18 @@ export const SUBJECT_SETTING_KEYS: Readonly<Record<string, { unity: string; quor
   },
 };
 
+/**
+ * THE VILLAGE'S HIGHEST SET TIER (19E).
+ *
+ * The founder's words of 2026-09-03: "We can have a veto override if it goes
+ * up to the highest tier they have set as a village (this is also a setting
+ * that can change at the highest tier set)." So a vetoed proposal brought
+ * back and passed again at THIS tier lands whatever a steward does, and the
+ * setting naming that tier is priced at itself, which is what stops a village
+ * cheapening its own override with an ordinary vote.
+ */
+export const HIGHEST_TIER_KEY = "governance.highest_tier";
+
 /** Every key whose value is a governance threshold percentage. */
 export const THRESHOLD_PERCENT_KEYS: readonly string[] = [
   ...Object.values(TIER_SETTING_KEYS).flatMap((k) => [k.unity, k.quorum]),
@@ -374,6 +393,8 @@ export const THRESHOLD_PERCENT_KEYS: readonly string[] = [
 export interface ThresholdSettings {
   tiers: Readonly<Record<Criticality, MethodDials>>;
   subjects: Readonly<Record<string, MethodDials>>;
+  /** The tier a veto override must be passed at (19E). */
+  highest: Criticality;
 }
 
 const CRITICALITY_LIST: readonly Criticality[] = ["routine", "structural", "constitutional"];
@@ -384,7 +405,10 @@ const CRITICALITY_LIST: readonly Criticality[] = ["routine", "structural", "cons
  * a line. `read` is whatever the caller already has for reading a percentage
  * variable; the shared layer never touches a database.
  */
-export function thresholdSettingsFrom(read: (key: string) => number): ThresholdSettings {
+export function thresholdSettingsFrom(
+  read: (key: string) => number,
+  readText?: (key: string) => string,
+): ThresholdSettings {
   const pair = (keys: { unity: string; quorum: string }, floor: MethodDials): MethodDials =>
     raiseDials({ unityPct: Number(read(keys.unity)) || 0, quorumPct: Number(read(keys.quorum)) || 0 }, floor);
   const tiers = {} as Record<Criticality, MethodDials>;
@@ -397,7 +421,34 @@ export function thresholdSettingsFrom(read: (key: string) => number): ThresholdS
       quorumPct: registry?.minQuorumPct ?? 0,
     });
   }
-  return { tiers, subjects };
+  return { tiers, subjects, highest: highestTierFrom(readText) };
+}
+
+/**
+ * THE HIGHEST TIER THIS VILLAGE HAS SET, for the veto override (19E).
+ *
+ * `readText` absent means no village settings were supplied at all, which is
+ * the registry posture, and the registry's answer is the top of the ladder:
+ * an override that could be reached at a lower bar than the platform's own
+ * hardest tier would be an override the platform quietly discounted. A value
+ * this file does not recognise gets the same answer for the same reason.
+ */
+export function highestTierFrom(readText?: (key: string) => string): Criticality {
+  const top = CRITICALITIES[CRITICALITIES.length - 1];
+  if (!readText) return top;
+  const raw = String(readText(HIGHEST_TIER_KEY) ?? "").trim();
+  return (CRITICALITIES as readonly string[]).includes(raw) ? (raw as Criticality) : top;
+}
+
+/** The tier a veto override is passed at, from settings already read. */
+export function highestTier(settings?: ThresholdSettings): Criticality {
+  return (settings ?? registryThresholdSettings()).highest;
+}
+
+/** The bar a veto override must clear: the highest set tier's own dials. */
+export function overrideDials(settings?: ThresholdSettings): MethodDials {
+  const s = settings ?? registryThresholdSettings();
+  return floorForCriticality(s.highest, s);
 }
 
 /** The registry's own floors, used when no village settings are supplied. */
@@ -718,4 +769,293 @@ export function weightFloorProblem(subjectType: string, roll: readonly RollSeat[
  */
 export function rollProblem(subjectType: string, roll: readonly RollSeat[]): string | null {
   return electorateFloorProblem(subjectType, roll.length) ?? weightFloorProblem(subjectType, roll);
+}
+
+/**
+ * ── THRESHOLDS FOR THRESHOLDS (19B) ─────────────────────────────────────────
+ *
+ * The founder's words of 2026-09-02: "they also can be changed by reaching
+ * the same amount they are set at can change their threshold again." So a bar
+ * set at 97 and 97 costs 97 and 97 to move, in either direction, and a
+ * village cannot walk its constitutional tier down on a quiet week and then
+ * walk everything else through the gap.
+ *
+ * Before the Birthing this function has nothing to price: catalysts edit
+ * every one of these directly, which is his other ruling in the same message
+ * ("these are all editable from the start by catalysts to set the initial
+ * amounts"). Pricing begins the first time a change to one of them goes to a
+ * ballot, which is the first time there is a village to ask.
+ *
+ * IT IS A RAISE, NEVER A REPLACEMENT. The tier a setting declares in the
+ * registry stays underneath, so this rule can only ever make a threshold
+ * change harder than the registry already made it. Two layers refusing to go
+ * under one number is the same posture `thresholdSettingsFrom` already holds.
+ *
+ * Which keys carry their own bar:
+ *
+ *   a tier's unity or quorum     the tier's own current dials.
+ *   a subject's unity or quorum  that subject's own current floor.
+ *   the highest set tier         itself, which is 19E's sentence in code.
+ *   the village's own dials      the structural tier, because those two are
+ *                                how the village decides and the registry
+ *                                already prices them there.
+ *
+ * Anything else answers null, which means "this key sets no bar of its own"
+ * and never "this key is free".
+ */
+export function thresholdChangePrice(key: string, settings?: ThresholdSettings): MethodDials | null {
+  const s = settings ?? registryThresholdSettings();
+  if (key === HIGHEST_TIER_KEY) return floorForCriticality(s.highest, s);
+  for (const c of CRITICALITY_LIST) {
+    const keys = TIER_SETTING_KEYS[c];
+    if (key === keys.unity || key === keys.quorum) return s.tiers[c];
+  }
+  for (const [subject, keys] of Object.entries(SUBJECT_SETTING_KEYS)) {
+    if (key === keys.unity || key === keys.quorum) return floorForSubject(subject, s);
+  }
+  if (key === "governance.unity_pct" || key === "governance.quorum_pct") return s.tiers.structural;
+  return null;
+}
+
+/** Every settings key priced at its own current bar. */
+export const SELF_PRICED_THRESHOLD_KEYS: readonly string[] = [
+  ...THRESHOLD_PERCENT_KEYS,
+  HIGHEST_TIER_KEY,
+];
+
+/**
+ * ── A TIER, READ IN PEOPLE (19F) ────────────────────────────────────────────
+ *
+ * What the control beside a criticality tier says before anybody proposes:
+ * the bar in weight, the same bar in people on today's roll, and both
+ * warnings. The founder's above-97 warning stays exactly as he set it, and
+ * the whole-roll warning fires whenever the arithmetic makes a tier unanimity
+ * whatever number is written on it.
+ *
+ * Neither warning refuses anything. He ruled that a village may go above 97
+ * and be warned, and the audit's proposal to refuse outright is not his rule.
+ */
+export interface TierReading extends PeopleAndWeight {
+  criticality: Criticality;
+  /** The bar in weight and in people, as one sentence. */
+  sentence: string;
+  /** Fired when the bar rounds to the whole roll. */
+  rollWarning: string | null;
+  /** Fired when the bar is above the number the founder recommends. */
+  ceilingWarning: string | null;
+}
+
+export function tierInPeople(
+  criticality: Criticality,
+  roll: readonly WeighedSeat[],
+  settings?: ThresholdSettings,
+): TierReading {
+  const dials = floorForCriticality(criticality, settings);
+  return {
+    ...peopleAndWeightFor(dials, roll),
+    criticality,
+    sentence: thresholdSentence(dials, roll),
+    rollWarning: wholeRollWarning(dials, roll),
+    ceilingWarning: stalemateWarning(Math.max(dials.unityPct, dials.quorumPct)),
+  };
+}
+
+/** The same reading for one subject's effective floor. */
+export interface SubjectReading extends PeopleAndWeight {
+  subjectType: string;
+  sentence: string;
+  rollWarning: string | null;
+  ceilingWarning: string | null;
+}
+
+export function subjectInPeople(
+  subjectType: string,
+  roll: readonly WeighedSeat[],
+  settings?: ThresholdSettings,
+): SubjectReading {
+  const dials = floorForSubject(subjectType, settings);
+  /*
+   * The Birthing is exempt from both warnings for the reason `thresholdsFor`
+   * already gives: it is the one vote where everybody is present by
+   * definition, so "every seat must answer" is the rule and not a hazard.
+   */
+  const exempt = subjectType === VILLAGE_LAUNCH;
+  return {
+    ...peopleAndWeightFor(dials, roll),
+    subjectType,
+    sentence: thresholdSentence(dials, roll),
+    rollWarning: exempt ? null : wholeRollWarning(dials, roll),
+    ceilingWarning: exempt ? null : stalemateWarning(Math.max(dials.unityPct, dials.quorumPct)),
+  };
+}
+
+/**
+ * ── A DELEGATED ROW DOES NOT COUNT WHERE EVERYONE MUST AGREE ────────────────
+ *
+ * A ballot conducted at 100 unity asks every member who takes a side to
+ * agree, and the Birthing asks every seat on the roll to say yes. A row
+ * derived from somebody else's choice is not that member saying yes. It is a
+ * copy of a neighbour's answer, and counting it would let three delegations
+ * to one person carry the vote the founder wrote as "at LEAST 3 but could be
+ * many more people who then activate a new game".
+ *
+ * So on any subject asking 100 unity, the Birthing included, a delegated row
+ * counts toward neither the weighted tally nor the head count. The member is
+ * counted as not having voted, which is what they are: they have not answered
+ * this question themselves, and this question insists on being answered in
+ * person.
+ *
+ * The rule is written against the BAR, so a village that raises an ordinary
+ * subject to 100 gets it too and a later subject asking for everyone inherits
+ * it with no entry anywhere. `village_launch` is named as well, so the rule
+ * survives a day when its floors are read from settings.
+ */
+export function delegatedRowsCountOn(input: { subjectType?: string; unityPct: number }): boolean {
+  if (input.subjectType === VILLAGE_LAUNCH) return false;
+  return !(Number(input.unityPct) >= 100);
+}
+
+/** Why a delegated row was not counted, for the page that shows the member. */
+export function delegationRefusalSentence(): string {
+  return (
+    "This vote asks every member who takes a side to agree in person, so a choice cast by someone you follow " +
+    "does not count on it. Cast your own vote to be counted here."
+  );
+}
+
+/**
+ * ── THE STALEMATE RE-RUN (19B, with his abuse guard) ────────────────────────
+ *
+ * His words: "I think so on the stalemate protections but we have to do this
+ * in a way where they can't be abused by people who don't like the outcome of
+ * a vote."
+ *
+ * So the offer is narrow on purpose, and every condition below is one of the
+ * doors he asked to keep shut:
+ *
+ *  1. ONLY WHILE THE BALLOT IS OPEN. A closed ballot is a decided one, and
+ *     re-running a decided ballot is the abuse.
+ *  2. ONLY WHEN QUORUM IS MATHEMATICALLY OUT OF REACH. Not "looks unlikely"
+ *     and not "the proposer is impatient": the weight still able to answer
+ *     cannot add up to the bar the ballot froze, even if every seat left
+ *     answered today.
+ *  3. ONLY WHEN A FROZEN SEAT PROVABLY LEFT, evidenced by a membership change
+ *     on the ledger. The caller hands in the evidence, and a seat that
+ *     arrives without it is ignored, so a self-declared absence opens nothing.
+ *  4. NEVER WHEN A DEPARTED SEAT ALREADY VOTED AGAINST. If the seat that left
+ *     had cast a no, dropping it from the roll turns a departure into a way
+ *     of deleting an objection, which is the abuse wearing the fix's clothes.
+ *  5. THE BIRTHING IS EXEMPT. Its re-runnability is designed: a missed quorum
+ *     returns the subject and the village asks again on a fresh freeze the
+ *     same hour, so it needs no second door.
+ *
+ * A re-run CARRIES FORWARD every vote from a member still on the new roll.
+ * They answered already, and asking them again because a neighbour left would
+ * charge the village for turning up.
+ *
+ * This function decides and says why. Freezing the new roll and linking the
+ * two ballots is the surfaces lane's, and it reads this answer.
+ */
+export interface DepartedSeat {
+  userId: string;
+  /** The seat's frozen weight: the weight that can no longer answer. */
+  weight: number;
+  /** The membership record proving the departure. Absent means unproven. */
+  ledgerRef?: string | null;
+  /** What this seat voted before it left, if anything. */
+  choice?: VoteChoice | null;
+}
+
+export interface RerunInput {
+  subjectType: string;
+  /** The ballot's status right now. Anything but `open` refuses. */
+  status: string;
+  /** The quorum bar frozen at open. */
+  quorumPct: number;
+  /** The weight frozen at open. */
+  totalWeight: number;
+  /** Seats frozen at open that have left the village. */
+  departed: readonly DepartedSeat[];
+  /** Members on the frozen roll who have already voted, for the carry list. */
+  votedUserIds?: readonly string[];
+}
+
+export type RerunOffer =
+  | { offered: true; carryForward: string[]; sentence: string }
+  | { offered: false; reason: string; sentence: string };
+
+/** Every reason a re-run is not offered, so a caller can branch on a word. */
+export const RERUN_REFUSALS = [
+  "exempt",
+  "closed",
+  "nobody_left",
+  "departed_voted_against",
+  "no_weight",
+  "quorum_still_reachable",
+] as const;
+export type RerunRefusal = (typeof RERUN_REFUSALS)[number];
+
+export function rerunOffer(input: RerunInput): RerunOffer {
+  const no = (reason: RerunRefusal, sentence: string): RerunOffer => ({ offered: false, reason, sentence });
+  if (input.subjectType === VILLAGE_LAUNCH) {
+    return no(
+      "exempt",
+      "Starting the Game is asked again on a fresh roll whenever it misses quorum, so it needs no re-run of its own.",
+    );
+  }
+  if (String(input.status) !== "open") {
+    return no("closed", "This vote has closed. A closed decision is never re-run.");
+  }
+  const proven = input.departed.filter((seat) => String(seat.ledgerRef ?? "").trim() !== "");
+  if (proven.length === 0) {
+    return no(
+      "nobody_left",
+      "Nothing on the membership record shows that a seat on this roll has left the village, so there is no re-run to offer.",
+    );
+  }
+  if (proven.some((seat) => seat.choice === "no")) {
+    return no(
+      "departed_voted_against",
+      "A seat that has left already voted against this. A re-run would erase that vote, so it is not offered here.",
+    );
+  }
+  const total = Math.max(0, Number(input.totalWeight) || 0);
+  if (!(total > 0)) {
+    return no("no_weight", "This roll carries no weight, so the Game cannot tell whether quorum is still reachable.");
+  }
+  /*
+   * THE ARITHMETIC, AND WHY IT IS ONE LINE. Every departed seat that never
+   * voted is weight that can never answer. The most this ballot could still
+   * reach is therefore the frozen total minus that weight, expressed as a
+   * share of the frozen total, and it is compared against the bar the ballot
+   * froze. A seat that left AFTER voting is not stranded weight: its answer
+   * is already on the record and already counts toward quorum.
+   */
+  const stranded = proven
+    .filter((seat) => !seat.choice)
+    .reduce((sum, seat) => sum + Math.max(0, Number(seat.weight) || 0), 0);
+  const reachablePct = ((total - stranded) / total) * 100;
+  if (reachablePct >= Number(input.quorumPct)) {
+    return no(
+      "quorum_still_reachable",
+      "This vote can still reach quorum with the members who are here, so it runs on.",
+    );
+  }
+  const carryForward = Array.from(new Set((input.votedUserIds ?? []).map(String))).filter(
+    (id) => !proven.some((seat) => String(seat.userId) === id),
+  );
+  const who = proven.length === 1 ? "One member" : `${proven.length} members`;
+  const carried =
+    carryForward.length === 0
+      ? "No vote has been cast yet, so the new ballot starts empty"
+      : carryForward.length === 1
+        ? "The one vote already cast is carried over"
+        : `All ${carryForward.length} votes already cast are carried over`;
+  return {
+    offered: true,
+    carryForward,
+    sentence:
+      `${who} on this roll has left the village, and the weight left behind can no longer reach the quorum this ` +
+      `vote froze. Asking it again on today's roll is offered while the vote is still open. ${carried}.`,
+  };
 }

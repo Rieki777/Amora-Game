@@ -121,12 +121,11 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.sensing_days` | How long a topic stays open for sensing | `open` | `7` | 1 to 90 days | when it is written |
 | `governance.proposals_per_member_per_cycle` | Mechanics proposals per member per cycle | `open` | `5` | 1 to 100 per cycle | when it is written |
 | `governance.proposal_support_threshold` | Supporters before a proposal can go to the vote | `open` | `0` | 0 to 10000 supporters | when it is written |
-| `governance.hub_url` | ReGen governance hub URL | `founder` | `https://regencivics.earth` | text | when it is written |
+| `governance.hub_url` | Governance hub URL | `founder` | `` | text | when it is written |
 | `governance.auto_apply_enabled` | Apply verified proposals automatically | `founder` | `true` | boolean | when it is written |
 | `governance.steward_subjects` | Which decisions a steward can stop | `open` | `all` | text | when it is written |
 | `governance.steward_council` | A veto needs a majority of the stewards | `open` | `false` | boolean | when it is written |
 | `governance.veto_hours` | How long a steward has to stop a change | `open` | `72` | 72 to 720 hours | when it is written |
-| `governance.highest_tier` | The tier that overrides a veto | `open` | `constitutional` | `routine`, `structural`, `constitutional` | when it is written |
 | `governance.change_cooldown_days` | Cooldown after a governed rule change | `open` | `0` | 0 to 365 days | when it is written |
 | `governance.weight_mode` | How voting weight is assigned | `founder` | `equal` | `equal`, `token`, `custom` | when it is written |
 | `governance.weight_token` | The weight token | `founder` | `gratitude` | text | when it is written |
@@ -141,6 +140,7 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.tier_structural_unity_pct` | Structural changes: unity floor | `open` | `80` | 80 to 100 % | when it is written |
 | `governance.tier_constitutional_quorum_pct` | Constitutional changes: quorum floor | `open` | `97` | 97 to 100 % | when it is written |
 | `governance.tier_constitutional_unity_pct` | Constitutional changes: unity floor | `open` | `97` | 97 to 100 % | when it is written |
+| `governance.highest_tier` | The tier a veto override is passed at | `open` | `constitutional` | `routine`, `structural`, `constitutional` | when it is written |
 | `governance.subject_mint_rule_quorum_pct` | Minting rule changes: quorum floor | `open` | `50` | 50 to 100 % | when it is written |
 | `governance.subject_mint_rule_unity_pct` | Minting rule changes: unity floor | `open` | `0` | 0 to 100 % | when it is written |
 | `membership.vouch_threshold` | Vouches to admit a member | `open` | `0` | 0 to 20 vouches | when it is written |
@@ -331,7 +331,7 @@ A village can carry its formal decisions to Hypha on Base instead of deciding th
 <!-- written by a person: bridgeHonest -->
 Stated honestly, because a bridge that half works is worse than one that is off: nothing leaves a village unless both the hub URL and a shared secret are configured; the round trip has never been proven end to end in both directions; and four displays about it are false today. A Hypha-decided ballot is counted by Hypha, so a village's own weight mode does not reach it.
 
-The hub address is `governance.hub_url`, a `founder`-ring dial defaulting to `https://regencivics.earth`. Nothing is sent until a shared secret is configured beside it.
+The hub address is `governance.hub_url`, a `founder`-ring dial that ships blank, so a fresh village has no hub and sends nowhere. Nothing is sent until a shared secret is configured beside it.
 
 ## What is broken today
 
@@ -821,10 +821,10 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     },
     {
       "key": "governance.hub_url",
-      "label": "ReGen governance hub URL",
+      "label": "Governance hub URL",
       "ring": "founder",
       "type": "text",
-      "default": "https://regencivics.earth",
+      "default": "",
       "min": null,
       "max": null,
       "choices": null,
@@ -872,21 +872,6 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "min": 72,
       "max": 720,
       "choices": null,
-      "applyTiming": "instant"
-    },
-    {
-      "key": "governance.highest_tier",
-      "label": "The tier that overrides a veto",
-      "ring": "open",
-      "type": "choice",
-      "default": "constitutional",
-      "min": null,
-      "max": null,
-      "choices": [
-        "routine",
-        "structural",
-        "constitutional"
-      ],
       "applyTiming": "instant"
     },
     {
@@ -1051,6 +1036,21 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "min": 97,
       "max": 100,
       "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.highest_tier",
+      "label": "The tier a veto override is passed at",
+      "ring": "open",
+      "type": "choice",
+      "default": "constitutional",
+      "min": null,
+      "max": null,
+      "choices": [
+        "routine",
+        "structural",
+        "constitutional"
+      ],
       "applyTiming": "instant"
     },
     {

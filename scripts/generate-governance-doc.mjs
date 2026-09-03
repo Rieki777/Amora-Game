@@ -1240,6 +1240,7 @@ const KNOWN_DIALS = [
   "governance.tier_constitutional_unity_pct",
   "governance.subject_mint_rule_quorum_pct",
   "governance.subject_mint_rule_unity_pct",
+  "governance.highest_tier",
   "membership.vouch_threshold",
 ];
 
@@ -2190,8 +2191,9 @@ export function render(f) {
   say("bridgeHonest");
   p();
   p(
-    `The hub address is ${code(f.dials.hubUrl.key)}, a ${code(f.dials.hubUrl.ring)}-ring dial defaulting to ` +
-      `${code(String(f.dials.hubUrl.default))}. Nothing is sent until a shared secret is configured beside it.`,
+    `The hub address is ${code(f.dials.hubUrl.key)}, a ${code(f.dials.hubUrl.ring)}-ring dial that ships ` +
+      `${String(f.dials.hubUrl.default) === "" ? "blank, so a fresh village has no hub and sends nowhere" : `defaulting to ${code(String(f.dials.hubUrl.default))}`}. ` +
+      `Nothing is sent until a shared secret is configured beside it.`,
   );
   p();
 

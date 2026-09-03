@@ -38,13 +38,14 @@ import {
   dialsForSubject,
   floorForCriticality,
   methodForSubjects,
+  thresholdChangePrice,
   thresholdsForSubject,
   CRITICALITY_FOR_ITEM_KIND,
   SUBJECT_FOR_ITEM_KIND,
   type ChangeItemKind,
   type ThresholdSettings,
 } from "../../shared/ballotSubjects";
-import type { BallotMethod, Criticality, MethodDials } from "../../shared/governanceEngine";
+import { raiseDials, type BallotMethod, type Criticality, type MethodDials } from "../../shared/governanceEngine";
 import {
   AMOUNT_FROM_SOURCE,
   MINT_RULE_FIELD_LABEL,
@@ -224,11 +225,28 @@ export function priceChangeSet(
    * dial's tier belongs to the dial and not to the word "mechanics". Every
    * other floor arrives through the subjects.
    */
-  const dials = raiseToTier(
+  let dials = raiseToTier(
     dialsForSubject(subjects, conducts, village, settings),
     criticality,
     settings,
   );
+  /*
+   * THRESHOLDS FOR THRESHOLDS (19B). A dial that IS a bar is priced at the
+   * bar it currently holds: a setting at 97 and 97 costs 97 and 97 to move,
+   * up or down. The tier above is the floor under this, so this call can only
+   * ever raise, and a set that moves two bars pays the harder of the two.
+   *
+   * It lives here and never in `pricingOf` because a tier is a word and a
+   * bar is a pair of numbers: 97 and 97 has no name on the ladder once a
+   * village has raised its constitutional tier above the platform's, and
+   * rounding it to the nearest tier would price the change below the bar it
+   * is moving.
+   */
+  for (const item of items) {
+    if (item.kind !== "dial") continue;
+    const own = thresholdChangePrice(item.key, settings);
+    if (own) dials = raiseDials(dials, own);
+  }
   /*
    * WHICH SUBJECT GETS STAMPED. The one whose own floor is the set's floor,
    * preferring the first named, so a set of one behaves exactly as it did.

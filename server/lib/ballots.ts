@@ -46,7 +46,7 @@ import {
   type VoteChoice,
 } from "../../shared/governanceEngine";
 import { applyDelegatedVotes } from "./delegation";
-import { evaluationRulesFor } from "../../shared/ballotSubjects";
+import { delegatedRowsCountOn, evaluationRulesFor } from "../../shared/ballotSubjects";
 // Dispatcher lane: the proposal timing 0135 freezes onto the ballot at open.
 import { DEFAULT_TIMING, timingOf, type ProposalTiming } from "../../shared/governanceKinds";
 import type { WeightMode } from "./governanceWeights";
@@ -297,12 +297,28 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
   return { ok: true, ballot };
 }
 
-/** Weighted sums per choice, read from the frozen electorate. */
-export async function talliesFor(pool: Pool, ballotId: string): Promise<BallotTallies> {
+/**
+ * Weighted sums per choice, read from the frozen electorate.
+ *
+ * THRESHOLDS LANE: takes the ballot itself where the caller has it, because
+ * whether a DELEGATED row counts is a property of the ballot's own bar
+ * (`delegatedRowsCountOn`, shared/ballotSubjects.ts): a vote conducted at 100
+ * unity asks every member who takes a side to agree in person, so a row
+ * carrying a neighbour's choice counts toward nothing there. Handed an id, it
+ * reads the row, so no caller can get the arithmetic wrong by passing less.
+ */
+export async function talliesFor(pool: Pool, ballot: string | BallotRow): Promise<BallotTallies> {
+  const row = typeof ballot === "string" ? await ballotById(pool, ballot) : ballot;
+  const ballotId = typeof ballot === "string" ? ballot : ballot.id;
+  const countsDelegated = row
+    ? delegatedRowsCountOn({ subjectType: row.subjectType, unityPct: row.unityPct })
+    : true;
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT v.choice, COALESCE(SUM(e.weight), 0) AS w FROM ballot_votes v " +
       "JOIN ballot_electorate e ON e.ballot_id = v.ballot_id AND e.user_id = v.user_id " +
-      "WHERE v.ballot_id = ? GROUP BY v.choice",
+      "WHERE v.ballot_id = ?" +
+      (countsDelegated ? "" : " AND v.followed_user_id IS NULL") +
+      " GROUP BY v.choice",
     [ballotId],
   );
   const t: BallotTallies = { yesW: 0, noW: 0, abstainW: 0 };
@@ -580,7 +596,7 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
   // close and whether a consent ballot may pass, so an offset here would hand
   // or withhold that right by accident.
   const expired = Date.parse(ballot.closesAt) <= Date.now();
-  const tallies = await talliesFor(pool, ballot.id);
+  const tallies = await talliesFor(pool, ballot);
   const openObjections = ballot.method === "consent" ? await standingObjectionCount(pool, ballot.id) : 0;
   /*
    * WHAT THIS SUBJECT ASKS BEYOND THE DIALS.
@@ -666,10 +682,18 @@ export async function closeBallot(pool: Pool, input: CloseBallotInput): Promise<
  * asked of.
  */
 export async function headsFor(pool: Pool, ballot: BallotRow): Promise<HeadCounts> {
+  // THRESHOLDS LANE: the same delegated-row rule `talliesFor` applies, for the
+  // same reason. A head that was never lifted is not a head.
+  const countsDelegated = delegatedRowsCountOn({
+    subjectType: ballot.subjectType,
+    unityPct: ballot.unityPct,
+  });
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT v.choice, COUNT(*) AS n FROM ballot_votes v " +
       "JOIN ballot_electorate e ON e.ballot_id = v.ballot_id AND e.user_id = v.user_id " +
-      "WHERE v.ballot_id = ? GROUP BY v.choice",
+      "WHERE v.ballot_id = ?" +
+      (countsDelegated ? "" : " AND v.followed_user_id IS NULL") +
+      " GROUP BY v.choice",
     [ballot.id],
   );
   const heads: HeadCounts = {

@@ -24562,7 +24562,7 @@ ${inner}
   /** A ballot as the page reads it: tallies, bars, votes on the record. */
   async function serveBallot(b: any, viewerId?: string) {
     const pool = getPool();
-    const tallies = await talliesFor(pool, b.id);
+    const tallies = await talliesFor(pool, b);
     const votes = await votesFor(pool, b.id);
     const objections = b.method === "consent" ? await objectionsFor(pool, b.id) : [];
     const standingObjections = await standingObjectionsOf(b);
@@ -24796,7 +24796,7 @@ ${inner}
     const priced = priceChangeSet(p.changeSet, method, {
       unityPct: Math.max(0, numberVar("governance.unity_pct")),
       quorumPct: Math.max(0, numberVar("governance.quorum_pct")),
-    }, thresholdSettingsFrom((key) => numberVar(key)));
+    }, thresholdSettingsFrom((key) => numberVar(key), (key) => stringVar(key)));
     if (priced.conflict) return res.status(409).json({ error: priced.conflict });
     // A subject may fix the method its own numbers are conducted by, and a
     // proposal brought back after a veto is priced at the village's highest set
@@ -24937,7 +24937,7 @@ ${inner}
    */
   async function serveBallotCard(b: any, viewerId?: string) {
     const pool = getPool();
-    const tallies = await talliesFor(pool, b.id);
+    const tallies = await talliesFor(pool, b);
     const [[counts]] = await pool.query<any[]>(
       "SELECT COUNT(*) AS voted FROM ballot_votes WHERE ballot_id = ?",
       [b.id],

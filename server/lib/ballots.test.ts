@@ -23,12 +23,14 @@ import {
   objectionsFor,
   openBallot,
   ruleObjection,
+  headsFor,
   standingObjectionCount,
   talliesFor,
   withdrawBallot,
   type OpenBallotInput,
 } from "./ballots";
 import { setWeight, weightsFor, weightChangeProblem, allWeights } from "./governanceWeights";
+import { VILLAGE_LAUNCH } from "../../shared/ballotSubjects";
 
 const configured = testDbConfigured();
 
@@ -514,5 +516,77 @@ describe.skipIf(!configured)("ballots (MySQL)", () => {
     // a rejection was false.
     expect(closed.unity).toBe(100);
     expect((await ballotById(pool, opened.ballot.id))?.status).toBe("no_quorum");
+  });
+
+  /*
+   * A DELEGATED ROW DOES NOT COUNT WHERE EVERYONE MUST AGREE IN PERSON
+   * (thresholds lane, from the audit of 2026-09-03).
+   *
+   * The rule lives in `delegatedRowsCountOn` and the tally reads it, so these
+   * cases go through the real SQL and never the predicate alone: a row stamped
+   * with `followed_user_id` counts on an ordinary ballot and counts toward
+   * nothing on one conducted at 100 unity, in weight AND in heads. The rows
+   * are written directly because `applyDelegatedVotes` sweeps derived rows
+   * whenever no delegation stands, and what is under test here is the tally.
+   */
+  const delegateRow = async (ballotId: string, follower: string, decidedBy: string, choice: string) => {
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO ballot_votes (ballot_id, user_id, choice, reason, followed_user_id) VALUES (?,?,?,NULL,?)",
+      [ballotId, follower, choice, decidedBy],
+    );
+  };
+
+  it("counts a delegated row on an ordinary ballot, in weight and in heads", async () => {
+    const opened = await openOne({ subjectRef: "gmp-delegated-ordinary", unityPct: 80 });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const id = opened.ballot.id;
+    expect((await castVote(pool, id, "u-a", "yes")).ok).toBe(true);
+    await delegateRow(id, "u-b", "u-a", "yes");
+    expect(await talliesFor(pool, opened.ballot)).toEqual({ yesW: 2, noW: 0, abstainW: 0 });
+    expect(await headsFor(pool, opened.ballot)).toMatchObject({ yesHeads: 2, electorateCount: 3 });
+  });
+
+  it("refuses a delegated row on a ballot conducted at 100 unity, in weight and in heads", async () => {
+    const opened = await openOne({ subjectRef: "gmp-delegated-unanimous", unityPct: 100, quorumPct: 100 });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const id = opened.ballot.id;
+    expect((await castVote(pool, id, "u-a", "yes")).ok).toBe(true);
+    await delegateRow(id, "u-b", "u-a", "yes");
+    await delegateRow(id, "u-c", "u-a", "yes");
+    // Three rows on the table, one member who answered for themselves.
+    const [rows] = await pool.query<any[]>("SELECT COUNT(*) AS c FROM ballot_votes WHERE ballot_id = ?", [id]);
+    expect(Number(rows[0].c)).toBe(3);
+    expect(await talliesFor(pool, opened.ballot)).toEqual({ yesW: 1, noW: 0, abstainW: 0 });
+    expect(await headsFor(pool, opened.ballot)).toMatchObject({ yesHeads: 1, electorateCount: 3 });
+  });
+
+  it("the Birthing does not carry on delegations: it closes short of quorum instead", async () => {
+    const opened = await openOne({
+      subjectType: VILLAGE_LAUNCH,
+      subjectRef: "gmp-birthing-delegated",
+      unityPct: 100,
+      quorumPct: 100,
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const id = opened.ballot.id;
+    expect((await castVote(pool, id, "u-a", "yes")).ok).toBe(true);
+    await delegateRow(id, "u-b", "u-a", "yes");
+    await delegateRow(id, "u-c", "u-a", "yes");
+    await expire(id);
+    const closed = await closeBallot(pool, {
+      ballotId: id,
+      closedBy: "u-proposer",
+      outcomeNote: "One member answered for themselves and two followed them.",
+      closerMayCloseEarly: false,
+    });
+    expect(closed.ok).toBe(true);
+    if (!closed.ok) return;
+    // A missed quorum, so the village can ask again on a fresh freeze. Three
+    // delegations to one person are not three people starting a Game.
+    expect(closed.outcome).toBe("no_quorum");
+    expect(closed.quorum).toBeCloseTo(100 / 3, 5);
   });
 });
