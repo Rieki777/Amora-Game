@@ -414,6 +414,19 @@ describe("typed change items", () => {
       criticality: "constitutional",
     });
   });
+
+  it("lets a NAMED subject keep the tier it declared, so no tier overrules a reason", () => {
+    /*
+     * `mint_rule` asks 50 of quorum and deliberately nothing of unity, and
+     * the reason is written on its registry entry. If the kind's tier were
+     * laid over the top, unity would jump to 80 and the reason would be
+     * silently gone.
+     */
+    expect(pricingOf({ kind: "mint_rule", key: "mint:rule-a:amount", to: "5" })).toEqual({
+      subject: MINT_RULE,
+      criticality: "routine",
+    });
+  });
 });
 
 describe("what a whole change set costs", () => {
@@ -453,6 +466,16 @@ describe("what a whole change set costs", () => {
     const mint = priceChangeSet([{ key: "mint:rule-a:amount", to: "5" }], "custom", village, registry);
     expect(mint.subjectType).toBe(MINT_RULE);
     expect(mint.dials.quorumPct).toBe(50);
+  });
+
+  it("leaves a minting vote's unity exactly where the village put it", () => {
+    // The shipped rule, unchanged by tiers: the floor raises quorum and says
+    // nothing about how much of the room has to agree.
+    const lenient = { unityPct: 60, quorumPct: 20 };
+    expect(priceChangeSet([{ key: "mint:rule-a:amount", to: "5" }], "custom", lenient, registry).dials).toEqual({
+      unityPct: 60,
+      quorumPct: 50,
+    });
   });
 
   it("never lowers a village that asks for more than every floor in the set", () => {

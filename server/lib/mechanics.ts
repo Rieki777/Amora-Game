@@ -38,6 +38,7 @@ import {
   dialsForSubject,
   floorForCriticality,
   methodForSubjects,
+  thresholdsForSubject,
   CRITICALITY_FOR_ITEM_KIND,
   SUBJECT_FOR_ITEM_KIND,
   type ChangeItemKind,
@@ -159,13 +160,26 @@ export function asChangeItem(input: ChangeInput): ChangeItem {
   return isMintRuleKey(key) ? { kind: "mint_rule", key, to } : { kind: "dial", key, to };
 }
 
-/** The subject that prices this item, and the tier it carries. */
+/**
+ * The subject that prices this item, and the tier it carries.
+ *
+ * THE SUBJECT WINS WHEREVER IT HAS SPOKEN. A subject that declares its own
+ * floor has already said what it costs, in numbers somebody wrote a reason
+ * for: `mint_rule` asks 50 of quorum and deliberately nothing of unity,
+ * because R68's stated reason is awareness and awareness is quorum. Laying
+ * the structural tier over the top of that would raise its unity to 80 and
+ * quietly overrule the reason. So a named subject contributes the tier IT
+ * declared, and the kind's tier is the fallback for a kind whose subject sets
+ * no floor of its own.
+ */
 export function pricingOf(item: ChangeItem): { subject: string; criticality: Criticality } {
   const subject = SUBJECT_FOR_ITEM_KIND[item.kind];
   if (item.kind === "dial") {
     const def = VARIABLES_BY_KEY[item.key];
     return { subject, criticality: def ? criticalityOf(def) : "routine" };
   }
+  const named = thresholdsForSubject(subject);
+  if (named) return { subject, criticality: named.criticality ?? "routine" };
   return { subject, criticality: CRITICALITY_FOR_ITEM_KIND[item.kind] };
 }
 
