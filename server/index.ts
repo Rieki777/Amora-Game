@@ -7288,7 +7288,7 @@ async function startServer() {
 
     // Anything else under the agent surface is a 404, never a fall-through to
     // a route the map does not name.
-    app.all(`${AGENT_V1}/*`, (_req, res) => res.status(404).json({ error: "Not found" }));
+    app.all(`${AGENT_V1}/{*splat}`, (_req, res) => res.status(404).json({ error: "Not found" }));
 
     // ── The member's own session routes (the Profile panel) ───────────────
     const me = async (req: express.Request, res: express.Response): Promise<any | null> => {
@@ -9950,7 +9950,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * A locked thread refuses edits like it refuses replies: a lock that the
    * author can edit around is theater.
    */
-  app.patch("/api/forum/:kind(threads|replies)/:id", async (req, res) => {
+  app.patch("/api/forum/:kind/:id", async (req, res, next) => {
+    // path-to-regexp v8 dropped `:kind(threads|replies)`. next() hands an
+    // unknown kind to the same /api/ catch-all the unmatched route used to.
+    if (req.params.kind !== "threads" && req.params.kind !== "replies") return next();
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const isThread = req.params.kind === "threads";
@@ -15190,7 +15193,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Accept/dismiss records a HUMAN decision. It moves no value, creates no
    *  quest, applies nothing — suggestions are never timer-mutations. */
-  app.post("/api/admin/call-tasks/:id/:action(accept|dismiss)", async (req, res) => {
+  app.post("/api/admin/call-tasks/:id/:action", async (req, res, next) => {
+    // As above: the enum is a guard now, and an unknown action falls through.
+    if (req.params.action !== "accept" && req.params.action !== "dismiss") return next();
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // The seeded example task ships in status 'suggested', so this UPDATE
     // matches it: without the guard an admin acts on a demo row and the
@@ -27529,10 +27534,10 @@ ${inner}
    * the SPA and answers HTML with a 200, which is how a peer probing for a
    * capability document concludes this village has one.
    */
-  app.get("/.well-known/*", (req, res) => notPublished(res, `Not found: ${req.path}`));
+  app.get("/.well-known/{*splat}", (req, res) => notPublished(res, `Not found: ${req.path}`));
 
   app.get("/org", (_req, res) => res.redirect(308, "/org/index.md"));
-  app.get("/org/*", (req, res) => notPublished(res, `Not found: ${req.path}`));
+  app.get("/org/{*splat}", (req, res) => notPublished(res, `Not found: ${req.path}`));
 
   // Links, structural drafts, seat history and the admin edits to the org
   // chart, all nineteen registered at exactly the point they used to sit.
@@ -28257,10 +28262,10 @@ ${inner}
    * broken assets show as broken, and a browser asking for a bundle that no
    * longer exists gets an error a reload can fix rather than a blank page.
    */
-  app.all("/api/*", (req, res) => {
+  app.all("/api/{*splat}", (req, res) => {
     res.status(404).json({ error: `No such endpoint: ${req.method} ${req.path}` });
   });
-  app.get("/assets/*", (req, res) => {
+  app.get("/assets/{*splat}", (req, res) => {
     res.status(404).type("text/plain").send(`Not found: ${req.path}`);
   });
 
@@ -28347,7 +28352,7 @@ ${inner}
     res.type("html").set("Cache-Control", "no-cache").send(html);
   });
 
-  app.get("*", (_req, res) => {
+  app.get("/{*splat}", (_req, res) => {
     const indexPath = path.join(staticPath, "index.html");
     res.sendFile(indexPath, (err) => {
       if (err) {
