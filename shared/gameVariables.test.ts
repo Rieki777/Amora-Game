@@ -78,6 +78,51 @@ describe("ring resolution", () => {
     expect(applyTimingOf(VARIABLES_BY_KEY["gratitude.pool_per_cycle"])).toBe("cycle-close");
     expect(applyTimingOf(VARIABLES_BY_KEY["progression.multiplier.member"])).toBe("cycle-close");
     expect(applyTimingOf(VARIABLES_BY_KEY["quest.consent_cap_mode"])).toBe("instant");
+    // The waning dials carry their timing on the DEF rather than in
+    // CYCLE_APPLY_KEYS, which two sessions edit at once, and a def-level
+    // override cannot be lost in a merge.
+    expect(applyTimingOf(VARIABLES_BY_KEY["economy.voice_decay_pct"])).toBe("cycle-close");
+    expect(applyTimingOf(VARIABLES_BY_KEY["economy.voice_decay_basis"])).toBe("cycle-close");
+  });
+});
+
+describe("the waning dials (R3, R15)", () => {
+  const pct = VARIABLES_BY_KEY["economy.voice_decay_pct"];
+  const basis = VARIABLES_BY_KEY["economy.voice_decay_basis"];
+
+  it("starts at 1 percent a cycle, and any village may set any percent", () => {
+    // The ruling, as data. 1 by default, 0 turns it off, 100 is the ceiling.
+    expect(pct.default).toBe("1");
+    expect(pct.type).toBe("percentage");
+    expect(pct.min).toBe(0);
+    expect(pct.max).toBe(100);
+    expect(parseVariable(pct, undefined)).toBe(1);
+    expect(parseVariable(pct, "0")).toBe(0);
+    expect(validateVariable(pct, "0")).toBeNull();
+    expect(validateVariable(pct, "0.5")).toBeNull();
+    expect(validateVariable(pct, "101")).toMatch(/at most 100/);
+    expect(validateVariable(pct, "-1")).toMatch(/at least 0/);
+  });
+
+  it("lives under The Mint, where every other economy dial lives", () => {
+    // There is no Economy category in this registry, and a fifth `economy.*`
+    // key anywhere else would split one admin panel across two headings.
+    expect(pct.category).toBe("The Mint");
+    expect(basis.category).toBe("The Mint");
+    // Ring 2, derived. Any village may govern its own rate, which is the
+    // ruling: "it can be any %".
+    expect(ringOf(pct)).toBe("open");
+    expect(ringOf(basis)).toBe("open");
+  });
+
+  it("offers one basis, and refuses the one it does not ship", () => {
+    // A member's balance already IS their unspent Voice, so `unspent` has no
+    // second number to mean. The key exists so a village that later gains
+    // another way to spend Voice gets a real option without a rename.
+    expect(basis.choices?.map((c) => c.value)).toEqual(["all"]);
+    expect(basis.default).toBe("all");
+    expect(validateVariable(basis, "all")).toBeNull();
+    expect(validateVariable(basis, "unspent")).toMatch(/Must be one of: all/);
   });
 });
 

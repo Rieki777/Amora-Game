@@ -53,7 +53,7 @@ import {
   parseMintRuleKey,
   type MintRuleField,
 } from "../../shared/mintRuleKeys";
-import { issuanceRefusal } from "./gameStart";
+import { issuanceRefusal, readGameStart } from "./gameStart";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { openExitFor } from "./exit";
 import { numberVar, stringVar } from "./variables";
@@ -1393,14 +1393,17 @@ export interface SettlementResult {
    */
   unpayable: Array<{ token: string; reason: string }>;
   /**
-   * What waned this cycle. ALWAYS PRESENT, zeros and all.
+   * What waned this cycle. ALWAYS PRESENT, zeros and all, never undefined.
    *
    * An optional field would let a reader mistake "waning did not run" for
-   * "nothing waned", and those are two different facts about a village: the
-   * first says the engine never reached the step, the second says it reached
-   * the step and found every member exempt or too small. A caller reading
-   * `holders` beside `pct` can tell them apart, and a caller reading
-   * `decay?.holders` could not.
+   * "nothing waned", and those are two different facts about a village. Every
+   * number is 0 when the dial is 0 AND when the engine never reached the step,
+   * with `cycleKey` still naming the real lunation, so a reader gets a shape
+   * they can print rather than a `decay?.holders` that renders as blank.
+   *
+   * `pct` is the one field that separates the cases it can separate: it is
+   * whatever the dial said IF the step got as far as reading it, and 0 when it
+   * did not (no enabled rules). It is not a substitute for reading the dial.
    */
   decay: VoiceDecaySummary;
 }
@@ -1469,6 +1472,17 @@ export interface VoiceDecaySummary {
  * There is no absent flag in this path and exempting absence would leave the
  * dial with nothing to do.
  *
+ * ONE EDGE THIS DOES NOT SMOOTH, measured and named rather than discovered.
+ * The settlement job asks hourly, and a member holding NOTHING when the moon's
+ * first ask runs is not in the read at all, so no key is written for them. If
+ * they are paid later in that same moon, the next hourly ask finds a positive
+ * balance and wanes one percent of the payout they have only just received.
+ * Everybody who already held Voice at the first ask wanes against the balance
+ * they carried in, once, and is then locked by the key. The residue is one
+ * percent of one cycle's earnings for somebody who started that cycle at zero,
+ * it happens once in a member's life, and closing it would mean writing a
+ * ledger row of zero, which `postTransfer` refuses for good reasons.
+ *
  * NOBODY IS NAMED IN THE ROW. R65 and R66 rule that no party may strip
  * another's earned voice, and a row naming an admin would read as exactly that
  * act. The word is "waned" because the ruling turns on the distinction.
@@ -1521,6 +1535,26 @@ export async function decayVoice(
    * direction is the only safe way to fail.
    */
   if (stringVar("economy.voice_decay_basis") !== "all") return out;
+
+  /*
+   * NOTHING WANES BEFORE THE VILLAGE VOTES ITS GAME INTO EXISTENCE, and this
+   * guard is here because `economyReady` does NOT provide it.
+   *
+   * The design this was built from said a pre-launch village is protected by
+   * `economyReady`, on the reasoning that it has no enabled rules yet. It has:
+   * `seedEconomy` writes four of the five seeded rules with `enabled: 1` at
+   * BOOT, months before any launch ballot, so `economyReady` is true for a
+   * village that has never issued a token. The founding allocation the
+   * birthing lane issues before launch would then have waned before the vote,
+   * which is the opposite of what that screen promises a catalyst.
+   *
+   * `postTransfer`'s own launch gate does not cover it either, and cannot: the
+   * gate reads `ledger_accounts.faucet` and waning moves member to sink, so no
+   * faucet is involved and nothing there fires. Taking value in a village that
+   * is not yet issuing any is not something anybody agreed to, so the fact is
+   * read here, from the same row the gate reads.
+   */
+  if (!(await readGameStart(pool)).started) return out;
 
   /*
    * `kind = 'member'` is what exempts every system account, and writing the
@@ -1639,10 +1673,12 @@ export async function decayVoice(
  * and the two are separate decisions. A village whose only rule is
  * `quest.completed` has no `role.cycle` rule to pay, and it must still wane or
  * its dial reads 1 percent and does nothing. A village with no enabled rules
- * at all has an engine that is not running, and taking value in a village that
- * is not yet issuing any is not something anybody agreed to. That is also the
- * answer for the founding allocation: it begins to wane when the village votes
- * its Game into existence, and not before.
+ * at all has an engine that is not running.
+ *
+ * `economyReady` is NOT what keeps a pre-launch village from being taken from,
+ * although the design said it was. `decayVoice` reads the launch fact itself,
+ * for the reason written at that line: seeded rules are enabled at boot, so
+ * `economyReady` is true long before any ballot carries.
  */
 export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<SettlementResult> {
   const { key: cycleKey } = cycleWindow(at);
