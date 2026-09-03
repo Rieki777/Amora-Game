@@ -532,15 +532,30 @@ export const DENIABLE: Record<Capability, boolean> = {
    */
   "mechanics.propose": false,
   /*
-   * The steward's veto. NOT a voice, and it is here for the other reason.
+   * The steward's veto. NOT a voice, and it is here for two reasons, of which
+   * the first is about WHICH WAY A PAUSE FAILS.
    *
-   * A warning badge is written by an admin, and this key is the one power an
-   * admin route may not touch in either direction: a village seats and
-   * unseats its steward through the `role_seat` and `role_unseat` ballots.
-   * Leaving it deniable would put the removal the ballots own back inside the
-   * badge panel, which is the same door under a different name. So the deny
-   * is refused here, and taking the seat away stays a decision the village
-   * makes out loud.
+   * THE DIRECTION INVERTED ON 2026-09-03 (19C), and the comment this replaced
+   * had not noticed. Under the approval model this key was `steward.approve`
+   * and pausing it was safe: a paused approval meant a proposal waited, and a
+   * proposal that waits changes nothing. Under the veto model nothing waits.
+   * A PAUSED VETO MEANS THE CHANGE LANDS. Suspending this key for 72 hours is
+   * not a pause on the seat, it is the passage of every Game change the seat
+   * was seated to look at, and the record shows no seat moving while it
+   * happens. There is no fail-safe direction left to argue from, so the deny
+   * is refused outright.
+   *
+   * The second reason is the roles plane. A warning badge is written by an
+   * admin, and this key is the one power an admin route may not touch in
+   * either direction: a village seats and unseats its steward through the
+   * `role_seat` and `role_unseat` ballots (`stewardSeatRefusal` in
+   * server/lib/roleGrants.ts). Leaving it deniable would put the removal
+   * those ballots own back inside the badge panel, which is the same door
+   * under a different name.
+   *
+   * `capabilityDecision` reads `isDeniable` before it reads the role, so this
+   * `false` is what stops a badge deny outranking a seated steward's role
+   * grant, and `badgeProblem` refuses to store such a badge at all.
    */
   "steward.veto": false,
 

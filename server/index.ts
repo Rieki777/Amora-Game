@@ -63,7 +63,7 @@ import { register as registerGovernanceModeRoutes } from "./routes/governanceMod
 import { applyChangeSet, applyMechanicsProposal as applyChangeSetForProposal, changeSetSnapsToBoundary, changeSetWaitsForCycleClose, recordMechanicsChangeRow, UntypedElementError, type ApplySetResult, type ChangesetDeps } from "./lib/changeset";
 import { landingRow } from "./lib/applyDue";
 import { notifyRollRows, type RollNotice } from "./lib/ballotNotices";
-import { forgetStewardActs, holdingHasLapsed, runTermWatch, setVetoWindowCheck } from "./lib/stewardship";
+import { forgetStewardActs, holdingHasLapsed, runTermWatch, setVetoWindowCheck, stewardMailRefusal } from "./lib/stewardship";
 import { decideRoleCapabilities, stewardSeatRefusal } from "./lib/roleGrants";
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
 import { register as registerHousingRoutes } from "./routes/housing";
@@ -18256,10 +18256,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // the project default. Validated before anything is written, so junk
     // never lands in prefs and the picker cannot store a sentence.
     const wantsCurrency = req.body?.displayCurrency !== undefined;
-    if (wantsCurrency) {
-      const bad = displayCurrencyProblem(req.body.displayCurrency);
-      if (bad) return res.status(400).json({ error: bad });
-    }
+    // STEWARD-VETO LANE: mail cannot go quiet on a seat that can stop a carried decision.
+    const bad = (wantsCurrency ? displayCurrencyProblem(req.body.displayCurrency) : null)
+      ?? (await stewardMailRefusal(getPool(), user.id, incoming));
+    if (bad) return res.status(400).json({ error: bad });
     const updated = await members.update(user.id, (u: any) => {
       u.prefs = { ...(u.prefs ?? {}), notify: { ...(u.prefs?.notify ?? {}), ...incoming } };
       if (wantsCurrency) {

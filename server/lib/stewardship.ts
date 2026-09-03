@@ -53,10 +53,22 @@
  *                                      dispatcher never re-derives any of it.
  *   mayVeto(subjectType)               May a steward veto this kind of thing
  *                                      at all? The per-subject map.
- *   subjectIsVetoable(pool, ballot)    The same question with the two carve-
- *                                      outs applied: a seat cannot veto its
+ *   isVetoable(subject, elements)      The same question with both carve-outs
+ *                                      applied, pure: a seat cannot veto its
  *                                      own removal, and cannot veto an edit
- *                                      to the veto map.
+ *                                      to its own limits. Those two keep
+ *                                      their timing and their window like any
+ *                                      other Game change; what they lose is
+ *                                      the veto and nothing else.
+ *   subjectIsVetoable(pool, ballot)    The same rule for a caller with a pool,
+ *                                      which resolves the one fact the pure
+ *                                      form cannot: whether the seating is
+ *                                      about a steward-capable role.
+ *   stewardNoBlocks(input)             Does a seated steward's NO fail this
+ *                                      ballot at the close? TOKEN SENDS ONLY,
+ *                                      never a ballot the steward is the
+ *                                      subject of, and the no carries a
+ *                                      reason under the veto's own rule.
  *   setVetoWindowCheck(fn)             The dispatcher registers its window
  *                                      check here at boot. Until it does,
  *                                      `vetoWindowVerdict` answers that no
@@ -88,6 +100,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { Capability } from "../../shared/capabilities";
+import { kindOfSet, kindOfSubject, type GovernanceKind } from "../../shared/governanceKinds";
 import { cycleBoundsFor, cycleStartMs } from "../../shared/lunar";
 import { moveCapabilityToVillage } from "./capabilityHolding";
 import { boolVar, stringVar } from "./variables";
@@ -115,6 +128,19 @@ export const STEWARD_SUBJECTS_KEY = "governance.steward_subjects";
 export const STEWARD_COUNCIL_KEY = "governance.steward_council";
 
 /**
+ * The older name for the second half of the veto map.
+ *
+ * The key is not in the variables registry: under the approval model it named
+ * which subjects carried themselves with no steward in the loop, and once
+ * every subject does that it said nothing the first list did not. It is named
+ * here anyway because the ruling of 20.11 names it, because a fork's database
+ * may still hold a row under it, and because a change set that carries the
+ * string must be treated as an edit to the map whether or not this build
+ * serves the setting.
+ */
+export const AUTO_EXECUTE_SUBJECTS_KEY = "governance.auto_execute_subjects";
+
+/**
  * The two keys the dispatcher owns, named here so both lanes spell them the
  * same way. This module reads neither; it only refuses to let a ballot that
  * edits them be vetoed, because a seat that can veto the edit to its own
@@ -124,22 +150,56 @@ export const VETO_HOURS_KEY = "governance.veto_hours";
 export const HIGHEST_TIER_KEY = "governance.highest_tier";
 
 /**
+ * THE VETO MAP: the two settings that say what the seat may stop.
+ *
+ * 20.11 names these two by themselves. An edit to either is the village
+ * deciding how far its own training wheels reach, and a seat that could stop
+ * that edit would be setting its own limits.
+ */
+export const VETO_MAP_KEYS: readonly string[] = [STEWARD_SUBJECTS_KEY, AUTO_EXECUTE_SUBJECTS_KEY];
+
+/**
  * The settings a steward may not veto a change to.
  *
- * The seat cannot veto its own removal and it cannot veto an edit to the map
- * that says what it may veto. Both are Game changes and both execute at pass
- * with no window, which is the only shape that leaves a village able to take
- * its own training wheels off.
+ * The map, plus the two dials that price and shape the seat itself, plus the
+ * tier at which the village overrides it. Every one of them is a limit ON the
+ * seat, and a seat that can veto an edit to its own limits has none. All five
+ * carry the constitutional criticality in `shared/gameVariables.ts`, so they
+ * are the most expensive changes the village can make and the ones no steward
+ * can reach.
+ *
+ * WHAT THIS NO LONGER MEANS, and it changed on 2026-09-03 (20.11). It used to
+ * mean "executes at pass with no window at all". It now means only "no steward
+ * may veto it". The timing choice and the veto window are unchanged: a change
+ * set editing the map lands when any other Game change of the same timing
+ * lands, the village sees the same countdown, and the only difference is that
+ * the veto door is not there. Taking the window away as well as the veto put
+ * an unstoppable act on the cheapest possible clock, which was the opposite of
+ * what the carve-out was for.
  */
 export const VETO_LOCKED_KEYS: readonly string[] = [
   STEWARD_SUBJECTS_KEY,
+  AUTO_EXECUTE_SUBJECTS_KEY,
   STEWARD_COUNCIL_KEY,
   VETO_HOURS_KEY,
+  HIGHEST_TIER_KEY,
 ];
 
 /** True when changing this setting is outside every steward's reach. */
 export function keyIsVetoLocked(key: string): boolean {
   return VETO_LOCKED_KEYS.includes(String(key));
+}
+
+/**
+ * True for the two settings that ARE the map, which is a narrower question
+ * than `keyIsVetoLocked` and a different one.
+ *
+ * Asked by anything that wants to know "is this the village editing what its
+ * steward may stop", rather than "may a steward stop this". The dispatcher's
+ * landing path asks this one.
+ */
+export function keyIsVetoMap(key: string): boolean {
+  return VETO_MAP_KEYS.includes(String(key));
 }
 
 /**
@@ -250,8 +310,21 @@ export interface VetoableVerdict {
   why: string;
 }
 
+/** What `isVetoable` needs to know that it cannot read off the subject type. */
+export interface VetoableContext {
+  /**
+   * True when this seating or unseating is about a role that carries
+   * `steward.veto`. The caller resolves it, because the roles table is the
+   * answer and this function is pure. `subjectIsVetoable` reads it for a
+   * caller that holds a pool.
+   */
+  seatsStewardCapableRole?: boolean;
+  /** The village's setting, injectable so the rule tests without a cache. */
+  stewardSubjects?: string;
+}
+
 /**
- * May a steward veto THIS ballot, subject and target both considered?
+ * MAY A STEWARD VETO THIS DECISION? The one predicate, pure, elements and all.
  *
  * Two carve-outs, and the audit of 2026-09-03 found both by asking one
  * question: what stops a steward vetoing the ballot that removes them? Nothing
@@ -259,41 +332,79 @@ export interface VetoableVerdict {
  * it, and the term that was supposed to end it hung on a season list that
  * never turned. So:
  *
- *  1. `role_seat` and `role_unseat` on a role that carries `steward.veto`
- *     execute at pass, with no window and nothing to stop them.
- *  2. A change to the veto map, the council switch or the window length is the
- *     same act one step removed, and executes at pass too. That check needs
- *     the changeset, which is the dispatcher's, so this module exports
- *     `keyIsVetoLocked` and the dispatcher asks it per element.
+ *  1. `role_seat` and `role_unseat` on a role that carries `steward.veto`.
+ *  2. A change set touching the veto map, the council switch, the window
+ *     length or the override tier. Every one of those is a limit on the seat,
+ *     and a seat that can stop an edit to its own limits has none.
+ *
+ * WHAT THE CARVE-OUT TAKES AND WHAT IT LEAVES, because the first build of it
+ * took too much. It takes the VETO and nothing else. The timing choice, the
+ * landing instant and the window all stand: one of these decisions waits
+ * exactly as long as any other Game change of the same timing, the countdown
+ * on the page is the same countdown, and a member reads the same instants. The
+ * only difference is that no steward may stop it inside that window. Removing
+ * the window as well put the one act nobody can stop onto the fastest clock
+ * the platform has, which is the opposite of what a carve-out about
+ * entrenchment is for.
  *
  * Anything else follows the per-subject setting.
  */
-export async function subjectIsVetoable(
-  pool: Pool,
-  ballot: { subjectType: string; subjectRef?: string | null },
-): Promise<VetoableVerdict> {
-  if (!mayVeto(ballot.subjectType)) {
+export function isVetoable(
+  subjectType: string,
+  elements: readonly { key?: unknown }[] = [],
+  ctx: VetoableContext = {},
+): VetoableVerdict {
+  const raw = ctx.stewardSubjects ?? stringVar(STEWARD_SUBJECTS_KEY);
+  if (!mayVeto(subjectType, raw)) {
     return {
       vetoable: false,
       why:
-        ballot.subjectType === ADVISORY
+        subjectType === ADVISORY
           ? "An advisory vote changes nothing, so there is nothing to stop."
           : "This village does not put this kind of decision inside the veto window.",
     };
   }
+  if (ROLE_SEAT_SUBJECTS.includes(subjectType) && ctx.seatsStewardCapableRole) {
+    return {
+      vetoable: false,
+      why:
+        "This decision seats or unseats the steward's own role. It waits out its window like any other Game change, " +
+        "and no steward can stop it: a seat that could stop its own removal could never be removed.",
+    };
+  }
+  const locked = elements.map((e) => String(e?.key ?? "")).filter((k) => keyIsVetoLocked(k));
+  if (locked.length > 0) {
+    return {
+      vetoable: false,
+      why:
+        `This decision changes ${locked.join(", ")}, which is a limit on the seat itself. ` +
+        "It waits out its window like any other Game change, and no steward can stop it, " +
+        "because a seat that could stop an edit to its own limits would have none.",
+    };
+  }
+  return { vetoable: true, why: "" };
+}
+
+/**
+ * The same question for a caller that holds a pool and a ballot row.
+ *
+ * Resolves the one fact `isVetoable` cannot read for itself, which role the
+ * seating is about, and hands the rest to the pure rule so there is one answer
+ * and not two. `elements` is the change set when the caller has already loaded
+ * it; a caller that has not passes nothing and gets the subject-level answer.
+ */
+export async function subjectIsVetoable(
+  pool: Pool,
+  ballot: { subjectType: string; subjectRef?: string | null },
+  elements: readonly { key?: unknown }[] = [],
+): Promise<VetoableVerdict> {
+  let seatsStewardCapableRole = false;
   if (ROLE_SEAT_SUBJECTS.includes(ballot.subjectType)) {
     const roles = await rolesCarryingVeto(pool);
     const roleId = roleFromSeatRef(ballot.subjectRef);
-    if (roleId && roles.has(roleId)) {
-      return {
-        vetoable: false,
-        why:
-          "This decision seats or unseats the steward's own role, so it takes effect the moment it carries. " +
-          "A seat that could stop its own removal could never be removed.",
-      };
-    }
+    seatsStewardCapableRole = !!roleId && roles.has(roleId);
   }
-  return { vetoable: true, why: "" };
+  return isVetoable(ballot.subjectType, elements, { seatsStewardCapableRole });
 }
 
 // ── The window ──────────────────────────────────────────────────────────────
@@ -366,6 +477,45 @@ export function vetoWatchMarksDue(
   if (t >= from.getTime() + (to.getTime() - from.getTime()) / 2) marks.push("halfway");
   if (t >= to.getTime() - 2 * 60 * 60 * 1000) marks.push("two-hours-left");
   return marks;
+}
+
+/**
+ * THE THREE MARKS EACH TAKE THEIR OWN NOTIFICATION TYPE.
+ *
+ * They used to ride `governance`, which resolves to the governance email
+ * preference, which defaults to DAILY. So the last warning before a Game
+ * change landed arrived hours after it had landed. Three types, each pinned to
+ * "immediate" in `emailCadenceFor`, is what makes the notice arrive while the
+ * door is still open. `shared/notificationKinds.ts` holds what each one says.
+ */
+export const VETO_WATCH_NOTICE_TYPES: Readonly<Record<VetoWatchMark, string>> = {
+  carried: "veto_window_opened",
+  halfway: "veto_window_halfway",
+  "two-hours-left": "veto_window_closing",
+};
+
+/** The notification type for one mark, so no caller spells it by hand. */
+export function vetoWatchNoticeType(mark: VetoWatchMark): string {
+  return VETO_WATCH_NOTICE_TYPES[mark];
+}
+
+/**
+ * A NOTICE WHOSE MOMENT HAS PASSED IS NOT SENT.
+ *
+ * `vetoWatchMarksDue` answers which marks have come due, which is a question
+ * about the clock. This answers which are still worth sending, which is a
+ * question about the door: once the decision has landed, every one of these
+ * notices is about a window that is shut. "Two hours to stop this" arriving
+ * after it landed is worse than silence, because a steward reading it goes
+ * looking for a door that is not there.
+ */
+export function vetoWatchMarksToSend(
+  window: { carriedAt: Date | string; landsAt: Date | string },
+  now: Date = new Date(),
+): VetoWatchMark[] {
+  const to = window.landsAt instanceof Date ? window.landsAt : new Date(String(window.landsAt));
+  if (Number.isNaN(to.getTime()) || now.getTime() >= to.getTime()) return [];
+  return vetoWatchMarksDue(window, now);
 }
 
 // ── The record ──────────────────────────────────────────────────────────────
@@ -543,6 +693,43 @@ export type RedactionResult =
   | { ok: false; error: string };
 
 /**
+ * WHERE THIS LANE'S FREE TEXT LIVES, so a redaction can reach all of it.
+ *
+ * A veto reason is written once and stored three times, and the first build of
+ * the redaction knew about one of them:
+ *
+ *  - `ballot_vetoes.reason`      the act itself, one row per steward
+ *  - `ballots.veto_reason`       the copy the landing gate and the dashboard
+ *                                read, stamped when the veto stops a landing
+ *  - `mechanics_proposals.veto_reason`  the copy that goes back to the
+ *                                proposer with the proposal
+ *
+ * A fourth column holds the same words on a different table and is NOT this
+ * lane's to write: `ballot_votes.reason`, where a steward's blocking no is
+ * typed. It is copied into the two `veto_reason` columns at the close, so
+ * redacting the act reaches the copies; the vote row itself is the ballots
+ * lane's own sweep.
+ *
+ * Blanking one and leaving two would be a promise kept on one page and broken
+ * on the next, so every writer here names all three.
+ */
+export const VETO_TEXT_COLUMNS: readonly string[] = [
+  "ballot_vetoes.reason",
+  "ballots.veto_reason",
+  "mechanics_proposals.veto_reason",
+];
+
+/** Blank the mirrored copies of one steward's veto reason on one ballot. */
+async function blankVetoMirrors(pool: Pool, ballotId: string, stewardId: string): Promise<void> {
+  await pool.query("UPDATE ballots SET veto_reason = '' WHERE id = ? AND vetoed_by = ?", [ballotId, stewardId]);
+  await pool.query(
+    "UPDATE mechanics_proposals SET veto_reason = '' WHERE vetoed_by = ? AND id IN " +
+      "(SELECT subject_ref FROM ballots WHERE id = ?)",
+    [stewardId, ballotId],
+  );
+}
+
+/**
  * Blank the words, keep the act.
  *
  * The whole point of the split. A deleted row would say the decision was never
@@ -550,6 +737,11 @@ export type RedactionResult =
  * says the decision was stopped, by this person, at this time, and the words
  * are gone. Idempotent: redacting twice reports the first redaction rather
  * than moving its timestamp.
+ *
+ * IT REACHES EVERY COPY. The words are stamped onto the ballot and onto the
+ * proposal as well as onto the act, and the version of this that blanked only
+ * the act left them rendering unchanged on the decision page and in the
+ * proposer's own copy. See `VETO_TEXT_COLUMNS`.
  */
 export async function redactVetoReason(
   pool: Pool,
@@ -564,6 +756,7 @@ export async function redactVetoReason(
     "UPDATE ballot_vetoes SET reason = '', redacted_at = CURRENT_TIMESTAMP, redacted_by = ? WHERE id = ? AND redacted_at IS NULL",
     [redactedBy, vetoId],
   );
+  await blankVetoMirrors(pool, before.ballotId, before.decidedBy);
   const [after] = await pool.query<RowDataPacket[]>(`SELECT ${VETO_COLS} FROM ballot_vetoes WHERE id = ?`, [vetoId]);
   if (!after[0]) return { ok: false, error: "The act could not be read back after it was redacted." };
   return { ok: true, row: rowToVeto(after[0]), alreadyRedacted: false };
@@ -579,16 +772,31 @@ export async function redactVetoReason(
  * because the village's record of what was stopped is the village's, and the
  * words are the member's.
  *
- * Returns how many rows were blanked, so the caller can tell "nothing to
- * blank" from "the sweep did not run".
+ * IT SWEEPS EVERY COLUMN IN `VETO_TEXT_COLUMNS`, and the version that swept
+ * only `ballot_vetoes` left the same sentence rendering on the decision page
+ * and in the proposer's copy of the proposal. The counts are reported per
+ * table so a caller can tell "nothing to blank" from "the sweep did not run"
+ * on each of them separately.
  */
-export async function forgetStewardActs(pool: Pool, userId: string): Promise<{ redacted: number }> {
+export async function forgetStewardActs(
+  pool: Pool,
+  userId: string,
+): Promise<{ redacted: number; ballots: number; proposals: number }> {
   const [res] = await pool.query(
     "UPDATE ballot_vetoes SET reason = '', redacted_at = CURRENT_TIMESTAMP, redacted_by = ? " +
       "WHERE decided_by = ? AND redacted_at IS NULL",
     [userId, userId],
   );
-  return { redacted: Number((res as { affectedRows?: number }).affectedRows ?? 0) };
+  const [onBallots] = await pool.query(
+    "UPDATE ballots SET veto_reason = '' WHERE vetoed_by = ? AND veto_reason IS NOT NULL AND veto_reason <> ''",
+    [userId],
+  );
+  const [onProposals] = await pool.query(
+    "UPDATE mechanics_proposals SET veto_reason = '' WHERE vetoed_by = ? AND veto_reason IS NOT NULL AND veto_reason <> ''",
+    [userId],
+  );
+  const rows = (r: unknown): number => Number((r as { affectedRows?: number }).affectedRows ?? 0);
+  return { redacted: rows(res), ballots: rows(onBallots), proposals: rows(onProposals) };
 }
 
 // ── The seat ────────────────────────────────────────────────────────────────
@@ -785,6 +993,207 @@ export async function stewardVetoStands(
   }
 
   return { stands, vetoes: rows.length, needed, seated, council, by: rows.map((r) => r.decidedBy), rows, sentence };
+}
+
+// ── A steward's no, on a token send ─────────────────────────────────────────
+
+/**
+ * Is this steward the person the decision is ABOUT?
+ *
+ * `role_seat` and `role_unseat` freeze `subject_ref` as `userId@roleId`, and a
+ * few subjects carry a bare user id. Both shapes are matched, and nothing else
+ * is guessed: a guess here decides whether a seat can fail the ballot that
+ * removes it, which is exactly the hole the wider reading of 19D left open.
+ */
+export function stewardIsSubjectOf(
+  ballot: { subjectRef?: string | null },
+  userId: string,
+): boolean {
+  const ref = String(ballot.subjectRef ?? "").trim();
+  const who = String(userId ?? "").trim();
+  if (!ref || !who) return false;
+  return ref === who || ref.startsWith(`${who}@`);
+}
+
+export interface StewardNoInput {
+  ballot: { subjectType: string; subjectRef?: string | null; itemKinds?: readonly string[] };
+  /** Every vote cast, with the reason the voter wrote, if any. */
+  votes: readonly { userId: string; choice: string; reason?: string | null }[];
+  /** The seats filled and unlapsed at the close. */
+  seated: readonly { userId: string }[];
+  /** True when the village runs a Steward Council. */
+  council: boolean;
+}
+
+export interface StewardNoVerdict {
+  /** True when the ballot fails at the close because a steward said no. */
+  blocks: boolean;
+  /** What kind of decision this is, as the classification table reads it. */
+  kind: GovernanceKind;
+  /** The stewards whose no was counted, in the order they voted. */
+  stewardIds: string[];
+  /** Their reasons, joined. Empty exactly when nothing blocks. */
+  reason: string;
+  /** How many counted noes it takes here. One, or a majority under a council. */
+  needed: number;
+  /** Seats filled and unlapsed when it was counted. */
+  seated: number;
+  /**
+   * Stewards who voted no and were NOT counted, with the reason each was
+   * left out. Their vote still weighs in the tally like anyone's; what it
+   * does not do is fail the ballot on its own.
+   */
+  uncounted: Array<{ userId: string; because: string }>;
+  /** One plain sentence, fit to render. */
+  sentence: string;
+}
+
+/**
+ * A SEATED STEWARD'S NO FAILS A TOKEN SEND, AND NOTHING ELSE.
+ *
+ * The founder: "However if a steward votes down on a token payment proposal
+ * than it fails automatically." The Phase 1b build widened that to every
+ * ballot, and the second audit named what the wider reading costs: one seat
+ * holding a silent, unappealable kill switch over the whole village, the
+ * ballot that would remove them included. So four narrowings, and each one is
+ * a rule rather than a taste:
+ *
+ *  1. TOKEN SENDS ONLY. A Game change already has a window and a veto with a
+ *     reason on the record; it does not need a second, quieter door.
+ *  2. NEVER A BALLOT THE STEWARD IS THE SUBJECT OF. The seat cannot fail its
+ *     own removal by voting, any more than it can veto it.
+ *  3. THE NO CARRIES A REASON, held to the veto's own rule. A payout dying
+ *     without the village being told why is the defect the reason requirement
+ *     exists to close, and choices are hidden by default, so without this the
+ *     block is invisible as well as silent.
+ *  4. IT IS EVALUATED AT THE CLOSE, never the moment the vote is cast. A rule
+ *     that fires on the cast cannot compose with the council majority or with
+ *     "a ballot passes when its window ends".
+ *
+ * THE STEWARD'S OWN WEIGHT COUNTS IN THE TALLY LIKE ANYBODY'S. Nothing here
+ * removes a vote. The block sits on top of an outcome the engine already
+ * computed, so a ballot that failed on the numbers failed on the numbers.
+ *
+ * Pure, and every fact it needs is passed in: the caller reads the votes, the
+ * seats and the setting, and this decides. The row is written as a veto by the
+ * caller, so the override at the highest set tier and the dashboard's blocked
+ * payouts both reach it.
+ */
+export function stewardNoBlocks(input: StewardNoInput): StewardNoVerdict {
+  const kind: GovernanceKind = input.ballot.itemKinds
+    ? kindOfSet(input.ballot.itemKinds)
+    : kindOfSubject(input.ballot.subjectType);
+  const seated = input.seated.length;
+  const needed = input.council ? Math.max(1, Math.floor(seated / 2) + 1) : 1;
+  const empty = (sentence: string): StewardNoVerdict => ({
+    blocks: false,
+    kind,
+    stewardIds: [],
+    reason: "",
+    needed,
+    seated,
+    uncounted: [],
+    sentence,
+  });
+
+  if (kind !== "token_send") {
+    return empty(
+      "A steward's no does not fail a Game change. It waits out its window, and a steward who wants it stopped vetoes it there.",
+    );
+  }
+  if (seated === 0) return empty("No steward holds the seat, so nobody here can fail a payment.");
+
+  const seats = new Set(input.seated.map((h) => h.userId));
+  const counted: string[] = [];
+  const reasons: string[] = [];
+  const uncounted: Array<{ userId: string; because: string }> = [];
+  for (const v of input.votes) {
+    if (v.choice !== "no" || !seats.has(v.userId)) continue;
+    if (stewardIsSubjectOf(input.ballot, v.userId)) {
+      uncounted.push({
+        userId: v.userId,
+        because: "This decision is about them, so their no weighs in the tally and stops nothing on its own.",
+      });
+      continue;
+    }
+    const problem = vetoReasonProblem(v.reason);
+    if (problem) {
+      uncounted.push({
+        userId: v.userId,
+        because: "They gave no reason, and a steward's block carries one the way a veto does.",
+      });
+      continue;
+    }
+    counted.push(v.userId);
+    reasons.push(String(v.reason).trim());
+  }
+
+  if (counted.length === 0) {
+    return {
+      ...empty(
+        uncounted.length > 0
+          ? "A steward voted against this one and it does not fail on that vote alone. The reason is beside their name."
+          : "No steward voted against this one.",
+      ),
+      uncounted,
+    };
+  }
+  if (counted.length < needed) {
+    return {
+      ...empty(
+        `${counted.length} of ${seated} seated stewards voted against this one, and a council here needs ${needed}. It closes on the numbers.`,
+      ),
+      uncounted,
+    };
+  }
+  return {
+    blocks: true,
+    kind,
+    stewardIds: counted,
+    reason: reasons.join(" / "),
+    needed,
+    seated,
+    uncounted,
+    sentence:
+      counted.length === 1
+        ? "A steward voted against this payment, so it does not carry, and they said why."
+        : `${counted.length} of ${seated} seated stewards voted against this payment, which is the majority a council needs.`,
+  };
+}
+
+/** Does this member hold a seat that can stop a carried decision, right now? */
+export async function holdsStewardSeat(pool: Pool, userId: string, now: Date = new Date()): Promise<boolean> {
+  const holdings = await stewardsSeated(pool, now);
+  return holdings.some((h) => !h.lapsed && h.userId === userId);
+}
+
+/**
+ * THE "OFF" PREFERENCE IS REFUSED WHILE SOMEBODY HOLDS THE SEAT.
+ *
+ * The three window notices are pinned to "immediate" in `emailCadenceFor`, and
+ * a pin nobody may switch off is only half the rule: the other half is that a
+ * seated steward cannot quietly turn governance mail off and then miss the one
+ * warning anybody gets before a carried decision lands. So the preference
+ * route asks this before it writes.
+ *
+ * It queries only when the write actually wants silence, so an ordinary
+ * preference save costs nothing. Returns the sentence to refuse with, or null
+ * to carry on, and the sentence names the door: a seat is handed back through
+ * a `role_unseat` ballot, and then the preference is theirs again.
+ */
+export async function stewardMailRefusal(
+  pool: Pool,
+  userId: string,
+  incoming: unknown,
+): Promise<string | null> {
+  const n = (incoming ?? {}) as Record<string, unknown>;
+  if (n.emailsOff !== true && n.governanceEmail !== "off") return null;
+  if (!(await holdsStewardSeat(pool, userId))) return null;
+  return (
+    "You hold a seat that can stop a decision the village has already carried, and the notice that your window " +
+    "is open is the only warning anybody gets. Governance mail stays on while you hold that seat. A role_unseat " +
+    "ballot hands it back, and then this is yours to turn off."
+  );
 }
 
 export interface VacancyState {

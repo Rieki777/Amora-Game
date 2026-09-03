@@ -45,8 +45,34 @@ import {
   type LandingDeps,
   type SubjectCloser,
 } from "./applyDue";
-import { STEWARD_VETO, vetoWatchMarksDue } from "./stewardship";
+import { STEWARD_VETO, VETO_WATCH_NOTICE_TYPES, stewardVetoStands, vetoWatchMarksDue, vetoesFor } from "./stewardship";
 import { floorForCriticality, thresholdSettingsFrom } from "../../shared/ballotSubjects";
+import { MOMENT_TYPE } from "./applyDue";
+
+describe("the window notices this job sends", () => {
+  it("names the three types the stewardship module owns, and no others", () => {
+    /*
+     * The strings are written out in `MOMENT_TYPE` so the notification
+     * catalogue's guard can see what the server sends, and that duplication is
+     * the whole reason for this test. All FIVE moments are covered: a reopened
+     * window and a late settle are both the carry notice arriving again, on a
+     * window the steward can still act inside, so they take the carry type and
+     * `MOMENT_TITLE` is where the three read differently.
+     */
+    expect(MOMENT_TYPE.carry).toBe(VETO_WATCH_NOTICE_TYPES.carried);
+    expect(MOMENT_TYPE.halfway).toBe(VETO_WATCH_NOTICE_TYPES.halfway);
+    expect(MOMENT_TYPE.two_hours).toBe(VETO_WATCH_NOTICE_TYPES["two-hours-left"]);
+    expect(MOMENT_TYPE.reopened).toBe(VETO_WATCH_NOTICE_TYPES.carried);
+    expect(MOMENT_TYPE.late_settled).toBe(VETO_WATCH_NOTICE_TYPES.carried);
+    expect(new Set(Object.values(MOMENT_TYPE))).toEqual(new Set(Object.values(VETO_WATCH_NOTICE_TYPES)));
+  });
+
+  it("sends none of them as the generic governance type, which resolves to a daily digest", () => {
+    // The defect this closes: the last warning before a Game change landed
+    // arrived hours after it had landed.
+    expect(Object.values(MOMENT_TYPE)).not.toContain("governance");
+  });
+});
 
 const configured = testDbConfigured();
 let db: TestDb;
@@ -258,25 +284,53 @@ describe.skipIf(!configured)("a seated steward's no vote", () => {
     expect(row?.vetoedBy).toBe("u-steward");
     expect(row?.vetoReason).toContain("one household twice");
     expect(row?.vetoedAt).not.toBeNull();
+
+    /*
+     * AND IT IS A VETO ON THE RECORD, not only a set of columns. The dashboard
+     * counts blocked payouts from the acts, every surface renders them from
+     * `vetoesFor`, and the redaction door reaches the words through the act.
+     * Stamping the columns alone left a payment that died with a named steward
+     * and a public reason and nowhere a member could read either.
+     */
+    const acts = await vetoesFor(pool, b.id);
+    expect(acts.map((a) => a.decidedBy)).toEqual(["u-steward"]);
+    expect(acts[0].act).toBe("veto");
+    expect(acts[0].reason).toContain("one household twice");
+    expect((await stewardVetoStands(pool, b.id)).stands).toBe(true);
   });
+
+  /*
+   * THESE THREE MOVED TO `token_send` BECAUSE THE RULE MOVED (20.11).
+   *
+   * They were written on the first reading of 19D, under which a seated
+   * steward's no failed ANY ballot at the close. The second audit named what
+   * that costs: one seat holding a silent, unappealable kill switch over every
+   * decision in the village, including the `role_unseat` ballot that would
+   * remove them, in a village where choices are hidden by default. The rule is
+   * now token sends only, so a Game change asserted here would be asserting a
+   * withdrawn model. The Game-change side is pinned in
+   * server/lib/stewardship.test.ts, where the rule lives.
+   */
+  const payout = (over: Partial<OpenBallotInput> = {}) =>
+    openOne({ subjectType: "token_send", timing: "at_acceptance", subjectRef: `ts-${++n}`, ...over });
 
   it("counts nothing from a steward whose term has ended", async () => {
     await seatSteward("u-steward", new Date(Date.now() - 24 * HOUR));
-    const b = await openOne();
+    const b = await payout();
     await carry(b, [["u-a", "yes"], ["u-b", "yes"], ["u-steward", "no", "gone"]]);
     expect(await stewardNoVote(deps(), (await reload(b.id))!)).toBeNull();
   });
 
-  it("under steward_council needs a majority, so one no does not stop a change", async () => {
+  it("under steward_council needs a majority, so one no does not fail a payment", async () => {
     await seatSteward("u-steward");
     await seatSteward("u-steward2");
     await seatSteward("u-steward3");
     council = true;
-    const one = await openOne();
+    const one = await payout();
     await carry(one, [["u-a", "yes"], ["u-b", "yes"], ["u-steward", "no", "not this"]]);
     expect(await stewardNoVote(deps(), (await reload(one.id))!)).toBeNull();
 
-    const two = await openOne();
+    const two = await payout();
     await carry(two, [
       ["u-a", "yes"],
       ["u-steward", "no", "not this"],
@@ -290,10 +344,37 @@ describe.skipIf(!configured)("a seated steward's no vote", () => {
   it("with the council off lets any single steward's no stop it", async () => {
     await seatSteward("u-steward");
     await seatSteward("u-steward2");
-    const b = await openOne();
+    const b = await payout();
     await carry(b, [["u-a", "yes"], ["u-b", "yes"], ["u-steward", "no", "one is enough"]]);
     const veto = await stewardNoVote(deps(), (await reload(b.id))!);
     expect(veto?.stewardIds).toEqual(["u-steward"]);
+  });
+
+  it("does NOT fail a Game change, which has a window and a veto of its own", async () => {
+    await seatSteward("u-steward");
+    const b = await openOne();
+    const closed = await carry(b, [["u-a", "yes"], ["u-b", "yes"], ["u-steward", "no", "not this moon"]]);
+    expect(await stewardNoVote(deps(), (await reload(b.id))!)).toBeNull();
+    const routing = await routeOutcome(deps(), closed.ballot!, closed.outcome!, "carried", "u-a");
+    expect(routing.outcome, "it carries on the numbers, and the window is where a steward stops it").toBe("passed");
+    const row = await landingRow(pool, b.id);
+    expect(row?.vetoedBy).toBeNull();
+    expect(row?.landsAt, "and it is stamped with a landing instant like any other Game change").not.toBeNull();
+  });
+
+  it("NEVER fails a ballot the steward is the subject of", async () => {
+    // The seat that cannot veto its own removal was failing it with a vote.
+    await seatSteward("u-steward");
+    const b = await payout({ subjectRef: "u-steward" });
+    await carry(b, [["u-a", "yes"], ["u-b", "yes"], ["u-steward", "no", "I would rather keep this."]]);
+    expect(await stewardNoVote(deps(), (await reload(b.id))!)).toBeNull();
+  });
+
+  it("does not fail a payment on a no with no words, because a block carries a reason", async () => {
+    await seatSteward("u-steward");
+    const b = await payout();
+    await carry(b, [["u-a", "yes"], ["u-b", "yes"], ["u-steward", "no"]]);
+    expect(await stewardNoVote(deps(), (await reload(b.id))!)).toBeNull();
   });
 });
 
@@ -576,7 +657,7 @@ describe.skipIf(!configured)("a row that reaches passed with its instant already
     expect(row?.lateSettledAt, "the row says it was settled late").not.toBeNull();
     expect(row?.landsAt!.getTime()).toBeGreaterThan(at.getTime() + 71 * HOUR);
     expect(routing.held).toContain("counted from now instead");
-    expect(told).toContain("governance_veto_window_late");
+    expect(told).toContain(MOMENT_TYPE.late_settled);
     expect(writes, "and it did not land in the meantime").toEqual([]);
   });
 });
@@ -870,15 +951,15 @@ describe.skipIf(!configured)("the three window notices", () => {
 
     const half = new Date((closesAt.getTime() + landsAt.getTime()) / 2 + 1000);
     expect(vetoWatchMarksDue({ carriedAt: closesAt, landsAt }, half)).toContain("halfway");
-    expect(await typesAt(half)).toContain("governance_veto_window_halfway");
+    expect(await typesAt(half)).toContain(MOMENT_TYPE.halfway);
 
     const nearly = new Date(landsAt.getTime() - 30 * 60 * 1000);
-    expect(await typesAt(nearly)).toContain("governance_veto_window_closing");
+    expect(await typesAt(nearly)).toContain(MOMENT_TYPE.two_hours);
 
     // A tick early in the window sends neither: only "carried" is due, and the
     // close path already sent that one.
     const early = new Date(closesAt.getTime() + 60_000);
-    expect((await typesAt(early)).filter((t) => t !== "governance_veto_window_closing")).toEqual([]);
+    expect((await typesAt(early)).filter((t) => t !== MOMENT_TYPE.two_hours)).toEqual([]);
   });
 
   it("sends only the LAST mark when the job was down through two of them", async () => {
@@ -893,6 +974,6 @@ describe.skipIf(!configured)("the three window notices", () => {
     await runVetoWatch(deps({ notify: async (i) => { seen.push(i.type); } }), new Date(landsAt.getTime() - 60_000));
     // Every other row still open in this schema is in the same position, so the
     // assertion is on WHICH types went out and never on how many rows there are.
-    expect(Array.from(new Set(seen))).toEqual(["governance_veto_window_closing"]);
+    expect(Array.from(new Set(seen))).toEqual([MOMENT_TYPE.two_hours]);
   });
 });

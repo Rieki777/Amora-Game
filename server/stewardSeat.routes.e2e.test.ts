@@ -392,6 +392,50 @@ describe.skipIf(!DB_CONFIGURED)("the steward the village seated can stop a decis
     await pool.query("UPDATE ballots SET status = 'passed' WHERE id = ?", [BALLOT]); // module-review-ok: fixture SQL against the scratch schema
   });
 
+  it("REFUSES a veto on a change set that edits a limit on the seat, and names the key", async () => {
+    /*
+     * The bundle hole, over HTTP. The route used to ask about the SUBJECT type
+     * alone, so a change set carrying the window length beside an ordinary dial
+     * answered "vetoable" and the seat could stop the village shortening its
+     * own window by travelling with anything else. The elements are read now.
+     *
+     * The window and the timing are untouched: this decision waits out its
+     * window like any other Game change, and the only door it loses is this
+     * one.
+     */
+    const LOCKED = "bal-e2e-locked";
+    await pool.query( // module-review-ok: fixture SQL against the scratch schema, standing in for a carried proposal
+      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status) VALUES (?,?,?,?,?,?)",
+      [
+        "prop-e2e-locked",
+        "Shorten the window",
+        "why",
+        JSON.stringify([{ kind: "dial", key: "gratitude.pool" }, { kind: "dial", key: "governance.veto_hours" }]),
+        tamId,
+        "passed_onsite",
+      ],
+    );
+    await pool.query( // module-review-ok: fixture SQL against the scratch schema, standing in for a carried ballot
+      "INSERT INTO ballots (id, subject_type, subject_ref, open_key, title, doc_markdown, method, weight_mode, " +
+        "unity_pct, quorum_pct, total_weight, electorate_count, opened_by, opens_at, closes_at, status, " +
+        "lands_at, veto_closes_at, landing_status) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW(),?," +
+        "DATE_ADD(NOW(), INTERVAL 2 DAY), DATE_ADD(NOW(), INTERVAL 2 DAY), 'pending')",
+      [LOCKED, "mechanics", "prop-e2e-locked", `mechanics:${LOCKED}`, "Shorten the window", "body", "custom", "equal",
+        80, 20, 3, 3, tamId, "passed"],
+    );
+
+    const r = await call("POST", `/api/governance/ballots/${LOCKED}/veto`, {
+      token: solToken,
+      body: { reason: "I would rather keep my three days." },
+    });
+    expect(r.status, JSON.stringify(r.json)).toBe(409);
+    expect(String(r.json?.error)).toContain("governance.veto_hours");
+    expect(String(r.json?.error)).toContain("waits out its window");
+    const [rows] = await pool.query<any[]>("SELECT COUNT(*) AS n FROM ballot_vetoes WHERE ballot_id = ?", [LOCKED]); // module-review-ok: fixture SQL against the scratch schema
+    expect(Number(rows[0].n), "and nothing was written").toBe(0);
+  });
+
   it("blanks the words on a redaction and leaves the veto standing", async () => {
     const [rows] = await pool.query<any[]>("SELECT id FROM ballot_vetoes WHERE ballot_id = ?", [BALLOT]); // module-review-ok: fixture SQL against the scratch schema
     const r = await call("POST", `/api/governance/vetoes/${String(rows[0].id)}/redact`, { token: solToken });

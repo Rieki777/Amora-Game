@@ -43,6 +43,8 @@ import {
   expiringHoldings,
   forgetStewardActs,
   holdingHasLapsed,
+  holdsStewardSeat,
+  stewardMailRefusal,
   openTermFor,
   recordNoObjection,
   recordTermEnded,
@@ -374,7 +376,32 @@ describe.skipIf(!configured)("the veto on a carried decision", () => {
       subjectRef: `st-1@${STEWARD_ROLE_ID}`,
     });
     expect(verdict.vetoable).toBe(false);
-    expect(verdict.why).toContain("takes effect the moment it carries");
+    /*
+     * THE COPY CHANGED BECAUSE THE RULE DID (20.11). The first build gave this
+     * carve-out no window at all, so the sentence said the decision took
+     * effect the moment it carried. It now keeps its timing and its window
+     * like any other Game change and loses only the veto, so the sentence has
+     * to say that or a steward reads a no-window promise into it.
+     */
+    expect(verdict.why).toContain("waits out its window");
+    expect(verdict.why).toContain("could never be removed");
+  });
+
+  it("CANNOT be used on a change set that edits a limit on the seat, bundled or alone", async () => {
+    // The bundle was the hole: asking the subject type alone answered
+    // "vetoable" for a change set carrying the window length beside a dial.
+    const bundled = await subjectIsVetoable(
+      pool,
+      { subjectType: "mechanics", subjectRef: "prop-x" },
+      [{ key: "gratitude.pool" }, { key: "governance.veto_hours" }],
+    );
+    expect(bundled.vetoable).toBe(false);
+    expect(bundled.why).toContain("governance.veto_hours");
+
+    const alone = await subjectIsVetoable(pool, { subjectType: "mechanics", subjectRef: "prop-y" }, [
+      { key: STEWARD_SUBJECTS_KEY },
+    ]);
+    expect(alone.vetoable).toBe(false);
   });
 
   it("reads the role off the userId@roleId reference the routes actually freeze", async () => {
@@ -428,6 +455,86 @@ describe.skipIf(!configured)("the veto on a carried decision", () => {
     expect(swept.redacted, "one unredacted act of st-2's").toBe(1);
     const nothingLeft = await forgetStewardActs(pool, "st-2");
     expect(nothingLeft.redacted, "nothing left to blank, which is not the same as a failure").toBe(0);
+  });
+
+  /*
+   * THE WORDS ARE WRITTEN ONCE AND STORED THREE TIMES, and the first build of
+   * both sweeps knew about one of them. `recordVeto` in the landing path
+   * stamps the same sentence onto the ballot and onto the proposal, and those
+   * are the copies the decision page and the proposer's own page render. So
+   * "the words can be redacted later" was true on one page and false on two.
+   */
+  const mirrored = async (id: string, who: string, words: string): Promise<void> => {
+    await ballot(id, "mechanics", "passed", "pr-1", `prop-${id}`);
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema
+      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status) VALUES (?,?,?,?,?,?)",
+      [`prop-${id}`, `Proposal ${id}`, "why", JSON.stringify([{ kind: "dial", key: "gratitude.pool" }]), "pr-1", "passed_onsite"],
+    );
+    await recordVeto(pool, { ballotId: id, decidedBy: who, reason: words });
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema
+      "UPDATE ballots SET vetoed_at = NOW(), vetoed_by = ?, veto_reason = ? WHERE id = ?",
+      [who, words, id],
+    );
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema
+      "UPDATE mechanics_proposals SET vetoed_at = NOW(), vetoed_by = ?, veto_reason = ? WHERE id = ?",
+      [who, words, `prop-${id}`],
+    );
+  };
+
+  const mirrorsOf = async (id: string): Promise<{ ballot: string; proposal: string }> => {
+    const [b]: any = await pool.query("SELECT veto_reason FROM ballots WHERE id = ?", [id]);
+    const [p]: any = await pool.query("SELECT veto_reason FROM mechanics_proposals WHERE id = ?", [`prop-${id}`]);
+    return { ballot: String(b[0]?.veto_reason ?? ""), proposal: String(p[0]?.veto_reason ?? "") };
+  };
+
+  it("REACHES EVERY COPY on a redaction, and leaves the act, the author and the time standing", async () => {
+    await mirrored("bal-mirror", "st-1", "Rook took this to the wrong circle.");
+    expect((await mirrorsOf("bal-mirror")).ballot).toContain("wrong circle");
+
+    const row = (await actFor(pool, "bal-mirror", "st-1", "veto"))!;
+    const r = await redactVetoReason(pool, row.id, "st-2");
+    expect(r.ok).toBe(true);
+
+    const after = (await actFor(pool, "bal-mirror", "st-1", "veto"))!;
+    expect(after.reason).toBe("");
+    expect(after.decidedBy, "the author stays").toBe("st-1");
+    expect(after.decidedAt, "and the time stays").toBe(row.decidedAt);
+    const mirrors = await mirrorsOf("bal-mirror");
+    expect(mirrors.ballot, "the decision page reads this column").toBe("");
+    expect(mirrors.proposal, "and the proposer's own page reads this one").toBe("");
+  });
+
+  it("sweeps every copy when a member leaves, and counts each table separately", async () => {
+    await mirrored("bal-forget", "st-1", "Rook took this to the wrong circle.");
+    const swept = await forgetStewardActs(pool, "st-1");
+    expect(swept.redacted, "the acts st-1 wrote and had not already lost").toBeGreaterThan(0);
+    expect(swept.ballots).toBeGreaterThan(0);
+    expect(swept.proposals).toBeGreaterThan(0);
+    const mirrors = await mirrorsOf("bal-forget");
+    expect(mirrors.ballot).toBe("");
+    expect(mirrors.proposal).toBe("");
+
+    const again = await forgetStewardActs(pool, "st-1");
+    expect(again.ballots, "nothing left to blank is not the same as a sweep that did not run").toBe(0);
+    expect(again.proposals).toBe(0);
+  });
+
+  it("keeps governance mail on while somebody holds the seat, and lets it go when they do not", async () => {
+    /*
+     * The pin in `emailCadenceFor` is half the rule. Without this half a
+     * seated steward turns governance mail off, the three window notices stop
+     * being read, and the only warning anybody gets before a carried decision
+     * lands is one nobody sees.
+     */
+    expect(await holdsStewardSeat(pool, "st-1")).toBe(true);
+    const refusal = await stewardMailRefusal(pool, "st-1", { governanceEmail: "off" });
+    expect(refusal).toBeTruthy();
+    expect(String(refusal)).toContain("role_unseat");
+    expect(await stewardMailRefusal(pool, "st-1", { emailsOff: true })).toBeTruthy();
+    // Anything that is not silence goes straight through, and costs no query.
+    expect(await stewardMailRefusal(pool, "st-1", { governanceEmail: "immediate" })).toBeNull();
+    // Somebody who holds no seat keeps every preference they had.
+    expect(await stewardMailRefusal(pool, "pr-1", { emailsOff: true })).toBeNull();
   });
 
   it("shows the per-subject map over the kinds of decision this village has actually held", async () => {

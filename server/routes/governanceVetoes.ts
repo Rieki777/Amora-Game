@@ -57,7 +57,7 @@
 import type { Express } from "express";
 import type { AppDeps } from "../lib/appDeps";
 import { ballotById } from "../lib/ballots";
-import { recordVeto as stopTheLanding } from "../lib/applyDue";
+import { changeSetOf, recordVeto as stopTheLanding } from "../lib/applyDue";
 import {
   mayVeto,
   recordNoObjection,
@@ -160,13 +160,23 @@ export function register(app: Express, deps: Deps): void {
     if (!ok) return;
     const { user, ballot } = ok;
 
-    // Is this kind of decision inside any steward's reach at all? Two carve-
-    // outs live in the answer: a seat cannot veto its own removal, and cannot
-    // veto an edit to the map that says what it may veto.
-    const reach = await subjectIsVetoable(getPool(), {
-      subjectType: ballot.subjectType,
-      subjectRef: ballot.subjectRef,
-    });
+    /*
+     * Is this decision inside any steward's reach at all? Two carve-outs live
+     * in the answer: a seat cannot veto its own removal, and cannot veto an
+     * edit to its own limits.
+     *
+     * THE ELEMENTS ARE READ, not assumed. The first build asked the subject
+     * type alone, so a change set carrying `governance.veto_hours` beside a
+     * dial answered "vetoable" and the seat could stop the village shortening
+     * its own window. `changeSetOf` returns an empty list for a subject with
+     * no proposal behind it, which is the same answer as before for every
+     * subject that carries no elements.
+     */
+    const reach = await subjectIsVetoable(
+      getPool(),
+      { subjectType: ballot.subjectType, subjectRef: ballot.subjectRef },
+      await changeSetOf(getPool(), ballot),
+    );
     if (!reach.vetoable) {
       return res.status(409).json({ error: reach.why, subjectType: ballot.subjectType });
     }
