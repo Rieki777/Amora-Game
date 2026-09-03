@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useVillageContent } from "@/hooks/useVillageContent";
 import { useVillageName } from "@/hooks/useVillageName";
+import { useTokenName } from "@/hooks/useTokenNames";
 import {
   Home,
   Heart,
@@ -33,7 +34,7 @@ import {
 const LAND_SHARE_BASE_DESCRIPTION =
   "Your Land Share Agreement gives you long-term security on your piece of this land, renewable, transferable to your children{{TRANSFER}}, and protected by community ownership structures that ensure the land itself can never be sold away from the community.";
 
-const RIGHTS = (villageName: string) => [
+const RIGHTS = (villageName: string, tokenName: string) => [
   {
     icon: Home,
     title: "Your Land Share is Yours",
@@ -65,13 +66,13 @@ const RIGHTS = (villageName: string) => [
   },
   {
     icon: Coins,
-    title: "Dues Offset Through Gratitude",
+    title: `Dues Offset Through ${tokenName}`,
     description:
-      "Village dues can be covered through Gratitude, contributions you make to the community that are tracked as real value, not a fixed dollar amount. The more you contribute, the more your dues can be offset. The vision is a community where shared business profits make your life here net-positive.",
+      `Village dues can be covered through ${tokenName}, contributions you make to the community that are tracked as real value, not a fixed dollar amount. The more you contribute, the more your dues can be offset. The vision is a community where shared business profits make your life here net-positive.`,
   },
 ];
 
-const RESPONSIBILITIES = (villageName: string) => [
+const RESPONSIBILITIES = (villageName: string, tokenName: string) => [
   {
     icon: Home,
     title: "Care for Your Home and Its Surroundings",
@@ -94,7 +95,7 @@ const RESPONSIBILITIES = (villageName: string) => [
     icon: Coins,
     title: "Village Dues",
     description:
-      `Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from ${villageName}'s shared businesses, the retreat center, cafe, wellness offerings, and other enterprises, creating a net-positive financial life for all residents. Dues can also be offset through Gratitude earned from community contributions. Exact monthly amounts will be shared before signing your Land Share Agreement.`,
+      `Monthly village dues cover utilities, shared infrastructure maintenance, and community services. The vision is for dues to be fully covered by profits from ${villageName}'s shared businesses, the retreat center, cafe, wellness offerings, and other enterprises, creating a net-positive financial life for all residents. Dues can also be offset through ${tokenName} earned from community contributions. Exact monthly amounts will be shared before signing your Land Share Agreement.`,
   },
   {
     icon: Users,
@@ -137,11 +138,11 @@ const PROGRESSION = [
   },
 ];
 
-const FEES_VISION = (villageName: string) => ({
+const FEES_VISION = (villageName: string, tokenName: string) => ({
   title: "The Vision for Your Finances Here",
   description: `Village dues exist to keep the infrastructure running, water, power, roads, shared maintenance. Right now, they're a cost. The longer-term vision is different: as ${villageName}'s shared businesses mature, the retreat center, the cafe, the wellness center, the artisan market, the education programs, the revenue they generate flows back into the community.
 
-The goal is a life here that is economically net-positive. Where your contribution to the village through your Gratitude earnings, your business participation, or your role in community operations covers your dues and gives you back more than you put in.
+The goal is a life here that is economically net-positive. Where your contribution to the village through your ${tokenName} earnings, your business participation, or your role in community operations covers your dues and gives you back more than you put in.
 
 This is what "Wealth Through Contribution" actually means. Not a promise. A design intention we're building toward together.`,
 });
@@ -153,9 +154,10 @@ interface LegalContent {
 export default function ResidentRights() {
   const { content } = useVillageContent<LegalContent>("legal");
   const villageName = useVillageName();
-  const feesVision = FEES_VISION(villageName);
+  const tokenName = useTokenName("Recognition");
+  const feesVision = FEES_VISION(villageName, tokenName);
   const transferNote = content?.landShareTransferNote?.trim();
-  const rights = RIGHTS(villageName).map((right, i) =>
+  const rights = RIGHTS(villageName, tokenName).map((right, i) =>
     i === 0 && transferNote
       ? { ...right, description: LAND_SHARE_BASE_DESCRIPTION.replace("{{TRANSFER}}", ` ${transferNote}`) }
       : right,
@@ -288,7 +290,7 @@ export default function ResidentRights() {
             </p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            {RESPONSIBILITIES(villageName).map((item, i) => {
+            {RESPONSIBILITIES(villageName, tokenName).map((item, i) => {
               const Icon = item.icon;
               return (
                 <motion.div

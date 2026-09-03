@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { TrendingUp, Heart, ScrollText, ShieldCheck, Users } from "lucide-react";
 import { authToken } from "@/lib/gameApi";
+import { useTokenNameLower } from "@/hooks/useTokenNames";
 import Celebration from "@/components/natural/Celebration";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import { useMomentWindow } from "@/components/natural/moments";
@@ -126,6 +127,7 @@ export default function ProfileJourney() {
   const bloom = useGratitudeBloom();
   const blooming = useMomentWindow(bloom !== null);
   const [settled, setSettled] = useState(false);
+  const tokenNameLower = useTokenNameLower();
 
   useEffect(() => {
     Promise.all([
@@ -299,7 +301,7 @@ export default function ProfileJourney() {
           </p>
           {(ledger.entries ?? []).length === 0 ? (
             <p className="text-sm text-gray-500">
-              Nothing yet. Consented quests and received gratitude will appear here.
+              Nothing yet. Consented quests and received {tokenNameLower} will appear here.
             </p>
           ) : (
             <div className="space-y-1.5">

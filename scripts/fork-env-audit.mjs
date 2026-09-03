@@ -76,6 +76,11 @@ export const INTERNAL = new Set([
   "ALLOW_STALE_DIST",
   "TEST_SCHEMA",
   "REQUIRE_TEST_DB",
+  // The vitest globalSetup writes this one itself: provisioningReport.ts's
+  // setup() assigns process.env.VILLAGE_TEST_RUN_ID before any worker starts,
+  // and provisionLogPath() reads it back to name that run's ledger file. A
+  // founder setting it would only rename a file in the test cache.
+  "VILLAGE_TEST_RUN_ID",
   // Read by server/lib/voiceClaim.ts, and NOT settings. That check reads them
   // to refuse a HYPHA_VOICE_WEBHOOK_SECRET that is a copy of some other
   // secret, and these two are names a deployment might carry from elsewhere.

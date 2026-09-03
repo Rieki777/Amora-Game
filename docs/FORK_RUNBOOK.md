@@ -266,7 +266,7 @@ two from the admin panel and almost never touches the first.
   labels any non-SVG icon `image/png` regardless of what it really is.
   **A renamed brand file keeps working.** `/assets/images/<name>.png` falls
   back to `<name>.webp` when the PNG is gone (`server/index.ts`), so a path a
-  wizard typed into `brand.json` two years ago still resolves after the
+  wizard typed into the brand overlay two years ago still resolves after the
   conversion. No database migration is needed.
   **Large art belongs in the uploads volume**, not in `client/public`. The
   volume is content-addressed, cached correctly and swappable;
@@ -382,7 +382,7 @@ nothing had ever read the column).
   `/members`); override individually only if your DHO differs. The
   boundary is absolute: this platform READS and DISPLAYS what Hypha
   governs and never mints, moves, or prices it.
-- Hypha Bridge module (`hypha`, R58; `drizzle/0096` + `0097` add
+- Hypha Bridge module (`hypha`, R58; `drizzle/0096_hypha_module.sql` + `0097` add
   `hypha_token_bindings`, `hypha_village_reads` and `hypha_outcomes`). Ships
   OFF and free; every surface above keeps working while it is off. Turning it
   on needs `hypha.org_url` plus one token contract a human confirmed, and
@@ -549,7 +549,7 @@ works and revalidates. The probe contract (`present`, `bytes`) is unchanged;
 `url` is additive.
 
 **There is deliberately no second copy.** It was briefly staged into
-`client/public/grounds/` at build time, which put 4 MB into `dist/public` and
+client/public/grounds/ at build time, which put 4 MB into `dist/public` and
 took the total to 7.8 MB against the CI bundle budget's 6 MB ceiling. That gate
 exists to catch exactly that, and the fix is to serve one copy rather than to
 raise the number. Nothing to provision and no env var; the artifact simply
@@ -779,7 +779,7 @@ registries assumes a language. If a fork needs another language, the work
 is a locale layer over the client pages plus the seeds; the game rules,
 variables and invariants are language-free by construction.
 
-- Seeds: **there is no org-chart seed any more, and a fresh village starts with no seats and no team cards.** `server/seeds/org-chart-2026-08.json` and its corrections file used to ship one village's real org chart in this repository: twelve seat holders, ten named people, internal availability notes, and two team cards with surnames and portraits. A fork seeded all of it into its own database on first boot and served the names to anyone with the URL, because a village's people are public by default (R57). Those people agreed to appear on one project's site.
+- Seeds: **there is no org-chart seed any more, and a fresh village starts with no seats and no team cards.** server/seeds/org-chart-2026-08.json and its corrections file used to ship one village's real org chart in this repository: twelve seat holders, ten named people, internal availability notes, and two team cards with surnames and portraits. A fork seeded all of it into its own database on first boot and served the names to anyone with the URL, because a village's people are public by default (R57). Those people agreed to appear on one project's site.
   The code that read those files still guards on their existence, so their absence is a clean no-op, and a village that was already seeded keeps everything: measured with `scripts/qa/r6-fork/measure-seed-dependence.ts`, which boots twice against one schema with the files moved aside the second time and gets byte-identical output. Build your chart in **Admin, Org Chart**, which the Setup Wizard now points at.
 
 ## Org chart and seasons (0049, 0050)
@@ -790,7 +790,7 @@ variables and invariants are language-free by construction.
 - `drizzle/0050_season_patterns.sql` creates `season_patterns`,
   `season_pattern_members` and `season_roll_log`, and adds
   `badges.season_scope` and `badges.multiplier`.
-- Seed: `server/seeds/org-chart-corrections-2026-08.json` is per-deployment
+- Seed (removed, see the seeds note above): server/seeds/org-chart-corrections-2026-08.json was per-deployment
   data, applied once by the `org-roles-backfill-2026-08` runOnce when the
   card-shaped org chart becomes rows. A fork with its own cards keeps them;
   the corrections file only moves seats between circles and names holders.
@@ -1007,7 +1007,7 @@ village, because a heart is a tap whose size `feed.heart_amount` already fixes.
 
 **Avatars.** `scripts/gen_avatars.py` needs `GEMINI_API_KEY` in the
 environment, never committed, and is only ever run by hand. It keeps its 2K
-masters in `scripts/avatar-bases/` (gitignored) and delivers 1024px webp, which
+masters in scripts/avatar-bases/ (gitignored, so it is absent from a fresh clone) and delivers 1024px webp, which
 is what keeps 30 portraits inside the CI budget of 6000 KB for the whole of
 `dist`. Re-running skips what exists.
 ## Who may shape the living map (0063)

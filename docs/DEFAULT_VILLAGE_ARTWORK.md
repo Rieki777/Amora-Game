@@ -26,7 +26,7 @@ village may not have.
 So the default has to be generated from something the village already owns.
 The only thing a brand new village owns is its name.
 
-No `client/public/images/defaults/` directory exists, and that absence is the
+No client/public/images/defaults/ directory exists, and that absence is the
 point. A directory named for defaults is an invitation to drop a photograph
 into it, which is the mistake this work exists to make unnecessary. The
 shipped-image total is untouched as a result.

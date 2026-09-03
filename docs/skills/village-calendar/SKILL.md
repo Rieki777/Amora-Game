@@ -79,5 +79,5 @@ Rate limits: 120 reads and 20 writes an hour per token. A `429` means wait.
 
 ## References
 
-- `references/openapi.json` (served at `/api/agent/v1/openapi.json`): the exact routes and shapes.
-- `references/agent-inbox.md`: if the member set an agent inbox URL, how to verify what the village sends you.
+- `docs/skills/references/openapi.json` (served at `/api/agent/v1/openapi.json`): the exact routes and shapes.
+- `docs/skills/references/agent-inbox.md`: if the member set an agent inbox URL, how to verify what the village sends you.

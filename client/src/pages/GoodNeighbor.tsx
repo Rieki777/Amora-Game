@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import { useVillageLinks } from "@/lib/gameApi";
 import { useVillageName } from "@/hooks/useVillageName";
+import { useTokenName } from "@/hooks/useTokenNames";
 import { motion } from "framer-motion";
 import { Link } from "wouter";
 import {
@@ -18,7 +19,7 @@ import {
   Calendar,
 } from "lucide-react";
 
-const buildCriteria = (villageName: string) => [
+const buildCriteria = (villageName: string, tokenName: string) => [
   {
     number: "01",
     icon: Heart,
@@ -75,7 +76,7 @@ const buildCriteria = (villageName: string) => [
       "You give your time, energy, or skills to the community in some way. You're not just a consumer of community benefits, you're a co-creator.",
     practices: [
       `You identify your ${villageName} R-Ikigai: the intersection of what you love, what you're good at, and what ${villageName} needs.`,
-      "You propose contributions and earn Gratitude through meaningful work.",
+      `You propose contributions and earn ${tokenName} through meaningful work.`,
       "You participate in circles aligned with your interests and gifts.",
     ],
     note: "This is not about perfection. We all have seasons of high and lower capacity. What matters is consistent engagement and honesty.",
@@ -201,7 +202,8 @@ export default function GoodNeighbor() {
   // Blank hides the button rather than pointing at another village.
   const { eventsUrl } = useVillageLinks();
   const villageName = useVillageName();
-  const criteria = buildCriteria(villageName);
+  const tokenName = useTokenName("recognition");
+  const criteria = buildCriteria(villageName, tokenName);
   return (
     <Layout>
       {/* Hero */}

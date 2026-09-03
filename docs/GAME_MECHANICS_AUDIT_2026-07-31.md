@@ -394,7 +394,7 @@ MECHANICS_VARIABLE_FALLBACKS, so the public page doesn't show them.
 | paths.land_project.steward.min_seasons | Land-project Steward criterion (>=1 season completed AND game launched) | 1 season + non-null gameLaunchedAt | governance | server/lib/tierDetector.ts:430-433 | The season count is a bare literal; the launched-game requirement is structural and can stay. |
 | tiers.percentile.<label> | Percentile tier labels (Guardian 95 / Elder 85 / Cultivator 70 / Grower 50 / Sapling 30 / Sprout 15) | 95/85/70/50/30/15 | governance | server/game/index.ts:136-144; duplicated as quest_unlock_tiers seed in drizzle/0099 (Cultivator 70, Elder 85, Guardian 95) | Two parallel sources (hardcoded function and DB table) for the same progression bands invite drift; unify into one governed source before publishing. |
 | Quest unlock tiers (Cultivator 70, Elder 85, Guardian 95, requiresRitesComplete) |  | 70/85/95 + rites required | governance | drizzle/0099_seed_citizenship_trust_harvest.sql (quest_unlock_tiers INSERT) | Editable only by SQL today; no admin surface, no history, no bounds, unlike game_variables. |
-| Sociocratic role compensation bands (13 roles, band 1-5, tokenAward e.g. 700,000 $ReGen / $7,000, hoursPerWeek) |  | per-role hardcoded strings in a client data file | both | **regen-civics** repo, `client/src/data/gameRoles.ts` — no such path exists in this repo, and this repo has no `client/src/data/` directory at all | Role pay for the Infinite Game's coordination roles is governance-salient and currently display-only client data disconnected from the roles DB table roleHolders reads; move to DB so the Game Mechanics page and the ledger share one source. |
+| Sociocratic role compensation bands (13 roles, band 1-5, tokenAward e.g. 700,000 $ReGen / $7,000, hoursPerWeek) |  | per-role hardcoded strings in a client data file | both | **regen-civics** repo, client/src/data/gameRoles.ts — no such path exists in this repo, and this repo has no client/src/data/ directory at all | Role pay for the Infinite Game's coordination roles is governance-salient and currently display-only client data disconnected from the roles DB table roleHolders reads; move to DB so the Game Mechanics page and the ledger share one source. |
 
 ## B4. Founder-only (Ring 1) — 11
 
@@ -549,7 +549,7 @@ system; publishing these is what makes the tunable list trustworthy.
 | Admin editing UI | YES (Admin → Game Mechanics tab) | YES |
 | PUBLIC mechanics page | **NO** | YES (`GameMechanics.tsx`: sliders, baseline-vs-proposed diff, shareable URL state, per-section "copy proposed changes" markdown) |
 | Proposal generation from the page | NO | YES (markdown generator, Hypha-ready) |
-| Hypha bridge (pre-filled forms, bridge table, lifecycle) | NO (deliberately read-only toward Hypha: `shared/hypha.ts` deep-links only) | YES (`server/lib/hypha-bridge/`: intents registry, bridge page, title-marker matching) |
+| Hypha bridge (pre-filled forms, bridge table, lifecycle) | NO (deliberately read-only toward Hypha: `shared/hypha.ts` deep-links only) | YES (in regen-civics, server/lib/hypha-bridge/: intents registry, bridge page, title-marker matching) |
 | On-chain verification of outcomes | NO | YES (Alchemy webhook receiver on Base: ProposalCreated / ProposalExecuted, signature-verified, receipts back to source) |
 | Auto-apply passed proposals to settings | NO | **NO** (the missing last mile in BOTH systems) |
 | Founder enters their DHO URL | YES (`hypha.org_url` variable) | Hardcoded per-deployment |
@@ -563,7 +563,7 @@ system; publishing these is what makes the tunable list trustworthy.
 2. **Registry hygiene both sides** — promote the "make-variable" rows
    (A2: 13, B3: 33), add regen's B2 keys to its snapshot, and tag every
    variable with its ring (one new field on the def).
-3. **Port the Hypha Bridge module into game-amora** as `server/lib/hypha-bridge/`
+3. **Port the Hypha Bridge module into game-amora** as server/lib/hypha-bridge/
    with ONE new intent: `mechanics-change` (no payout — a policy agreement,
    not a payment). The bridge carries a machine-readable change-set
    `{key, from, to}[]` in metadata plus the title marker for matching.

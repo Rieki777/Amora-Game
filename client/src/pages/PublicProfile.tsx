@@ -16,6 +16,7 @@ import Layout from "@/components/Layout";
 import { useEffect, useState } from "react";
 import { useRoute } from "wouter";
 import { authToken } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -48,6 +49,7 @@ export default function PublicProfile() {
   const [, params] = useRoute("/profile/:handle");
   const [sheet, setSheet] = useState<PublicSheet | null>(null);
   const [missing, setMissing] = useState(false);
+  const tokenName = useTokenName("Recognition");
 
   useEffect(() => {
     if (!params?.handle) return;
@@ -151,7 +153,7 @@ export default function PublicProfile() {
 
         {sheet.gratitude ? (
           <section className="mt-10">
-            <h2 className="text-lg font-semibold text-sage">Gratitude</h2>
+            <h2 className="text-lg font-semibold text-sage">{tokenName}</h2>
             <p className="mt-2 text-gray-800">
               {sheet.gratitude.receivedThisSeason === 0
                 ? "No thanks yet this season."

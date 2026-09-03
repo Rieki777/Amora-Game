@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Lightbulb, ArrowLeft, CheckCircle2, Sparkles, MessageCircle, ClipboardList } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchConfigCached } from "@/lib/gameApi";
+import { useTokenName } from "@/hooks/useTokenNames";
 import GuideChat from "@/components/GuideChat";
 import { submitProposal, assistantAvailable } from "@/lib/proposals";
 
@@ -26,6 +27,7 @@ const EMPTY: QuestProposal = {
 
 export default function ProposeQuest() {
   const { user } = useAuth();
+  const tokenName = useTokenName("Recognition");
   /*
    * A generic stand-in until /api/game/config answers, and on a village that
    * has not named itself yet. This read "Amora" on every instance, so the
@@ -335,7 +337,7 @@ export default function ProposeQuest() {
                 rows={2}
                 value={form.compensation}
                 onChange={(e) => set("compensation", e.target.value)}
-                placeholder="Gratitude only, cash, revenue share, a joint venture, or nothing. It's a gift, totally up to you."
+                placeholder={`${tokenName} only, cash, revenue share, a joint venture, or nothing. It's a gift, totally up to you.`}
                 className={`${field} resize-y`}
               />
             </div>
