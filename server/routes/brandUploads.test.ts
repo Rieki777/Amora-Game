@@ -75,7 +75,7 @@ const jpeg = async (w = 900, h = 600): Promise<Buffer> => {
 };
 
 const STYLE_GUIDE = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Amora style guide</title></head>
+<html lang="en"><head><meta charset="utf-8"><title>Village style guide</title></head>
 <body><h1>Palette</h1><p>Deep teal #0f766e, warm sand #e7dccb.</p></body></html>
 `;
 
@@ -156,12 +156,12 @@ describe("the picture path, which did not change", () => {
 
 describe("the reference-document path, which is new", () => {
   it("stores an HTML style guide under .html and hands the bytes back unchanged", async () => {
-    const res = await post(STYLE_GUIDE, "amora-style-guide.html", "text/html");
+    const res = await post(STYLE_GUIDE, "village-style-guide.html", "text/html");
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.kind).toBe("file");
     expect(res.body.mimeType).toBe("text/html");
     expect(res.body.thumbUrl).toBeNull();
-    expect(res.body.originalName).toBe("amora-style-guide.html");
+    expect(res.body.originalName).toBe("village-style-guide.html");
     const onDisk = fs.readFileSync(path.join(uploadsDir, path.basename(String(res.body.url))), "utf8");
     expect(onDisk).toBe(STYLE_GUIDE);
   });
@@ -227,7 +227,7 @@ describe("what it refuses, and how tellable the refusal is", () => {
   it("refuses anyone who is not an admin, before multer reads a byte", async () => {
     adminAnswer = false;
     const before = volume().length;
-    const res = await post(STYLE_GUIDE, "amora-style-guide.html", "text/html");
+    const res = await post(STYLE_GUIDE, "village-style-guide.html", "text/html");
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("auth_required");
     expect(volume().length).toBe(before);

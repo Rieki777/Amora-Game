@@ -37,7 +37,7 @@ const PACK_WITH_A_STYLE_GUIDE = {
       never: "",
       references: [
         { url: "/api/uploads/brand-1-aaaaa.webp", thumbUrl: "/api/uploads/brand-1-aaaaa.thumb.webp", kind: "image", name: "wall.jpg" },
-        { url: "/api/uploads/brand-2-bbbbb.html", thumbUrl: null, kind: "file", name: "amora-style-guide.html", mimeType: "text/html" },
+        { url: "/api/uploads/brand-2-bbbbb.html", thumbUrl: null, kind: "file", name: "village-style-guide.html", mimeType: "text/html" },
         // A reference saved before the door widened: no `kind` at all.
         { url: "/api/uploads/brand-0-ccccc.webp", thumbUrl: null },
       ],
@@ -76,11 +76,11 @@ describe("the identity pack picker", () => {
     expect(pickerInput()).toBeTruthy();
     expect(screen.queryByText("Add reference"), "nothing to add yet").toBeNull();
 
-    fireEvent.change(pickerInput(), { target: { files: [file("amora-style-guide.html", "text/html")] } });
+    fireEvent.change(pickerInput(), { target: { files: [file("village-style-guide.html", "text/html")] } });
 
     await waitFor(() => expect(screen.getByText("Add reference")).toBeTruthy());
     // And the chosen file is named on screen, so the founder can see what is queued.
-    expect(screen.getByText("amora-style-guide.html")).toBeTruthy();
+    expect(screen.getByText("village-style-guide.html")).toBeTruthy();
     expect(screen.getByText("Choose a different file")).toBeTruthy();
   });
 
@@ -113,7 +113,7 @@ describe("the identity pack picker", () => {
             thumbUrl: null,
             kind: "file",
             mimeType: "text/html",
-            originalName: "amora-style-guide.html",
+            originalName: "village-style-guide.html",
           }),
         };
       }
@@ -123,7 +123,7 @@ describe("the identity pack picker", () => {
 
     render(<IdentityPackPanel password="secret" />);
     await screen.findByText("Choose file");
-    fireEvent.change(pickerInput(), { target: { files: [file("amora-style-guide.html", "text/html")] } });
+    fireEvent.change(pickerInput(), { target: { files: [file("village-style-guide.html", "text/html")] } });
     fireEvent.click(await screen.findByText("Add reference"));
 
     await waitFor(() => {
@@ -134,7 +134,7 @@ describe("the identity pack picker", () => {
     await waitFor(() => expect(screen.queryByText("Add reference")).toBeNull());
     // And the new reference is on screen as a file tile, named.
     expect(screen.getByText("HTML")).toBeTruthy();
-    expect(screen.getByText("amora-style-guide.html")).toBeTruthy();
+    expect(screen.getByText("village-style-guide.html")).toBeTruthy();
   });
 
   it("draws a picture as a picture and a document as a named file tile", async () => {
@@ -144,7 +144,7 @@ describe("the identity pack picker", () => {
     await screen.findByText("Reference files");
     // The document: a tile carrying its type and its filename.
     expect(screen.getByText("HTML")).toBeTruthy();
-    expect(screen.getByText("amora-style-guide.html")).toBeTruthy();
+    expect(screen.getByText("village-style-guide.html")).toBeTruthy();
     // The two pictures: real images, and NOT file tiles. The second of them
     // carries no `kind`, which is every reference saved before this change.
     const images = document.querySelectorAll("img");
