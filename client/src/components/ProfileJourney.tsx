@@ -165,9 +165,16 @@ export default function ProfileJourney() {
 
           {(prog.capabilities?.length > 0 || prog.roles?.length > 0) && (
             <div className="flex flex-wrap gap-2 mb-5">
-              {(prog.roles ?? []).map((r: string) => (
-                <span key={r} className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
-                  <Users className="w-3 h-3" /> {prettySource(r)}
+              {/* THE ROLE'S OWN NAME, which the seed has always carried.
+                  This ran `prettySource` over the ID and printed
+                  "Founders-Circle", because a prettifier can title-case an
+                  id and can never learn where the words break. The payload
+                  sends `{ id, name }` now, so the chip reads the name a
+                  founder typed and the id stays as the title for the one
+                  reader who wants it. */}
+              {(prog.roles ?? []).map((r: { id: string; name: string }) => (
+                <span key={r.id} title={r.id} className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
+                  <Users className="w-3 h-3" /> {r.name}
                 </span>
               ))}
               {/* WHAT A MEMBER CAN DO, IN WORDS. These rendered the raw keys,

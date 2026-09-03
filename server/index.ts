@@ -15,6 +15,7 @@ import { recognitionNameCheck } from "../shared/launchRequirements";
 import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { sceneStopsFor } from "../shared/questScenes";
 import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
+import { capabilityCatalogue, heldCapabilities, namedRoles, servedLadder, servedStage } from "./lib/progressionPayload";
 import {
   ALL_CAPABILITIES,
   capabilityDecision,
@@ -2890,6 +2891,9 @@ function roleIdsFor(userId: string): string[] {
   return loadRoleHolders().filter((r) => r.userId === userId).map((r) => r.roleId);
 }
 
+/** The member's roles as the payloads serve them: see `namedRoles`. */
+const rolesFor = (userId: string) => namedRoles(roleIdsFor(userId), loadRoles());
+
 /** Every capability the member's roles grant, deduplicated. */
 function roleCapabilitiesFor(userId: string): string[] {
   const held = new Set(roleIdsFor(userId));
@@ -2953,61 +2957,8 @@ async function recordStageEvent(user: any, from: string, to: string, reason: str
 
 // ALL_CAPABILITIES now lives in shared/capabilities.ts (S36): badge
 // validation and the stage-advance unlock diff read the same canonical list.
-
-/**
- * LANE Q: which module a capability belongs to, if any.
- *
- * `ModuleDef.capabilities` is the declaration that a capability EXISTS because
- * a module exists. Built once from the registry, which is pure data with no
- * clock and no database, so this map is the same in every process.
- *
- * Capabilities that appear in no module's list (the stage-granted ones, the
- * admin ones) resolve to undefined and are never filtered.
- */
-const MODULE_BY_CAPABILITY: Map<string, string> = new Map(
-  MODULES.flatMap((m) => m.capabilities.map((c) => [c as string, m.id] as const)),
-);
-
-/**
- * LANE Q: a held capability whose module is OFF is not a power anyone holds.
- *
- * The gate (`hasCapability`) answers about the PERSON: their stage, their
- * roles, their badges. It has no opinion about module lifecycle, correctly,
- * because a role grant should survive a module being switched off and back on.
- * What was wrong is that `/api/game/me` and `/api/game/progression` served
- * that answer raw, and `ProfileJourney.tsx` paints each one as a chip. A
- * village whose module lapses kept advertising its capability as a held power
- * with no route behind it, which is the routes' own contract broken: the
- * module's API prefixes stopped mounting the moment it went off.
- *
- * Core modules are always `public` through `effectiveLifecycle`, so the four
- * core capabilities are never touched by this.
- */
-const heldCapabilities = (ctx: Parameters<typeof hasCapability>[1]): Capability[] =>
-  ALL_CAPABILITIES.filter((c) => {
-    if (!hasCapability(c, ctx)) return false;
-    const moduleId = MODULE_BY_CAPABILITY.get(c);
-    return !moduleId || effectiveLifecycle(moduleId) !== "off";
-  });
-
-/**
- * Build the capability context for a member ONCE, then answer any number of
- * hasCapability questions synchronously against it. Replaces the old
- * per-question userCan(): with claims in MySQL (S10), the stage lookup is a
- * query, and paying it once per request instead of once per capability is
- * the difference between one COUNT and six.
- */
-/**
- * A stage as SERVED: the config shape with its economics overlaid from the
- * registry. gameConfig's gratitudeMultiplier became the DEFAULT of a
- * generated variable (progression.multiplier.<id>), so serving the raw
- * config object would show a number the game no longer plays by the moment
- * a village tunes it — a fake number styled like a real one.
- */
-function servedStage(stageId: string) {
-  const s = getStage(stageId);
-  return { ...s, gratitudeMultiplier: Math.max(0, numberVar(`progression.multiplier.${s.id}`)) };
-}
+// The module-lifecycle filter over it, the capability catalogue and the
+// served ladder all live in server/lib/progressionPayload.ts, imported above.
 
 /**
  * The amendment ledger's ONE writer. Every mechanics change — admin edit,
@@ -3104,6 +3055,15 @@ function lapseContext(): LapseContext {
   };
 }
 
+/**
+ * Build the capability context for a member ONCE, then answer any number of
+ * hasCapability questions synchronously against it. Replaces the old
+ * per-question userCan(): with claims in MySQL (S10), the stage lookup is a
+ * query, and paying it once per request instead of once per capability is
+ * the difference between one COUNT and six. (This docblock sat two hundred
+ * lines above the function it describes, over `servedStage`; it travelled
+ * down with the move that emptied that neighbourhood.)
+ */
 async function capabilityCtx(user: any) {
   // S36: badge grants and denies join the one gate — but only while the
   // badges module is on. Off = zero queries, zero effect: the gate is
@@ -19799,7 +19759,7 @@ ${inner}
       currency: { ...m.currency, value: { slug: valueSlug, name: valueDef?.name ?? valueSlug } },
       images: m.images,
       paths: GAME_CONFIG.paths,
-      stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
+      stages: servedLadder(),
       season: seasonState(),
     });
   });
@@ -20734,7 +20694,16 @@ ${inner}
   app.get("/api/game/me", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
-    const stageId = await stageOf(user);
+    // THE COUNT THE LADDER IS COUNTING, kept instead of thrown away.
+    //
+    // `stageOf` is `computeStage(user, await claimsRepo.consentedCount(id))`:
+    // it has always read this number and always discarded it, so the one
+    // rung the ladder measures numerically arrived as a stage id and nothing
+    // else. A profile cannot say "two more consented quests opens Quest
+    // Seeker" from an id. Calling the two halves directly costs the SAME
+    // single query stageOf was already paying.
+    const consentedQuests = await claimsRepo.consentedCount(user.id);
+    const stageId = computeStage(user, consentedQuests);
     const claims = await claimsRepo.forUser(user.id);
     const ctx = await capabilityCtx(user);
     // What each consented quest actually paid. `amount` is what the witness
@@ -20769,7 +20738,7 @@ ${inner}
     res.json({
       stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
-      stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
+      stages: servedLadder(),
       gratitude: { balance: user.recognitionBalance ?? 0, budget: await gratitudeBudget(user) },
       quests: claims.map((c: any) =>
         questCredits.has(c.id) ? { ...c, credited: questCredits.get(c.id) } : c,
@@ -20777,11 +20746,17 @@ ${inner}
       journeys: user.journeys ?? {},
       membership: hasMembership(user),
       trainingComplete: trainingComplete(user),
+      // The third rule type as a number, beside the two booleans that were
+      // already here. With the ladder now carrying its rules, these three
+      // fields are everything a reader needs to evaluate any rung except
+      // "granted", which is a decision the team makes and not a thing anyone
+      // can be shown progress toward.
+      consentedQuests,
       nextAction: await nextActionFor(user),
       lastAdvance,
       // Revision 2: progression is no longer decoration. The client renders
       // what you can DO, so the gates are legible instead of mysterious.
-      roles: roleIdsFor(user.id),
+      roles: rolesFor(user.id),
       // LANE Q: filtered by module lifecycle. A capability of an off module
       // is not a held power, and the profile paints each of these as a chip.
       capabilities: heldCapabilities(ctx),
@@ -21648,15 +21623,25 @@ ${inner}
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
     const events: any[] = stageEventsRepo.all();
-    const stageId = await stageOf(user);
+    // Same substitution as /api/game/me, same single query: the count the
+    // ladder measures is kept instead of collapsed into a stage id.
+    const consentedQuests = await claimsRepo.consentedCount(user.id);
+    const stageId = computeStage(user, consentedQuests);
     const ctx = await capabilityCtx(user);
     res.json({
       stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
+      // How far along the one numeric rung this member is, so the rule the
+      // stage now carries has something to be read against.
+      consentedQuests,
       // LANE Q: filtered by module lifecycle. A capability of an off module
       // is not a held power, and the profile paints each of these as a chip.
       capabilities: heldCapabilities(ctx),
-      roles: roleIdsFor(user.id),
+      // The same keys with the closed ones included, and the rung that opens
+      // each. `capabilities` above is exactly the rows here whose `held` is
+      // true, by construction rather than by agreement.
+      capabilityCatalogue: capabilityCatalogue(ctx),
+      roles: rolesFor(user.id),
       history: events
         .filter((e) => e.userId === user.id)
         .sort((a, b) => String(b.at).localeCompare(String(a.at)))

@@ -526,7 +526,11 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
 
     const me = await api("GET", "/api/game/me", undefined, peerToken);
     expect(me.status).toBe(200);
-    expect(me.json.roles).toContain("founders-circle");
+    // `roles` carries the name a member reads beside the id it is keyed by.
+    // It served bare ids until the profile ran a prettifier over one and
+    // printed "Founders-Circle" at somebody.
+    expect(me.json.roles.map((r: any) => r.id)).toContain("founders-circle");
+    expect(me.json.roles.find((r: any) => r.id === "founders-circle").name).toBe("Founders Circle");
     expect(me.json.capabilities).toContain("proposal.decide");
     expect(me.json.cycle.cycleNumber).toBeGreaterThan(300);
   });
@@ -5413,6 +5417,99 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "public" }, founderToken);
     expect((await forumCaps(founderToken)).me).toContain("forum.post");
     await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+  });
+
+  /*
+   * THE LADDER SAYS HOW EACH RUNG IS EARNED, and the map shows the closed doors.
+   *
+   * Two payload gaps the profile could not work around. Both serializers of
+   * the ladder stripped `rule`, so every surface knew the rungs' names and
+   * nothing about how any of them is reached: no page could say "two more
+   * consented quests opens Quest Seeker" because the only field answering it
+   * never left the server. And `/api/game/progression` sent only what a
+   * member HOLDS, which paints a wall of chips with no direction in it.
+   *
+   * The rule ships AS PLAYED. `computeStage` stopped reading `rule.min` when
+   * the threshold became a registry variable, so the config number is that
+   * variable's default now; serving it raw would be a figure styled like the
+   * gate's while the gate compared against a different one. This asserts the
+   * served number MOVES when a village turns the dial, which is the only
+   * assertion the raw-config bug could not have passed.
+   */
+  it("serves each rung's rule as played, the count it measures, and the closed doors", async () => {
+    const cfg = await api("GET", "/api/game/config");
+    const me = await api("GET", "/api/game/me", undefined, doerToken);
+    const prog = await api("GET", "/api/game/progression", undefined, doerToken);
+    expect(cfg.status).toBe(200);
+    expect(me.status).toBe(200);
+    expect(prog.status).toBe(200);
+
+    // BOTH ladder serializers carry it. They were separate copies of one
+    // map literal, which is exactly how a field reaches one payload and
+    // misses the other.
+    for (const [where, stages] of [["config", cfg.json.stages], ["me", me.json.stages]] as const) {
+      const seeker = stages.find((s: any) => s.id === "quest-seeker");
+      expect(seeker, `${where} serves the quest-seeker rung`).toBeTruthy();
+      expect(seeker.rule, `${where} says how it is earned`).toEqual({ type: "quests", min: 3 });
+      expect(stages.find((s: any) => s.id === "member").rule).toEqual({ type: "membership" });
+      expect(stages.find((s: any) => s.id === "co-creator").rule).toEqual({ type: "granted" });
+    }
+
+    // The count the numeric rung counts, on both authed payloads, so a
+    // profile reading either one can do the subtraction.
+    expect(typeof me.json.consentedQuests).toBe("number");
+    expect(prog.json.consentedQuests).toBe(me.json.consentedQuests);
+
+    // AS PLAYED, proven: move the village's dial and the served rule moves.
+    const dial = await api("PUT", "/api/admin/variables/progression.quests_for.quest-seeker",
+      { value: "7" }, founderToken);
+    expect(dial.status, JSON.stringify(dial.json)).toBe(200);
+    const tuned = await api("GET", "/api/game/me", undefined, doerToken);
+    expect(
+      tuned.json.stages.find((s: any) => s.id === "quest-seeker").rule,
+      "the rule a member reads is the rule the gate compares against",
+    ).toEqual({ type: "quests", min: 7 });
+    // Back to the platform default. There is no DELETE for a variable, so a
+    // reset is the default written back by hand.
+    expect((await api("PUT", "/api/admin/variables/progression.quests_for.quest-seeker",
+      { value: "3" }, founderToken)).status).toBe(200);
+
+    // THE CATALOGUE: every key this village runs, held or not, with the rung.
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "public" }, founderToken);
+    const withForum = await api("GET", "/api/game/progression", undefined, doerToken);
+    const rows: any[] = withForum.json.capabilityCatalogue;
+    expect(Array.isArray(rows)).toBe(true);
+
+    // `capabilities` is exactly the held rows. Both are projections of one
+    // filter, and this is what says so out loud.
+    expect(rows.filter((r) => r.held).map((r) => r.key).sort())
+      .toEqual([...withForum.json.capabilities].sort());
+
+    // A closed door names the rung that opens it, in words a member reads.
+    const post = rows.find((r) => r.key === "forum.post");
+    expect(post.label).toBe("Start a thread in the forum");
+    expect(post.opens).toEqual({ via: "stage", stage: "member" });
+
+    // A key nobody climbs to says so, instead of naming a rung that will
+    // never arrive. Publishing the land is an appointment on purpose.
+    expect(rows.find((r) => r.key === "map.publish").opens).toEqual({ via: "appointment" });
+
+    // AND AN OFF MODULE'S KEY IS NOT ADVERTISED AT ALL. Marking those rows
+    // closed would promise that climbing opens a route which stopped
+    // mounting the moment the module went off: the LANE Q defect wearing a
+    // different hat, on the surface LANE Q was written about.
+    await api("PUT", "/api/admin/modules/forum/lifecycle", { lifecycle: "off" }, founderToken);
+    const noForum = await api("GET", "/api/game/progression", undefined, doerToken);
+    const offRows: any[] = noForum.json.capabilityCatalogue;
+    expect(offRows.some((r) => r.key === "forum.post")).toBe(false);
+    expect(offRows.some((r) => r.key === "quest.consent"), "a core module's key stays").toBe(true);
+
+    // Roles carry the name a founder typed, beside the id they are keyed by.
+    const founderProg = await api("GET", "/api/game/progression", undefined, founderToken);
+    for (const r of founderProg.json.roles) {
+      expect(typeof r.id).toBe("string");
+      expect(typeof r.name).toBe("string");
+    }
   });
 
   /*
