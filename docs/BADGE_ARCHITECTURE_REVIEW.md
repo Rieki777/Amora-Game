@@ -95,7 +95,7 @@ the next request.
 Expiry is lazy, evaluated in the WHERE clause, so there is no window where a
 lapsed warning still bites or a lapsed grant still opens a door.
 
-Two things that were missing and are now present, both from `drizzle/0033`:
+Two things that were missing and are now present, both from `drizzle/0033_badge_rights.sql`:
 the member is TOLD when a warning expires (`sweepExpiredWarnings`,
 `server/lib/badges.ts:312`), and re-issues are counted in `reissue_count` and
 written into the audit text, so an indefinitely renewed silencing leaves a
@@ -180,7 +180,7 @@ is byte-identical to its pre-badges self. A badge-granted power cannot outlive
 the module that issues it.
 
 This is also why seeding a badge definition is safe: a row that exists while
-the module is off grants nothing, which is the reasoning `drizzle/0063` already
+the module is off grants nothing, which is the reasoning `drizzle/0063_map_scene_publish.sql` already
 wrote down for the Cartographer badge.
 
 ---

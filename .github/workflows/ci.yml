@@ -373,11 +373,17 @@ jobs:
         run: node scripts/check-artifact-budget.mjs
 
       - name: Doc link guard
-        # The builder documents route a newcomer to files by path, and they
-        # deliberately link instead of restating so they cannot drift from the
+        # The documentation routes a reader to files by path, and it
+        # deliberately links instead of restating so it cannot drift from the
         # code. That design has one failure mode: a file moves, every link to it
         # rots silently, and the first person to find out is the newcomer the
         # document exists to help.
+        #
+        # Scope is a glob: every .md under docs/ and at the repo root. It was a
+        # hand-written list of six for months, which is how ninety documents
+        # went unguarded and the one file appended to that list arrived with
+        # three dead references in it. Opting a document out now costs a line
+        # in the script's SKIPPED array with a reason attached.
         #
         # It runs BEFORE the build, with the other guards, because it reads
         # files that exist the moment the repo is cloned. Build outputs are

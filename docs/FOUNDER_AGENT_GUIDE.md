@@ -352,17 +352,17 @@ supported write is `PUT /api/admin/brand`, which the wizard calls when the
 founder presses Save, and which merges section by section so a partial payload
 never blanks a field it did not send.
 
-### `brand.json` on the volume is not the source of truth
+### A brand.json on the volume is not the source of truth
 
-Several documents in this repository still name `data/brand.json` as the brand
+Several documents in this repository still name data/brand.json as the brand
 overlay, including `docs/FORK_RUNBOOK.md`, `PLATFORM_FOUNDATION.md` and
 `FIXES_TO_MAKE_2026-07-17_FOUNDATION_LEVERS.md`. **No code in this tree reads a
 file by that name.** `server/repos/store.ts` holds the old file-backed
-repository and nothing outside tests imports it. Writing a `brand.json` onto the
+repository and nothing outside tests imports it. Writing a brand.json onto the
 uploads volume changes nothing, and the API keeps reporting empty values while
 the file sits there looking correct.
 
-If you see `data/brand.json` in a document, translate it to "the `brand` row of
+If you see data/brand.json in a document, translate it to "the `brand` row of
 `app_config`" and carry on.
 
 ### Module enablement lives in `module_settings` and nowhere else
@@ -636,7 +636,7 @@ it was written down.
   puts the assistant connection first and moves map styling into the map. That
   is a stated intention and it is not in this tree. Section 3 is written by goal
   so it survives the change.
-- **The `brand.json` incident.** That somebody wrote to a `brand.json` file on
+- **The brand.json incident.** That somebody wrote to a brand.json file on
   the volume and the API kept reporting empty values is reported experience, and
   this document did not verify the event. What was verified is the part that
   matters: no code in this tree reads a file of that name, several documents
