@@ -173,12 +173,16 @@ export function servedRule(s: GameStage): StageRule {
  * a village tunes it, a fake number styled like a real one. Its `rule` is
  * overlaid by `servedRule` above, for the same reason.
  */
+export function servedMultiplier(stageId: string): number {
+  return Math.max(0, numberVar(`progression.multiplier.${stageId}`));
+}
+
 export function servedStage(stageId: string) {
   const s = getStage(stageId);
   return {
     ...s,
     rule: servedRule(s),
-    gratitudeMultiplier: Math.max(0, numberVar(`progression.multiplier.${s.id}`)),
+    gratitudeMultiplier: servedMultiplier(s.id),
   };
 }
 
@@ -198,5 +202,13 @@ export function servedLadder() {
     name: s.name,
     description: s.description,
     rule: servedRule(s),
+    // The multiplier ships on the LADDER too, through the same expression
+    // `servedStage` uses, so the sheet can say what the next rung is worth.
+    // Serving it only on the member's own stage let a page say what climbing
+    // costs and never what it pays. `servedMultiplier` is shared rather than
+    // copied for the reason the e2e test states about the two ladder
+    // serializers: separate copies of one map literal is exactly how a field
+    // reaches one payload and misses the other.
+    gratitudeMultiplier: servedMultiplier(s.id),
   }));
 }

@@ -315,10 +315,18 @@ export interface GameStagePublic {
    * only its type.
    */
   rule: StageRule;
+  /**
+   * What this rung multiplies the base sending allowance by, AS PLAYED. Read
+   * off the variables registry before serving, the same as `rule` above, so a
+   * village that tuned it is never shown the platform default.
+   */
+  gratitudeMultiplier: number;
 }
 
 export interface GameMe {
-  stage: GameStagePublic & { gratitudeMultiplier: number };
+  // `gratitudeMultiplier` is on GameStagePublic itself now, so the old
+  // intersection here said the same thing twice.
+  stage: GameStagePublic;
   stageIndex: number;
   stages: GameStagePublic[];
   gratitude: { balance: number; budget: { total: number; spent: number; remaining: number; cycleId: string } };

@@ -8,54 +8,56 @@ import ProfileHero from "@/components/ProfileHero";
 import OnchainCard from "@/components/OnchainCard";
 import WalletCard from "@/components/WalletCard";
 import SendTokensCard from "@/components/SendTokensCard";
+import MaturityLadder from "@/components/profile/MaturityLadder";
+import PowersMap from "@/components/profile/PowersMap";
+import PathsPanel, { type PathTile } from "@/components/profile/PathsPanel";
 import { useAuth } from "@/contexts/AuthContext";
-import { useGameConfig } from "@/lib/gameApi";
+import { gameFetch, useGameConfig, type ProgressionCapability } from "@/lib/gameApi";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Heart,
-  DollarSign,
-  Users,
-  Sprout,
-  Home,
-  Calendar,
-  Award,
-  Edit2,
-  LogOut,
-  ArrowRight,
-  CheckCircle2,
-} from "lucide-react";
-import { useState } from "react";
+import { Heart, Edit2, LogOut, ArrowRight, CheckCircle2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 
-const PATH_INFO: Record<
-  string,
-  { label: string; icon: React.ReactNode; color: string; bgColor: string }
-> = {
-  investor: {
-    label: "Investor",
-    icon: <DollarSign className="w-5 h-5" />,
-    color: "text-blue-600",
-    bgColor: "bg-blue-50",
-  },
-  steward: {
-    label: "Village Steward",
-    icon: <Users className="w-5 h-5" />,
-    color: "text-green-600",
-    bgColor: "bg-green-50",
-  },
-  resident: {
-    label: "Resident",
-    icon: <Home className="w-5 h-5" />,
-    color: "text-amber-600",
-    bgColor: "bg-amber-50",
-  },
-  "prosperity-creator": {
-    label: "Prosperity Creator",
-    icon: <Sprout className="w-5 h-5" />,
-    color: "text-purple-600",
-    bgColor: "bg-purple-50",
-  },
-};
+/**
+ * THE CHARACTER SHEET.
+ *
+ * The page this replaced answered "what data do we hold about this user". It
+ * opened with settings, listed capability keys as identical chips, and gave
+ * each path a card that could only ever say "Not recorded yet". A character
+ * sheet answers three questions in order: who am I here, how far have I come
+ * and what is next, and what can I do right now.
+ *
+ *   Hero        who am I here
+ *   Next step   what is next, server-resolved, kept exactly as it was
+ *   Paths       which parts of village life you are here for
+ *   Maturity    how far you have come, and what opens the next rung
+ *   Powers      what you can do right now, and where climbing leads
+ *
+ * ── EVERY FIGURE COMES OFF A PAYLOAD ────────────────────────────────────────
+ *
+ * There is no number on this page that this file computes, guesses or holds a
+ * literal for. `stages` and `paths` come from `/api/game/config`, already
+ * overlaid with this village's own variables. `stageIndex`, `consentedQuests`
+ * and `capabilityCatalogue` come from `/api/game/progression`, from the same
+ * reads that DECIDE the rung and the gate. A count that has no payload behind
+ * it is not rendered at all.
+ *
+ * ── THE THEME MIGRATION, DONE AS PAIRS ──────────────────────────────────────
+ *
+ * The old page was theme-frozen, and that is what kept it safe: every card
+ * paired a hardcoded surface (`bg-white`, `bg-gray-50`) with hardcoded
+ * numbered-gray text, and neither half answers to `.dark`, so the pair held in
+ * both themes. `--muted-foreground` IS theme-responsive, so dropping
+ * `text-muted-foreground` onto a hardcoded `bg-gray-50` would measure 2.76:1
+ * at night, a real AA failure invisible to anyone testing in daylight.
+ *
+ * So every card rebuilt here moved BOTH halves at once, to the semantic set:
+ * `bg-card` / `text-card-foreground` / `text-muted-foreground` /
+ * `border-border` / `bg-muted`. Those are the only foregrounds in this build
+ * that are redefined under `.dark`. `--color-sage` and `--color-amber-ink` are
+ * defined once in `@theme` and never redefined, so they are frozen dark inks
+ * for light surfaces and are not used on any themed surface on this page.
+ */
 
 export default function Profile() {
   const [, navigate] = useLocation();
@@ -69,11 +71,37 @@ export default function Profile() {
   const config = useGameConfig();
 
   /**
+   * The progression read, once for the page.
+   *
+   * Null until it lands, and null means UNKNOWN: Maturity and Powers stay away
+   * until there is something true to draw, and never render a zero standing in
+   * for an answer that has not arrived.
+   */
+  const [prog, setProg] = useState<{
+    stageIndex: number;
+    consentedQuests: number;
+    capabilityCatalogue: ProgressionCapability[];
+  } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    gameFetch("/api/game/progression")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (live && d) setProg(d);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /**
    * Take a path or let one go.
    *
    * The tile never draws its own conclusion. `updateProfile` reads the
    * Response, throws on a refusal, and replaces the member from the body the
-   * server sent, so the tile above is showing what was SAVED and not what was
+   * server sent, so the tile is showing what was SAVED and not what was
    * clicked. A 400 from claimPaths lands in `pathError` and the tile stays as
    * it was, which is the honest picture of a claim that did not land.
    */
@@ -117,9 +145,9 @@ export default function Profile() {
   if (loading) {
     return (
       <Layout>
-        <div className="min-h-screen bg-gradient-to-br from-teal-deep/5 to-amber/5 flex items-center justify-center">
+        <div className="flex min-h-screen items-center justify-center bg-background">
           <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity }}>
-            <Heart className="w-12 h-12 text-teal-deep" />
+            <Heart className="h-12 w-12 text-teal-deep" />
           </motion.div>
         </div>
       </Layout>
@@ -131,575 +159,344 @@ export default function Profile() {
     return null;
   }
 
-  const memberSince = new Date(user.joinedAt).toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
-
   const recentContributions = (user.contributions ?? []).slice(-5).reverse();
 
   /**
    * Every path this member can act on: what the village offers, then anything
    * they already hold that the offer no longer names. `config` is null until
    * /api/game/config answers, and null means UNKNOWN: the offer is left out
-   * until it arrives instead of being guessed at from PATH_INFO, so a fork's
-   * own paths are never briefly overwritten by this build's four.
+   * until it arrives instead of being guessed at, so a fork's own paths are
+   * never briefly overwritten by this build's four.
+   *
+   * The union is the point. The server agrees, and says so in claimPaths: an
+   * id you already hold stays claimable however the offer moves, so a member
+   * can always see a retired path and let it go.
    */
   const offerKnown = config !== null;
   const offeredPaths = config?.paths ?? [];
-  const pathTiles = [
-    ...offeredPaths.map((p) => ({ id: p.id, label: p.label, role: p.role, offered: true })),
+  const pathTiles: PathTile[] = [
+    ...offeredPaths.map((p) => ({
+      id: p.id,
+      label: p.label,
+      role: p.role,
+      route: p.route,
+      offered: true,
+    })),
     ...user.paths
       .filter((id) => !offeredPaths.some((p) => p.id === id))
-      .map((id) => ({ id, label: PATH_INFO[id]?.label ?? id, role: "", offered: false })),
+      .map((id) => ({ id, label: id, role: "", route: "", offered: false })),
   ];
 
   return (
     <Layout>
-      <div className="min-h-screen bg-gradient-to-br from-teal-deep/5 to-amber/5 py-12">
+      <div className="min-h-screen bg-background py-12">
         <div className="container">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            {/* Header Section */}
-            <div className="mb-8 flex justify-between items-start">
-              {/* Who you are playing, first. See ProfileHero: a sheet that
-                  opens with settings and mentions your characters two screens
-                  down is a settings page wearing a character sheet's name. */}
-              <ProfileHero name={user.name} handle={user.handle} />
+            {/*
+              WHO YOU ARE PLAYING, FIRST.
+
+              `flex justify-between` with no column breakpoint put a 5xl
+              heading and a Sign Out button on one row at 375px, which is how
+              a long name produced scrolling in two dimensions. Stacked below
+              `sm`, and the button sits after the identity in source order so
+              a keyboard reaches the name first.
+            */}
+            <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <ProfileHero name={user.name} handle={user.handle} />
+              </div>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => logout()}
-                className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-2"
+                className="inline-flex min-h-11 shrink-0 items-center gap-2 self-start rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="h-4 w-4" aria-hidden="true" />
                 Sign Out
               </motion.button>
             </div>
 
-            {/* Game state: path stage, next action, gratitude, quests */}
+            {/* WHAT IS NEXT. Server-resolved, and the only element on this page
+                that answers a question without making the member assemble it.
+                Untouched: the banner, its label, its href and its wrapping all
+                stay exactly as they were. */}
             <div className="mb-8">
               <GameDashboard />
             </div>
 
-            {/* S4: the journey in numbers — progression history, flows, ledger */}
-            <div className="mb-8">
-              <ProfileJourney />
-            </div>
+            <div className="space-y-8">
+              {/* WHO YOU ARE HERE. */}
+              <PathsPanel
+                tiles={pathTiles}
+                claimedIds={user.paths}
+                offerKnown={offerKnown}
+                saving={savingPath}
+                error={pathError}
+                onToggle={togglePath}
+              />
 
-            {/* The member's own token balances. Target of /profile#wallet from
-                the account menu, and renders nothing when the exchange module
-                is off. The village exchange itself stays on /tokens. */}
-            <div className="mb-8">
-              <WalletCard />
-            </div>
+              {/* HOW FAR YOU HAVE COME. Both halves wait for their payload:
+                  `config` carries the ladder with every rule already overlaid,
+                  and `prog` carries where this member stands on it. */}
+              {config && prog ? (
+                <MaturityLadder
+                  stages={config.stages}
+                  stageIndex={prog.stageIndex}
+                  consentedQuests={prog.consentedQuests}
+                />
+              ) : null}
 
-            {/* 0092: sending credits to another member. Not module-gated: a
-                village running only the core four still has credits arriving
-                from the cycle pool, and this is where they can go. Renders
-                nothing when the village has no sendable token. */}
-            <div className="mb-8">
-              <SendTokensCard />
-            </div>
+              {/* WHAT YOU CAN DO RIGHT NOW. */}
+              {config && prog ? (
+                <PowersMap
+                  catalogue={prog.capabilityCatalogue ?? []}
+                  stages={config.stages}
+                  stageIndex={prog.stageIndex}
+                />
+              ) : null}
 
-            {/* S47: on-chain holdings — renders nothing until the village
-                turns the economics section on */}
-            <div className="mb-8">
-              <OnchainCard />
-            </div>
-
-            {/* S16/S18: notification cadence + data rights */}
-            <div className="mb-8">
-              <NotifyPrefsPanel onDeleted={logout} />
-            </div>
-
-            {/* Round 4: your agent, the harness in every profile */}
-            <div className="mb-8" id="your-agent"><YourAgentPanel /></div>
-
-            <div className="grid lg:grid-cols-3 gap-8">
-              {/* Main Content */}
-              <div className="lg:col-span-2 space-y-8">
-                {/* Bio Section */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
-                  className="bg-white rounded-2xl shadow-lg p-8"
-                >
-                  <div className="flex justify-between items-start mb-4">
-                    <h2 className="text-2xl font-display font-bold text-teal-deep">About You</h2>
-                    <motion.button
-                      whileHover={{ scale: 1.1 }}
-                      onClick={() => { setBioText(user.bio || ""); setEditingBio(!editingBio); }}
-                      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                      aria-label={editingBio ? "Stop editing your bio" : "Edit your bio"}
-                    >
-                      <Edit2 className="w-5 h-5 text-gray-600" />
-                    </motion.button>
-                  </div>
-                  {editingBio ? (
-                    <>
-                      <label htmlFor="profile-bio" className="sr-only">Your bio</label>
-                      <textarea
-                        id="profile-bio"
-                        value={bioText}
-                        onChange={(e) => setBioText(e.target.value)}
-                        placeholder="Tell us about yourself..."
-                        className="w-full p-4 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep"
-                        rows={4}
-                      />
-                      {bioError && <p role="alert" className="text-sm text-red-600 mt-2">{bioError}</p>}
-                      <div className="flex items-center gap-3 mt-3">
-                        {/* This Save is the whole point: the editor used to
-                            discard every word on close, silently. */}
-                        <button
-                          onClick={saveBio}
-                          disabled={savingBio}
-                          className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50"
-                        >
-                          {savingBio ? "Saving…" : "Save"}
-                        </button>
-                        <button
-                          onClick={() => { setBioText(user.bio || ""); setEditingBio(false); setBioError(""); }}
-                          className="text-sm text-gray-500 hover:text-gray-900"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-gray-600 text-lg leading-relaxed">
-                      {user.bio || "No bio yet. Add one to help other villagers know you."}
-                    </p>
-                  )}
-                </motion.div>
-
-                {/* Paths Section */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="bg-white rounded-2xl shadow-lg p-8"
-                >
-                  <h2 className="text-2xl font-display font-bold text-teal-deep mb-2">
-                    Your Paths
+              {/* About you */}
+              <motion.section
+                aria-labelledby="bio-h"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"
+              >
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <h2 id="bio-h" className="font-display text-2xl font-bold text-card-foreground">
+                    About You
                   </h2>
-                  {user.paths.length === 0 ? (
-                    /*
-                      The empty state this card never had. It rendered the
-                      array straight into an unconditional grid, so somebody
-                      with no paths got a heading over nothing, and there were
-                      two whole populations in that state with no way out:
-                      anyone who signed up through Google (authGoogle.ts hands
-                      the new account `paths: []`) and the founder the
-                      bootstrap creates. Registration demands a path and
-                      nothing else in the product had ever offered one.
-
-                      Written the way the Contributions empty state below is:
-                      name the mechanic, then point at the one door. The door
-                      here is the row of claim buttons underneath, so the
-                      sentence hands the reader straight to it.
-                    */
-                    <p className="text-gray-600 mb-6">
-                      No paths yet. A path says which part of village life you are here for,
-                      and each one you take opens its own section on this page. Claim one
-                      below. You can change them whenever you want.
-                    </p>
-                  ) : (
-                    <p className="text-gray-600 mb-6">
-                      What you are here for. Claim a path or drop one whenever it changes.
-                    </p>
-                  )}
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {/* A path this build has not been taught is READ, never
-                        dropped. `if (!pathInfo) return null` took the whole
-                        tile away, so a member who had walked a path a newer
-                        server knows about saw their own paths list come up
-                        short with nothing saying why.
-
-                        The same rule is why this list is a UNION and not just
-                        the village's offer: an id the member holds that the
-                        offer no longer names still gets a tile, so they can
-                        see it and let it go. The server agrees, and says so
-                        in claimPaths (shared/gameConfig.ts): an id you
-                        already hold stays claimable however the offer moves.
-
-                        The offer itself comes off the wire, never off
-                        PATH_INFO. PATH_INFO carries icons and colours for the
-                        four ids this build ships with; the list of paths a
-                        village actually offers is its own, so a fork that
-                        renames or retires one gets the right buttons here
-                        without touching this file. */}
-                    {pathTiles.map((tile) => {
-                      const pathInfo = PATH_INFO[tile.id];
-                      const claimed = user.paths.includes(tile.id);
-                      const busy = savingPath === tile.id;
-                      return (
-                        <motion.button
-                          key={tile.id}
-                          type="button"
-                          whileHover={{ scale: savingPath ? 1 : 1.03 }}
-                          onClick={() => togglePath(tile.id)}
-                          disabled={savingPath !== null}
-                          aria-pressed={claimed}
-                          className={`p-4 rounded-lg border-2 text-left flex items-start gap-3 transition-colors disabled:opacity-60 ${
-                            claimed
-                              ? `${pathInfo?.bgColor ?? "bg-gray-100"} border-current ${pathInfo?.color ?? "text-gray-700"}`
-                              : "bg-white border-dashed border-gray-300 text-gray-500 hover:border-gray-400 hover:bg-gray-50"
-                          }`}
-                        >
-                          <span className="mt-0.5">{pathInfo?.icon}</span>
-                          <span className="flex-1">
-                            <span className="font-semibold block">{tile.label}</span>
-                            {tile.role && (
-                              <span className="text-xs font-normal opacity-75 block">{tile.role}</span>
-                            )}
-                            {/* Only once the offer has actually ARRIVED. Until
-                                then `offeredPaths` is empty and every path the
-                                member holds looks retired, so an unguarded
-                                line here told a steward their own path was
-                                gone for as long as the fetch took. Null means
-                                unknown, and unknown says nothing. */}
-                            {offerKnown && !tile.offered && (
-                              <span className="text-xs font-normal opacity-75 block">
-                                No longer offered here
-                              </span>
-                            )}
-                            <span className="text-xs font-medium block mt-1">
-                              {busy ? "Saving…" : claimed ? "Claimed. Tap to drop" : "Tap to claim"}
-                            </span>
-                          </span>
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                  {pathError && (
-                    <p role="alert" className="text-sm text-red-600 mt-4">
-                      {pathError}
-                    </p>
-                  )}
-                </motion.div>
-
-                {/* Path-Specific Sections.
-
-                    THESE ARE WHAT THE YOUR PATHS EMPTY STATE PROMISES. Its
-                    copy says "each one you take opens its own section on
-                    this page", and these four blocks are the only thing in
-                    the whole product that makes it true: a member's paths
-                    are read nowhere else a member can see. GET
-                    /api/admin/players puts them on the wire, and no admin
-                    screen renders them. So if these blocks go, that
-                    sentence goes with them, in the same commit. */}
-                {user.paths.includes("investor") && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="bg-white rounded-2xl shadow-lg p-8"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBioText(user.bio || "");
+                      setEditingBio(!editingBio);
+                    }}
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-muted"
+                    aria-label={editingBio ? "Stop editing your bio" : "Edit your bio"}
                   >
-                    <h3 className="text-xl font-display font-bold text-blue-600 mb-6 flex items-center gap-2">
-                      <DollarSign className="w-6 h-6" />
-                      Investment Journey
-                    </h3>
-                    {/* Three fixed strings styled as live metrics, with no
-                        backing column anywhere: grep investmentTier and
-                        nothing outside this file answers. Same treatment as
-                        the prosperity card below, for the reason its comment
-                        gives. They also failed contrast badly, text-blue-400
-                        on bg-blue-50 measuring 2.34:1 against a 4.5:1 floor,
-                        so deleting them ends that defect here instead of
-                        recolouring it. */}
-                    <div className="bg-gray-50 border border-dashed border-gray-200 p-4 rounded-lg">
-                      <p className="text-sm text-gray-600 mb-1">Your investment</p>
-                      <p className="text-sm text-gray-500">
-                        Not recorded yet. Nothing on your profile holds a tier, a total
-                        contributed, or a return. The{" "}
-                        <Link href="/investor" className="text-teal-deep font-medium hover:underline">
-                          investor journey
-                        </Link>{" "}
-                        is where this village sets out what it offers and what it asks.
+                    <Edit2 className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                  </button>
+                </div>
+                {editingBio ? (
+                  <>
+                    <label htmlFor="profile-bio" className="sr-only">
+                      Your bio
+                    </label>
+                    <textarea
+                      id="profile-bio"
+                      value={bioText}
+                      onChange={(e) => setBioText(e.target.value)}
+                      placeholder="Tell us about yourself..."
+                      className="w-full rounded-lg border border-border bg-background p-4 text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      rows={4}
+                    />
+                    {bioError && (
+                      <p role="alert" className="mt-2 text-sm text-destructive">
+                        {bioError}
                       </p>
-                    </div>
-                  </motion.div>
-                )}
-
-                {user.paths.includes("steward") && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="bg-white rounded-2xl shadow-lg p-8"
-                  >
-                    <h3 className="text-xl font-display font-bold text-green-600 mb-6 flex items-center gap-2">
-                      <Users className="w-6 h-6" />
-                      Steward Role
-                    </h3>
-                    {/* "Seasons Completed" was a literal 0 and the other two
-                        were fixed strings, none of them backed by a column.
-                        text-green-400 on bg-green-50 measured 1.66:1, the
-                        worst on this page. Deliberately NOT wired to live
-                        roles data: another lane is changing the progression
-                        payload to send roles as objects, and consuming that
-                        shape here now would contend with it. Roles arrive
-                        separately. */}
-                    <div className="bg-gray-50 border border-dashed border-gray-200 p-4 rounded-lg">
-                      <p className="text-sm text-gray-600 mb-1">Your seat</p>
-                      <p className="text-sm text-gray-500">
-                        Not recorded yet. Nothing on your profile holds a circle or a seat.{" "}
-                        <Link href="/circles" className="text-teal-deep font-medium hover:underline">
-                          Circles
-                        </Link>{" "}
-                        shows every circle in this village and the seats inside it.
-                      </p>
-                    </div>
-                  </motion.div>
-                )}
-
-                {user.paths.includes("resident") && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="bg-white rounded-2xl shadow-lg p-8"
-                  >
-                    <h3 className="text-xl font-display font-bold text-amber-600 mb-6 flex items-center gap-2">
-                      <Home className="w-6 h-6" />
-                      Residency Status
-                    </h3>
-                    {/* Three more with no backing column: grep moveInStatus,
-                        housingType or yearsPlanned and nothing outside this
-                        file answers. text-amber-400 on bg-amber-50 measured
-                        1.61:1. */}
-                    <div className="bg-gray-50 border border-dashed border-gray-200 p-4 rounded-lg">
-                      <p className="text-sm text-gray-600 mb-1">Your home</p>
-                      <p className="text-sm text-gray-500">
-                        Not recorded yet. Nothing on your profile holds a move-in date, a home
-                        type, or a length of stay.{" "}
-                        <Link href="/housing" className="text-teal-deep font-medium hover:underline">
-                          Housing
-                        </Link>{" "}
-                        shows the home types and how to reserve one.
-                      </p>
-                    </div>
-                  </motion.div>
-                )}
-
-                {user.paths.includes("prosperity-creator") && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="bg-white rounded-2xl shadow-lg p-8"
-                  >
-                    <h3 className="text-xl font-display font-bold text-purple-600 mb-6 flex items-center gap-2">
-                      <Sprout className="w-6 h-6" />
-                      Business Venture
-                    </h3>
-                    {/*
-                      This block used to render three fixed strings — "Coming
-                      Soon", "Exploring", "0" — styled exactly like the live
-                      metrics elsewhere on the page. Nothing behind them
-                      existed, so every prosperity creator saw the same numbers
-                      and had no way to know they were decoration. Numbers that
-                      cannot change are worse than no numbers: they teach
-                      people not to trust the ones that can.
-
-                      Recognition IS real and already loaded, so it stays. The
-                      rest says plainly that the venture surface is not built.
-                    */}
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div className="bg-purple-50 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Recognition received</p>
-                        <p className="text-2xl font-bold text-purple-600">{user.recognitionBalance ?? 0}</p>
-                      </div>
-                      <div className="bg-gray-50 border border-dashed border-gray-200 p-4 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Your venture</p>
-                        {/* This said venture details "arrive with the
-                            prosperity module". There is no prosperity
-                            module: shared/modules.ts defines 29 ids and none
-                            of them is that one, nor housing, nor investment.
-                            The card that taught this page not to print
-                            numbers it cannot back was itself promising a
-                            surface that is on nobody's list. */}
-                        <p className="text-sm text-gray-500">
-                          Not recorded yet. Nothing on your profile holds a venture or a share of
-                          its revenue. The{" "}
-                          <Link href="/prosperity" className="text-teal-deep font-medium hover:underline">
-                            prosperity journey
-                          </Link>{" "}
-                          is where this village sets out what it offers builders.
-                        </p>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Monthly Contributions - shown when membership agreement is signed */}
-                {(user as any).membershipAgreementSigned && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.35 }}
-                    className="bg-white rounded-2xl shadow-lg p-8"
-                  >
-                    <h3 className="text-xl font-display font-bold text-teal-deep mb-6 flex items-center gap-2">
-                      <Calendar className="w-6 h-6" />
-                      Monthly Contributions
-                    </h3>
-                    {(user as any).monthlyContributions && (user as any).monthlyContributions.length > 0 ? (
-                      <div className="space-y-3">
-                        {(user as any).monthlyContributions.map((mc: { month: string; amount: number; status: string }, idx: number) => (
-                          <div key={idx} className="flex items-center justify-between p-3 bg-teal-deep/5 rounded-lg">
-                            <span className="text-sm font-medium text-gray-700">{mc.month}</span>
-                            <div className="flex items-center gap-3">
-                              <span className="font-semibold text-teal-deep">${mc.amount}</span>
-                              <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                                mc.status === "paid"
-                                  ? "bg-green-100 text-green-700"
-                                  : "bg-amber-100 text-amber-700"
-                              }`}>
-                                {mc.status}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 italic">None yet</p>
                     )}
-                  </motion.div>
-                )}
-
-                {/* Contributions Log */}
-                <ProfileSheet />
-
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="bg-white rounded-2xl shadow-lg p-8"
-                >
-                  <h2 className="text-2xl font-display font-bold text-teal-deep mb-6">
-                    Your Contributions
-                  </h2>
-                  {recentContributions.length === 0 ? (
-                    /*
-                      It used to read "No contributions yet. Start your village
-                      journey!", which is an instruction with nowhere to go: the
-                      reader is signed in, already on their journey, and the page
-                      names no door. There is exactly one door, and the page
-                      knows it. A row lands here from `POST /api/profile/contribution`,
-                      which no client calls, or from an admin accepting a Work
-                      With Us proposal. So the card says the second one and links
-                      it, rather than telling somebody to start something they
-                      have already started.
-                    */
-                    <p className="text-gray-600">
-                      Nothing here yet. A contribution is recorded when the village
-                      accepts an offer you made through{" "}
-                      <Link href="/work-with-us" className="text-teal-deep font-medium hover:underline">
-                        Work With Us
-                      </Link>
-                      .
-                    </p>
-                  ) : (
-                    <div className="space-y-4">
-                      <AnimatePresence>
-                        {recentContributions.map((contrib, idx) => (
-                          <motion.div
-                            key={contrib.id}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: idx * 0.1 }}
-                            className="flex items-start gap-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                          >
-                            <div className="flex-shrink-0 mt-1">
-                              <CheckCircle2 className="w-5 h-5 text-green-600" />
-                            </div>
-                            <div className="flex-1">
-                              <p className="font-semibold text-gray-900">{contrib.description}</p>
-                              <p className="text-sm text-gray-600">{contrib.type}</p>
-                            </div>
-                            <div className="flex-shrink-0 text-right">
-                              <p className="font-semibold text-amber text-lg flex items-center gap-1">
-                                <Heart className="w-4 h-4" />
-                                +{contrib.recognitionEarned}
-                              </p>
-                              <p className="text-xs text-gray-600">
-                                {new Date(contrib.date).toLocaleDateString()}
-                              </p>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
+                    <div className="mt-3 flex items-center gap-3">
+                      {/* This Save is the whole point: the editor used to
+                          discard every word on close, silently. */}
+                      <button
+                        onClick={saveBio}
+                        disabled={savingBio}
+                        className="min-h-11 rounded-lg bg-teal-deep px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                      >
+                        {savingBio ? "Saving" : "Save"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setBioText(user.bio || "");
+                          setEditingBio(false);
+                          setBioError("");
+                        }}
+                        className="min-h-11 px-2 text-sm text-muted-foreground hover:text-foreground"
+                      >
+                        Cancel
+                      </button>
                     </div>
-                  )}
-                </motion.div>
+                    {/* The page carried no aria-live at all, so a save landed
+                        in silence for anyone not watching the button. */}
+                    <p aria-live="polite" role="status" className="sr-only">
+                      {savingBio ? "Saving your bio." : ""}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-lg leading-relaxed text-muted-foreground">
+                    {user.bio || "No bio yet. Add one to help other villagers know you."}
+                  </p>
+                )}
+              </motion.section>
+
+              {/*
+                GRATITUDE HELD.
+
+                This card was `text-white` on a `--tone-sun` gradient. That
+                token is DERIVED to carry dark ink, so the pairing measured
+                between 1.48:1 and 2.25:1, and `index.css` documents two
+                earlier shipments of the same bug. It also had no heading
+                element at all, and its 48px number had no accessible name, so
+                a screen reader read a bare integer.
+
+                Rebuilt on the semantic pair, with a real heading and a
+                labelled figure. The amber survives as the icon only, which
+                carries no information and is hidden from the reader.
+              */}
+              <motion.section
+                aria-labelledby="gratitude-h"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"
+              >
+                <div className="flex items-center gap-2">
+                  <Heart className="h-6 w-6 shrink-0 text-amber" aria-hidden="true" />
+                  <h2
+                    id="gratitude-h"
+                    className="font-display text-2xl font-bold text-card-foreground"
+                  >
+                    Gratitude held
+                  </h2>
+                </div>
+                <p className="mt-4 font-display text-5xl font-bold text-foreground">
+                  <span className="sr-only">Gratitude held: </span>
+                  {user.recognitionBalance}
+                </p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Total earned across all contributions. Yours to keep, never spent.
+                </p>
+              </motion.section>
+
+              {/* Contributions */}
+              <motion.section
+                aria-labelledby="contrib-h"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"
+              >
+                <h2
+                  id="contrib-h"
+                  className="mb-6 font-display text-2xl font-bold text-card-foreground"
+                >
+                  Your Contributions
+                </h2>
+                {recentContributions.length === 0 ? (
+                  /*
+                    Name the mechanic, then point at the one door. A row lands
+                    here from `POST /api/profile/contribution`, which no client
+                    calls, or from an admin accepting a Work With Us proposal.
+                    So the card says the second one and links it.
+                  */
+                  <p className="text-muted-foreground">
+                    Nothing here yet. A contribution is recorded when the village accepts an offer
+                    you made through{" "}
+                    <Link href="/work-with-us" className="font-medium text-foreground underline underline-offset-2">
+                      Work With Us
+                    </Link>
+                    .
+                  </p>
+                ) : (
+                  <ul className="space-y-4">
+                    <AnimatePresence>
+                      {recentContributions.map((contrib, idx) => (
+                        <motion.li
+                          key={contrib.id}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: idx * 0.1 }}
+                          className="flex flex-wrap items-start gap-4 rounded-lg border border-border bg-muted p-4"
+                        >
+                          <CheckCircle2
+                            className="mt-1 h-5 w-5 shrink-0 text-foreground"
+                            aria-hidden="true"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold break-words text-foreground">
+                              {contrib.description}
+                            </p>
+                            <p className="text-sm text-muted-foreground">{contrib.type}</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            {/* The amount was `text-amber` as a foreground,
+                                which measures about 1.42:1. `text-amber-ink`
+                                exists for exactly this and clears 5.60:1, and
+                                it is the right answer on a hardcoded white
+                                card. This card is themed, and amber-ink is
+                                frozen, so the amount takes the theme's own
+                                foreground and the amber stays on the icon. */}
+                            <p className="text-lg font-semibold text-foreground">
+                              +{contrib.recognitionEarned}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(contrib.date).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </motion.li>
+                      ))}
+                    </AnimatePresence>
+                  </ul>
+                )}
+              </motion.section>
+
+              {/* Deeds: stage turns, firsts, recognition flows, the ledger */}
+              <ProfileJourney />
+
+              {/* Standing, gratitude and this moon, from /api/me/profile */}
+              <ProfileSheet />
+
+              {/* The member's own token balances. Target of /profile#wallet from
+                  the account menu, and renders nothing when the exchange module
+                  is off. The village exchange itself stays on /tokens. */}
+              <WalletCard />
+
+              {/* 0092: sending credits to another member. Not module-gated: a
+                  village running only the core four still has credits arriving
+                  from the cycle pool, and this is where they can go. */}
+              <SendTokensCard />
+
+              {/* S47: on-chain holdings, renders nothing until the village
+                  turns the economics section on */}
+              <OnchainCard />
+
+              {/* S16/S18: notification cadence + data rights */}
+              <NotifyPrefsPanel onDeleted={logout} />
+
+              {/* Round 4: your agent, the harness in every profile */}
+              <div id="your-agent">
+                <YourAgentPanel />
               </div>
 
-              {/* Sidebar */}
-              <div className="space-y-8">
-                {/* Gratitude Balance */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
-                  className="bg-gradient-to-br from-amber to-amber/80 text-white rounded-2xl shadow-lg p-8"
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <Heart className="w-8 h-8" />
-                    <span className="text-xs font-semibold uppercase tracking-widest opacity-75">
-                      Gratitude Balance
-                    </span>
-                  </div>
-                  <div className="text-5xl font-display font-bold mb-2">{user.recognitionBalance}</div>
-                  <p className="text-amber-100 text-sm">Total earned across all contributions</p>
-                </motion.div>
-
-                {/* "Journey Progress" stood here and was the Your Paths card
-                    a second time: the same user.paths array, the same
-                    PATH_INFO icons, the same labels, in a smaller box. The
-                    only thing it added was the line "Journey details tracked
-                    as you participate", which is a promise about a surface
-                    that does not exist. There is no per-path progress data
-                    anywhere in this product; a path is a bare string on the
-                    member. Your Paths is now the one that can be acted on, so
-                    it is the one that survived. */}
-
-                {/* Quick Links */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="bg-white rounded-2xl shadow-lg p-8"
-                >
-                  <h3 className="text-lg font-display font-bold text-teal-deep mb-4">
-                    Quick Links
-                  </h3>
-                  <div className="space-y-2">
-                    <a
-                      href="/quests"
-                      className="flex items-center justify-between p-3 hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                      <span className="text-sm font-medium text-gray-700">Quests</span>
-                      <ArrowRight className="w-4 h-4 text-gray-400" />
-                    </a>
-                    <a
-                      href="/circles"
-                      className="flex items-center justify-between p-3 hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                      <span className="text-sm font-medium text-gray-700">Circles</span>
-                      <ArrowRight className="w-4 h-4 text-gray-400" />
-                    </a>
-                    <a
-                      href="/housing"
-                      className="flex items-center justify-between p-3 hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                      <span className="text-sm font-medium text-gray-700">Housing</span>
-                      <ArrowRight className="w-4 h-4 text-gray-400" />
-                    </a>
-                  </div>
-                </motion.div>
-              </div>
+              {/* Quick links. These were raw `<a href>` inside a wouter SPA, so
+                  each one threw away the running application and reloaded the
+                  whole document to reach a page the router already holds. */}
+              <motion.nav
+                aria-labelledby="links-h"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"
+              >
+                <h2 id="links-h" className="mb-4 font-display text-lg font-bold text-card-foreground">
+                  Quick Links
+                </h2>
+                <ul className="space-y-2">
+                  {[
+                    { href: "/quests", label: "Quests" },
+                    { href: "/circles", label: "Circles" },
+                    { href: "/housing", label: "Housing" },
+                  ].map((l) => (
+                    <li key={l.href}>
+                      <Link
+                        href={l.href}
+                        className="flex min-h-11 items-center justify-between rounded-lg p-3 hover:bg-muted"
+                      >
+                        <span className="text-sm font-medium text-foreground">{l.label}</span>
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </motion.nav>
             </div>
           </motion.div>
         </div>
