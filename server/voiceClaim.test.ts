@@ -617,16 +617,23 @@ describe.skipIf(!configured)("carrying voice to Hypha", () => {
   }, DB_HEAVY);
 
   it("carries the exact amount across the decimals boundary", async () => {
-    // The bug this prevents: voice is stored at 3 decimals, so a claim that
-    // round-trips through the decimal(18,4) row must come back to the same
-    // ledger units. A truncation here silently shaves value off a refund.
+    // The bug this prevents: voice is stored at whatever scale the registry
+    // says, so a claim that round-trips through the decimal(18,4) row must come
+    // back to the same ledger units. A truncation here silently shaves value
+    // off a refund.
+    //
+    // The expected number is DERIVED, never typed. It used to be 137_000, which
+    // hardcoded the 3-decimals scale into two assertions and would have gone red
+    // on the day the registry moved without anything being wrong. The scale
+    // belongs to the token, so the test asks the token.
     const u = await makeMember("vc-units");
     await giveVoice(u, 137);
+    const units = toLedgerUnits(VILLAGE_VOICE, 137);
     const out = await requestVoiceClaim(pool, u, true);
     if (!out.ok) throw new Error(out.error);
-    expect(toLedgerUnits(VILLAGE_VOICE, out.amount)).toBe(137_000);
+    expect(toLedgerUnits(VILLAGE_VOICE, out.amount)).toBe(units);
     await settleVoiceClaim(pool, out.claimId, "canceled");
-    expect(await balanceOf(pool, memberAccount(u), VILLAGE_VOICE)).toBe(137_000);
+    expect(await balanceOf(pool, memberAccount(u), VILLAGE_VOICE)).toBe(units);
   }, DB_HEAVY);
 
   it("scopes a claim to its village", async () => {

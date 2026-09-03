@@ -23,7 +23,31 @@
  * a pointer (agreement_ref) and a status — never the content.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
+import { fromLedgerUnits } from "./economy";
 import { balancesFor, memberAccount, postTransfer } from "./ledger";
+
+/*
+ * UNITS IN THIS FILE, stated once so no future sweep has to guess.
+ *
+ * `balancesFor` returns `token_balances.balance`, and `recomputeBalance`
+ * (`server/lib/ledger.ts`) sets that column to a SUM over `token_ledger.amount`.
+ * So every number this file reads from a balance is MINOR UNITS, at whatever
+ * scale the token's `decimals` says, and `postTransfer` wants exactly those
+ * units back. There is no human number anywhere on the posting path.
+ *
+ * That gives this file two rules that pull in opposite directions:
+ *
+ *   1. The POSTING in `sweepBalances` is already minor and must never be
+ *      wrapped in `toLedgerUnits`. See the marker above it.
+ *   2. Everything this file hands OUT to a person is a display surface and
+ *      must be divided with `fromLedgerUnits`: the `swept` map, which is
+ *      written verbatim into the permanent `exits.resolution` note and toasted
+ *      to the admin, and the two `description` sentences an admin reads on the
+ *      exit desk before pressing Sweep.
+ *
+ * Rule 2 was already wrong for Village Voice at 3 decimals, before any ruling:
+ * a member holding 0.5 voice was described as holding "500 village-voice".
+ */
 
 export const EXIT_SETTLEMENT = "sys:exit-settlement";
 
@@ -150,16 +174,23 @@ export async function exitOpenState(pool: Pool, userId: string, roleIds: string[
   states.push({
     domain: "debts",
     count: negative.length,
+    // DISPLAY. `v` is minor units off `token_balances`; this sentence is read by
+    // an admin on the exit desk and by the departing member in the 409 body of
+    // both tombstone doors. `fromLedgerUnits` at the boundary, never a literal
+    // divisor: the scale belongs to the registry.
     description: negative.length
-      ? `owes ${negative.map(([t, v]) => `${-v} ${t}`).join(", ")}. Resolve through the owning domain before leaving`
+      ? `owes ${negative.map(([t, v]) => `${fromLedgerUnits(t, -v)} ${t}`).join(", ")}. Resolve through the owning domain before leaving`
       : "no negative balances",
     blocking: true,
   });
   states.push({
     domain: "balances",
     count: positive.length,
+    // DISPLAY, same reason as the debts line above. This is the number the
+    // admin reads immediately before pressing Sweep, so it has to agree with
+    // the `swept` figure the toast reports afterwards; both are human.
     description: positive.length
-      ? `holds ${positive.map(([t, v]) => `${v} ${t}`).join(", ")}. Swept to exit settlement by an explicit admin act`
+      ? `holds ${positive.map(([t, v]) => `${fromLedgerUnits(t, v)} ${t}`).join(", ")}. Swept to exit settlement by an explicit admin act`
       : "nothing held",
     blocking: false,
   });
@@ -197,6 +228,13 @@ export function blockingStates(states: ExitDomainState[]): ExitDomainState[] {
  * sys:exit-settlement. Idempotent per (exit, token) — a double click or a
  * crash-retry sweeps nothing twice. Negative balances are never touched
  * here: a debt resolves through the domain that created it.
+ *
+ * UNITS. What is POSTED is minor, read straight off the balance cache and
+ * handed back unchanged. What is RETURNED in `swept` is HUMAN, divided once at
+ * the boundary, because both consumers show it to a person: the settle route
+ * writes it into the permanent `exits.resolution` note and the admin page
+ * toasts it. The two are deliberately different, and a change that makes them
+ * the same is a bug in one direction or the other.
  */
 export async function sweepBalances(
   pool: Pool,
@@ -211,13 +249,25 @@ export async function sweepBalances(
       from: memberAccount(input.userId),
       to: EXIT_SETTLEMENT,
       tokenType: token,
+      // ALREADY MINOR. DO NOT CONVERT. `amount` is `token_balances.balance`,
+      // which is a SUM over `token_ledger.amount`, and `postTransfer` writes
+      // it back into that same column. Both ends of the round trip are the
+      // ledger, so there is no human number here to convert FROM. Wrapping
+      // this in `toLedgerUnits` multiplies a departing member's whole
+      // settlement by 10^decimals: 10,000x once every token is at 4.
+      //
+      // This is also why the conversion cannot live inside `postTransfer`.
+      // The second witness for the same shape is the voice claim debit at
+      // `server/lib/voiceClaim.ts`, which reads the same column.
       amount,
       source: "exit_settlement",
       sourceRef: input.exitId,
       description: "Balance settled at departure",
       idempotencyKey: `exit:${input.exitId}:sweep:${token}`,
     });
-    if (r.ok) swept[token] = amount;
+    // HUMAN out. The posting above moved `amount` minor units; what a person
+    // reads about it is that number divided by the token's own scale.
+    if (r.ok) swept[token] = fromLedgerUnits(token, amount);
     else errors.push(`${token}: ${r.error}`);
   }
   return { swept, errors };
