@@ -19,7 +19,7 @@ Graded 2026-09-03 against `main`. Grades in brackets are the challenger's.
 | Bridges | B+ (B-) | A- | the receiver has no test |
 | Architecture | B+ | A- | residue and a wide seam |
 | Data model | B | A- | zero foreign keys, 153 tables |
-| Fork-ability | B (B-) | A- | a guard that runs nowhere |
+| Fork-ability | B (B-) | A- | item 1 in flight (`wt/guards-that-run`); 2 and 3 open |
 | Client | B (B-) | A- | the core loop is silent to a screen reader |
 | Operability | B- | A- | no uploads backup, alarm reaches no person |
 | Upgrade path | B- (C+) | A- | tags a village cannot pin |
@@ -205,6 +205,23 @@ constraint, 114 migrations applied at boot with no approval gate.
 1. **`scripts/fork-env-audit.mjs` is referenced in four documents and wired into
    zero workflows and zero package.json scripts, and it exits 1 today.** A guard
    that does not run is a comment. Wire it into `ci.yml` and fix what it reports.
+   **In flight (branch `wt/guards-that-run`).** Wired into `ci.yml` beside the
+   brand guard and into `package.json` as `audit:fork-env`. The one thing it
+   reported was `VILLAGE_TEST_RUN_ID`, which the vitest globalSetup assigns to
+   itself before any worker starts, so it is declared INTERNAL and the omission
+   is stated in `.env.example` rather than left silent. Exits 0. Verified it
+   still bites: a new undocumented env read, and a deleted `.env.example` line,
+   each turn it red.
+   Also checked, so nobody has to ask again: every other `scripts/*.mjs` was
+   measured for the same shape, named in a document and wired into neither
+   `ci.yml` nor `package.json`. Thirteen are, and none of them is a guard.
+   `check-examples` and `prove-remaining` need a live database,
+   `prove-examples` and `smoke-all-modules` need a running server on 3911 and
+   3901, `verify-migration-on-data` needs a migration prefix as an argument,
+   and the rest are hand-run tools (`fork-init`, `seed-examples`,
+   `compress-static-images`, `brand-strip`). None can run in a fresh clone, so
+   none belongs in CI as it stands. `fork-env-audit` was the only static check
+   among them, which is why it was the one worth wiring.
 2. **`project.fiatCurrency` defaults to `CRC` and has no field anywhere in
    `client/src`.** It is the last entry on the identity guard's pending list, and
    the guard's own exit condition is that a founder sets it in Admin, on a screen
