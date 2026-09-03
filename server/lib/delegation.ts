@@ -57,27 +57,114 @@
  * is deliberate, because a delegation change moves everyone downstream of the
  * member who changed it, and a routine that tried to work out who those were
  * would be a second copy of the resolution rule.
+ *
+ * ── 0138: A DELEGATION IS A HANDSHAKE, AND A HIDDEN CHOICE STAYS HIDDEN ─────
+ *
+ * Everything above was written while every ballot was public. Choices are
+ * hidden by default now, and four rules follow from that one change. Each of
+ * them is here rather than in a route, because each of them decides whether a
+ * vote exists or what a member is allowed to read, and those are not
+ * decisions a caller should be able to forget.
+ *
+ *  1. THE DELEGATE ACCEPTS FIRST. A delegation with `accepted_at` NULL is an
+ *     offer. Both sides see it and it carries nothing. Without this, anybody
+ *     could point a delegation at a steward, read her hidden choice off their
+ *     own ballot row minutes after she cast it, take the delegation back and
+ *     vote their own way with nothing left behind. That is a private window
+ *     into somebody else's secret ballot, opened without asking them.
+ *     `loadDelegationMap` therefore carries only accepted rows, and
+ *     `loadOfferedMap` (offers included) exists for exactly one purpose: the
+ *     cycle guard, which has to refuse a loop that has not closed yet.
+ *
+ *  2. WHILE A BALLOT IS OPEN AND CHOICES ARE HIDDEN, THE DELEGATOR READS THAT
+ *     THEIR VOTE WAS CAST AND WHO DECIDED IT, NEVER WHAT IT SAID. Section 4's
+ *     "secrecy resolves itself, because your delegated vote is your own vote"
+ *     was true of a public ballot and is a disclosure channel on a hidden one.
+ *     `hiddenChoiceView` is the whole rule, pure, and `ownVoteView` in
+ *     server/lib/ballots.ts is the serving path that applies it. The choice
+ *     arrives at the close, with everybody else's.
+ *
+ *  3. TAKING A DELEGATION BACK RESTORES THE NOT-CAST STATE. There was no
+ *     DELETE against `ballot_votes` anywhere in the engine, so a repudiated
+ *     choice kept carrying weight. `deleteDelegatedRow` is that DELETE, always
+ *     guarded on `followed_user_id IS NOT NULL` so it can never reach a vote
+ *     somebody made themselves, and `uncastDelegatedVote` in ballots.ts is the
+ *     guarded door both "withdraw my delegation" and "take my vote back" come
+ *     through. Quorum falls when a delegation is withdrawn, which is the
+ *     honest answer: nobody is deciding that seat any more.
+ *
+ *  4. A SILENT DELEGATE IS VISIBLE WHILE THE WINDOW IS OPEN. A delegate who
+ *     simply does not vote withholds every seat that follows them, which is
+ *     stronger than voting no (a no counts toward quorum; an uncast seat does
+ *     not) and looks from outside like ordinary apathy.
+ *     `unvotedDelegationsOn` names the withheld bloc on the live ballot, so
+ *     the village can see it happening rather than read it off the result.
+ *
+ * AND ONE VOTE DELEGATION NEVER TOUCHES. On a subject that asks for 100%
+ * unity, or for a yes from every seat, a delegated row does not exist:
+ * `delegationCarriesOn` refuses it and `applyDelegatedVotes` sweeps any that
+ * stand. The Birthing's whole meaning is that everybody personally showed up,
+ * and one member holding two delegations could otherwise carry a three-seat
+ * village alone while the record read as three parties agreeing.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { VoteChoice } from "../../shared/governanceEngine";
+import { evaluationRulesFor } from "../../shared/ballotSubjects";
+import { VARIABLES_BY_KEY } from "../../shared/gameVariables";
+import { variable } from "./variables";
 
 export interface DelegationRow {
   delegatorId: string;
   delegateId: string;
   createdAt: string;
   revokedAt: string | null;
+  /**
+   * NULL until the delegate says yes. A pending delegation is visible to both
+   * sides and carries no choice into any ballot.
+   */
+  acceptedAt: string | null;
+}
+
+/** Live and accepted: this delegation is carrying choices right now. */
+export function isCarrying(row: DelegationRow | null): boolean {
+  return !!row && row.revokedAt === null && row.acceptedAt !== null;
 }
 
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
 
 /**
- * Every live delegation, as delegator to delegate.
+ * Every CARRYING delegation, as delegator to delegate: live and accepted.
  *
- * One read, then every walk in this file is pure arithmetic over the map. The
- * tally path needs to resolve a whole electorate, and doing that with one
+ * This is the map every tally, derivation and concentration read uses, and
+ * the acceptance filter is the whole difference between a delegation being a
+ * handshake and being a window. One read, then every walk in this file is
+ * pure arithmetic over the map, because resolving a whole electorate with one
  * query per hop would make a chain's depth a database cost.
  */
 export async function loadDelegationMap(pool: Pool): Promise<Map<string, string>> {
+  const [rows] = await pool.query<RowDataPacket[]>( // module-review-ok: the delegations table's one enumerable home (the ballots.ts pattern; no cache sits above it)
+    "SELECT delegator_id, delegate_id FROM delegations WHERE revoked_at IS NULL AND accepted_at IS NOT NULL",
+  );
+  const map = new Map<string, string>();
+  for (const r of rows) map.set(String(r.delegator_id), String(r.delegate_id));
+  return map;
+}
+
+/**
+ * Every live delegation INCLUDING the ones nobody has accepted yet.
+ *
+ * One caller, and the reason it exists: the cycle guard. A pending offer
+ * carries no choice today and can be accepted an hour from now, so a guard
+ * that looked only at accepted rows would let A offer to B and B offer to A,
+ * and the loop would close the moment the second one said yes, in a routine
+ * with nobody left to refuse it. Cycles are refused at creation or they are
+ * refused inside the tally, and the tally is the wrong place.
+ *
+ * Nothing else may use this map. A delegation that has not been accepted
+ * decides nothing, so it must not appear in a concentration figure, a
+ * derivation, or an answer about who decides for somebody.
+ */
+export async function loadOfferedMap(pool: Pool): Promise<Map<string, string>> {
   const [rows] = await pool.query<RowDataPacket[]>( // module-review-ok: the delegations table's one enumerable home (the ballots.ts pattern; no cache sits above it)
     "SELECT delegator_id, delegate_id FROM delegations WHERE revoked_at IS NULL",
   );
@@ -134,6 +221,10 @@ export async function resolveDelegate(pool: Pool, userId: string): Promise<Resol
  *
  * Pure and exported so the refusal can be proven without a database, and so
  * the route and the writer below cannot drift into two different rules.
+ *
+ * HAND IT THE OFFERED MAP, never the carrying one (0138). A loop made of
+ * offers nobody has accepted yet closes the moment they are accepted, in the
+ * tally, where there is nobody left to refuse it.
  */
 export function delegationProblem(
   map: Map<string, string>,
@@ -166,13 +257,33 @@ export type SetDelegationResult =
   | { ok: false; error: string };
 
 /**
- * Give a delegation, or move one that already stands.
+ * Give a delegation, or move one that already stands. It lands PENDING, and
+ * carries nothing until the delegate accepts.
  *
  * One row per member, ever: the primary key is the delegator alone, so this is
  * an upsert that also clears `revoked_at`. Handing your voice to somebody new
  * is one act, never a revocation followed by a gift, and a member who reads
  * their delegation between the two halves of that pair should never see a
  * moment where they had none.
+ *
+ * THE CYCLE GUARD READS THE OFFERS TOO. A loop that closes when a pending
+ * offer is accepted is still a loop, and the accept route is not the place to
+ * discover one, so the refusal happens here against every live row.
+ *
+ * WHEN AN ACCEPTANCE SURVIVES, AND WHY THE SQL IS ORDERED THE WAY IT IS. A
+ * member who re-gives a delegation to the SAME delegate while it still stands
+ * has changed nothing that delegate consented to, so the acceptance holds and
+ * nobody is asked to say yes twice to the same sentence. Re-pointing at
+ * somebody new, or reviving a delegation that was revoked, lands at pending:
+ * the new delegate has consented to nothing, and a consent given before a
+ * revocation was consent to an arrangement that ended.
+ *
+ * MySQL evaluates an ON DUPLICATE KEY UPDATE list left to right and later
+ * assignments see the earlier ones, so `accepted_at` is assigned FIRST, while
+ * `delegate_id` and `revoked_at` still hold their old values. Reordering
+ * those three assignments silently changes the rule. The case named "keeps an
+ * acceptance only for the same live delegate" in delegation.test.ts is what
+ * fails if anybody does.
  */
 export async function setDelegation(
   pool: Pool,
@@ -181,18 +292,120 @@ export async function setDelegation(
 ): Promise<SetDelegationResult> {
   const delegator = String(delegatorId ?? "").trim();
   const delegate = String(delegateId ?? "").trim();
-  const map = await loadDelegationMap(pool);
-  const problem = delegationProblem(map, delegator, delegate);
+  const offered = await loadOfferedMap(pool);
+  const problem = delegationProblem(offered, delegator, delegate);
   if (problem) return { ok: false, error: problem };
   await pool.query( // module-review-ok: the delegations table's one enumerable home (the ballots.ts pattern; no cache sits above it)
-    "INSERT INTO delegations (delegator_id, delegate_id, created_at, revoked_at) VALUES (?,?,NOW(),NULL) " +
-      "ON DUPLICATE KEY UPDATE delegate_id = VALUES(delegate_id), created_at = NOW(), revoked_at = NULL",
+    "INSERT INTO delegations (delegator_id, delegate_id, created_at, revoked_at, accepted_at) VALUES (?,?,NOW(),NULL,NULL) " +
+      "ON DUPLICATE KEY UPDATE " +
+      "accepted_at = IF(delegate_id = VALUES(delegate_id) AND revoked_at IS NULL, accepted_at, NULL), " +
+      "delegate_id = VALUES(delegate_id), created_at = NOW(), revoked_at = NULL",
     [delegator, delegate],
   );
   const row = await delegationOf(pool, delegator);
   if (!row) throw new Error(`delegation for ${delegator} vanished inside its own write`);
-  map.set(delegator, delegate);
-  return { ok: true, delegation: row, chain: resolveFinal(map, delegator) };
+  // The chain is walked over what CARRIES. A pending delegation resolves to
+  // the delegator themselves, because nobody is deciding for them yet.
+  const carrying = await loadDelegationMap(pool);
+  return { ok: true, delegation: row, chain: resolveFinal(carrying, delegator) };
+}
+
+export interface AcceptanceCounts {
+  /** Offers this act turned into carrying delegations, or live rows it ended. */
+  changed: number;
+  /**
+   * How many rows the act was eligible to touch before it ran. Zero with
+   * `changed` zero means there was nothing to do; a positive number with
+   * `changed` zero means somebody moved first.
+   */
+  eligible: number;
+  /** The delegators this act named, whatever it managed to do to them. */
+  delegatorIds: string[];
+}
+
+/**
+ * ACCEPT A DELEGATION OFFERED TO ME. The delegate's act, and the moment the
+ * chain starts carrying.
+ *
+ * `delegatorId` names one offer; omitting it, or handing in a blank, accepts
+ * every offer standing to me, which is the "you have three offers" inbox
+ * saying yes to all of them. Blank reads as absent deliberately: a route that
+ * forwards an empty form field must not be the difference between one
+ * acceptance and all of them, and "all" is the answer the member asked for
+ * when they pressed a button that named nobody.
+ * Either way the answer separates "there was nothing offered" from "something
+ * was offered and I could not take it", because a delegate who is told
+ * "accepted 0" and cannot tell which of those happened will assume the wrong
+ * one.
+ *
+ * ONLY A PENDING OFFER IS ACCEPTED. Re-accepting one that already carries is
+ * `changed: 0` with `eligible: 0` and no error: the state the delegate asked
+ * for is the state that stands.
+ */
+export async function acceptDelegations(
+  pool: Pool,
+  delegateId: string,
+  delegatorId?: string,
+): Promise<AcceptanceCounts> {
+  const delegate = String(delegateId ?? "");
+  // Blank reads as absent. See the header: an empty form field must not be
+  // the difference between one row and every row.
+  const named = String(delegatorId ?? "").trim();
+  const one = named === "" ? null : named;
+  const where =
+    "delegate_id = ? AND revoked_at IS NULL AND accepted_at IS NULL" + (one ? " AND delegator_id = ?" : "");
+  const args = one ? [delegate, one] : [delegate];
+  const [pending] = await pool.query<RowDataPacket[]>( // module-review-ok: the delegations table's one enumerable home (the ballots.ts pattern; no cache sits above it)
+    `SELECT delegator_id FROM delegations WHERE ${where}`,
+    args,
+  );
+  const delegatorIds = pending.map((r) => String(r.delegator_id));
+  if (delegatorIds.length === 0) return { changed: 0, eligible: 0, delegatorIds: [] };
+  const [result] = await pool.query<any>( // module-review-ok: the delegations table's one enumerable home (the ballots.ts pattern; no cache sits above it)
+    `UPDATE delegations SET accepted_at = NOW() WHERE ${where}`,
+    args,
+  );
+  return { changed: Number(result.affectedRows), eligible: delegatorIds.length, delegatorIds };
+}
+
+/**
+ * DECLINE A DELEGATION OFFERED TO ME, or hand one back that I had accepted.
+ *
+ * One act for both, because they are one act: the delegate ending an
+ * arrangement they are half of. Either side may end a delegation at any time,
+ * and a delegate who is asked to carry somebody's voice and does not want to
+ * is not obliged to keep the offer sitting there. A declined row stamps
+ * `revoked_at` like any other ending, so the delegator sees the same "nobody
+ * is deciding for me" state they would see if they had taken it back
+ * themselves, and the row that says so is one row rather than two states.
+ *
+ * `delegatorId` names one; omitting it or handing in a blank ends every live
+ * delegation pointed at me, the same normalisation `acceptDelegations` makes
+ * and for the same reason.
+ */
+export async function declineDelegations(
+  pool: Pool,
+  delegateId: string,
+  delegatorId?: string,
+): Promise<AcceptanceCounts> {
+  const delegate = String(delegateId ?? "");
+  // Blank reads as absent. See the header: an empty form field must not be
+  // the difference between one row and every row.
+  const named = String(delegatorId ?? "").trim();
+  const one = named === "" ? null : named;
+  const where = "delegate_id = ? AND revoked_at IS NULL" + (one ? " AND delegator_id = ?" : "");
+  const args = one ? [delegate, one] : [delegate];
+  const [live] = await pool.query<RowDataPacket[]>( // module-review-ok: the delegations table's one enumerable home (the ballots.ts pattern; no cache sits above it)
+    `SELECT delegator_id FROM delegations WHERE ${where}`,
+    args,
+  );
+  const delegatorIds = live.map((r) => String(r.delegator_id));
+  if (delegatorIds.length === 0) return { changed: 0, eligible: 0, delegatorIds: [] };
+  const [result] = await pool.query<any>( // module-review-ok: the delegations table's one enumerable home (the ballots.ts pattern; no cache sits above it)
+    `UPDATE delegations SET revoked_at = NOW() WHERE ${where}`,
+    args,
+  );
+  return { changed: Number(result.affectedRows), eligible: delegatorIds.length, delegatorIds };
 }
 
 /**
@@ -211,7 +424,7 @@ export async function revokeDelegation(pool: Pool, delegatorId: string): Promise
 /** The delegation this member gave, live or revoked, or null if they never gave one. */
 export async function delegationOf(pool: Pool, delegatorId: string): Promise<DelegationRow | null> {
   const [rows] = await pool.query<RowDataPacket[]>( // module-review-ok: the delegations table's one enumerable home (the ballots.ts pattern; no cache sits above it)
-    "SELECT delegator_id, delegate_id, created_at, revoked_at FROM delegations WHERE delegator_id = ?",
+    "SELECT delegator_id, delegate_id, created_at, revoked_at, accepted_at FROM delegations WHERE delegator_id = ?",
     [String(delegatorId ?? "")],
   );
   const r = rows[0];
@@ -221,13 +434,41 @@ export async function delegationOf(pool: Pool, delegatorId: string): Promise<Del
     delegateId: String(r.delegate_id),
     createdAt: iso(r.created_at),
     revokedAt: r.revoked_at === null || r.revoked_at === undefined ? null : iso(r.revoked_at),
+    acceptedAt: r.accepted_at === null || r.accepted_at === undefined ? null : iso(r.accepted_at),
   };
 }
 
-/** The live delegation this member gave, or null. */
+/**
+ * The live delegation this member gave, or null. Live includes PENDING: an
+ * offer is a real thing the delegator gave and can take back, and hiding it
+ * from them until somebody else acts would leave them unable to see why
+ * nothing is being decided on their behalf.
+ */
 export async function liveDelegationOf(pool: Pool, delegatorId: string): Promise<DelegationRow | null> {
   const row = await delegationOf(pool, delegatorId);
   return row && row.revokedAt === null ? row : null;
+}
+
+/**
+ * EVERY DELEGATION OFFERED TO ME OR CARRIED BY ME, newest first.
+ *
+ * A pending delegation is visible to both sides, which is what makes the
+ * handshake a handshake rather than a request into silence. The delegate sees
+ * who is asking; the delegator sees that they are waiting.
+ */
+export async function delegationsToMe(pool: Pool, delegateId: string): Promise<DelegationRow[]> {
+  const [rows] = await pool.query<RowDataPacket[]>( // module-review-ok: the delegations table's one enumerable home (the ballots.ts pattern; no cache sits above it)
+    "SELECT delegator_id, delegate_id, created_at, revoked_at, accepted_at FROM delegations " +
+      "WHERE delegate_id = ? AND revoked_at IS NULL ORDER BY created_at DESC, delegator_id",
+    [String(delegateId ?? "")],
+  );
+  return rows.map((r) => ({
+    delegatorId: String(r.delegator_id),
+    delegateId: String(r.delegate_id),
+    createdAt: iso(r.created_at),
+    revokedAt: r.revoked_at === null || r.revoked_at === undefined ? null : iso(r.revoked_at),
+    acceptedAt: r.accepted_at === null || r.accepted_at === undefined ? null : iso(r.accepted_at),
+  }));
 }
 
 export interface ConcentrationRow {
@@ -312,6 +553,67 @@ export async function effectiveConcentration(pool: Pool, roster: string[]): Prom
   return concentrationOver(await loadDelegationMap(pool), roster);
 }
 
+/**
+ * WHETHER A DELEGATED ROW MAY EXIST ON THIS BALLOT AT ALL.
+ *
+ * Pure, and read from the ballot's own FROZEN dials plus the subject's rules,
+ * so a village that changes its thresholds mid-vote cannot change the answer
+ * for a ballot already running.
+ *
+ * Three ways a subject says "everybody, personally":
+ *
+ *  - `unityPct` at 100 or above: every decided vote has to agree.
+ *  - `consensus`: the method whose own sentence is unity of 100.
+ *  - `minYesHeads: "all"`: the Birthing's rule said in heads, every seat yes.
+ *
+ * On any of them a delegated row is refused. The Birthing's stated meaning is
+ * that every member of a new village personally showed up and said yes, and
+ * its floor of three different parties is the whole legitimacy of the act. A
+ * member holding two accepted delegations would otherwise satisfy that floor
+ * alone: three rows, three seats, one person, and a record that reads as three
+ * parties agreeing. The audit found the same hole under the transparency
+ * ruling, and this is the door it closes.
+ *
+ * The refusal is not a punishment for delegating. A member who delegated is
+ * simply not cast on this one vote and can vote it themselves, which is a
+ * right they never gave up.
+ */
+export function delegationCarriesOn(ballot: {
+  subjectType: string;
+  method: string;
+  unityPct: number;
+}): { carries: boolean; why: string | null } {
+  const { minYesHeads } = evaluationRulesFor(ballot.subjectType);
+  if (Number(ballot.unityPct) >= 100 || ballot.method === "consensus" || minYesHeads === "all") {
+    return {
+      carries: false,
+      why: "This vote asks every member to answer it themselves, so a delegated voice is not cast on it. Vote it yourself if you want it counted",
+    };
+  }
+  return { carries: true, why: null };
+}
+
+/**
+ * DELETE ONE DELEGATED ROW. The single statement that un-casts a copied vote,
+ * and the only DELETE this engine performs against `ballot_votes`.
+ *
+ * `followed_user_id IS NOT NULL` is not an optimisation, it is the guard: a
+ * vote a member made themselves is theirs, and no delegation machinery may
+ * reach it. Every caller goes through here so there is one such statement to
+ * read rather than one per caller. The guarded, clock-checking door both
+ * routes come through is `uncastDelegatedVote` in server/lib/ballots.ts.
+ *
+ * Returns how many rows went, so "there was nothing following here" and "the
+ * delete did not land" are different answers.
+ */
+export async function deleteDelegatedRow(pool: Pool, ballotId: string, userId: string): Promise<number> {
+  const [result] = await pool.query<any>( // module-review-ok: the ballot tables' one enumerable home (the ballots.ts pattern; no cache sits above them)
+    "DELETE FROM ballot_votes WHERE ballot_id = ? AND user_id = ? AND followed_user_id IS NOT NULL",
+    [String(ballotId), String(userId)],
+  );
+  return Number(result.affectedRows);
+}
+
 export interface DerivationCounts {
   /** Rows written for a member who had none. */
   added: number;
@@ -324,9 +626,17 @@ export interface DerivationCounts {
    * needed doing" from "this ballot was never eligible".
    */
   eligible: boolean;
+  /**
+   * False on a subject that refuses delegated rows (`delegationCarriesOn`).
+   * Separate from `eligible` on purpose: a caller that reports "0 rows" has to
+   * be able to say whether the ballot was closed, or open and asking everybody
+   * to answer for themselves. Those read the same in a count and are different
+   * facts.
+   */
+  carries: boolean;
 }
 
-const NOTHING: DerivationCounts = { added: 0, changed: 0, removed: 0, eligible: false };
+const NOTHING: DerivationCounts = { added: 0, changed: 0, removed: 0, eligible: false, carries: false };
 
 /**
  * DERIVE EVERY DELEGATED ROW ON ONE BALLOT from the delegations that stand
@@ -358,8 +668,8 @@ const NOTHING: DerivationCounts = { added: 0, changed: 0, removed: 0, eligible: 
  * it any ballot id without checking the clock first.
  */
 export async function applyDelegatedVotes(pool: Pool, ballotId: string): Promise<DerivationCounts> {
-  const [ballotRows] = await pool.query<RowDataPacket[]>( // module-review-ok: a read of the ballot's own clock, beside the derivation it gates (the ballots.ts pattern)
-    "SELECT status, closes_at FROM ballots WHERE id = ?",
+  const [ballotRows] = await pool.query<RowDataPacket[]>( // module-review-ok: a read of the ballot's own clock and frozen dials, beside the derivation they gate (the ballots.ts pattern)
+    "SELECT status, closes_at, subject_type, method, unity_pct FROM ballots WHERE id = ?",
     [ballotId],
   );
   const ballot = ballotRows[0];
@@ -367,6 +677,24 @@ export async function applyDelegatedVotes(pool: Pool, ballotId: string): Promise
   // One clock, the same subtraction castVote makes: `closes_at` was written
   // from a process clock, so this holds on a database in any zone.
   if (Date.parse(iso(ballot.closes_at)) <= Date.now()) return { ...NOTHING };
+
+  // EVERYBODY, PERSONALLY. On a subject that asks for unity of 100 or a yes
+  // from every seat, no delegated row exists, and any that stand are swept
+  // here rather than left to be counted. The sweep runs before the map is
+  // even loaded: a village that turned this subject strict after a delegation
+  // was derived should still find nothing following on it.
+  const { carries } = delegationCarriesOn({
+    subjectType: String(ballot.subject_type),
+    method: String(ballot.method),
+    unityPct: Number(ballot.unity_pct),
+  });
+  if (!carries) {
+    const [swept] = await pool.query<any>( // module-review-ok: the ballot tables' one enumerable home (the ballots.ts pattern; no cache sits above them)
+      "DELETE FROM ballot_votes WHERE ballot_id = ? AND followed_user_id IS NOT NULL",
+      [ballotId],
+    );
+    return { added: 0, changed: 0, removed: Number(swept.affectedRows), eligible: true, carries: false };
+  }
 
   const map = await loadDelegationMap(pool);
   if (map.size === 0) {
@@ -379,7 +707,7 @@ export async function applyDelegatedVotes(pool: Pool, ballotId: string): Promise
       "DELETE FROM ballot_votes WHERE ballot_id = ? AND followed_user_id IS NOT NULL",
       [ballotId],
     );
-    return { added: 0, changed: 0, removed: Number(swept.affectedRows), eligible: true };
+    return { added: 0, changed: 0, removed: Number(swept.affectedRows), eligible: true, carries: true };
   }
 
   const [rollRows] = await pool.query<RowDataPacket[]>( // module-review-ok: the ballot tables' one enumerable home (the ballots.ts pattern; no cache sits above them)
@@ -400,7 +728,7 @@ export async function applyDelegatedVotes(pool: Pool, ballotId: string): Promise
     else delegated.set(uid, { choice, followed: String(r.followed_user_id) });
   }
 
-  const counts: DerivationCounts = { added: 0, changed: 0, removed: 0, eligible: true };
+  const counts: DerivationCounts = { added: 0, changed: 0, removed: 0, eligible: true, carries: true };
 
   for (const r of rollRows) {
     const member = String(r.user_id);
@@ -411,10 +739,9 @@ export async function applyDelegatedVotes(pool: Pool, ballotId: string): Promise
 
     if (decidedChoice === undefined) {
       if (!standing) continue;
-      await pool.query( // module-review-ok: the ballot tables' one enumerable home (the ballots.ts pattern; no cache sits above them)
-        "DELETE FROM ballot_votes WHERE ballot_id = ? AND user_id = ? AND followed_user_id IS NOT NULL",
-        [ballotId, member],
-      );
+      // The one DELETE, through the one statement that performs it. See
+      // `deleteDelegatedRow`: the own-vote guard lives there, once.
+      await deleteDelegatedRow(pool, ballotId, member);
       counts.removed += 1;
       continue;
     }
@@ -503,4 +830,309 @@ export async function votesFollowedBy(pool: Pool, userId: string, limit = 50): P
       r.followed_user_id === null || r.followed_user_id === undefined ? null : String(r.followed_user_id),
     castAt: iso(r.cast_at),
   }));
+}
+
+// ── 0138: WHAT A DELEGATOR MAY READ WHILE THE VOTE IS STILL RUNNING ─────────
+
+/**
+ * The village setting that says whether choices are shown while a ballot runs.
+ *
+ * NOT REGISTERED HERE. The voter-identity setting belongs to the lane that
+ * builds the ballot surfaces, and one key defined in two places is one key
+ * that disagrees with itself. This module names the key it reads and defaults
+ * to HIDDEN, which is both the founder's ruling (Q12: participation visible,
+ * choices hidden) and the fail-safe direction, so the rule below is real
+ * before the control that switches it exists.
+ */
+export const VOTER_IDENTITY_KEY = "governance.voter_identity";
+
+/**
+ * Are choices hidden right now, and did a village setting say so.
+ *
+ * The two facts come back together because a caller printing "hidden" has to
+ * be able to say whether the village chose it or whether nothing has been
+ * chosen yet. Reading an unregistered key throws by design in
+ * server/lib/variables.ts (a typo must not read as 0), so this asks the
+ * registry first rather than catching an exception, and an unregistered key
+ * answers "default" instead of pretending a village decided anything.
+ */
+export function voterIdentityNow(): { choicesHidden: boolean; source: "setting" | "default" } {
+  if (!VARIABLES_BY_KEY[VOTER_IDENTITY_KEY]) return { choicesHidden: true, source: "default" };
+  return { choicesHidden: String(variable(VOTER_IDENTITY_KEY)) !== "public", source: "setting" };
+}
+
+export interface OwnVoteFacts {
+  /** Null while the choice is held back. Never null once the ballot has closed. */
+  choice: VoteChoice | null;
+  /** The words this member wrote. Null on a delegated row, which never carries a reason. */
+  reason: string | null;
+  /** Who decided this row, or null when the member decided it themselves. */
+  followedUserId: string | null;
+  followedName: string | null;
+  /** True when a choice exists and this member may not read it yet. */
+  choiceHidden: boolean;
+  state: "cast_by_me" | "cast_following";
+  /** What the row says on the page, in words rather than a code. */
+  sentence: string;
+}
+
+/**
+ * WHAT A MEMBER'S OWN ROW SAYS, AND WHEN IT SAYS THE CHOICE.
+ *
+ * Pure, so the rule can be proven with no database and so the serving path
+ * and any later surface cannot drift into two versions of it.
+ *
+ * Section 4 argued that secrecy needed no mechanism here: a delegated vote is
+ * your own vote in your own row, so reading your row is how you learn what
+ * your delegate did. That was written while every ballot was public, and on a
+ * hidden ballot it is a disclosure channel pointed at whoever you name. So
+ * while a ballot is OPEN and choices are HIDDEN, a delegated row says that it
+ * was cast and who decided it, and not what it said. The choice arrives at
+ * the close, with everybody else's.
+ *
+ * A VOTE THE MEMBER CAST THEMSELVES IS NEVER HELD BACK. They already know it,
+ * hiding it would tell them nothing they do not know, and it would take away
+ * the one control that lets them check what they answered before the window
+ * shuts.
+ */
+export function hiddenChoiceView(input: {
+  ballotStatus: string;
+  choicesHidden: boolean;
+  choice: VoteChoice;
+  reason?: string | null;
+  followedUserId?: string | null;
+  followedName?: string | null;
+}): OwnVoteFacts {
+  const followedUserId = input.followedUserId ?? null;
+  const followedName = input.followedName ?? null;
+  const who = followedName ?? "the member deciding for you";
+  if (followedUserId === null) {
+    return {
+      choice: input.choice,
+      reason: input.reason ?? null,
+      followedUserId: null,
+      followedName: null,
+      choiceHidden: false,
+      state: "cast_by_me",
+      sentence: `You voted ${input.choice}`,
+    };
+  }
+  const hide = input.ballotStatus === "open" && input.choicesHidden;
+  return {
+    choice: hide ? null : input.choice,
+    reason: input.reason ?? null,
+    followedUserId,
+    followedName,
+    choiceHidden: hide,
+    state: "cast_following",
+    sentence: hide
+      ? `Cast, following ${who}. What it says is shown when this vote closes, with everyone else's`
+      : `Cast, following ${who}: ${input.choice}`,
+  };
+}
+
+// ── 0138: THE WITHHELD BLOC, AND CONCENTRATION AGAINST THE PEOPLE ASKED ─────
+
+export interface BallotDelegationRow {
+  userId: string;
+  /**
+   * Seats on THIS ballot's frozen roll that this member decides, counting
+   * their own seat when they decide it themselves. The number that matters on
+   * a live vote, because the roll is who was asked.
+   */
+  effectiveVotesOnRoll: number;
+  /** `effectiveVotesOnRoll` over the frozen roll size, 0 to 1. */
+  shareOfElectorate: number;
+  /**
+   * The same count over every account in the village, which is the figure the
+   * concentration page has always shown. Kept beside the roll figure rather
+   * than replaced by it, because the two answer different questions and a
+   * page that showed one under the other's label would mislead quietly.
+   */
+  effectiveVotesAllAccounts: number;
+  shareOfAllAccounts: number;
+  /**
+   * Seats on the roll following this member that have no vote here. A
+   * delegate who does not vote withholds every one of them, which is stronger
+   * than voting no, and this is the number that makes it visible while the
+   * window is open instead of after it shuts.
+   */
+  unvotedDelegations: number;
+  /** Whether this member has a vote of their own on this ballot. */
+  votedHere: boolean;
+  /** Whether this member is on the frozen roll at all. */
+  onRoll: boolean;
+}
+
+export interface BallotDelegationView {
+  ballotId: string;
+  /** False on a ballot that is not taking votes. */
+  eligible: boolean;
+  /** False on a subject that refuses delegated rows entirely. */
+  carries: boolean;
+  whyNot: string | null;
+  /** The frozen roll size: how many people were asked. */
+  electorateCount: number;
+  /** Every account in the village, the denominator of the older figure. */
+  accountCount: number;
+  /** Roll seats following somebody who has not voted here. The whole withheld bloc. */
+  withheldSeats: number;
+  /**
+   * One row per roll member, most concentrated first, PLUS any member off the
+   * roll who decides a seat on it. Dropping the second kind would lose their
+   * votes out of the total and make the shares add to less than one, which is
+   * the same reason `concentrationOver` keeps them.
+   */
+  rows: BallotDelegationRow[];
+}
+
+/**
+ * The two denominators, named here once, so no surface has to invent a label
+ * for them and no surface can put one number under the other's words.
+ */
+export const CONCENTRATION_LABELS = {
+  electorate: "of the people asked on this vote",
+  allAccounts: "of every account in the village",
+} as const;
+
+/**
+ * WHAT DELEGATION IS DOING TO THIS ONE BALLOT, WHILE IT IS STILL OPEN.
+ *
+ * Two figures per member and both of them labelled, because they answer
+ * different questions and the difference is the point. Share of the
+ * ELECTORATE is how much of this decision one member holds: the roll is the
+ * people who were asked, and a member deciding four of nine seats decides
+ * this vote's outcome far more than "four of ninety accounts" suggests. Share
+ * of every account is the village-wide picture the concentration page already
+ * served, and dropping it would make a number quietly change meaning.
+ *
+ * `allAccounts` comes from the caller for the same reason
+ * `concentrationOver`'s roster does: "every member" means one thing to a
+ * route serving the village and another to a ballot serving its frozen roll,
+ * and a function that guessed would be right for one of them.
+ */
+export async function ballotDelegationView(
+  pool: Pool,
+  ballotId: string,
+  allAccounts: readonly string[],
+): Promise<BallotDelegationView> {
+  const [ballotRows] = await pool.query<RowDataPacket[]>( // module-review-ok: a read of the ballot's own clock and frozen dials, beside the view they gate (the ballots.ts pattern)
+    "SELECT status, closes_at, subject_type, method, unity_pct, electorate_count FROM ballots WHERE id = ?",
+    [ballotId],
+  );
+  const ballot = ballotRows[0];
+  // Deduplicated the long way: tsconfig.json leaves `target` at its ES5
+  // default, so spreading a Set is TS2802 here (the same reason
+  // `concentrationOver` reaches for `forEach` over a Map).
+  const seenAccount = new Set<string>();
+  const accounts: string[] = [];
+  for (const a of allAccounts) {
+    const id = String(a);
+    if (seenAccount.has(id)) continue;
+    seenAccount.add(id);
+    accounts.push(id);
+  }
+  if (!ballot) {
+    return {
+      ballotId,
+      eligible: false,
+      carries: false,
+      whyNot: null,
+      electorateCount: 0,
+      accountCount: accounts.length,
+      withheldSeats: 0,
+      rows: [],
+    };
+  }
+  const verdict = delegationCarriesOn({
+    subjectType: String(ballot.subject_type),
+    method: String(ballot.method),
+    unityPct: Number(ballot.unity_pct),
+  });
+  const open = String(ballot.status) === "open" && Date.parse(iso(ballot.closes_at)) > Date.now();
+
+  const [rollRows] = await pool.query<RowDataPacket[]>( // module-review-ok: the ballot tables' one enumerable home (the ballots.ts pattern; no cache sits above them)
+    "SELECT user_id FROM ballot_electorate WHERE ballot_id = ? ORDER BY user_id",
+    [ballotId],
+  );
+  const roll = rollRows.map((r) => String(r.user_id));
+  const [voteRows] = await pool.query<RowDataPacket[]>( // module-review-ok: the ballot tables' one enumerable home (the ballots.ts pattern; no cache sits above them)
+    "SELECT user_id, followed_user_id FROM ballot_votes WHERE ballot_id = ?",
+    [ballotId],
+  );
+  const votedThemselves = new Set<string>();
+  const hasAnyRow = new Set<string>();
+  for (const r of voteRows) {
+    const uid = String(r.user_id);
+    hasAnyRow.add(uid);
+    if (r.followed_user_id === null || r.followed_user_id === undefined) votedThemselves.add(uid);
+  }
+
+  // A subject that refuses delegated rows has no chains to report on: the
+  // empty map makes every member decide their own seat, which is exactly what
+  // is true on that ballot.
+  const map = verdict.carries ? await loadDelegationMap(pool) : new Map<string, string>();
+  const onRoll = concentrationOver(map, roll);
+  const wideRows = new Map(concentrationOver(map, accounts).map((r) => [r.userId, r]));
+
+  const unvoted = new Map<string, number>();
+  let withheldSeats = 0;
+  for (const member of roll) {
+    const walk = resolveFinal(map, member);
+    if (walk.finalId === member) continue;
+    if (hasAnyRow.has(member)) continue;
+    unvoted.set(walk.finalId, (unvoted.get(walk.finalId) ?? 0) + 1);
+    withheldSeats += 1;
+  }
+
+  const rows: BallotDelegationRow[] = onRoll.map((r) => {
+    const wide = wideRows.get(r.userId);
+    return {
+      userId: r.userId,
+      effectiveVotesOnRoll: r.effectiveVotes,
+      shareOfElectorate: r.shareOfElectorate,
+      effectiveVotesAllAccounts: wide ? wide.effectiveVotes : 0,
+      shareOfAllAccounts: wide ? wide.shareOfElectorate : 0,
+      unvotedDelegations: unvoted.get(r.userId) ?? 0,
+      votedHere: votedThemselves.has(r.userId),
+      onRoll: r.onRoster,
+    };
+  });
+  rows.sort(
+    (a, b) =>
+      b.effectiveVotesOnRoll - a.effectiveVotesOnRoll ||
+      b.unvotedDelegations - a.unvotedDelegations ||
+      a.userId.localeCompare(b.userId),
+  );
+
+  return {
+    ballotId,
+    eligible: open,
+    carries: verdict.carries,
+    whyNot: verdict.why,
+    electorateCount: Number(ballot.electorate_count) || roll.length,
+    accountCount: accounts.length,
+    withheldSeats,
+    rows,
+  };
+}
+
+/**
+ * How many seats following this member have no vote on this ballot. The one
+ * number a delegate's own page needs, read through the view above so there is
+ * one arithmetic rather than two.
+ *
+ * `allAccounts` is only the village-wide denominator, which this number does
+ * not use, so it defaults to empty. A caller that wants the shares as well
+ * should call `ballotDelegationView` and read them off the row.
+ */
+export async function unvotedDelegationsOn(
+  pool: Pool,
+  ballotId: string,
+  delegateId: string,
+  allAccounts: readonly string[] = [],
+): Promise<number> {
+  const view = await ballotDelegationView(pool, ballotId, allAccounts);
+  const mine = view.rows.find((r) => r.userId === String(delegateId));
+  return mine ? mine.unvotedDelegations : 0;
 }
