@@ -353,7 +353,7 @@ export default function Events() {
             <p role="status" className="mb-4 text-sm text-teal-deep bg-teal-deep/10 border border-teal-deep/20 rounded-lg px-3 py-2">{notice}</p>
           )}
           {problem && (
-            <p className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{problem}</p>
+            <p role="alert" className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{problem}</p>
           )}
 
           <div className="flex items-center justify-between gap-2 flex-wrap mb-4">

@@ -310,7 +310,7 @@ function NewConversation({ onClose }: { onClose: () => void }) {
         </label>
       )}
 
-      {error && <p className="text-sm text-destructive mb-3">{error}</p>}
+      {error && <p role="alert" className="text-sm text-destructive mb-3">{error}</p>}
 
       <div className="flex gap-2">
         <button
@@ -433,7 +433,7 @@ function AddMembers({
         </ul>
       )}
 
-      {error && <p className="text-sm text-destructive mb-2">{error}</p>}
+      {error && <p role="alert" className="text-sm text-destructive mb-2">{error}</p>}
 
       <div className="flex gap-2">
         <button
@@ -858,7 +858,7 @@ function ThreadView({ id }: { id: string }) {
             <div ref={bottom} />
           </div>
 
-          {error && <p className="shrink-0 px-4 py-2 text-sm text-destructive border-t border-border">{error}</p>}
+          {error && <p role="alert" className="shrink-0 px-4 py-2 text-sm text-destructive border-t border-border">{error}</p>}
 
           <form
             className="shrink-0 flex items-end gap-2 p-2 sm:p-3 border-t border-border bg-card safe-area-pb"

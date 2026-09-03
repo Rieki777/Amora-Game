@@ -102,8 +102,15 @@ export default function WeeklyBrief({ signedIn }: { signedIn: boolean }) {
               </button>
             </div>
             <div className="px-5 py-4">
-              {problem && <p className="text-sm text-red-700">{problem}</p>}
-              {!problem && !brief && <p className="text-sm text-muted-foreground">Loading...</p>}
+              {/* The loading line and the failure line swap inside one region
+                  that is present from first paint, so the swap is announced.
+                  The brief itself stays OUTSIDE it - a live region wrapped
+                  round the whole brief would read the entire digest aloud
+                  every time it arrived. */}
+              <div role="status">
+                {problem && <p className="text-sm text-red-700">{problem}</p>}
+                {!problem && !brief && <p className="text-sm text-muted-foreground">Loading...</p>}
+              </div>
               {brief && (
                 <div className="text-sm text-foreground leading-relaxed [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5"
                   dangerouslySetInnerHTML={{ __html: brief.html }} />

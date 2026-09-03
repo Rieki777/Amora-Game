@@ -91,12 +91,15 @@ export default function Modules() {
           </p>
         </header>
 
-        {failed && (
-          <p className="text-sm text-muted-foreground py-12 text-center">
-            The library could not load just now. Try again in a moment.
-          </p>
-        )}
-        {!data && !failed && <p className="text-sm text-muted-foreground py-12 text-center">Loading the shelves…</p>}
+        {/* Always-present polite region, same shape as Circles.tsx. */}
+        <div role="status">
+          {failed && (
+            <p className="text-sm text-muted-foreground py-12 text-center">
+              The library could not load just now. Try again in a moment.
+            </p>
+          )}
+          {!data && !failed && <p className="text-sm text-muted-foreground py-12 text-center">Loading the shelves…</p>}
+        </div>
 
         {data &&
           data.groups.map((g, gi) => {

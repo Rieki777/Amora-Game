@@ -240,7 +240,7 @@ export default function Visit() {
                   className="w-full px-3 py-2 border border-stone-200 rounded-lg outline-none focus:border-teal-deep resize-y"
                 />
               </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
               <button
                 type="submit"
                 disabled={submitting}
