@@ -7,6 +7,7 @@ import Celebration from "@/components/natural/Celebration";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import { useMomentWindow } from "@/components/natural/moments";
 import { capabilityLabel } from "@shared/capabilities";
+import { villageMoonLabel } from "@shared/villageMoon";
 import { claimMoment } from "@/lib/celebrated";
 import { playMoment } from "@/lib/sound";
 
@@ -167,9 +168,16 @@ export default function ProfileJourney() {
 
           {(prog.capabilities?.length > 0 || prog.roles?.length > 0) && (
             <div className="flex flex-wrap gap-2 mb-5">
-              {(prog.roles ?? []).map((r: string) => (
-                <span key={r} className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
-                  <Users className="w-3 h-3" /> {prettySource(r)}
+              {/* THE ROLE'S OWN NAME, which the seed has always carried.
+                  This ran `prettySource` over the ID and printed
+                  "Founders-Circle", because a prettifier can title-case an
+                  id and can never learn where the words break. The payload
+                  sends `{ id, name }` now, so the chip reads the name a
+                  founder typed and the id stays as the title for the one
+                  reader who wants it. */}
+              {(prog.roles ?? []).map((r: { id: string; name: string }) => (
+                <span key={r.id} title={r.id} className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
+                  <Users className="w-3 h-3" /> {r.name}
                 </span>
               ))}
               {/* WHAT A MEMBER CAN DO, IN WORDS. These rendered the raw keys,
@@ -268,11 +276,22 @@ export default function ProfileJourney() {
           </div>
           {(flows.byCycle ?? []).length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">By lunar cycle</p>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">By moon</p>
               <div className="space-y-1.5">
+                {/*
+                  The row is keyed by the stored cycle id and LABELLED by the
+                  village's own moon. A key is machinery and a label is a
+                  sentence to a member; this row used to print the key.
+                */}
                 {flows.byCycle.slice(0, 6).map((c: any) => (
-                  <div key={c.cycleId} className="flex items-center justify-between text-sm border border-gray-100 rounded-lg px-3 py-2">
-                    <span className="text-gray-500 font-mono text-xs">{c.cycleId}</span>
+                  <div key={c.cycleId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm border border-gray-100 rounded-lg px-3 py-2">
+                    {/*
+                      A row whose stored id this build cannot place gets no
+                      moon, and the honest thing to print there is that it has
+                      none. The old id in its place would be a leak, and a
+                      blank span would read as a rendering fault.
+                    */}
+                    <span className="text-gray-500 text-xs">{villageMoonLabel(c.moon) || "Moon not known"}</span>
                     <span className="text-gray-700">
                       {c.received} received · {c.distinctSenders} sender{c.distinctSenders === 1 ? "" : "s"}
                     </span>

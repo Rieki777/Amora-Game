@@ -2,8 +2,7 @@ import { fetchGameMe, GameMe } from "@/lib/gameApi";
 import { useTokenName } from "@/hooks/useTokenNames";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { ArrowRight, CheckCircle2, Circle, Compass, Heart, Sparkles } from "lucide-react";
-import MoonProgress from "@/components/natural/MoonProgress";
+import { ArrowRight, Compass, Heart, Sparkles } from "lucide-react";
 import StageAdvanced from "@/components/StageAdvanced";
 import { claimMoment } from "@/lib/celebrated";
 
@@ -69,70 +68,21 @@ export default function GameDashboard() {
         <ArrowRight className="w-5 h-5 shrink-0" />
       </Link>
 
-      {/* Path of Growth */}
-      <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-3">
-            {/*
-              The first surface to speak the natural kit's language: the rail's
-              own position, drawn as a moon filling toward full. The stage
-              chips below carry the same reading in words, so the moon adds a
-              shape to something already stated and never replaces it.
-
-              stageIndex over the last index, because the last stage is arrival
-              and a member standing there is at a full moon rather than at
-              seven eighths of one. One stage alone reads as full, which is the
-              truthful answer when there is nowhere further to walk.
-            */}
-            <MoonProgress
-              value={me.stages.length > 1 ? me.stageIndex / (me.stages.length - 1) : 1}
-              size={40}
-              label="Path of Growth"
-              showNumber={false}
-            />
-            <h3 className="font-display text-xl font-bold text-teal-deep">Path of Growth</h3>
-          </div>
-          {/* sage, not teal-deep. The chip's own bg-teal-deep/10 composites over
-              the white card to rgb(231,242,242), which drops teal from 4.81 on
-              white to 4.21 and under the 4.5 floor. A tint you set on an element
-              is a backdrop for the text ON that element, and the two are chosen
-              together or not at all. sage measures 5.21 on the same backdrop. */}
-          <span className="text-sm font-semibold text-sage bg-teal-deep/10 px-3 py-1 rounded-full">
-            {me.stage.name}
-          </span>
-        </div>
-        <p className="text-sm text-stone-500 mb-5">{me.stage.description}</p>
-        <ol className="flex flex-wrap gap-y-3">
-          {me.stages.map((s, i) => {
-            const reached = i <= me.stageIndex;
-            const current = i === me.stageIndex;
-            return (
-              <li key={s.id} className="flex items-center" title={`${s.name}: ${s.description}`}>
-                <span
-                  className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${
-                    current
-                      ? "bg-teal-deep text-white"
-                      : reached
-                      ? "text-teal-deep"
-                      : "text-stone-400"
-                  }`}
-                >
-                  {reached ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Circle className="w-3.5 h-3.5" />}
-                  {s.name}
-                </span>
-                {i < me.stages.length - 1 && <span className="mx-0.5 text-stone-300">·</span>}
-              </li>
-            );
-          })}
-        </ol>
-      </div>
+      {/* The stage ladder used to stand here as "Path of Growth". It moved to
+          `components/profile/MaturityLadder.tsx`, which the character sheet
+          renders as its own Maturity section. The move IS the fix: the rungs a
+          member had not reached were text-stone-400 at 2.52:1, the rung they
+          stood on was signalled by background colour with no aria-current, and
+          the separator between rungs was a literal middle dot that screen
+          readers announce. Drawing it in two places would have meant fixing it
+          in two places. */}
 
       {/* Gratitude + quests */}
       <div className="grid md:grid-cols-2 gap-4">
         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
           <div className="flex items-center gap-2 mb-3">
             <Heart className="w-5 h-5 text-coral" />
-            <h3 className="font-display text-lg font-bold text-teal-deep">{currency}</h3>
+            <h2 className="font-display text-lg font-bold text-teal-deep">{currency}</h2>
           </div>
           <p className="text-3xl font-display font-bold text-teal-deep mb-1">{me.gratitude.balance}</p>
           <p className="text-sm text-stone-500 mb-4">earned so far</p>
@@ -150,7 +100,7 @@ export default function GameDashboard() {
         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
           <div className="flex items-center gap-2 mb-3">
             <Sparkles className="w-5 h-5 text-gold" />
-            <h3 className="font-display text-lg font-bold text-teal-deep">Quests</h3>
+            <h2 className="font-display text-lg font-bold text-teal-deep">Quests</h2>
           </div>
           {me.quests.length === 0 ? (
             <p className="text-sm text-stone-500 mb-4">You haven't claimed a quest yet.</p>

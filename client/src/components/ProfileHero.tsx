@@ -15,6 +15,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { authToken } from "@/lib/gameApi";
+import { Link } from "wouter";
 import { Star } from "lucide-react";
 
 const headers = (): Record<string, string> => {
@@ -81,7 +82,7 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
       <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
         {/* The hero. Tall card, so a three-quarter body portrait reads as a
             character rather than as an avatar thumbnail. */}
-        <div className="h-56 w-44 shrink-0 overflow-hidden rounded-2xl border border-teal-deep/20 bg-gradient-to-b from-teal-deep/10 to-amber/10 shadow-lg">
+        <div className="h-56 w-44 shrink-0 overflow-hidden rounded-2xl border border-border bg-muted shadow-sm">
           {primary?.avatar && !broken[primary.id] ? (
             <img
               src={primary.avatar}
@@ -91,7 +92,7 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
-              <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-amber/60 text-3xl font-semibold text-teal-deep">
+              <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-border text-3xl font-semibold text-foreground">
                 {primary ? initial(primary.archetypeKey) : name.slice(0, 1)}
               </div>
             </div>
@@ -99,22 +100,22 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
         </div>
 
         <div className="min-w-0 flex-1">
-          <h1 className="text-5xl font-display font-bold text-teal-deep mb-2">{name}</h1>
+          <h1 className="mb-2 font-display text-3xl font-bold break-words text-foreground sm:text-4xl lg:text-5xl">{name}</h1>
           {primary ? (
-            <p className="text-lg font-medium text-sage">
+            <p className="text-lg font-medium break-words text-foreground">
               {nameOf(primary.archetypeKey)}
               {subtitleOf(primary.archetypeKey) ? ` · ${subtitleOf(primary.archetypeKey)}` : ""}
             </p>
           ) : (
-            <p className="text-lg text-gray-600">
+            <p className="text-lg text-muted-foreground">
               No path chosen yet.{" "}
-              <a href="/profile/characters" className="text-teal-deep underline">
+              <Link href="/profile/characters" className="font-medium text-foreground underline underline-offset-2">
                 Choose who you will be
-              </a>
+              </Link>
             </p>
           )}
-          {title ? <p className="mt-1 text-amber-700">{title}</p> : null}
-          <p className="mt-2 text-gray-600">
+          {title ? <p className="mt-1 font-medium break-words text-foreground">{title}</p> : null}
+          <p className="mt-2 break-words text-muted-foreground">
             {handle ? `@${handle} · ` : ""}
             {moons === null ? "" : moons === 0 ? "New on the land" : `${moons} moons on the land`}
           </p>
@@ -132,11 +133,11 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
                 type="button"
                 onClick={() => front(c.id)}
                 title={`Front ${nameOf(c.archetypeKey)}`}
-                className={`relative w-20 shrink-0 overflow-hidden rounded-xl border bg-white transition ${
-                  c.isPrimary ? "border-teal-deep ring-2 ring-teal-deep/30" : "border-gray-200 hover:border-teal-deep/50"
+                className={`relative w-20 shrink-0 overflow-hidden rounded-xl border bg-card transition ${
+                  c.isPrimary ? "border-foreground ring-2 ring-ring" : "border-border hover:border-foreground"
                 }`}
               >
-                <span className="block aspect-[3/4] w-full bg-gray-50">
+                <span className="block aspect-[3/4] w-full bg-muted">
                   {c.avatar && !broken[c.id] ? (
                     <img
                       src={c.avatar}
@@ -145,24 +146,24 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <span className="flex h-full w-full items-center justify-center text-lg text-teal-deep">
+                    <span className="flex h-full w-full items-center justify-center text-lg text-foreground">
                       {initial(c.archetypeKey)}
                     </span>
                   )}
                 </span>
                 {c.isPrimary ? (
-                  <Star className="absolute left-1 top-1 h-4 w-4 fill-amber-400 text-amber-400" />
+                  <Star className="absolute left-1 top-1 h-4 w-4 fill-foreground text-foreground" aria-hidden="true" />
                 ) : null}
               </button>
             ))}
-            <a
+            <Link
               href="/profile/characters"
-              className="flex min-h-11 items-center rounded-xl border border-dashed border-sage/50 px-4 py-3 text-sm font-semibold text-sage hover:bg-sage/5"
+              className="flex min-h-11 items-center rounded-xl border border-dashed border-border px-4 py-3 text-sm font-semibold text-foreground hover:bg-muted"
             >
               Add a path
-            </a>
+            </Link>
           </div>
-          <p className="mt-2 text-sm text-gray-700">
+          <p className="mt-2 text-sm text-muted-foreground">
             Tap a character to front your sheet. Play as many as you like.
           </p>
         </div>

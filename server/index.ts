@@ -10,11 +10,12 @@ import { fileURLToPath } from "url";
 import crypto from "crypto";
 import multer from "multer";
 import bcrypt from "bcrypt";
-import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
+import { claimPaths, GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { recognitionNameCheck } from "../shared/launchRequirements";
 import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
 import { sceneStopsFor } from "../shared/questScenes";
 import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
+import { capabilityCatalogue, heldCapabilities, namedRoles, servedLadder, servedStage } from "./lib/progressionPayload";
 import {
   ALL_CAPABILITIES,
   capabilityDecision,
@@ -57,6 +58,7 @@ import { register as registerGovernanceWizardRoutes } from "./routes/governanceW
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
 import { register as registerHousingRoutes } from "./routes/housing";
 import { register as registerJourneyRoutes } from "./routes/journey";
+import { register as registerProfileRoutes } from "./routes/profile";
 import { register as registerPlacesRoutes } from "./routes/places";
 import { register as registerMapSceneRoutes } from "./routes/mapScene";
 import { register as registerBadgesRoutes } from "./routes/badges";
@@ -456,7 +458,7 @@ import {
 import { usersRepo } from "./repos/users";
 import { gratitudeCyclesRepo, gratitudeDistributionsRepo, gratitudeLogRepo } from "./repos/gratitude";
 import { claimsRepo as claimsRepoFactory, questsRepo as questsRepoFactory } from "./repos/quests";
-import { budgetFor, sendGratitude, type GratitudeDeps } from "./lib/gratitude";
+import { asBudget, sendGratitude, type GratitudeBudget, type GratitudeDeps } from "./lib/gratitude";
 import { recentEvents, recordEvent } from "./lib/events";
 import { checkToolLink } from "./lib/toolcheck";
 import { canSeeTool } from "../shared/toolsVisibility";
@@ -794,6 +796,7 @@ import {
   type CycleRecord,
   type DistributionRecord,
 } from "./lib/gratitude-cycles";
+import { memberMoonFlows, moonOneCycle, withVillageMoons } from "./lib/villageMoon";
 
 const BCRYPT_SALT_ROUNDS = 10;
 
@@ -1807,7 +1810,6 @@ async function uniqueHandle(base: string, ownId?: string): Promise<string> {
   }
   return `${base}-${Date.now().toString(36)}`;
 }
-const HANDLE_RE = /^[a-z0-9][a-z0-9-_]{2,29}$/;
 
 /*
  * Member session tokens and set-password claim tokens moved to
@@ -2888,6 +2890,9 @@ function roleIdsFor(userId: string): string[] {
   return loadRoleHolders().filter((r) => r.userId === userId).map((r) => r.roleId);
 }
 
+/** The member's roles as the payloads serve them: see `namedRoles`. */
+const rolesFor = (userId: string) => namedRoles(roleIdsFor(userId), loadRoles());
+
 /** Every capability the member's roles grant, deduplicated. */
 function roleCapabilitiesFor(userId: string): string[] {
   const held = new Set(roleIdsFor(userId));
@@ -2951,61 +2956,8 @@ async function recordStageEvent(user: any, from: string, to: string, reason: str
 
 // ALL_CAPABILITIES now lives in shared/capabilities.ts (S36): badge
 // validation and the stage-advance unlock diff read the same canonical list.
-
-/**
- * LANE Q: which module a capability belongs to, if any.
- *
- * `ModuleDef.capabilities` is the declaration that a capability EXISTS because
- * a module exists. Built once from the registry, which is pure data with no
- * clock and no database, so this map is the same in every process.
- *
- * Capabilities that appear in no module's list (the stage-granted ones, the
- * admin ones) resolve to undefined and are never filtered.
- */
-const MODULE_BY_CAPABILITY: Map<string, string> = new Map(
-  MODULES.flatMap((m) => m.capabilities.map((c) => [c as string, m.id] as const)),
-);
-
-/**
- * LANE Q: a held capability whose module is OFF is not a power anyone holds.
- *
- * The gate (`hasCapability`) answers about the PERSON: their stage, their
- * roles, their badges. It has no opinion about module lifecycle, correctly,
- * because a role grant should survive a module being switched off and back on.
- * What was wrong is that `/api/game/me` and `/api/game/progression` served
- * that answer raw, and `ProfileJourney.tsx` paints each one as a chip. A
- * village whose module lapses kept advertising its capability as a held power
- * with no route behind it, which is the routes' own contract broken: the
- * module's API prefixes stopped mounting the moment it went off.
- *
- * Core modules are always `public` through `effectiveLifecycle`, so the four
- * core capabilities are never touched by this.
- */
-const heldCapabilities = (ctx: Parameters<typeof hasCapability>[1]): Capability[] =>
-  ALL_CAPABILITIES.filter((c) => {
-    if (!hasCapability(c, ctx)) return false;
-    const moduleId = MODULE_BY_CAPABILITY.get(c);
-    return !moduleId || effectiveLifecycle(moduleId) !== "off";
-  });
-
-/**
- * Build the capability context for a member ONCE, then answer any number of
- * hasCapability questions synchronously against it. Replaces the old
- * per-question userCan(): with claims in MySQL (S10), the stage lookup is a
- * query, and paying it once per request instead of once per capability is
- * the difference between one COUNT and six.
- */
-/**
- * A stage as SERVED: the config shape with its economics overlaid from the
- * registry. gameConfig's gratitudeMultiplier became the DEFAULT of a
- * generated variable (progression.multiplier.<id>), so serving the raw
- * config object would show a number the game no longer plays by the moment
- * a village tunes it — a fake number styled like a real one.
- */
-function servedStage(stageId: string) {
-  const s = getStage(stageId);
-  return { ...s, gratitudeMultiplier: Math.max(0, numberVar(`progression.multiplier.${s.id}`)) };
-}
+// The module-lifecycle filter over it, the capability catalogue and the
+// served ladder all live in server/lib/progressionPayload.ts, imported above.
 
 /**
  * The amendment ledger's ONE writer. Every mechanics change — admin edit,
@@ -3102,6 +3054,15 @@ function lapseContext(): LapseContext {
   };
 }
 
+/**
+ * Build the capability context for a member ONCE, then answer any number of
+ * hasCapability questions synchronously against it. Replaces the old
+ * per-question userCan(): with claims in MySQL (S10), the stage lookup is a
+ * query, and paying it once per request instead of once per capability is
+ * the difference between one COUNT and six. (This docblock sat two hundred
+ * lines above the function it describes, over `servedStage`; it travelled
+ * down with the move that emptied that neighbourhood.)
+ */
 async function capabilityCtx(user: any) {
   // S36: badge grants and denies join the one gate — but only while the
   // badges module is on. Off = zero queries, zero effect: the gate is
@@ -3778,7 +3739,7 @@ function publicUser(u: any) {
   return {
     ...rest,
     prefs: rest.prefs ? { ...rest.prefs, googleLink: undefined } : rest.prefs,
-    paths: u.paths ?? [],
+    paths: Array.isArray(u.paths) ? u.paths.filter((p: unknown) => typeof p === "string") : [],
     contributions: u.contributions ?? [],
     quests: u.quests ?? [],
     recognitionBalance: u.recognitionBalance ?? 0,
@@ -3922,17 +3883,16 @@ const gratitudeDeps: GratitudeDeps = {
   stageMultiplierFor: async (user: any) => Math.max(0, numberVar(`progression.multiplier.${await stageOf(user)}`)),
 };
 
-function gratitudeBudget(user: any) {
-  return budgetFor(gratitudeDeps, user);
-}
+/** The one allowance (R73), in the older shape `budget` has always been sent in: `asBudget` renames
+ *  `cycleKey` and computes nothing. Why this stopped reading `budgetFor`: server/lib/gratitude.ts. */
+const gratitudeBudget = async (u: any): Promise<GratitudeBudget> => asBudget(await gratitudeAllowance(u));
 
 /**
  * The same multiplier, for a caller that holds an id and no member row.
  *
- * The economy engine's give path needs it (R73: one allowance, so
- * `allowanceFor` is `gratitude.base_budget` times the giver's stage the same
- * way `budgetFor` is), and it takes a userId because it is called from inside
- * `give` before the giver's row has been read.
+ * The economy engine's give path needs it (R73: one allowance, and `allowanceFor`
+ * is `gratitude.base_budget` times the giver's stage), and it takes a userId
+ * because it is called from inside `give` before the giver's row has been read.
  *
  * A member nobody can find gets 0, which is a refusal and never an invented
  * number: `give` locks the giver's row a moment later and refuses an unknown
@@ -8364,6 +8324,9 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     if (!name || !email || !password || !paths || !Array.isArray(paths)) {
       return res.status(400).json({ error: "Missing required fields" });
     }
+    // The other door onto a member's paths, and the one a stranger can open.
+    const chosen = claimPaths(paths);
+    if (!chosen.ok) return res.status(400).json({ error: chosen.error });
     if (await members.existsByEmail(email)) {
       return res.status(409).json({ error: "Email already exists" });
     }
@@ -8374,7 +8337,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       email,
       passwordHash: await hashPassword(password),
       handle: await uniqueHandle(slugifyHandle(name)),
-      paths,
+      paths: chosen.paths ?? [],
       contributions: [],
       quests: [],
       recognitionBalance: 0,
@@ -13177,7 +13140,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
         jobs: registeredJobs(),
         modulesOff: MODULES.filter((m) => effectiveLifecycle(m.id) === "off").map((m) => ({ id: m.id, name: m.name })),
       },
-      { moons: asked },
+      { moons: asked, moonOneCycle: await moonOneCycle(getPool()) },
     );
     res.json(report);
   });
@@ -16270,13 +16233,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
     /*
      * WHO IT IS FOR: an email the sender typed, or an id an API caller holds.
      *
-     * The email path is the one members use and it matches
-     * `/api/game/gratitude/send`, which has taken a typed address since the
-     * beginning. That is deliberate rather than lazy: a picker needs a member
-     * DIRECTORY endpoint, and a list of everyone's names and ids readable by
-     * anyone signed in is a privacy surface with its own question to answer.
-     * Typing the address of the person in front of you at the market answers
-     * none of it.
+     * THE DIRECTORY IS STILL REFUSED: a picker needs one, and a list of every
+     * member's name and id readable by anyone signed in is a privacy surface
+     * with its own question to answer. It never justified the EMAIL though.
+     * `/api/game/gratitude/send`, which this used to name as the precedent for
+     * asking, takes a public `@handle` now (`resolveTyped`, lib/gratitude.ts),
+     * which leaves sending TOKENS the one door still asking for an address.
      */
     const typedEmail = String(toEmail ?? "").trim();
     const recipient = typedEmail
@@ -18191,7 +18153,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     );
 
     res.json({
-      settlement,
+      settlement: await withVillageMoons(getPool(), settlement),
       modules,
       pendingConsents,
       staleMilestones,
@@ -18290,69 +18252,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
     });
   });
 
-  // Auth: Get Profile
-  app.get("/api/profile", async (req, res) => {
-    // Through requireUser like everything else (S1): a second decode path here
-    // silently bypassed the tokenVersion revocation check.
-    const user = await authedUser(req);
-    if (!user) return res.status(401).json({ error: "auth_required" });
-    res.json(publicUser(user));
-  });
-
-  // Auth: Update Profile
-  app.put("/api/profile", async (req, res) => {
-    const authed = await authedUser(req);
-    if (!authed) return res.status(401).json({ error: "auth_required" });
-    const { name, bio, avatar, paths, handle } = req.body;
-    let wanted: string | undefined;
-    if (handle !== undefined) {
-      wanted = String(handle).toLowerCase().trim();
-      if (!HANDLE_RE.test(wanted)) {
-        return res.status(400).json({ error: "Handles are 3-30 characters: letters, numbers, dashes" });
-      }
-      const clash = (await members.all()).some(
-        (u: any) => u.id !== authed.id && String(u.handle ?? "").toLowerCase() === wanted,
-      );
-      if (clash) return res.status(409).json({ error: "That handle is taken" });
-    }
-    const updated = await members.update(authed.id, (u: any) => {
-      if (name) u.name = name;
-      if (bio !== undefined) u.bio = bio;
-      if (avatar !== undefined) u.avatar = avatar;
-      if (paths) u.paths = paths;
-      if (wanted !== undefined) u.handle = wanted;
-    });
-    if (!updated) return res.status(404).json({ error: "User not found" });
-    res.json(publicUser(updated));
-  });
-
-  // Auth: Log Contribution
-  app.post("/api/profile/contribution", async (req, res) => {
-    const authed = await authedUser(req);
-    if (!authed) return res.status(401).json({ error: "auth_required" });
-    const { type, description } = req.body;
-    if (!type || !description) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-    // A JOURNAL ENTRY, never a payment. This route used to add a
-    // caller-supplied `recognitionEarned` straight onto the member's
-    // balance — self-service minting, off-ledger, breaking the conservation
-    // proof. Value only ever moves through postTransfer behind a human
-    // consent gate (quest consent, gratitude send, admin mint). The note
-    // itself is still worth keeping: it is the member's own record.
-    const contribution = {
-      id: `contrib-${Date.now()}`,
-      type: String(type).slice(0, 120),
-      description: String(description).slice(0, 2000),
-      date: new Date().toISOString(),
-    };
-    const updated = await members.update(authed.id, (u: any) => {
-      u.contributions = u.contributions ?? [];
-      u.contributions.push(contribution);
-    });
-    if (!updated) return res.status(404).json({ error: "User not found" });
-    res.json({ success: true, contribution });
-  });
+  // A member's own account record: read, update, and the contribution journal.
+  // Registered at exactly the point those three routes used to sit.
+  registerProfileRoutes(app, { authedUser, members, publicUser });
 
   // Journey to Launch: the founding team's own tracker, read and written
   // through the admin gate. Registered at exactly the point it used to sit.
@@ -19804,7 +19706,7 @@ ${inner}
       currency: { ...m.currency, value: { slug: valueSlug, name: valueDef?.name ?? valueSlug } },
       images: m.images,
       paths: GAME_CONFIG.paths,
-      stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
+      stages: servedLadder(),
       season: seasonState(),
     });
   });
@@ -20738,7 +20640,16 @@ ${inner}
   app.get("/api/game/me", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
-    const stageId = await stageOf(user);
+    // THE COUNT THE LADDER IS COUNTING, kept instead of thrown away.
+    //
+    // `stageOf` is `computeStage(user, await claimsRepo.consentedCount(id))`:
+    // it has always read this number and always discarded it, so the one
+    // rung the ladder measures numerically arrived as a stage id and nothing
+    // else. A profile cannot say "two more consented quests opens Quest
+    // Seeker" from an id. Calling the two halves directly costs the SAME
+    // single query stageOf was already paying.
+    const consentedQuests = await claimsRepo.consentedCount(user.id);
+    const stageId = computeStage(user, consentedQuests);
     const claims = await claimsRepo.forUser(user.id);
     const ctx = await capabilityCtx(user);
     // What each consented quest actually paid. `amount` is what the witness
@@ -20773,7 +20684,7 @@ ${inner}
     res.json({
       stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
-      stages: GAME_CONFIG.stages.map(({ id, name, description }) => ({ id, name, description })),
+      stages: servedLadder(),
       gratitude: { balance: user.recognitionBalance ?? 0, budget: await gratitudeBudget(user) },
       quests: claims.map((c: any) =>
         questCredits.has(c.id) ? { ...c, credited: questCredits.get(c.id) } : c,
@@ -20781,11 +20692,17 @@ ${inner}
       journeys: user.journeys ?? {},
       membership: hasMembership(user),
       trainingComplete: trainingComplete(user),
+      // The third rule type as a number, beside the two booleans that were
+      // already here. With the ladder now carrying its rules, these three
+      // fields are everything a reader needs to evaluate any rung except
+      // "granted", which is a decision the team makes and not a thing anyone
+      // can be shown progress toward.
+      consentedQuests,
       nextAction: await nextActionFor(user),
       lastAdvance,
       // Revision 2: progression is no longer decoration. The client renders
       // what you can DO, so the gates are legible instead of mysterious.
-      roles: roleIdsFor(user.id),
+      roles: rolesFor(user.id),
       // LANE Q: filtered by module lifecycle. A capability of an off module
       // is not a held power, and the profile paints each of these as a chip.
       capabilities: heldCapabilities(ctx),
@@ -20803,8 +20720,8 @@ ${inner}
   app.post("/api/game/gratitude/send", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to send " + mergedConfig().currency.nameLower });
-    const { toEmail, amount, message } = req.body ?? {};
-    const outcome = await sendGratitude(gratitudeDeps, { fromUser: user, toEmail, amount, message });
+    const { to, toEmail, amount, message } = req.body ?? {};
+    const outcome = await sendGratitude(gratitudeDeps, { fromUser: user, to, toEmail, amount, message });
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     await addActivity("gratitude", `${firstName(user.name)} appreciated ${firstName(outcome.recipient.name)}`, { actorUserId: user.id, entityType: "user", entityRef: outcome.recipient.id });
     await notify({
@@ -21652,15 +21569,25 @@ ${inner}
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required" });
     const events: any[] = stageEventsRepo.all();
-    const stageId = await stageOf(user);
+    // Same substitution as /api/game/me, same single query: the count the
+    // ladder measures is kept instead of collapsed into a stage id.
+    const consentedQuests = await claimsRepo.consentedCount(user.id);
+    const stageId = computeStage(user, consentedQuests);
     const ctx = await capabilityCtx(user);
     res.json({
       stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
+      // How far along the one numeric rung this member is, so the rule the
+      // stage now carries has something to be read against.
+      consentedQuests,
       // LANE Q: filtered by module lifecycle. A capability of an off module
       // is not a held power, and the profile paints each of these as a chip.
       capabilities: heldCapabilities(ctx),
-      roles: roleIdsFor(user.id),
+      // The same keys with the closed ones included, and the rung that opens
+      // each. `capabilities` above is exactly the rows here whose `held` is
+      // true, by construction rather than by agreement.
+      capabilityCatalogue: capabilityCatalogue(ctx),
+      roles: rolesFor(user.id),
       history: events
         .filter((e) => e.userId === user.id)
         .sort((a, b) => String(b.at).localeCompare(String(a.at)))
@@ -21678,7 +21605,6 @@ ${inner}
     if (!user) return res.status(401).json({ error: "auth_required" });
     const log = await gratitudeRepo.all();
     const dists: DistributionRecord[] = await distributionsRepo.all();
-    const mine = dists.filter((d) => d.userId === user.id);
     res.json({
       balance: user.recognitionBalance ?? 0,
       budget: await gratitudeBudget(user),
@@ -21687,9 +21613,7 @@ ${inner}
         sent: log.filter((g) => g.fromId === user.id).reduce((n, g) => n + (Number(g.amount) || 0), 0),
         distinctAcknowledgers: new Set(log.filter((g) => g.toId === user.id).map((g) => g.fromId)).size,
       },
-      byCycle: mine
-        .sort((a, b) => String(b.cycleId).localeCompare(String(a.cycleId)))
-        .map((d) => ({ cycleId: d.cycleId, received: d.received, distinctSenders: d.distinctSenders })),
+      byCycle: await memberMoonFlows(getPool(), dists, user.id),
     });
   });
 

@@ -197,6 +197,26 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   under-reports, so run all three scans (the directory, `git ls-tree` over every remote AND
   local ref, and every `drizzle/*.sql` on disk across the worktrees), then
   `node scripts/check-migration-numbers.mjs --next` to confirm.
+- **path-data lane, 2026-09-03: claims 0144, 0145 and 0146** for
+  `drizzle/0144_a_member_finds_their_own_reservation.sql` (one non-unique index on
+  `housing_reservations`, no new table),
+  `drizzle/0145_an_investor_path_records_facts_not_money.sql` (new table
+  `investor_path_facts`) and `drizzle/0146_a_member_opens_a_venture.sql` (new table
+  `member_ventures`). Three numbers rather than one file so the integration coordinator can
+  land or hold each model separately. The cost is MEASURED and not estimated, and it MOVES:
+  two runs on this tree reported `261ms` and `188ms` per migration file, against the 1.25s per
+  file an older briefing carried. It is paid once per run into the template, not once per
+  suite (103 clones this run), so three files add well under a second. Read your own with
+  `pnpm measure:provisioning`; do not quote either figure. Holders found by a four-way sweep at 2026-09-03T17:09Z, and every one of them is
+  ABOVE what section 3 recorded before this line: 0131 (`wt/lane-housing`), 0132 to 0139
+  (the governance build: `wt/gb-clock`, `wt/gb-delegation`, `wt/gb-delegation-consent`,
+  `wt/gb-dispatcher`, `wt/gb-steward`, `wt/gb-steward-veto`, `wt/gb-thresholds-heads`,
+  `wt/governance-build`, all now REAL FILES on local and origin refs) and 0140 to 0143
+  (`wt/bridge-primitives`, local and origin). Highest holder anywhere: **0143**.
+- **`check-migration-numbers.mjs --next` answered 0132 on 2026-09-03 and 0132 is TAKEN.**
+  The script reads only the `drizzle/` directory of the worktree it runs in, so on any branch
+  that has not merged the governance or bridge lanes it reports a number another lane already
+  holds. Treat `--next` as a lower bound and the four-way sweep as the answer.
 - **housing lane, 2026-09-02: holds 0131** for `drizzle/0131_a_village_names_its_own_homes.sql`.
   Recorded here by the bridge lane rather than by its author, because it was created on a worktree
   and pushed hours after the surrounding numbers were measured, which is exactly the case this

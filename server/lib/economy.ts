@@ -53,8 +53,10 @@ import {
   parseMintRuleKey,
   type MintRuleField,
 } from "../../shared/mintRuleKeys";
+import type { VillageMoon } from "../../shared/villageMoon";
 import { issuanceRefusal } from "./gameStart";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
+import { moonOneCycle, villageMoonFor } from "./villageMoon";
 import { numberVar } from "./variables";
 import {
   memberAccount,
@@ -1750,7 +1752,14 @@ export async function applyPendingRules(pool: Pool, at: Date = new Date()): Prom
 }
 
 export interface MintView {
+  /**
+   * The stored cycle id. It stays here because it is the key every mint rule's
+   * `effective_from_cycle` is compared against, and the panel stopped printing
+   * it: `moon` below is what an admin now reads.
+   */
   cycleKey: string;
+  /** The village's own moon, worked out on read and never stored. */
+  moon: VillageMoon;
   rules: Array<{
     id: string;
     trigger: string;
@@ -1783,7 +1792,13 @@ export interface MintView {
 
 /** Everything the Mint panel shows, in one read. */
 export async function mintView(pool: Pool): Promise<MintView> {
-  const { key } = cycleWindow();
+  // ONE instant for both. Two `new Date()` calls either side of a new moon
+  // would put the id and the label on different lunations, and this panel's
+  // whole job is that a rule's effective-from and the moon a founder reads are
+  // the same moon.
+  const at = new Date();
+  const { key } = cycleWindow(at);
+  const moon = villageMoonFor(at, await moonOneCycle(pool));
   const [rules] = await pool.query<RowDataPacket[]>(
     "SELECT r.*, t.`name` AS token_name FROM `mint_rules` r " +
       "LEFT JOIN `tokens` t ON t.`slug` = r.`token_slug` " +
@@ -1813,6 +1828,7 @@ export async function mintView(pool: Pool): Promise<MintView> {
 
   return {
     cycleKey: key,
+    moon,
     rules: rules.map((r) => ({
       id: String(r.id),
       trigger: String(r.trigger),
