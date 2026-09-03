@@ -29,6 +29,11 @@
 -- somebody new overwrites the row and lands it back at pending, because the
 -- new delegate has consented to nothing yet.
 --
+-- The decision is pinned by a test rather than by this comment alone. The
+-- case "adds the column and backfills nothing" in server/lib/delegation.test.ts
+-- reads this file, so adding an UPDATE that sets `accepted_at` here, or
+-- dropping the sentence above, turns red.
+--
 -- No CHARSET clause, following 0137 and 0089: a datetime carries no
 -- collation, and the table inherits the database's.
 

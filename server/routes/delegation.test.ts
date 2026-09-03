@@ -356,6 +356,57 @@ describe.skipIf(!configured)("delegation routes (MySQL)", () => {
     expect(rows.map((r: any) => String(r.user_id))).toEqual(["u-ben"]);
   });
 
+  it("re-points a standing delegation and hands the new member nothing until they accept", async () => {
+    await clearDelegations();
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "delegation-route-repoint",
+      title: "Moving a voice",
+      docMarkdown: "# As checked",
+      method: "custom",
+      weightMode: "equal",
+      unityPct: 80,
+      quorumPct: 20,
+      durationDays: 7,
+      openedBy: "u-cai",
+      electorate: ROSTER.map((m) => ({ userId: m.id, weight: 1 })),
+    });
+    const ballotId = opened.ok ? opened.ballot.id : "";
+    await handed("u-ann", "u-ben");
+    await castVote(pool, ballotId, "u-ben", "yes");
+    await castVote(pool, ballotId, "u-cai", "no");
+
+    // Ann moves her voice to Cai through the route. Ben accepted; Cai has
+    // not, and an acceptance never travels with a delegation. The answer says
+    // pending, the seat Ben was deciding goes back to uncast, and Cai's own
+    // choice does not appear in Ann's row.
+    const moved = await call(handlersFor({ id: "u-ann" }).get("PUT /api/governance/delegation")!, {
+      body: { delegateId: "u-cai" },
+    });
+    expect(moved.body).toMatchObject({ delegateTo: "u-cai", pending: true, accepted: false });
+    expect(String(moved.body.message)).toContain("until they accept");
+    expect(moved.body.openBallotsTouched).toBeGreaterThanOrEqual(1);
+    expect((await liveDelegationOf(pool, "u-ann"))?.acceptedAt).toBeNull();
+    const [during] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT user_id FROM ballot_votes WHERE ballot_id = ? ORDER BY user_id",
+      [ballotId],
+    );
+    expect(during.map((r: any) => String(r.user_id))).toEqual(["u-ben", "u-cai"]);
+
+    // Cai says yes, and only then does Ann's seat carry Cai's choice.
+    const taken = await call(handlersFor({ id: "u-cai" }).get("POST /api/governance/delegation/accept")!, {
+      body: { delegatorId: "u-ann" },
+    });
+    expect(taken.body).toMatchObject({ accepted: 1, wasOffered: 1 });
+    const [after] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT choice, followed_user_id FROM ballot_votes WHERE ballot_id = ? AND user_id = 'u-ann'",
+      [ballotId],
+    );
+    expect(after.length).toBe(1);
+    expect(String(after[0].choice)).toBe("no");
+    expect(String(after[0].followed_user_id)).toBe("u-cai");
+  });
+
   it("takes a vote back on one ballot, ends the delegation, and says both", async () => {
     await clearDelegations();
     const opened = await openBallot(pool, {

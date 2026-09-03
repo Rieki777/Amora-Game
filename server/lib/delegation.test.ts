@@ -33,6 +33,8 @@
  * (house rule). The pure cases run either way.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import mysql from "mysql2/promise";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
 import { quorumPctOf } from "../../shared/governanceEngine";
@@ -61,6 +63,7 @@ import {
   delegationsToMe,
   effectiveConcentration,
   hiddenChoiceView,
+  isCarrying,
   liveDelegationOf,
   resolveDelegate,
   resolveFinal,
@@ -521,6 +524,61 @@ describe.skipIf(!configured)("delegation (MySQL)", () => {
     expect((await liveDelegationOf(pool, "u-a"))?.acceptedAt).toBeNull();
   });
 
+  it("re-points away from an accepted delegate and derives nothing until the new one says yes", async () => {
+    await clearDelegations();
+    const ballot = await openOne();
+    // A follows B, who has accepted, and B votes. A's seat is cast.
+    await handed("u-a", "u-b");
+    await castVote(pool, ballot.id, "u-b", "yes");
+    await castVote(pool, ballot.id, "u-c", "no");
+    expect(await voteOf(pool, ballot.id, "u-a")).toMatchObject({ choice: "yes", followedUserId: "u-b" });
+
+    // A points at C instead. C has agreed to nothing, so the acceptance does
+    // not travel with the delegation: the seat B was deciding goes back to
+    // uncast, and C's own choice does not arrive in A's row. This is the
+    // whole reason `accepted_at` is cleared in the upsert. Leave it out and C
+    // starts casting A's vote from a handshake C was never part of.
+    expect((await setDelegation(pool, "u-a", "u-c")).ok).toBe(true);
+    expect((await liveDelegationOf(pool, "u-a"))?.acceptedAt).toBeNull();
+    expect((await resolveDelegate(pool, "u-a")).finalId).toBe("u-a");
+    await applyDelegatedVotesEverywhere(pool);
+    expect(await voteOf(pool, ballot.id, "u-a")).toBeNull();
+    expect(await awaitingVote(pool, ballot.id)).toContain("u-a");
+    expect(await voteCount(pool, ballot.id)).toBe(2);
+
+    // It carries from the moment C accepts, and reads C from then on.
+    expect(await acceptDelegations(pool, "u-c", "u-a")).toMatchObject({ changed: 1, eligible: 1 });
+    await applyDelegatedVotesEverywhere(pool);
+    expect(await voteOf(pool, ballot.id, "u-a")).toMatchObject({ choice: "no", followedUserId: "u-c" });
+  });
+
+  it("carries nothing for a delegation written before the acceptance column existed", async () => {
+    await clearDelegations();
+    const ballot = await openOne();
+    // Exactly the row the earlier migration wrote, which is what the ALTER
+    // left behind: `accepted_at` NULL, never backfilled. A delegation given
+    // before consent was asked for was given without it.
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO delegations (delegator_id, delegate_id, created_at, revoked_at) VALUES ('u-a','u-b',NOW(),NULL)",
+    );
+    const old = await delegationOf(pool, "u-a");
+    expect(old?.acceptedAt).toBeNull();
+    expect(isCarrying(old)).toBe(false);
+    expect((await resolveDelegate(pool, "u-a")).finalId).toBe("u-a");
+    await castVote(pool, ballot.id, "u-b", "yes");
+    await applyDelegatedVotesEverywhere(pool);
+    expect(await voteOf(pool, ballot.id, "u-a")).toBeNull();
+    expect(await awaitingVote(pool, ballot.id)).toContain("u-a");
+
+    // The one door out of that state is the delegate answering, which is the
+    // consent the column was added to ask for.
+    const offers = await delegationsToMe(pool, "u-b");
+    expect(offers.map((o) => o.acceptedAt)).toEqual([null]);
+    expect(await acceptDelegations(pool, "u-b", "u-a")).toMatchObject({ changed: 1, eligible: 1 });
+    await applyDelegatedVotesEverywhere(pool);
+    expect(await voteOf(pool, ballot.id, "u-a")).toMatchObject({ choice: "yes", followedUserId: "u-b" });
+  });
+
   it("refuses a loop made of offers nobody has accepted yet", async () => {
     await clearDelegations();
     // Neither of these carries anything, and accepting them both would close
@@ -775,5 +833,34 @@ describe("the vote nobody may delegate (no database)", () => {
   it("carries on an ordinary vote, and says nothing is wrong", () => {
     const verdict = delegationCarriesOn({ subjectType: "mechanics", method: "custom", unityPct: 80 });
     expect(verdict).toEqual({ carries: true, why: null });
+  });
+});
+
+/**
+ * THE BACKFILL DECISION, READ OFF THE MIGRATION ITSELF.
+ *
+ * The cases above prove what an unaccepted delegation does. This one proves
+ * the migration leaves every delegation that predates the column in exactly
+ * that state. Backfilling `accepted_at` would grant, on the delegate's
+ * behalf, the consent the column exists to ask for, and it would do it to
+ * every delegation given while nobody was asked. The migration is found by
+ * its name rather than its number, because the build renumbers migrations
+ * when it lands.
+ */
+describe("the acceptance column's backfill decision (no database)", () => {
+  const drizzle = path.resolve(__dirname, "../../drizzle");
+
+  it("adds the column and backfills nothing, so no delegation arrives pre-accepted", () => {
+    const named = readdirSync(drizzle).filter((f) => f.endsWith("_delegation_acceptance.sql"));
+    expect(named.length).toBe(1);
+    const sql = readFileSync(path.join(drizzle, named[0]!), "utf8");
+    // The column lands nullable, which is what leaves an old row pending.
+    expect(sql).toMatch(/ADD COLUMN `accepted_at` datetime NULL/);
+    // The decision is written down where the next reader of the schema finds
+    // it, rather than left to be inferred from the absence of a statement.
+    expect(sql).toContain("NULLABLE, NEVER BACKFILLED");
+    // And nothing in the file sets the column on any row.
+    expect(sql).not.toMatch(/UPDATE\s+`?delegations`?/i);
+    expect(sql).not.toMatch(/SET\s+`?accepted_at`?\s*=/i);
   });
 });
