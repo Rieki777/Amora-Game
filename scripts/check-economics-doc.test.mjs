@@ -31,6 +31,9 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   REGION_NAMES,
+  constInitializerText,
+  frozenStringSet,
+  verifyKeystoneSets,
   ROOT,
   endMarker,
   findRegion,
@@ -206,6 +209,116 @@ check("READER FIXTURE: a finding built from a variable THROWS, not half a senten
 });
 
 fs.rmSync(READER_FIXTURES, { recursive: true, force: true });
+
+/*
+ * ── F7: the keystone sets are read for their VALUE, not their source shape ──
+ *
+ * generate-token-doc.mjs's `setConst` takes the FIRST array literal in the
+ * initialiser, so a `.concat`, a `.filter`, or an environment-keyed ternary
+ * passes it unchanged while the program holds a different set. The adversary
+ * pass drove all three past both doc guards and past the payments.test.ts pin,
+ * which compares the set inside a process that identifies itself as the test
+ * environment and so cannot see the ternary at all.
+ */
+const KEYSTONE_SETS = [
+  ["server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES"],
+  ["server/lib/spending.ts", "SENDABLE_KINDS"],
+  ["server/lib/spending.ts", "MODULE_VOUCHERS"],
+];
+
+function setFixture(label, initializer) {
+  const root = path.join(READER_FIXTURES, `set-${label}`);
+  fs.mkdirSync(path.join(root, "server", "lib"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "server", "lib", "ledger.ts"),
+    `export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = ${initializer};\n`,
+  );
+  return root;
+}
+
+check("F7 READER: the plain documented shape is accepted, and its values read", () => {
+  for (const [file, name] of KEYSTONE_SETS) {
+    const v = frozenStringSet(ROOT, file, name);
+    assert.ok(Array.isArray(v) && v.length > 0, `${name} must read as a non-empty list`);
+    assert.ok(v.every((x) => typeof x === "string"), `${name} must read as strings`);
+  }
+  assert.deepStrictEqual(
+    frozenStringSet(ROOT, "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES").sort(),
+    ["payment_reversal", "reversal", "stay_night"],
+  );
+});
+
+check("F7 READER: .concat, an env ternary, and .filter are all REFUSED", () => {
+  // The three shapes from the report, each of which passed both doc guards.
+  const attacks = {
+    concat: 'new Set(["a", "b"].concat(["spend"]))',
+    ternary: 'new Set(process.env.NODE_ENV === "test" ? ["a", "b"] : ["a", "b", "spend"])',
+    filter: 'new Set(["a", "b"].filter((s) => s !== "b"))',
+  };
+  for (const [label, init] of Object.entries(attacks)) {
+    assert.throws(
+      () => frozenStringSet(setFixture(label, init), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES"),
+      (err) => {
+        assert.match(String(err.message), /accepts exactly one shape/);
+        assert.match(String(err.message), /it found:/, "the refusal must print the shape it saw");
+        return true;
+      },
+      `${label} must be refused`,
+    );
+  }
+});
+
+check("F7 READER: a spread, a non-literal element, a second argument, and an empty set are REFUSED", () => {
+  const attacks = {
+    spread: 'new Set([...BASE, "spend"])',
+    identifier: 'new Set(["a", SOME_CONST])',
+    notaset: '["a", "b"]',
+    frozen: 'Object.freeze(new Set(["a", "b"]))',
+    empty: "new Set([])",
+  };
+  for (const [label, init] of Object.entries(attacks)) {
+    assert.throws(
+      () => frozenStringSet(setFixture(label, init), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES"),
+      /accepts exactly one shape/,
+      `${label} must be refused`,
+    );
+  }
+  // `Object.freeze(...)` is refused DELIBERATELY and not as an oversight: when
+  // the keystone lane ships a frozen structure this goes red and names what it
+  // saw, which is the reviewable way for the accepted shape to change.
+});
+
+check("F7 RUNTIME: the value under NODE_ENV=production equals the documented list", () => {
+  // The half a static reader cannot cover. The declaration is evaluated in a
+  // subprocess that identifies itself as PRODUCTION, because payments.test.ts
+  // compares the same set inside a process that says NODE_ENV=test, and an
+  // environment-keyed set is identical in the two and different in the one
+  // that matters.
+  for (const [file, name] of KEYSTONE_SETS) {
+    const src = constInitializerText(ROOT, file, name);
+    const probe = `process.stdout.write(JSON.stringify(Array.from(${src}).sort()));`;
+    const r = spawnSync(process.execPath, ["-e", probe], {
+      encoding: "utf8",
+      env: { ...process.env, NODE_ENV: "production", VITEST: "" },
+    });
+    assert.strictEqual(r.status, 0, `evaluating ${name} failed:\n${r.stdout}${r.stderr}`);
+    assert.deepStrictEqual(
+      JSON.parse(r.stdout),
+      frozenStringSet(ROOT, file, name).sort(),
+      `${name} holds a different value at runtime under NODE_ENV=production than the document prints`,
+    );
+  }
+});
+
+check("F7: verifyKeystoneSets throws when the two readers disagree", () => {
+  // The cross-check itself. If setConst and the strict reader ever report
+  // different lists for a shape neither refused, the document cannot be
+  // written from either without choosing, and this refuses to choose.
+  assert.throws(
+    () => verifyKeystoneSets(ROOT, { allowNegative: ["stay_night"], sendableKinds: ["credit"], moduleVouchers: [] }),
+    /the two readers disagree about ALLOW_NEGATIVE_SOURCES/,
+  );
+});
 
 check("READER: refusalsFrom reads BOTH branches of a ternary refusal", () => {
   // This is the case that caught the first draft of the reader: sendRefusal

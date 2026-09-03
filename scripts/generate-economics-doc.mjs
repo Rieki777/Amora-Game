@@ -294,6 +294,91 @@ function literalText(node) {
 }
 
 /**
+ * ── THE ONE ACCEPTED SHAPE FOR A KEYSTONE SET ──────────────────────────────
+ *
+ * `new Set([ "a", "b" ])` with every element a plain string literal, and
+ * NOTHING ELSE.
+ *
+ * WHY THIS READER EXISTS BESIDE `setConst`. `scripts/generate-token-doc.mjs`
+ * reads these sets with `setConst`, which walks the initialiser and takes the
+ * FIRST array literal it finds. That reads the shape of the source text rather
+ * than the value the program holds, so every one of these passes it unchanged:
+ *
+ *     new Set([...].concat(["spend"]))
+ *     new Set(process.env.NODE_ENV === "test" ? [...3...] : [...4...])
+ *     new Set([...].filter((s) => s !== "reversal"))
+ *
+ * The adversary pass (F7) drove all three past BOTH doc guards AND the
+ * `payments.test.ts` pin, which compares the set inside a process that
+ * identifies itself as the test environment and therefore cannot see the
+ * ternary at all. `ALLOW_NEGATIVE_SOURCES` is the set that decides which
+ * sources may drive a member's balance below zero, and its own comment calls
+ * it "static ON PURPOSE"; this is the mechanism by which it gets widened in
+ * production with every gate green.
+ *
+ * So this reader does not ask what array literal is in there. It asks whether
+ * the declaration is EXACTLY the one shape a keystone set is allowed to have,
+ * and refuses everything else by name. A reader that accepts a family of
+ * shapes is a reader that can be walked past; a reader that accepts one shape
+ * can only be walked past by changing the shape, which is a reviewable diff.
+ *
+ * WHEN THE KEYSTONE LANE SHIPS A FROZEN STRUCTURE this will go RED and name
+ * what it saw. That is the intended cost and the correct way for the accepted
+ * shape to change: teach it that ONE new shape deliberately, in a commit
+ * somebody reviews. `wt/econ-keystone` carried nothing at b20a476 when this
+ * was written, so there was no second shape to accept yet.
+ */
+/**
+ * The SOURCE TEXT of a top-level const's initialiser.
+ *
+ * Exists so check-economics-doc.test.mjs can evaluate the expression in a
+ * subprocess under NODE_ENV=production and compare the value the program
+ * actually holds with the list this document prints. `frozenStringSet` reads
+ * the shape; that test reads the value; F7 is the gap between the two.
+ */
+export function constInitializerText(root, relFile, name) {
+  const abs = path.join(root, relFile);
+  const init = constInit(abs, name);
+  if (!init) fail(`economics-doc: ${relFile} no longer declares ${name}`);
+  return init.getText();
+}
+
+export function frozenStringSet(root, relFile, name) {
+  const abs = path.join(root, relFile);
+  const init = constInit(abs, name);
+  if (!init) fail(`economics-doc: ${relFile} no longer declares ${name}`);
+
+  const shapeOf = (n) => n.getText().replace(/\s+/g, " ").slice(0, 160);
+  const refuse = (why) =>
+    fail(
+      `economics-doc: ${name} in ${relFile} is ${why}, and this reader accepts exactly one shape:\n` +
+        `    new Set(["a", "b"])   every element a plain string literal\n` +
+        `  it found:\n    ${shapeOf(init)}\n` +
+        "  This set decides real behaviour and is read into the document as a list of values. A " +
+        "declaration whose value cannot be read off the source text (a .concat, a .filter, an " +
+        "environment-keyed ternary) makes the document state a list the program does not hold. " +
+        "If the keystone lane has shipped a new deliberate shape, teach this reader that one shape.",
+    );
+
+  if (!ts.isNewExpression(init) || !ts.isIdentifier(init.expression) || init.expression.text !== "Set") {
+    refuse("not a `new Set(...)`");
+  }
+  const args = init.arguments ?? [];
+  if (args.length !== 1) refuse(`a \`new Set\` with ${args.length} argument(s) rather than exactly one`);
+  const arr = args[0];
+  if (!ts.isArrayLiteralExpression(arr)) refuse("built from something other than a plain array literal");
+  const out = [];
+  for (const el of arr.elements) {
+    if (!ts.isStringLiteral(el) && !ts.isNoSubstitutionTemplateLiteral(el)) {
+      refuse(`built from an array holding \`${shapeOf(el)}\`, which is not a plain string literal`);
+    }
+    out.push(el.text);
+  }
+  if (!out.length) refuse("an empty set, which no keystone set is");
+  return out;
+}
+
+/**
  * The string-array accumulators a function declares, by name.
  *
  * `checkLedgerInvariants` collects its output into local `const x = []`
@@ -800,9 +885,47 @@ export function renderAll(root = ROOT) {
     }
   }
   const facts = collectFacts(root);
+  verifyKeystoneSets(root, facts);
   const out = {};
   for (const name of REGION_NAMES) out[name] = renderRegion(name, root, facts);
   return out;
+}
+
+/**
+ * The three sets this document prints as lists of VALUES, checked twice.
+ *
+ * `collectFacts` reads them through generate-token-doc.mjs's `setConst`, which
+ * takes the first array literal in the initialiser. `frozenStringSet` reads the
+ * same declarations and refuses anything that is not exactly
+ * `new Set([<string literals>])`. Running both and comparing is what closes
+ * F7: the strict reader refuses the shapes `setConst` cannot see through, and
+ * the comparison catches the case where the two readers would report different
+ * lists for a shape neither refused.
+ *
+ * A MISMATCH IS A THROW, not a preference for one reader. If the two disagree,
+ * the document cannot be written from either without saying which one is
+ * right, and this file will not guess.
+ */
+export function verifyKeystoneSets(root, facts) {
+  const pins = [
+    { file: "server/lib/ledger.ts", name: "ALLOW_NEGATIVE_SOURCES", seen: facts.allowNegative },
+    { file: "server/lib/spending.ts", name: "SENDABLE_KINDS", seen: facts.sendableKinds },
+    { file: "server/lib/spending.ts", name: "MODULE_VOUCHERS", seen: facts.moduleVouchers },
+  ];
+  for (const pin of pins) {
+    const strict = frozenStringSet(root, pin.file, pin.name);
+    const a = [...strict].sort();
+    const b = [...(pin.seen ?? [])].sort();
+    if (a.length !== b.length || a.some((v, i) => v !== b[i])) {
+      fail(
+        `economics-doc: the two readers disagree about ${pin.name} in ${pin.file}.\n` +
+          `    strict reader:  ${JSON.stringify(a)}\n` +
+          `    token-doc setConst: ${JSON.stringify(b)}\n` +
+          "  One of them is reading a shape the other cannot see. The document prints this set as a " +
+          "list of values and will not choose between two answers.",
+      );
+    }
+  }
 }
 
 /**
