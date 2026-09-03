@@ -2270,6 +2270,15 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // ── The signed settlement path. No Stripe key in this environment, so the
     // pending order is planted directly; the WEBHOOK is what's under test. ──
     const orderId = "sp-loop-1";
+    /*
+     * `credits_granted` is MINOR units, the same unit as the ledger leg it
+     * produces. Both writers derive it from `priceFor`, which stores minor
+     * since the price route converts on write, and all three readers (the
+     * settle mint, this file's refund debit and the chargeback clawback) post
+     * it back UNCONVERTED. At `decimals: 0` minor and whole coincide, so 10 is
+     * ten credits here; the assertions below compare the leg against the
+     * column rather than against a literal, so they hold at any scale.
+     */
     await testDb.conn.query(
       "INSERT INTO stay_purchases (id, user_id, accommodation_id, nights, amount_minor, credits_granted, provider, status) VALUES (?,?,?,?,?,?,'stripe','pending')",
       [orderId, guestId, accId, 5, 25000, 10],
@@ -2306,6 +2315,22 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // Properly signed: settles, mints, records the fiat charge.
     expect((await webhook(settleEvent)).status).toBe(200);
     expect((await api("GET", "/api/game/ledger", undefined, guestToken)).json.balances["stay-credit"]?.balance).toBe(10);
+    /*
+     * THE GRANT IS THE COLUMN, exactly. Asked as an identity and not as a
+     * literal, so it stays true whatever `tokens.decimals` says and goes red
+     * the moment the settle handler converts one side and not the other. A
+     * literal here would be a decimals-0 coincidence wearing an assertion's
+     * clothes, which is what every existing stay-credit test in this file is.
+     */
+    const [[granted]] = await testDb.conn.query<any[]>(
+      "SELECT credits_granted FROM stay_purchases WHERE id = ?",
+      [orderId],
+    );
+    const [[mintLeg]] = await testDb.conn.query<any[]>(
+      "SELECT amount FROM token_ledger WHERE idempotency_key = ?",
+      [`ord:${orderId}:leg1`],
+    );
+    expect(Number(mintLeg.amount)).toBe(Number(granted.credits_granted));
 
     // Idempotent three ways: same event id → absorbed at the event level;
     // fresh event id for the same order → absorbed by the ledger leg key.
@@ -2384,6 +2409,18 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     });
     expect(dispute.status).toBe(200);
     expect((await api("GET", "/api/game/ledger", undefined, guestToken)).json.balances["stay-credit"]?.balance).toBe(-14); // -4 - 10
+    /*
+     * AND THE CLAWBACK REVERSES THE SAME NUMBER, under the key the admin
+     * refund route shares with it. An asymmetric units fix here takes back a
+     * ten-thousandth of what was granted and freezes that under a key no
+     * retry can correct, and `payment_reversal` is on ALLOW_NEGATIVE_SOURCES
+     * so nothing downstream refuses it.
+     */
+    const [[clawLeg]] = await testDb.conn.query<any[]>(
+      "SELECT amount FROM token_ledger WHERE idempotency_key = ?",
+      [`ord:${orderId}:reversal-leg1`],
+    );
+    expect(Number(clawLeg.amount)).toBe(Number(granted.credits_granted));
     const payAdmin = await api("GET", "/api/admin/payments", undefined, founderToken);
     const suspension = payAdmin.json.suspensions.find((s: any) => s.user_id === guestId && !s.lifted_at);
     expect(suspension).toBeTruthy();
@@ -2416,6 +2453,20 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
       { userId: guestId, accommodationId: accId, nights: 2, amountMinor: 10000 }, founderToken);
     expect(manual.status).toBe(200);
     expect(manual.json.creditsGranted).toBe(4); // 2 nights × guest rate 2, derived server-side
+    /*
+     * `creditsGranted` in the RESPONSE is the receipt number, whole credits,
+     * which is why the literal above is right at any decimals. The column and
+     * the ledger leg behind it are minor, and they are equal to each other.
+     */
+    const [[manualRow]] = await testDb.conn.query<any[]>(
+      "SELECT credits_granted FROM stay_purchases WHERE id = ?",
+      [manual.json.id],
+    );
+    const [[manualLeg]] = await testDb.conn.query<any[]>(
+      "SELECT amount FROM token_ledger WHERE idempotency_key = ?",
+      [`ord:${manual.json.id}:leg1`],
+    );
+    expect(Number(manualLeg.amount)).toBe(Number(manualRow.credits_granted));
     await api("PUT", "/api/admin/variables/payments.purchase_limit_30d_usd", { value: "360" }, founderToken);
     // Counted so far: the $100 manual charge. The $250 Stripe charge was
     // REVERSED by the dispute and no longer counts — limits track money the
@@ -2499,6 +2550,13 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(consent.status).toBe(200);
     const doerLedger = await api("GET", "/api/game/ledger", undefined, doerToken);
     expect(doerLedger.json.balances["stay-credit"]?.balance).toBe(doerCreditsBefore + 3);
+    /*
+     * `quests.stay_credit_reward` is a HUMAN number an admin typed on the quest
+     * form, and the release at `server/index.ts` hands it to `mintStayCredits`,
+     * whose contract is MINOR. That conversion belongs to the index lane; at
+     * `decimals: 0` the two coincide, so this literal is correct today and has
+     * to move to the token's units when the registry flips.
+     */
     expect(doerLedger.json.entries.some((e: any) => e.source === "quest_stay_reward" && e.amount === 3)).toBe(true);
     // And the earn path is visible on the stay page.
     const earn = await api("GET", "/api/stays", undefined, doerToken);
