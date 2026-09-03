@@ -39,13 +39,18 @@ if (!DB_CONFIGURED) {
 
 const DIST = path.resolve(process.cwd(), "dist/index.js");
 /**
- * Its own window at the top of the range. Every window from 6000 to 30001 was
- * already spoken for when this suite was written, the 7400 gap included: that
- * one is agent.routes STUB_PORT, which is PORT + 500 and therefore invisible
- * to a grep for a literal. 30401 is still well clear of the 32768 ephemeral
- * floor check-e2e-ports.mjs enforces.
+ * Its own window at the top of the range. Every window from 6000 to 30401 is
+ * spoken for, the 7400 gap included: that one is agent.routes STUB_PORT, which
+ * is PORT + 500 and therefore invisible to a grep for a literal.
+ *
+ * MOVED from 30002 during integration. This suite took 30002 when that was the
+ * first free base; `review.routes.e2e.test.ts` landed on main with the same
+ * base while this branch was out, so the two windows were identical and
+ * check-e2e-ports.mjs refused. The suite that was already on main keeps the
+ * number. 30801 is still well clear of the 32768 ephemeral floor the guard
+ * enforces.
  */
-const PORT = 30002 + (process.pid % 400);
+const PORT = 30402 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 
 let child: ChildProcess | undefined;
