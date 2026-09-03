@@ -1,0 +1,166 @@
+{
+  "note": "Village facts welded into client copy, recorded per file and per rule. This list only ever shrinks. Read scripts/check-village-facts.mjs before editing it, and lower PENDING_CEILING in that file to match the total here.",
+  "total": 100,
+  "rules": {
+    "money": {
+      "what": "a currency amount in display text",
+      "fix": "read the amount and the symbol from the village's own settings. Nobody's prices should travel to a fork."
+    },
+    "unit": {
+      "what": "an area or size unit asserted in display text",
+      "fix": "state the unit from the village's own settings, or state no unit. A hectares village must not read acres."
+    },
+    "token-name": {
+      "what": "the recognition token's name as a literal",
+      "fix": "read useTokenName() or useTokenNameLower() from client/src/hooks/useTokenNames.ts."
+    },
+    "value-token-name": {
+      "what": "the value token's name as a literal",
+      "fix": "read useValueTokenName() from client/src/hooks/useTokenNames.ts."
+    },
+    "member-name": {
+      "what": "the member noun as a literal",
+      "fix": "read project.memberName through the game config. A village calls its people what it likes."
+    },
+    "person-name": {
+      "what": "a specific person named in copy shown to users",
+      "fix": "name a role or a shared inbox. A first name compiled into the bundle travels to every fork."
+    }
+  },
+  "counts": {
+    "client/src/components/Layout.tsx::token-name": 1,
+    "client/src/components/ProfileJourney.tsx::token-name": 1,
+    "client/src/components/ProfileSheet.tsx::token-name": 4,
+    "client/src/components/SwapCard.tsx::money": 1,
+    "client/src/config/mobileNav.ts::token-name": 1,
+    "client/src/config/nav.ts::token-name": 1,
+    "client/src/pages/Admin.tsx::money": 3,
+    "client/src/pages/Admin.tsx::token-name": 4,
+    "client/src/pages/Admin.tsx::unit": 2,
+    "client/src/pages/CoCreatorsGuide.tsx::token-name": 17,
+    "client/src/pages/Contribute.tsx::money": 1,
+    "client/src/pages/CrowdpoolCampaign.tsx::token-name": 1,
+    "client/src/pages/GoodNeighbor.tsx::token-name": 1,
+    "client/src/pages/HowWeCreate.tsx::token-name": 9,
+    "client/src/pages/InvestorJourney.tsx::money": 1,
+    "client/src/pages/InvestorJourney.tsx::person-name": 1,
+    "client/src/pages/LoveLetter.tsx::money": 6,
+    "client/src/pages/LoveLetter.tsx::token-name": 1,
+    "client/src/pages/MasterPlan.tsx::unit": 1,
+    "client/src/pages/Opportunities.tsx::money": 8,
+    "client/src/pages/Opportunities.tsx::token-name": 4,
+    "client/src/pages/Profile.tsx::token-name": 1,
+    "client/src/pages/ProposeQuest.tsx::token-name": 1,
+    "client/src/pages/ProsperityJourney.tsx::token-name": 8,
+    "client/src/pages/PublicProfile.tsx::token-name": 1,
+    "client/src/pages/ResidentJourney.tsx::money": 2,
+    "client/src/pages/ResidentJourney.tsx::token-name": 2,
+    "client/src/pages/ResidentRights.tsx::token-name": 4,
+    "client/src/pages/Stay.tsx::money": 1,
+    "client/src/pages/StewardJourney.tsx::token-name": 2,
+    "client/src/pages/StewardRights.tsx::token-name": 5,
+    "client/src/pages/Wallet.tsx::money": 1,
+    "client/src/pages/Wallet.tsx::token-name": 3
+  },
+  "entries": {
+    "client/src/components/Layout.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/components/ProfileJourney.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/components/ProfileSheet.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/components/SwapCard.tsx::money": {
+      "since": "2026-09-03"
+    },
+    "client/src/config/mobileNav.ts::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/config/nav.ts::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Admin.tsx::money": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Admin.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Admin.tsx::unit": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/CoCreatorsGuide.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Contribute.tsx::money": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/CrowdpoolCampaign.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/GoodNeighbor.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/HowWeCreate.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/InvestorJourney.tsx::money": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/InvestorJourney.tsx::person-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/LoveLetter.tsx::money": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/LoveLetter.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/MasterPlan.tsx::unit": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Opportunities.tsx::money": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Opportunities.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Profile.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/ProposeQuest.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/ProsperityJourney.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/PublicProfile.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/ResidentJourney.tsx::money": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/ResidentJourney.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/ResidentRights.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Stay.tsx::money": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/StewardJourney.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/StewardRights.tsx::token-name": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Wallet.tsx::money": {
+      "since": "2026-09-03"
+    },
+    "client/src/pages/Wallet.tsx::token-name": {
+      "since": "2026-09-03"
+    }
+  }
+}
