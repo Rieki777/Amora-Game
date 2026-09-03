@@ -130,6 +130,20 @@ export interface AppDeps {
   /** The FAQ document, keyed by pathway. */
   faqsRepo: DbDocument<Row>;
 
+  /**
+   * The brand overlay document: identity, the nine image slots, theme, skin.
+   *
+   * TAKEN FOR TWO CALLS ONLY, and the distinction is the whole reason the
+   * brand preview exists. `get()` here answers from the boot-time cache, so
+   * it reports what a VISITOR IS BEING SERVED and never what is saved. Any
+   * surface that needs the saved truth reads the row itself; see
+   * `readStoredBrand` in server/routes/brandPreview.ts.
+   *
+   * `load()` re-reads the row into that cache. It is the call boot makes, and
+   * the only way a process picks up a write that did not go through `put()`.
+   */
+  brandRepo: DbDocument<Row>;
+
   /** Training modules, ordered by their `order` field at read time. */
   trainingRepo: DbCollection<Row>;
 

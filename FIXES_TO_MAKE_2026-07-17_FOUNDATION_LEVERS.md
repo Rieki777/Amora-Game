@@ -61,7 +61,7 @@ Three tiers, already established in the codebase — keep using them:
 | Tier | Where | For |
 |---|---|---|
 | **Code defaults** | `shared/gameConfig.ts` | Structural shape: currencies, progression mode, domain defaults |
-| **Live overlay** | `data/brand.json` (Setup Wizard) | Identity, images — editable in-browser, no deploy |
+| **Live overlay** | the `brand` row of `app_config` (Setup Wizard) | Identity, images, editable in-browser, no deploy |
 | **Governed data** | `data/*.json` + admin editors | Domains, agreements, roles, variables — the community's own content |
 
 **Non-negotiable invariants** (encode these so they cannot drift):
@@ -872,7 +872,7 @@ that change what the community *becomes*.
 ## Notes for the next session
 
 - **Read `PLATFORM_FOUNDATION.md` first.** The brand-overlay pattern
-  (`gameConfig.ts` defaults ← `data/brand.json` overlay ← `/api/game/config` merge)
+  (`gameConfig.ts` defaults ← the `brand` row of `app_config` ← `/api/game/config` merge)
   is how every lever here should be exposed. Blank = inherit the default.
 - **Seeds live in `server/seeds/`, never `data/`** — a mounted volume shadows anything
   the image had at `data/`. This bit us once already.

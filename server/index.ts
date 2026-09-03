@@ -62,6 +62,7 @@ import { register as registerBadgesRoutes } from "./routes/badges";
 import { register as registerMessagingRoutes } from "./routes/messaging";
 import { register as registerStaysRoutes } from "./routes/stays";
 import { register as registerSitePullRoutes } from "./routes/sitePull";
+import { register as registerBrandPreviewRoutes } from "./routes/brandPreview";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -19577,6 +19578,7 @@ ${inner}
 
   registerMilestonesRoutes(app, { isAdmin, guardCapability, milestonesRepo });
   registerLandRoutes(app, { isAdmin, authedUser, guardCapability, getPool, uploadsDir: UPLOADS_DIR });
+  registerBrandPreviewRoutes(app, { isAdmin, getPool, brandRepo });
 
   // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

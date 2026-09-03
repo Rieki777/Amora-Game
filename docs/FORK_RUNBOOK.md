@@ -139,8 +139,9 @@ above the size of a gathering, not to the size of one person's usage.
   overlay and `shared/gameConfig.ts`). Rename the NAME only: the slug is what
   every ledger row and balance is written against, so the API refuses a slug
   edit and says why.
-- `data/brand.json` via the admin Setup Wizard ("Make This Yours") — identity,
-  images (uploaded, sharp-compressed), dues, personas.
+- The `brand` row of the `app_config` table, via the admin Setup Wizard
+  ("Make This Yours"): identity, images (uploaded, sharp-compressed), dues,
+  personas.
 - Game variables: only CHANGED values are stored; platform defaults inherit.
 
 ## Brand overlay (make it yours)
@@ -151,10 +152,27 @@ The platform keeps three layers apart, on purpose: **identity** in
 mode), **per-deployment data** in DB rows and seeds. A fork edits the last
 two from the admin panel and almost never touches the first.
 
-- **The overlay:** `data/brand.json` (a `dbDocument`, edited by the admin
-  Setup Wizard — "Make This Yours") is merged OVER `gameConfig.ts` by
+- **The overlay:** the `brand` row of the `app_config` table, edited by the
+  admin Setup Wizard ("Make This Yours"), is merged OVER `gameConfig.ts` by
   `mergedConfig()` and served at `/api/game/config`. A blank field inherits
   the platform default, so a fork overrides only what differs.
+
+  There is NO FILE. The overlay was a file at data/brand.json before the MySQL
+  cutover, and three documents went on naming that path for months, which cost
+  a lane a day of looking for a file no code reads. The path is written here
+  without backticks on purpose, so that scripts/check-doc-links.mjs never has
+  to resolve a path this sentence exists to say is gone. The live read path is
+  `dbDocument(getPool(), "brand", DEFAULT_BRAND)` at `server/index.ts:1361`,
+  defined in `server/repos/store-db.ts`.
+
+  **That document is cached in the process, and only boot fills the cache.**
+  `dbDocument.get()` is synchronous and answers from memory; `put()` writes
+  the row and refreshes the cache in the process that served the write, and
+  every `load()` call site for a document is in the boot block. So a change
+  written to the row by SQL, by a script, or by another container does not
+  reach a running server. `GET /api/admin/brand/preview` reads the row
+  directly and reports the disagreement, and `POST /api/admin/brand/resync`
+  reloads the document without a deploy.
 - **Wizard order:** Identity (project + village name, tagline, what a member
   is called, main-site / events URLs, footer introduction) → Pictures (uploaded,
   sharp-compressed, never hotlinked — including the header logo, footer mark

@@ -25,10 +25,20 @@ ReGen Civics and hard-won there:
 ## The fastest path: the Setup Wizard (`/admin` → "Make This Yours")
 
 Most of a new project's identity can be set **live from the browser**, no code
-deploy, via the Setup Wizard — the first item in admin. It writes a brand
-overlay (`data/brand.json`) that `/api/game/config` merges over the
-`gameConfig.ts` defaults, so blank fields keep Amora's values as suggestions
-until a project changes them. The wizard covers, in order:
+deploy, via the Setup Wizard, the first item in admin. It writes a brand
+overlay into the `brand` row of the `app_config` table, and
+`/api/game/config` merges that over the `gameConfig.ts` defaults, so blank
+fields keep the platform's values as suggestions until a project changes
+them.
+
+The overlay is a DATABASE ROW and there is no file. It is read through
+`dbDocument(getPool(), "brand", DEFAULT_BRAND)` at `server/index.ts:1361`,
+defined in `server/repos/store-db.ts`. That read is cached in the
+process and only boot fills the cache, so a change written to the row by SQL
+or by a script does not reach a running server. `GET /api/admin/brand/preview`
+reads the row directly and says when the two disagree.
+
+The wizard covers, in order:
 
 1. **Identity**: project name, tagline, member name, location, the links and
    the footer line. Instantly reflected across the game layer (profile,
@@ -51,7 +61,7 @@ Use the wizard first; drop to the files below only for deeper structural changes
 
 | Layer | File(s) | What lives there |
 |---|---|---|
-| **Setup Wizard (live)** | `data/brand.json` overlay, edited in `/admin` → Make This Yours | Project name, tagline, member name, location, the six hero images, wizard progress. Live-editable, no deploy. Merged over gameConfig by `/api/game/config`. Token names are the token registry's, never this overlay's. |
+| **Setup Wizard (live)** | the `brand` row of `app_config`, edited in `/admin` → Make This Yours | Project name, tagline, member name, location, the six hero images, wizard progress. Live-editable, no deploy. Merged over gameConfig by `/api/game/config`. Token names are the token registry's, never this overlay's. |
 | **Game config (defaults)** | `shared/gameConfig.ts` | The default identity + images the overlay falls back to, plus the structural bits the wizard doesn't touch: personas/paths, the stage ladder + earning rules, gratitude budget rules, next-best-action rules, default season. |
 | Theme | `client/src/index.css` | Color tokens, fonts |
 | Content seeds | `server/seeds/content-seed.json`, `server/seeds/quests-seed.json`, `DEFAULT_*` constants in `server/index.ts` | Page copy, starter quests, FAQs, milestones, training modules, visit config, village dues, brand defaults. (All also editable at runtime in admin.) |
