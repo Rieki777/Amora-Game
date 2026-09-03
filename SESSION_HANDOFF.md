@@ -8,23 +8,49 @@ hour. Written because the session was about to hit its limit.
 `main` is at `e2d1cbd` and **is production**: a push to main auto-builds on
 Railway within seconds and applies migrations at boot. Verified live.
 
-Five lane branches are pushed to origin so nothing depends on this machine:
+**ALL FOUR LANE BRANCHES ARE MERGED** and live, as of `afb2ac2`. CI green, the
+deploy is serving it, `/health` reports `database ok`. The branches below are
+history now; nothing is waiting.
 
-| Branch | Head | Commits ahead of main | State |
-|---|---|---|---|
-| `wt/g-architecture` | `0507c61` | 8 | in flight, unaudited |
-| `wt/g-forkability` | `dd0f482` | 7 | in flight, unaudited |
-| `wt/g-operability` | `ba9d854` | 2 | in flight, unaudited |
-| `wt/g-upgrade` | `b99dcf3` | 1 | in flight, unaudited |
-| `wt/g-client` | `6f6a55e` | 0 | no commits made |
+| Branch | Fate |
+|---|---|
+| `wt/g-architecture` | merged (also carried forkability and operability by content) |
+| `wt/g-forkability` | contained in the above |
+| `wt/g-operability` | contained in the above |
+| `wt/g-upgrade` | merged |
+| `wt/g-client` | never produced a commit; the Client dimension is untouched |
 
-**None of these have been reviewed, gate-checked by me, or merged.** They were
-raising the five audit dimensions below A. Each was told to run its own gate
-sweep before committing, and each was to be audited by a second agent that
-re-ran the gates independently. That audit did not complete. Treat every claim
-on those branches as unverified until the gates are run again.
+What that landed: 2,614 lines out of `server/index.ts` into five route modules
+(31,082 -> 28,562 physical lines, 485 -> 414 registrations in that file), 25
+previously undocumented environment variables in `.env.example` plus a new
+`scripts/fork-env-audit.mjs` guard, a 519-line `docs/RUNBOOK.md` and a
+much-expanded `db-backup.yml`, and `docs/UPGRADING.md` / `docs/RELEASING.md` /
+`CHANGELOG.md` for the release path.
 
-`wt/g-decimals` is merged and is `f639774`.
+VERIFIED BEFORE MERGE by four audits plus three adversarial angles. The
+extraction is behaviour-preserving and that was proved mechanically: 568
+method/path pairs byte-identical, the flattened registration order (619 entries)
+diffing to zero, and each moved handler body differing from its original only by
+the `deps` destructuring. One agent patched `express.application` before
+`dist/index.js` built its app and dumped live registration order to confirm the
+static model, then booted a real server and checked that literal routes are not
+swallowed by neighbouring `:id` routes.
+
+STILL OPEN, neither blocking:
+- **64 dead imports** left in `server/index.ts` by the extraction. No behaviour
+  change; the ratchet could come down further. Deserves its own pass.
+- **`db-backup` goes red on its next scheduled run**, and truthfully: the
+  uploads volume has no backup and `BACKUP_EXPORT_ORIGIN` /
+  `BACKUP_EXPORT_TOKEN` do not exist. `openssl rand -hex 32` gives the token;
+  set it on the Railway app service and as a GitHub secret, set ORIGIN to
+  `https://amora.regencivics.earth`. Or make the jobs warn instead of fail.
+- Two lanes are still running on suggested tasks: making the silent
+  TEST_DATABASE_URL skip loud, and `role="alert"` on the signup error banner.
+
+RESOLVED, recorded so nobody re-opens it: the backup reporting 89 users before
+2026-08-31T14:39 and 5 after was a CORRECTION, not data loss. The pre-repoint
+database had no `token_ledger` table; Amora demonstrably does. The old
+`PROD_DATABASE_URL` was dumping a different database entirely.
 
 ## Shipped after this file was first written
 
