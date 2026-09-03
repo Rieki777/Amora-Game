@@ -96,9 +96,11 @@ subtlety in this system; see section 7.
 ### The occurrence keys
 
 <!-- generated:triggers start -->
-A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is UNIQUE, so the shape of the key is what decides whether a second attempt pays again. Read from `keys` in `server/lib/economy.ts`; the angle brackets are that function's own parameter names.
+A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is UNIQUE, so the shape of the key is what decides whether a second attempt pays again.
 
-| Builder | Key shape |
+`keys` in `server/lib/economy.ts` builds eight of them. The angle brackets are that builder's own parameter names.
+
+| Builder | What the builder returns |
 | --- | --- |
 | `keys.questCompleted` | `quest.completed:<v>:<questId>:<claimId>:<userId>` |
 | `keys.gratitudeGiven` | `gratitude.given:<v>:<noteId>` |
@@ -108,6 +110,57 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `keys.transfer` | `transfer:<v>:<transferRowId>` |
 | `keys.reversal` | `reversal:<v>:<eventKey>` |
 | `keys.voiceClaim` | `voice-claim:<v>:<claimRowId>` |
+
+**A builder's output is not always the key.** Both mint paths append the token slug to it at the call site, because one occurrence can pay two tokens and each is its own row; without that segment the second rule would collide with the first, read as a duplicate, and the member would be quietly paid in one token instead of two. Most of the economy does not use a builder at all. So the table below is read from the CALL SITES: every `idempotencyKey` written under `server/`, resolved through templates, builders, conditionals, local constants and local helpers into the string the ledger receives.
+
+| Key shape the ledger holds | Written in |
+| --- | --- |
+| `adj-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/routes/stays.ts` |
+| `admin_mint:<Date.now()>-<Math.random().toString(36).slice(2, 8)>` | `server/index.ts` |
+| `admin_mint:<slug>:<body>` | `server/index.ts` |
+| `admin_mint:req:<id>` | `server/index.ts` |
+| `comp-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/routes/stays.ts` |
+| `exit:<exitId>:sweep:<token>` | `server/lib/exit.ts` |
+| `gratitude_pool:<cycleNumber>:<userId>` | `server/index.ts` |
+| `gratitude_received:<id>` | `server/lib/gratitude.ts` |
+| `gratitude.given:<v>:<noteId>` | `server/lib/economy.ts` |
+| `intake:<itemId>` | `server/lib/library.ts` |
+| `intake:li-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/lib/library.ts` |
+| `ladj-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/index.ts` |
+| `loan:<loanId>:settle:pool` | `server/lib/library.ts` |
+| `loan:<loanId>:settle:release` | `server/lib/library.ts` |
+| `loan:loan-<Date.now()>-<Math.random().toString(36).slice(2, 6)>:escrow` | `server/lib/library.ts` |
+| `ord:<id>:leg1` | `server/lib/exchange.ts` |
+| `ord:<id>:leg2` | `server/lib/exchange.ts` |
+| `ord:<id>:reversal-leg1` | `server/routes/stays.ts` |
+| `ord:<orderId>:leg1` | `server/index.ts`, `server/lib/exchange.ts` |
+| `ord:<orderId>:reversal-leg1` | `server/index.ts` |
+| `ord:sp-<Date.now()>-<Math.random().toString(36).slice(2, 6)>:leg1` | `server/routes/stays.ts` |
+| `pp:<purchaseId>:grant:evt_<id>` | `server/index.ts` |
+| `pp:<purchaseId>:grant:inv_<String(invoiceId)>` | `server/index.ts` |
+| `pp:<purchaseId>:grant:manual` | `server/index.ts` |
+| `pp:<purchaseId>:grant:pi_<payment_intent>` | `server/index.ts` |
+| `pp:<purchaseId>:reversal:evt_<id>` | `server/index.ts` |
+| `pp:<purchaseId>:reversal:inv_<String(invoiceId)>` | `server/index.ts` |
+| `pp:<purchaseId>:reversal:manual` | `server/index.ts` |
+| `pp:<purchaseId>:reversal:pi_<payment_intent>` | `server/index.ts` |
+| `proposal_accepted:<id>` | `server/index.ts` |
+| `quest_consent:<id>` | `server/index.ts` |
+| `quest.completed:<v>:<questId>:<claimId>:<userId>:<tokenSlug>` | `server/lib/economy.ts` |
+| `queststay:<id>` | `server/index.ts` |
+| `reversal:<v>:<eventKey>` | `server/lib/economy.ts` |
+| `role.cycle:<v>:<cycleKey>:<seatId>:<userId>:<tokenSlug>` | `server/lib/economy.ts` |
+| `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:keep` | `server/lib/eventSeats.ts` |
+| `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:pay` | `server/lib/eventSeats.ts` |
+| `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:refund` | `server/lib/eventSeats.ts` |
+| `send:<id>:<nonce>` | `server/index.ts` |
+| `stay:<id>:night:<night>` | `server/lib/stays.ts` |
+| `voice-claim-debit:<villageId()>:<claimId>` | `server/lib/voiceClaim.ts` |
+| `voice-claim-settled:<villageId()>:<claimId>` | `server/lib/voiceClaim.ts` |
+| `xstock-<Date.now()>-<Math.random().toString(36).slice(2, 8)>` | `server/index.ts` |
+| `xstock:<slug>:<body>` | `server/index.ts` |
+
+44 distinct shapes across 46 posting site(s), plus 2 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
 <!-- generated:triggers end -->
 
 ---

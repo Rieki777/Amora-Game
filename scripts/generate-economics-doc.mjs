@@ -641,6 +641,253 @@ export function refusalsFrom(root, relFile, fnName) {
   return out.map((s) => s.replace(/\s+/g, " ").trim());
 }
 
+
+// ── Every key the ledger can actually hold ──────────────────────────────────
+
+/** Files a posting can be written from: everything under server/, tests aside. */
+function serverFiles(root) {
+  const out = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(abs); continue; }
+      if (!e.name.endsWith(".ts") || e.name.includes(".test.") || e.name.includes(".spec.")) continue;
+      out.push({ abs, rel: path.relative(root, abs).replace(/\\/g, "/") });
+    }
+  };
+  walk(path.join(root, "server"));
+  if (!out.length) fail("economics-doc: no TypeScript found under server/; the key reader has nothing to read");
+  return out;
+}
+
+const enclosingFunction = (node) => {
+  let n = node.parent;
+  while (n && !ts.isFunctionDeclaration(n) && !ts.isFunctionExpression(n) && !ts.isArrowFunction(n) && !ts.isMethodDeclaration(n)) {
+    n = n.parent;
+  }
+  return n ?? null;
+};
+
+/** Is `name` a parameter of any function enclosing this node? */
+function isParameterHere(node, name) {
+  let fn = enclosingFunction(node);
+  while (fn) {
+    for (const p of fn.parameters ?? []) {
+      if (ts.isIdentifier(p.name) && p.name.text === name) return true;
+      // A destructured parameter counts too: the value still comes from the caller.
+      if (ts.isObjectBindingPattern(p.name)) {
+        for (const el of p.name.elements) if (ts.isIdentifier(el.name) && el.name.text === name) return true;
+      }
+    }
+    fn = enclosingFunction(fn);
+  }
+  return false;
+}
+
+/** The nearest `const name = ...` visible from this node, searching outward. */
+function localConst(node, name) {
+  let scope = node.parent;
+  while (scope) {
+    let found = null;
+    const scan = (n) => {
+      if (found) return;
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name && n.initializer) {
+        found = n.initializer;
+        return;
+      }
+      n.forEachChild(scan);
+    };
+    scope.forEachChild(scan);
+    if (found) return found;
+    scope = scope.parent;
+  }
+  return null;
+}
+
+/**
+ * What a function hands back: the expression of its first `return`, or the
+ * body itself when it is a concise arrow.
+ *
+ * `debitKeyFor` in voiceClaim.ts is `const debitKeyFor = (id) => `...`;` with
+ * no block and no return statement, so a reader that only looked for a
+ * ReturnStatement refused a key it could read perfectly well.
+ */
+function returnedExpression(fn) {
+  if (!fn) return null;
+  if ((ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && fn.body && !ts.isBlock(fn.body)) return fn.body;
+  let ret = null;
+  eachChild(fn, (n) => { if (!ret && ts.isReturnStatement(n) && n.expression) ret = n.expression; });
+  return ret;
+}
+
+/** A top-level function in this file, by name. */
+function fileFunction(abs, name) {
+  const sf = sourceFile(abs);
+  let found = null;
+  eachChild(sf, (n) => {
+    if (found) return;
+    if ((ts.isFunctionDeclaration(n) || ts.isVariableDeclaration(n)) && n.name && ts.isIdentifier(n.name) && n.name.text === name) {
+      found = ts.isFunctionDeclaration(n) ? n : n.initializer;
+    }
+  });
+  return found;
+}
+
+/**
+ * EVERY idempotency key a posting can write, resolved to its SHAPE.
+ *
+ * WHY THIS REPLACED A READ OF THE `keys` OBJECT. The old reader printed the
+ * eight builders in `keys` and called that the trigger table. Two things were
+ * wrong with it, and both shipped inside a generated, green document:
+ *
+ *   - the two highest-volume mints append `:${r.tokenSlug}` to the builder's
+ *     output AT THE CALL SITE, so the table printed
+ *     `quest.completed:<v>:<questId>:<claimId>:<userId>` for a key the ledger
+ *     never holds. The old reader's own refusal text said that a key assembled
+ *     another way "would render as a shape the ledger never holds", and it was
+ *     rendering exactly that;
+ *   - every key written without a builder was absent entirely:
+ *     `voice-claim-settled:...`, `ord:<orderId>:reversal-leg1`,
+ *     `pp:<purchaseId>:reversal:<periodKey>`, and the whole library, stays and
+ *     seats families. Anyone reasoning about replay from this document was
+ *     reasoning from a table missing most of the ledger.
+ *
+ * Found by the adversary pass, F10. So this reads the CALL SITES: every
+ * `idempotencyKey:` property assignment under server/, resolved through
+ * templates, builders, conditionals, local consts and local helper functions
+ * into the string the ledger receives. A site it cannot resolve is a THROW
+ * naming the file, the line and the expression, because a key table missing a
+ * key is the defect this replaces.
+ *
+ * A key FORWARDED from a parameter (`mint()` handing on `input.idempotencyKey`)
+ * is counted and not printed as a shape: the caller decides that key, and every
+ * caller is read here too.
+ *
+ * The `:<tokenSlug>` suffix is resolved wherever it is written, so if the
+ * keystone lane moves it inside the builders this reader reports the same final
+ * shapes with no change here.
+ */
+export function postingKeys(root = ROOT) {
+  const builders = new Map(occurrenceKeys(root).map((k) => [k.name, k.shape]));
+  const sites = [];
+  let forwarded = 0;
+
+  for (const { abs, rel } of serverFiles(root)) {
+    const sf = sourceFile(abs);
+    const lineOf = (node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+
+    /** Resolve one expression to the key shape(s) it can produce. */
+    const resolve = (node, depth) => {
+      if (depth > 8 || !node) return null;
+
+      if (ts.isParenthesizedExpression(node)) return resolve(node.expression, depth + 1);
+
+      if (ts.isConditionalExpression(node)) {
+        const a = resolve(node.whenTrue, depth + 1);
+        const b = resolve(node.whenFalse, depth + 1);
+        return a && b && a !== "forwarded" && b !== "forwarded" ? [...a, ...b] : null;
+      }
+
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text];
+
+      if (ts.isTemplateExpression(node)) {
+        let shapes = [node.head.text];
+        for (const span of node.templateSpans) {
+          const inner = resolve(span.expression, depth + 1);
+          const parts = inner && inner !== "forwarded" ? inner : [`<${placeholderFor(span.expression)}>`];
+          const next = [];
+          for (const s of shapes) for (const p of parts) next.push(s + p + span.literal.text);
+          shapes = next;
+        }
+        return shapes;
+      }
+
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+        const a = resolve(node.left, depth + 1);
+        const b = resolve(node.right, depth + 1);
+        if (!a || !b || a === "forwarded" || b === "forwarded") return null;
+        const out = [];
+        for (const x of a) for (const y of b) out.push(x + y);
+        return out;
+      }
+
+      // `keys.someBuilder(...)`
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+        const target = node.expression;
+        if (ts.isIdentifier(target.expression) && target.expression.text === "keys") {
+          const shape = builders.get(target.name.text);
+          if (!shape) {
+            fail(
+              `economics-doc: ${rel}:${lineOf(node)} calls keys.${target.name.text}(), which is not in the ` +
+                "`keys` object this reader read. The key table would silently lose it.",
+            );
+          }
+          return [shape];
+        }
+      }
+
+      // A call to a helper declared in this file: read what it returns.
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+        const ret = returnedExpression(fileFunction(abs, node.expression.text));
+        if (ret) return resolve(ret, depth + 1);
+        return null;
+      }
+
+      // `helper(...).property`, for example keysFor(row).pay
+      if (ts.isPropertyAccessExpression(node) && ts.isCallExpression(node.expression)) {
+        const callee = node.expression.expression;
+        if (ts.isIdentifier(callee)) {
+          const ret = returnedExpression(fileFunction(abs, callee.text));
+          if (ret && ts.isObjectLiteralExpression(ret)) {
+            const prop = ret.properties.find(
+              (p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === node.name.text,
+            );
+            if (prop) return resolve(prop.initializer, depth + 1);
+          }
+        }
+        return null;
+      }
+
+      if (ts.isIdentifier(node)) {
+        if (isParameterHere(node, node.text)) return "forwarded";
+        const init = localConst(node, node.text);
+        if (init) return resolve(init, depth + 1);
+        return null;
+      }
+
+      if (ts.isPropertyAccessExpression(node)) {
+        let rootExpr = node;
+        while (ts.isPropertyAccessExpression(rootExpr)) rootExpr = rootExpr.expression;
+        if (ts.isIdentifier(rootExpr) && isParameterHere(node, rootExpr.text)) return "forwarded";
+        return null;
+      }
+
+      return null;
+    };
+
+    eachChild(sf, (n) => {
+      if (!ts.isPropertyAssignment(n) || !ts.isIdentifier(n.name) || n.name.text !== "idempotencyKey") return;
+      const line = lineOf(n);
+      const got = resolve(n.initializer, 0);
+      if (got === "forwarded") { forwarded += 1; return; }
+      if (!got || !got.length) {
+        fail(
+          `economics-doc: ${rel}:${line} writes an idempotency key this reader cannot resolve:\n` +
+            `    ${n.initializer.getText().replace(/\s+/g, " ").slice(0, 160)}\n` +
+            "  The key table must name every shape the ledger can hold. Teach the reader this shape, or " +
+            "write the key as a template literal, a `keys` builder, or a local helper it can follow.",
+        );
+      }
+      for (const shape of got) sites.push({ file: rel, line, shape });
+    });
+  }
+
+  if (!sites.length) {
+    fail("economics-doc: no idempotency keys found under server/; the reader is looking in the wrong place");
+  }
+  return { sites, forwarded, builders };
+}
+
 /** The tables an invariant's SQL reads, for the "reads" column. */
 function tablesIn(sql) {
   const names = new Set();
@@ -844,18 +1091,53 @@ export const REGIONS = {
     return out.join("\n");
   },
 
-  /** Every occurrence key the economy can write. */
+  /** Every key the ledger can actually hold, read from the call sites. */
   triggers(f, root) {
-    const rows = occurrenceKeys(root).map((k) => [
+    const builderRows = occurrenceKeys(root).map((k) => [
       cell(`\`keys.${k.name}\``),
       cell(`\`${k.shape}\``),
     ]);
+
+    const { sites, forwarded } = postingKeys(root);
+    const byShape = new Map();
+    for (const site of sites) {
+      if (!byShape.has(site.shape)) byShape.set(site.shape, new Set());
+      byShape.get(site.shape).add(site.file);
+    }
+    const shapeRows = Array.from(byShape.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([shape, files]) => [
+        cell(`\`${shape}\``),
+        cell(Array.from(files).sort().map((x) => `\`${x}\``).join(", ")),
+      ]);
+
     return [
       "A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is UNIQUE, so " +
-        "the shape of the key is what decides whether a second attempt pays again. Read from " +
-        "`keys` in `server/lib/economy.ts`; the angle brackets are that function's own parameter names.",
+        "the shape of the key is what decides whether a second attempt pays again.",
       "",
-      table(["Builder", "Key shape"], rows),
+      "`keys` in `server/lib/economy.ts` builds eight of them. The angle brackets are that " +
+        "builder's own parameter names.",
+      "",
+      table(["Builder", "What the builder returns"], builderRows),
+      "",
+      "**A builder's output is not always the key.** Both mint paths append the token slug to it " +
+        "at the call site, because one occurrence can pay two tokens and each is its own row; " +
+        "without that segment the second rule would collide with the first, read as a duplicate, " +
+        "and the member would be quietly paid in one token instead of two. Most of the economy " +
+        "does not use a builder at all. So the table below is read from the CALL SITES: every " +
+        "`idempotencyKey` written under `server/`, resolved through templates, builders, " +
+        "conditionals, local constants and local helpers into the string the ledger receives.",
+      "",
+      table(["Key shape the ledger holds", "Written in"], shapeRows),
+      "",
+      `${byShape.size} distinct shapes across ${sites.length} posting site(s)` +
+        (forwarded
+          ? `, plus ${forwarded} site(s) that forward a key their caller decided (\`mint()\` and ` +
+            "`mintStayCredits` hand on what they were given, and every caller of those is read above)."
+          : ".") +
+        " A shape ending in a timestamp and a random suffix is a key the caller did not make " +
+        "idempotent: the admin mint and the exchange stocking route both fall back to one when no " +
+        "client nonce is sent, so a retried request there is a second posting rather than a no-op.",
     ].join("\n");
   },
 };

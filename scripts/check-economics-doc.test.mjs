@@ -39,6 +39,7 @@ import {
   findRegion,
   invariantChecks,
   occurrenceKeys,
+  postingKeys,
   refusalsFrom,
   renderAll,
   startMarker,
@@ -318,6 +319,110 @@ check("F7: verifyKeystoneSets throws when the two readers disagree", () => {
     () => verifyKeystoneSets(ROOT, { allowNegative: ["stay_night"], sendableKinds: ["credit"], moduleVouchers: [] }),
     /the two readers disagree about ALLOW_NEGATIVE_SOURCES/,
   );
+});
+
+/*
+ * ── F10: the key table is read from the CALL SITES, not from `keys` ────────
+ */
+check("F10 READER: the two mint keys carry the :<tokenSlug> the call sites append", () => {
+  // The exact defect: the document printed the builder's output for the two
+  // highest-volume mints, and the ledger holds that string plus the slug.
+  const shapes = new Set(postingKeys(ROOT).sites.map((s) => s.shape));
+  assert.ok(
+    shapes.has("quest.completed:<v>:<questId>:<claimId>:<userId>:<tokenSlug>"),
+    "the quest mint key must carry the token slug the call site appends",
+  );
+  assert.ok(
+    shapes.has("role.cycle:<v>:<cycleKey>:<seatId>:<userId>:<tokenSlug>"),
+    "the settlement key must carry the token slug the call site appends",
+  );
+  // And the bare builder output must NOT be presented as a key the ledger holds.
+  assert.ok(!shapes.has("quest.completed:<v>:<questId>:<claimId>:<userId>"), "the bare builder shape is not a key");
+  assert.ok(!shapes.has("role.cycle:<v>:<cycleKey>:<seatId>:<userId>"), "the bare builder shape is not a key");
+});
+
+check("F10 READER: the hand-written keys the old table omitted are all present", () => {
+  const shapes = new Set(postingKeys(ROOT).sites.map((s) => s.shape));
+  for (const wanted of [
+    "voice-claim-settled:<villageId()>:<claimId>",
+    "voice-claim-debit:<villageId()>:<claimId>",
+    "ord:<orderId>:reversal-leg1",
+    "exit:<exitId>:sweep:<token>",
+    "gratitude_received:<id>",
+    "loan:<loanId>:settle:release",
+    "seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:pay",
+    "stay:<id>:night:<night>",
+  ]) {
+    assert.ok(shapes.has(wanted), `${wanted} is written by the code and missing from the key table`);
+  }
+  assert.ok(shapes.size >= 40, `expected the ledger to hold at least 40 shapes, read ${shapes.size}`);
+});
+
+check("F10 READER: a forwarded key is counted, not printed as a shape", () => {
+  // `mint()` hands on `input.idempotencyKey`. That is the caller's key, and
+  // every caller is read separately, so printing it as a shape would invent one.
+  const { forwarded, sites } = postingKeys(ROOT);
+  assert.ok(forwarded >= 1, "the forwarding sites must be recognised rather than refused");
+  assert.ok(!sites.some((s) => /idempotencyKey/.test(s.shape)), "a forwarded key must not reach the table");
+});
+
+check("F10 READER: a key it cannot resolve is a THROW naming the site", () => {
+  // The whole point. A key table missing a key is the defect this replaces, so
+  // an unreadable site refuses rather than being skipped.
+  const root = path.join(READER_FIXTURES, "unreadable-key");
+  fs.mkdirSync(path.join(root, "server", "lib"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "server", "lib", "economy.ts"),
+    "export const keys = { a: (v: string) => `a:${v}` };\n" +
+      "export async function pay(pool: any, secret: string) {\n" +
+      "  return postTransfer(pool, { idempotencyKey: someImportedThing(secret) });\n" +
+      "}\n",
+  );
+  assert.throws(
+    () => postingKeys(root),
+    (err) => {
+      assert.match(String(err.message), /writes an idempotency key this reader cannot resolve/);
+      assert.match(String(err.message), /server\/lib\/economy\.ts:3/, "the refusal must name file and line");
+      assert.match(String(err.message), /someImportedThing/, "the refusal must print the expression");
+      return true;
+    },
+  );
+});
+
+check("F10 READER: a builder that is not in `keys` is a THROW, not a silent gap", () => {
+  const root = path.join(READER_FIXTURES, "unknown-builder");
+  fs.mkdirSync(path.join(root, "server", "lib"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "server", "lib", "economy.ts"),
+    "export const keys = { a: (v: string) => `a:${v}` };\n" +
+      "export async function pay(pool: any) {\n" +
+      "  return postTransfer(pool, { idempotencyKey: keys.notARealBuilder('x') });\n" +
+      "}\n",
+  );
+  assert.throws(() => postingKeys(root), /is not in the\s+`keys` object this reader read/);
+});
+
+check("F10 READER: the tokenSlug suffix is found wherever it is written", () => {
+  // The keystone lane may move the `:${slug}` inside the builders. Both
+  // arrangements must produce the same final shape, or this reader would go
+  // red on a change that alters nothing the ledger sees.
+  const mk = (label, keysDecl, callSite) => {
+    const root = path.join(READER_FIXTURES, label);
+    fs.mkdirSync(path.join(root, "server", "lib"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "server", "lib", "economy.ts"),
+      `export const keys = { q: ${keysDecl} };\n` +
+        "export async function pay(pool: any, r: any) {\n" +
+        `  return postTransfer(pool, { idempotencyKey: ${callSite} });\n` +
+        "}\n",
+    );
+    return postingKeys(root).sites.map((s) => s.shape);
+  };
+  const atCallSite = mk("suffix-callsite", "(v: string, q: string) => `quest:${v}:${q}`", "`${keys.q(villageId(), r.questId)}:${r.tokenSlug}`");
+  const inBuilder = mk("suffix-builder", "(v: string, q: string, tokenSlug: string) => `quest:${v}:${q}:${tokenSlug}`", "keys.q(villageId(), r.questId, r.tokenSlug)");
+  assert.deepStrictEqual(atCallSite, ["quest:<v>:<q>:<tokenSlug>"]);
+  assert.deepStrictEqual(inBuilder, ["quest:<v>:<q>:<tokenSlug>"]);
+  assert.deepStrictEqual(atCallSite, inBuilder, "moving the suffix into the builder must not change the shape");
 });
 
 check("READER: refusalsFrom reads BOTH branches of a ternary refusal", () => {
