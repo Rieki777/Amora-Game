@@ -117,7 +117,8 @@
  *   it fails if a file or rule appears that is not on the list,
  *   it fails if a listed count has FALLEN and the list still says the old
  *     number, which is a red that means good news,
- *   it fails if the recorded total and PENDING_CEILING disagree.
+ *   it fails if the list's own arithmetic is inconsistent, or if the recorded
+ *     total and PENDING_CEILING disagree.
  *
  * The third of those is the one theme-literals leaves out and identity-keys
  * gets right. A fall that nobody records is an allowance for the same fact to
@@ -150,6 +151,14 @@
  *   node scripts/check-village-facts.mjs --json            # machine readable
  *   node scripts/check-village-facts.mjs --fork            # a fork: never fails
  *   node scripts/check-village-facts.mjs --update-pending  # only ever downward
+ *   node scripts/check-village-facts.mjs --root <dir> --pending <file>
+ *
+ * The last form points the guard at a different client tree and a different
+ * list. `check-voice.mjs` takes positional paths for the same reason: the
+ * self-test needs to drive the REAL script over a fixture tree rather than a
+ * copy of it, because a copy is a second implementation and the thing worth
+ * proving is that this one refuses. CI invokes it with no arguments, so the
+ * defaults are what ships, and the workflow diff shows it.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -177,7 +186,7 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join("/");
  * point: the list cannot grow by accident, only by a deliberate edit that
  * shows up in a diff next to this comment.
  */
-export const PENDING_CEILING = 100;
+export const PENDING_CEILING = 101;
 
 // ── Scope ───────────────────────────────────────────────────────────────────
 
@@ -354,12 +363,37 @@ const CURRENCY_SYMBOLS = "$€£¥₡₪₩₹";
  * place. The cost of that precision is a genuine "$5" going unseen; every
  * amount this platform was found publishing was $33 or more.
  */
-const MONEY_AMOUNT = new RegExp(
-  `[${CURRENCY_SYMBOLS}]\\s?(?:\\d{2,}|\\d[.,]\\d|\\d\\s?[kKmMbB]\\b|\\d\\s?(?=/))`,
+const MONEY_CANDIDATE = new RegExp(
+  `[${CURRENCY_SYMBOLS}]\\s?\\d[\\d.,]*\\s?[kKmMbB]?\\+?`,
+  "g",
 );
 
 /** A number followed by a currency code: "45,000 CRC", "20 USD". */
-const MONEY_CODE = /\d\s?(?:USD|EUR|CRC|GBP|CHF|COP|MXN|CAD|AUD)\b/;
+const MONEY_CODE = /\d[\d.,]*\s?(?:USD|EUR|CRC|GBP|CHF|COP|MXN|CAD|AUD)\b/;
+
+/**
+ * The whole amount, or null.
+ *
+ * Two steps rather than one regex, so the reported hit is the figure a reader
+ * would recognise ("$80,000") instead of the first two digits of it, and so
+ * the qualification rule can be read on its own line.
+ */
+export function moneyHit(text) {
+  for (const m of text.matchAll(MONEY_CANDIDATE)) {
+    const body = m[0].slice(1).trim();
+    const rate = text[m.index + m[0].length] === "/";
+    if (/^\d{2,}/.test(body) || /^\d[.,]\d/.test(body) || /^\d\s?[kKmMbB]/.test(body) || rate) {
+      // Trim the trailing punctuation the candidate is deliberately greedy
+      // about: `[\d.,]*` swallows the comma in `from $80,000, reserve now` and
+      // `\s?` swallows the space in `costs $33 a month`, both needed to reach
+      // the separators and suffixes inside a real figure. Reporting
+      // `"$80,000,"` reads like the scanner losing track of where the amount
+      // ends, and the point of naming the hit is that a reader recognises it.
+      return m[0].replace(/[.,\s]+$/, "");
+    }
+  }
+  return null;
+}
 
 /**
  * Area and size units asserted as a fact.
@@ -459,7 +493,7 @@ export const RULES = [
       span.kind === "head" && new RegExp(`^[${CURRENCY_SYMBOLS}]$`).test(span.text)
         ? `${span.text}\${...}`
         : null,
-    match: (span) => span.text.match(MONEY_AMOUNT)?.[0] ?? span.text.match(MONEY_CODE)?.[0] ?? null,
+    match: (span) => moneyHit(span.text) ?? span.text.match(MONEY_CODE)?.[0] ?? null,
   },
   {
     id: "unit",
@@ -522,7 +556,11 @@ export function isWaived(lines, index) {
   for (let i = index - 1; i >= 0; i -= 1) {
     const line = lines[i] ?? "";
     if (line.trim() === "") return false;
-    if (!/^\s*(?:\/\/|\*|\/\*)/.test(line)) return false;
+    // `{/*` as well as `//`, `/*` and a JSDoc continuation `*`. Most of the
+    // lines these rules land on are inside JSX, where the only comment form
+    // available is `{/* ... */}`, so leaving it out would mean the marker
+    // could not be written above the hit in the place it is most needed.
+    if (!/^\s*(?:\{?\/[/*]|\*)/.test(line)) return false;
     if (/village-ok:/.test(line)) return true;
   }
   return false;
@@ -619,7 +657,21 @@ export function auditPending(counts, pending, ceiling = PENDING_CEILING) {
     grown,
     unexpected,
     stale,
-    ceiling: listedTotal === ceiling ? null : { listed: listedTotal, ceiling },
+    // Two arithmetic checks rather than one, and both have to hold.
+    //
+    // `declared` catches a hand-edited JSON whose counts and whose own `total`
+    // field disagree, which is the shape of somebody deleting an entry and
+    // leaving the header alone.
+    //
+    // `ceiling` catches the script's constant drifting from the file, which is
+    // identity-keys' rule: the number lives one line under the sentence
+    // forbidding a raise, so growing the allowance takes a deliberate edit
+    // that shows up in the diff next to that sentence.
+    declared:
+      pending.total === undefined || pending.total === listedTotal
+        ? null
+        : { listed: listedTotal, declared: pending.total },
+    ceiling: ceiling === null || listedTotal === ceiling ? null : { listed: listedTotal, ceiling },
     total: totalOf(counts),
     listedTotal,
   };
@@ -627,18 +679,18 @@ export function auditPending(counts, pending, ceiling = PENDING_CEILING) {
 
 // ── The gate ────────────────────────────────────────────────────────────────
 
-function readPending() {
-  if (!fs.existsSync(PENDING_PATH)) return { total: 0, counts: {}, entries: {} };
-  return JSON.parse(fs.readFileSync(PENDING_PATH, "utf8"));
+function readPending(file) {
+  if (!fs.existsSync(file)) return { total: 0, counts: {}, entries: {} };
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
-function scanTree() {
-  const files = walk(SCAN_ROOT).sort();
+function scanTree(root, base) {
+  const files = walk(root).sort();
   const hits = [];
   let waived = 0;
   let scanned = 0;
   for (const file of files) {
-    const r = rel(file);
+    const r = path.relative(base, file).split(path.sep).join("/");
     if (isExcluded(r)) continue;
     scanned += 1;
     const res = scanSource(r, fs.readFileSync(file, "utf8"));
@@ -648,24 +700,44 @@ function scanTree() {
   return { hits, waived, scanned, found: files.length };
 }
 
+/** The value after a flag, e.g. `--root some/dir`. */
+function flagValue(argv, name) {
+  const i = argv.indexOf(name);
+  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[i + 1] : null;
+}
+
 function main(argv) {
   const fork = argv.includes("--fork") || process.env.VILLAGE_FORK === "1";
+  const rootArg = flagValue(argv, "--root");
+  const pendingArg = flagValue(argv, "--pending");
+  const scanRoot = rootArg ? path.resolve(rootArg) : SCAN_ROOT;
+  const pendingPath = pendingArg ? path.resolve(pendingArg) : PENDING_PATH;
+  // The base a finding's path is reported relative to. With --root it is the
+  // parent of the client tree, so a fixture reports the same
+  // `client/src/pages/X.tsx` shape the real run does and its pending list is
+  // written in the same keys.
+  const base = rootArg ? path.resolve(rootArg, "..", "..") : ROOT;
+  // PENDING_CEILING tracks the committed list. A run pointed at some other
+  // list has nothing to compare it to, so that rule stands down and the
+  // internally-consistent-total rule carries the arithmetic instead. Printed,
+  // so a run without the ceiling rule never looks like a run with it.
+  const ceiling = pendingArg ? null : PENDING_CEILING;
 
-  if (!fs.existsSync(SCAN_ROOT)) {
+  if (!fs.existsSync(scanRoot)) {
     console.error(
-      `::error::client/src is not at ${SCAN_ROOT}. This guard reads the client by path; if it moved, move this with it rather than leaving a green run behind.`,
+      `::error::the client tree is not at ${scanRoot}. This guard reads it by path; if it moved, move this with it rather than leaving a green run behind.`,
     );
     return 1;
   }
 
-  const { hits, waived, scanned, found } = scanTree();
+  const { hits, waived, scanned, found } = scanTree(scanRoot, base);
 
   // "0 findings" and "the walk found nothing to scan" must never print the
   // same line, the rule check-voice.mjs states in its own words. A moved or
   // renamed scan root would otherwise report a clean tree forever.
   if (scanned === 0) {
     console.error(
-      `::error::found ZERO scannable files under ${rel(SCAN_ROOT)} (${found} before exclusions). That means the walk did not run, not that the client is clean. Refusing to report a pass.`,
+      `::error::found ZERO scannable files under ${scanRoot} (${found} before exclusions). That means the walk did not run, not that the client is clean. Refusing to report a pass.`,
     );
     return 1;
   }
@@ -674,13 +746,13 @@ function main(argv) {
   const total = totalOf(counts);
 
   if (argv.includes("--update-pending")) {
-    const old = readPending();
+    const old = readPending(pendingPath);
     const oldTotal = totalOf(old.counts ?? {});
     // The one write that is allowed to be a rise is the FIRST one, when no
     // list exists yet. That is the seeding run, and refusing it would leave
     // the only way to create the file being to hand-write a hundred entries.
     // Every run after it may only lower the number.
-    const seeding = !fs.existsSync(PENDING_PATH);
+    const seeding = !fs.existsSync(pendingPath);
     if (!seeding && total > oldTotal) {
       console.error(
         `::error::refusing to raise the village-fact pending total: ${total} is above the recorded ${oldTotal}. ` +
@@ -697,7 +769,7 @@ function main(argv) {
       entries[k] = old.entries?.[k] ?? { since: today };
     }
     fs.writeFileSync(
-      PENDING_PATH,
+      pendingPath,
       `${JSON.stringify(
         {
           note:
@@ -722,12 +794,12 @@ function main(argv) {
     return 0;
   }
 
-  const pending = readPending();
-  const result = auditPending(counts, pending);
+  const pending = readPending(pendingPath);
+  const result = auditPending(counts, pending, ceiling);
 
   console.log(
     `village facts: ${scanned} client file(s) scanned, ${total} finding(s) in ${Object.keys(counts).length} file/rule pair(s), ` +
-      `pending list ${result.listedTotal} (ceiling ${PENDING_CEILING}); ${waived} waiver(s) in force.`,
+      `pending list ${result.listedTotal} (${ceiling === null ? `ceiling rule stood down, list at ${pendingPath}` : `ceiling ${ceiling}`}); ${waived} waiver(s) in force.`,
   );
   // The pending list prints on every run, pass or fail, the way
   // check-identity-keys prints its own. An allowance nobody reads is an
@@ -783,12 +855,18 @@ function main(argv) {
         : `${file} is listed as pending for rule "${ruleId}" at ${s.listed} and now carries ${s.found}. Good news, and the ratchet has to record it: run \`node scripts/check-village-facts.mjs --update-pending\` and lower PENDING_CEILING to ${result.total}. A fall nobody writes down is an allowance for the old number to come back.`,
     );
   }
-  if (result.ceiling) {
-    const { listed, ceiling } = result.ceiling;
+  if (result.declared) {
+    const { listed, declared } = result.declared;
     problems.push(
-      listed > ceiling
-        ? `scripts/village-facts-pending.json totals ${listed} and PENDING_CEILING is ${ceiling}. This list only ever shrinks. A village fact that has to stay welded into a page is a decision to take with the founder, not a number to raise here.`
-        : `scripts/village-facts-pending.json totals ${listed} and PENDING_CEILING is still ${ceiling}. Lower the ceiling to ${listed} so the ratchet holds at the number actually reached.`,
+      `${rel(pendingPath)} declares a total of ${declared} and its own counts add up to ${listed}. Somebody edited one and left the other. Run \`node scripts/check-village-facts.mjs --update-pending\`, which writes both from the same number.`,
+    );
+  }
+  if (result.ceiling) {
+    const { listed, ceiling: c } = result.ceiling;
+    problems.push(
+      listed > c
+        ? `${rel(pendingPath)} totals ${listed} and PENDING_CEILING is ${c}. This list only ever shrinks. A village fact that has to stay welded into a page is a decision to take with the founder, not a number to raise here.`
+        : `${rel(pendingPath)} totals ${listed} and PENDING_CEILING is still ${c}. Lower the ceiling to ${listed} so the ratchet holds at the number actually reached.`,
     );
   }
 

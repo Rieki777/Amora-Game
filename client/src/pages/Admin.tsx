@@ -9195,10 +9195,6 @@ function VariablesTab({ password }: { password: string }) {
         {search && !loading && (
           <p className="text-xs text-gray-500 mt-1.5" role="status">
             {filtered.length === 0
-              // village-ok: "gratitude" here is the game-variable KEY prefix a
-              // founder types into this search box, not the token's display
-              // name. Substituting the configured name would stop the hint
-              // matching any key at a village that renamed the token.
               ? `Nothing matches "${search}". Try one word, or part of a key like "gratitude" or "quest".`
               : `${filtered.length} of ${vars.length} dial${filtered.length === 1 ? "" : "s"} match`}
           </p>
