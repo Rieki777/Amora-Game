@@ -1027,7 +1027,7 @@ const DEFAULT_INVESTOR_SUMMARY = SITE_CONTENT.investorSummary;
 // values until they change them. This is what makes a new project live-editable
 // from the browser without a code deploy. Merged over GAME_CONFIG on read.
 const DEFAULT_BRAND = {
-  project: { name: "", tagline: "", memberName: "", location: "", country: "", fiatCurrency: "", siteUrl: "", eventsUrl: "", contactEmail: "", footerBlurb: "" },
+  project: { name: "", tagline: "", memberName: "", catalystName: "", location: "", country: "", fiatCurrency: "", siteUrl: "", eventsUrl: "", contactEmail: "", footerBlurb: "" },
   currency: { name: "", nameLower: "" },
   images: { hero: "", investorHero: "", residentHero: "", stewardHero: "", prosperityHero: "", masterPlanHero: "", logo: "", heartLogo: "", favicon: "" },
   // Setup Wizard progress — projects tick these off as they make the site theirs.
@@ -2737,6 +2737,8 @@ function mergedConfig() {
       name: pick(brand.project.name, p.name),
       tagline: pick(brand.project.tagline, p.tagline),
       memberName: pick(brand.project.memberName, p.memberName),
+      // A LABEL, never a role: nothing downstream gates on it.
+      catalystName: pick((brand.project as any).catalystName, p.catalystName),
       location: pick(brand.project.location, p.location),
       // 0083 (P8): where the project lives and what it counts in. Display
       // only, like every overlay field; blank inherits the platform default.
@@ -11803,6 +11805,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       anchor: settings.anchor,
       hemisphere: settings.hemisphere,
       monthNames: names,
+      // The lunation this village calls Moon 1, so the grid, the wheel and the
+      // roll all print ONE moon number: the village's own count. Null means it
+      // has not set a first moon, and every surface then shows a window with no
+      // number on it. Read once for the whole payload.
+      moonOneCycle: await moonOneCycle(getPool()),
     });
   });
 
@@ -11861,6 +11868,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
       anchor: settings.anchor,
       hemisphere: settings.hemisphere,
       names,
+      moonOneCycle: await moonOneCycle(getPool()),
       host: (() => { try { return new URL(origin).host; } catch { return "village"; } })(),
       siteUrl: origin,
       from, to, now,
@@ -12575,7 +12583,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const actor = await authedUser(req);
     await recordEvent(getPool(), {
       kind: "calendar_month_named",
-      text: saved.isExample ? `restored the example name of moon ${index}` : `named moon ${index} "${saved.name}"`,
+      text: saved.isExample ? `restored the example name of the year's moon ${index}` : `named the year's moon ${index} "${saved.name}"`,
       actorUserId: actor?.id ?? null,
       entityType: "calendar",
       entityRef: `month:${index}`,

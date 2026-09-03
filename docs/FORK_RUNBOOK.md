@@ -173,8 +173,23 @@ two from the admin panel and almost never touches the first.
   reach a running server. `GET /api/admin/brand/preview` reads the row
   directly and reports the disagreement, and `POST /api/admin/brand/resync`
   reloads the document without a deploy.
+- **What you call whoever runs the village** (`project.catalystName`,
+  2026-09-03): a brand-overlay field like the rest, default **Catalyst**, set in
+  Identity beside "what a member is called". Every member-facing sentence that
+  names one of those people reads your word instead: closing a vote, applying a
+  draft, turning a module on, asking for help at sign-in.
+
+  **It is a LABEL and it grants nothing.** There is no Catalyst role and no
+  Catalyst capability. `isAdmin` and the single capability gate in
+  `shared/capabilities.ts` are untouched, so the same accounts can do exactly
+  what they could before and renaming this changes no permission anywhere. The
+  ADMIN PANEL keeps its own name too, `/admin` included: a place is not a
+  person, so "the admin panel" stays what it is called and only the human takes
+  your word. Two words are derived and not typed: the article ("a" or "an") and
+  the plural, so a village that types Elder reads "an Elder" and "Elders".
 - **Wizard order:** Identity (project + village name, tagline, what a member
-  is called, main-site / events URLs, footer introduction) → Pictures (uploaded,
+  is called, what whoever runs the village is called, main-site / events URLs,
+  footer introduction) → Pictures (uploaded,
   sharp-compressed, never hotlinked — including the header logo, footer mark
   and browser tab icon, all live with no deploy) → Numbers (dues, budgets —
   these write game variables) → Content (page copy, FAQs) → Map & styling →
@@ -1612,9 +1627,16 @@ settlement matches on and the one key support can trace.
   founder-held, category "Village"). A plain date such as `2026-03-19` moves
   Moon 1 to the moon containing that date. Blank goes back to the launch moon.
   It is deliberately outside the Village Calendar module's `variableKeys`,
-  because every village counts moons whether or not it runs a calendar, and it
-  is a different number from that module's `calendar.year_anchor`, which counts
-  Moon 1 to 12 or 13 inside a lunar YEAR and resets each year.
+  because every village counts moons whether or not it runs a calendar.
+- **ONE MOON NUMBER, EVERYWHERE (2026-09-03).** Dating something takes one
+  number and never a pair: "Moon 47", never "year 2, moon 3". The calendar's
+  grid, week, year wheel, moon roll and .ics feed all print this count now,
+  where they used to print the moon's place in the lunar year and reset it
+  every year. `calendar.year_anchor` STAYS and still does its job: it decides
+  where a lunar year begins, whether it holds twelve moons or thirteen, and
+  which of the thirteen NAMES each moon carries. What it no longer supplies is
+  a number anybody reads. Admin, Events keeps the thirteen name slots and says
+  "of the year" on each so the two numbers cannot be confused.
 - **Before your first moon**, screens show a moon's dates with no number on
   them. That covers a village that has not launched, rows older than the anchor,
   and a first-moon date set in the future. No screen shows "Moon 0" and none

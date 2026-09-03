@@ -1,6 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useVillageName } from "@/hooks/useVillageName";
-import { authToken } from "@/lib/gameApi";
+import { authToken, useCatalyst } from "@/lib/gameApi";
 import { villageMoonLabel } from "@shared/villageMoon";
 import { useState, useEffect, FormEvent } from "react";
 import Layout from "@/components/Layout";
@@ -497,6 +497,7 @@ function PasswordGate({ onUnlock }: { onUnlock: (pw: string) => void }) {
 // invariants. Read-and-steer: every action lives on its existing surface.
 
 export function EconomicsView({ headers }: { headers: (extra?: Record<string, string>) => Record<string, string> }) {
+  const catalyst = useCatalyst();
   const [data, setData] = useState<any>(null);
   const [failed, setFailed] = useState(false);
   const [copiedCycle, setCopiedCycle] = useState<number | null>(null);
@@ -523,8 +524,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
     setTimeout(() => setCopiedCycle(null), 2000);
   };
 
-  if (failed) return <p className="text-sm text-stone-400 italic py-6 text-center">Could not load. Are you signed in as an admin?</p>;
-  if (!data) return <p className="text-sm text-stone-400 italic py-6 text-center">Loading…</p>;
+  if (failed || !data) return <p className="text-sm text-stone-400 italic py-6 text-center">{failed ? `Could not load. Are you signed in as ${catalyst.aName}?` : "Loading…"}</p>;
 
   const invariantsOk = !!data.reconciliation?.invariants?.ok;
 
@@ -683,6 +683,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ProjectHistory() {
+  const catalyst = useCatalyst();
   const villageName = useVillageName();
   const buckets = buildBuckets(villageName);
   const WEEKS = buildWeeks(villageName);
@@ -1048,9 +1049,8 @@ export default function ProjectHistory() {
                   Working documents
                 </p>
                 <p className="text-xs text-stone-500 mb-3">
-                  Sheets, docs and boards this team works from. They are stored with the rest of
-                  this tracker and shown only to signed-in admins. Nothing here is built into the
-                  site, so a village that clones this platform starts with an empty list.
+                  Sheets, docs and boards this team works from. They are stored with the rest of this tracker and shown
+                  only to whoever is signed in as {catalyst.aName}. Nothing here is built into the site, so a village that clones this platform starts with an empty list.
                 </p>
                 <div className="space-y-2">
                   {resourceDraft.map((r, i) => (

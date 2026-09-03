@@ -62,6 +62,10 @@ export interface PublicGameConfig {
     name: string;
     tagline: string;
     memberName: string;
+    /** What this village calls whoever runs it. A LABEL, never a role: see
+     *  `useCatalyst` below and `shared/gameConfig.ts`. Absent on a server too
+     *  old to serve it, which is why every reader goes through the hook. */
+    catalystName?: string;
     location: string;
     adminPath: string;
     /** Blank = the village has no outside site; render no link. */
@@ -180,6 +184,83 @@ export function useVillageLinks(): {
     mailTo: (subject: string) =>
       contactEmail ? `mailto:${contactEmail}?subject=${encodeURIComponent(subject)}` : "",
   };
+}
+
+/**
+ * THE VILLAGE'S OWN WORD FOR WHOEVER RUNS IT.
+ *
+ * "Catalyst" out of the box; a village that says founder, steward or elder
+ * sets its own in Admin, Make This Yours, and every member-facing sentence
+ * that names one follows.
+ *
+ * IT IS A LABEL AND NOTHING ELSE. There is no Catalyst role, no Catalyst
+ * capability and no gate anywhere reads this. Whoever could act before can
+ * act now, and `shared/capabilities.ts` is untouched. What changes is the
+ * word a member reads in a sentence about them.
+ *
+ * The ADMIN PANEL keeps its own name. A place is not a person: "the admin
+ * panel" is where the work happens and stays what it is called, `/admin`
+ * included; only the human takes the village's word.
+ *
+ * Why the fallback is a literal here rather than a null: this hook is read
+ * inside sentences, and a sentence with a hole in it while the config loads
+ * reads worse than one holding the platform default for a beat. Same shape as
+ * `?? "Gratitude"` on the currency name.
+ */
+export const CATALYST_FALLBACK = "Catalyst";
+
+/**
+ * "a" or "an" for a word a founder typed, by its first letter.
+ *
+ * A HEURISTIC, and a knowingly imperfect one: it reads "Elder" correctly and
+ * would read a hypothetical "Union" wrongly. The alternative was to write
+ * every sentence around the article, which makes every render site read
+ * stiffly to avoid a case no village has asked for. Exported and pinned by
+ * `client/src/lib/catalystLabel.test.ts` rather than left to be inferred.
+ */
+export function articleFor(word: string): string {
+  return /^[aeiou]/i.test(String(word ?? "").trim()) ? "an" : "a";
+}
+
+/**
+ * The plural of a word a founder typed.
+ *
+ * English regular plurals only, which covers every word a village has plausibly
+ * chosen for this: Catalysts, Founders, Stewards, Elders, Keepers, Weavers,
+ * Guardians. The two irregular endings that do come up in practice are handled
+ * (a trailing consonant plus y takes "ies", a sibilant takes "es"); a genuinely
+ * irregular word would read wrongly, and rewriting every plural sentence to
+ * dodge it made them all read worse than the one case that might be wrong.
+ * Pinned by `client/src/lib/catalystLabel.test.ts`.
+ */
+export function pluralFor(word: string): string {
+  const w = String(word ?? "").trim();
+  if (!w) return w;
+  if (/[^aeiou]y$/i.test(w)) return `${w.slice(0, -1)}ies`;
+  if (/(s|x|z|ch|sh)$/i.test(w)) return `${w}es`;
+  return `${w}s`;
+}
+
+export interface CatalystLabel {
+  /** The word itself, capitalised as the village typed it. */
+  name: string;
+  /** "a" or "an", whichever this word takes. */
+  a: string;
+  /** The two together, because nearly every site needs both. */
+  aName: string;
+  /** The same, capitalised, for the start of a sentence. */
+  aNameCap: string;
+  /** More than one of them. */
+  plural: string;
+}
+
+/** The label, live. Reads the platform default until the config arrives. */
+export function useCatalyst(): CatalystLabel {
+  const config = useGameConfig();
+  const name = String(config?.project?.catalystName ?? "").trim() || CATALYST_FALLBACK;
+  const a = articleFor(name);
+  const aName = `${a} ${name}`;
+  return { name, a, aName, aNameCap: a === "an" ? `An ${name}` : `A ${name}`, plural: pluralFor(name) };
 }
 
 /** Live (brand-overlaid) hero image URLs, empty until loaded — callers fall back
