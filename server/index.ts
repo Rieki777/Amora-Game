@@ -65,6 +65,7 @@ import { register as registerStaysRoutes } from "./routes/stays";
 import { register as registerSitePullRoutes } from "./routes/sitePull";
 import { register as registerBrandPreviewRoutes } from "./routes/brandPreview";
 import { register as registerBrandUploadRoutes } from "./routes/brandUploads";
+import { register as registerNeedsRoutes } from "./routes/needs";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -19494,6 +19495,7 @@ ${inner}
   registerMilestonesRoutes(app, { isAdmin, guardCapability, milestonesRepo });
   registerLandRoutes(app, { isAdmin, authedUser, guardCapability, getPool, uploadsDir: UPLOADS_DIR });
   registerBrandPreviewRoutes(app, { isAdmin, getPool, brandRepo });
+  registerNeedsRoutes(app, { isAdmin, authedUser, getPool });
 
   // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
