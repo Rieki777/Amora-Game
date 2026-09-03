@@ -19,12 +19,17 @@
  *     because those rows carry no stamp.
  *   - The Sybil rule is CONSUMED (the close passes its eligible-sender
  *     set in), never re-implemented (2.2 #9).
+ *   - The R9 allowance figures need the stage each member held AT CLOSE,
+ *     so the close passes that resolver in the same way and for the same
+ *     reason. Absent resolver, absent metrics; see snapshotAllowance below.
  *   - Snapshot failure never fails the close: the trace must not outrank
  *     the mutation. Failures land as an admin-audience event instead.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { REGEN_METRICS, SNAPSHOT_METRICS } from "../../shared/healthMetrics";
 import { cycleBoundsFor } from "../../shared/lunar";
+import { villageId, type StageMultiplierFor } from "./economy";
+import { numberVar } from "./variables";
 
 export interface SnapshotCycle {
   id: string;
@@ -45,7 +50,12 @@ async function insertSnapshot(pool: Pool, cycleNumber: number, metricKey: string
  * Idempotent by the UNIQUE key: a crash-retry or double close writes nothing
  * the first pass didn't.
  */
-export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSenders: Set<string>): Promise<void> {
+export async function snapshotCycle(
+  pool: Pool,
+  cycle: SnapshotCycle,
+  eligibleSenders: Set<string>,
+  stages?: CloseStageSource,
+): Promise<void> {
   const start = new Date(cycle.startsAt);
   const end = new Date(cycle.endsAt);
 
@@ -161,6 +171,140 @@ export async function snapshotCycle(pool: Pool, cycle: SnapshotCycle, eligibleSe
     );
     await insertSnapshot(pool, cycle.cycleNumber, "gratitude_pool_issued", Math.abs(Number(poolRow.b)));
   } catch { /* ledger tables are core; this should not fail */ }
+
+  // R9. Last on purpose: it is the only block here that calls back into host
+  // code, so everything above it is already frozen if that call throws.
+  if (stages) await snapshotAllowance(pool, cycle, stages.stageMultiplierFor);
+}
+
+/**
+ * R9: THE ALLOWANCE THE VILLAGE DID NOT USE, as three frozen figures.
+ *
+ * Rye, 2026-09-03: "show how much we underutilized if we did, which would
+ * encourage more participation in gratitude". Nothing measured it. The two
+ * recognition metrics above count PEOPLE (senders, recipients) and neither
+ * says how much giving the village had available or how much of it went by.
+ *
+ * WHY IT HAS TO HAPPEN HERE, AT CLOSE. An allowance is computed and never
+ * stored: `allowanceFor` (server/lib/economy.ts) is the base sending variable
+ * times the giver's stage multiplier, worked out fresh on every read. So the
+ * figure is only true while the member still stands where they stood that
+ * lunation. Recomputed a month later it reads the stage they hold TODAY, so
+ * every member who climbed a rung is shown a total that was never real, and
+ * shown it as a shortfall they are supposed to feel something about. Frozen
+ * here, it is a fact about a moon that is over.
+ *
+ * WHY THE MULTIPLIER IS PASSED IN. The stage ladder is host logic: its rules
+ * read granted rungs, membership, training and a consented-quest count, and
+ * `server/index.ts` already owns one resolver of exactly this shape
+ * (`stageMultiplierById`). Re-deriving the ladder here would be a second
+ * implementation of the rule that decides what people may give, free to drift
+ * from the one the send door enforces. The same argument the eligible-sender
+ * set is passed in under (2.2 #9).
+ *
+ * WHEN NO SOURCE IS PASSED, NOTHING IS WRITTEN. Not a zero: a zero here reads
+ * as "this village gave its whole allowance away" on the one screen the
+ * number exists to inform. Absent means the close could not say, which is the
+ * same rule the H3 block below applies to a module that never shipped.
+ *
+ * ONE VILLAGE FIGURE, NEVER A PERSON. `health_snapshots` is unique on
+ * (cycle_number, metric_key) and holds one value per pair, so a per-member
+ * underutilisation number could not live here even if somebody wanted one.
+ * Nothing in this function writes a member id.
+ */
+export interface CloseStageSource {
+  /**
+   * The gratitude allowance multiplier one member held AT CLOSE.
+   *
+   * `StageMultiplierFor` is the engine's own type, so the host's existing
+   * resolver satisfies it by construction and no adapter can silently answer
+   * a different question than the send path asks.
+   */
+  stageMultiplierFor: StageMultiplierFor;
+}
+
+async function snapshotAllowance(
+  pool: Pool,
+  cycle: SnapshotCycle,
+  stageMultiplierFor: StageMultiplierFor,
+): Promise<void> {
+  const start = new Date(cycle.startsAt);
+  const end = new Date(cycle.endsAt);
+  const base = numberVar("gratitude.base_budget");
+
+  /*
+   * THE SAME ROSTER `members_total` COUNTS, by the same predicate. Two
+   * numbers on one page that disagree about who is a member is worse than
+   * either number missing: the total below is "what these N people could
+   * have given", so N has to be the N the tile beside it prints.
+   *
+   * One resolver call per member, at close, once a lunation. The host's
+   * resolver reads a member row and a quest count, so this is bounded by the
+   * roster and not by anything a member can drive.
+   */
+  const [roster] = await pool.query<RowDataPacket[]>(
+    "SELECT id FROM users WHERE email NOT LIKE '%anonymized.invalid' AND is_example = 0",
+  );
+  let total = 0;
+  for (const r of roster) {
+    const multiplier = Math.max(0, Number(await stageMultiplierFor(String(r.id))) || 0);
+    // `Math.round(base * multiplier)` is `allowanceFor`'s own line, per
+    // member and then summed, so a member at a stage that multiplies by zero
+    // contributes zero and never a negative.
+    total += Math.round(base * multiplier);
+  }
+  await insertSnapshot(pool, cycle.cycleNumber, "gratitude_allowance_total", total, {
+    membersCounted: roster.length,
+    baseBudget: base,
+  });
+
+  /*
+   * WHAT WAS GIVEN, the way the allowance is charged: gifts inside the cycle
+   * WINDOW, less reversals of those gifts inside the same window. Reversing a
+   * gift hands the allowance back by subtraction, with no counter to keep in
+   * step.
+   *
+   * Windowed on `at` and not on `cycle_id`, which is the one place this
+   * departs from the two recognition metrics above. They ask "who gave", a
+   * question the write-time stamp answers. This one has to agree with the
+   * arithmetic that refused a member's fifth send, and that arithmetic reads
+   * the window. `cycleWindow().key` and `cycleIdFor()` are the same string
+   * for the same moment (server/cycleId.test.ts pins it), so the two agree on
+   * every row written inside its own lunation.
+   *
+   * Joined to the roster because the total is: a gift from somebody the
+   * total never counted would push `given` above what the village could
+   * give, and unspent to a floor of zero, which is the shape of a lie that
+   * looks like health.
+   */
+  const [[givenRow]] = await pool.query<any[]>(
+    "SELECT COALESCE(SUM(g.amount), 0) AS given FROM gratitude_log g " +
+      "JOIN users u ON u.id = g.from_id " +
+      "WHERE g.village_id = ? AND g.at >= ? AND g.at < ? AND g.is_example = 0 " +
+      "AND u.email NOT LIKE '%anonymized.invalid' AND u.is_example = 0",
+    [villageId(), start, end],
+  );
+  const [[reversedRow]] = await pool.query<any[]>(
+    "SELECT COALESCE(SUM(t.amount), 0) AS back FROM token_ledger t " +
+      "WHERE t.source = 'reversal' AND t.at >= ? AND t.at < ? AND t.source_ref LIKE ?",
+    [start, end, `gratitude.given:${villageId()}:%`],
+  );
+  const raw = Number(givenRow.given);
+  const reversed = Number(reversedRow.back);
+  const given = Math.max(0, raw - reversed);
+  await insertSnapshot(pool, cycle.cycleNumber, "gratitude_allowance_given", given, {
+    rawGiven: raw,
+    reversed,
+  });
+
+  // Floored at zero. The two figures above are read a few milliseconds apart
+  // from tables a send can still be writing to, so the subtraction is allowed
+  // to be a hair out; a NEGATIVE unspent allowance is not a state any village
+  // can be in, and printing one would say the village gave more than it had.
+  await insertSnapshot(pool, cycle.cycleNumber, "gratitude_allowance_unspent", Math.max(0, total - given), {
+    total,
+    given,
+  });
 }
 
 export interface ThresholdAlert {
