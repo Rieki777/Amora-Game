@@ -317,16 +317,24 @@ function literalText(node) {
  * production with every gate green.
  *
  * So this reader does not ask what array literal is in there. It asks whether
- * the declaration is EXACTLY the one shape a keystone set is allowed to have,
- * and refuses everything else by name. A reader that accepts a family of
- * shapes is a reader that can be walked past; a reader that accepts one shape
- * can only be walked past by changing the shape, which is a reviewable diff.
+ * the declaration is EXACTLY one of the two shapes a keystone set is allowed
+ * to have, and refuses everything else by name. A reader that accepts a family
+ * of shapes can be walked past; a reader that accepts a fixed list can only be
+ * walked past by changing the shape, which is a diff somebody reviews.
  *
- * WHEN THE KEYSTONE LANE SHIPS A FROZEN STRUCTURE this will go RED and name
- * what it saw. That is the intended cost and the correct way for the accepted
- * shape to change: teach it that ONE new shape deliberately, in a commit
- * somebody reviews. `wt/econ-keystone` carried nothing at b20a476 when this
- * was written, so there was no second shape to accept yet.
+ *     new Set(["a", "b"])        every element a plain string literal
+ *     frozenSet(["a", "b"])      the same, through the helper that seals it
+ *
+ * `frozenSet` is the second form because the keystone lane is closing F14 by
+ * sealing these sets against runtime mutation: it returns a Set whose add,
+ * delete and clear throw. The wrapper changes what the value can DO, not what
+ * it IS, so the list reads the same out of either and both documents keep
+ * saying the same thing across that change.
+ *
+ * A THIRD form is a deliberate one-line addition here, never something this
+ * function infers. `scripts/generate-token-doc.mjs`'s `setConst` accepts the
+ * same two and refuses the same way, so the two documents cannot disagree
+ * about what a keystone set is allowed to look like.
  */
 /**
  * The SOURCE TEXT of a top-level const's initialiser.
@@ -351,20 +359,25 @@ export function frozenStringSet(root, relFile, name) {
   const shapeOf = (n) => n.getText().replace(/\s+/g, " ").slice(0, 160);
   const refuse = (why) =>
     fail(
-      `economics-doc: ${name} in ${relFile} is ${why}, and this reader accepts exactly one shape:\n` +
-        `    new Set(["a", "b"])   every element a plain string literal\n` +
-        `  it found:\n    ${shapeOf(init)}\n` +
+      `economics-doc: ${name} in ${relFile} is ${why}, and this reader accepts exactly two shapes:\n` +
+        `    new Set(["a", "b"])\n` +
+        `    frozenSet(["a", "b"])\n` +
+        `  every element a plain string literal. It found:\n    ${shapeOf(init)}\n` +
         "  This set decides real behaviour and is read into the document as a list of values. A " +
         "declaration whose value cannot be read off the source text (a .concat, a .filter, an " +
         "environment-keyed ternary) makes the document state a list the program does not hold. " +
-        "If the keystone lane has shipped a new deliberate shape, teach this reader that one shape.",
+        "If a new form is deliberate, teach this reader that one form.",
     );
 
-  if (!ts.isNewExpression(init) || !ts.isIdentifier(init.expression) || init.expression.text !== "Set") {
-    refuse("not a `new Set(...)`");
+  let args;
+  if (ts.isNewExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === "Set") {
+    args = init.arguments ?? [];
+  } else if (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === "frozenSet") {
+    args = init.arguments ?? [];
+  } else {
+    refuse("neither a `new Set(...)` nor a `frozenSet(...)`");
   }
-  const args = init.arguments ?? [];
-  if (args.length !== 1) refuse(`a \`new Set\` with ${args.length} argument(s) rather than exactly one`);
+  if (args.length !== 1) refuse(`built from ${args.length} argument(s) rather than exactly one`);
   const arr = args[0];
   if (!ts.isArrayLiteralExpression(arr)) refuse("built from something other than a plain array literal");
   const out = [];
