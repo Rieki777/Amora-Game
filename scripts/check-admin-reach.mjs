@@ -111,6 +111,10 @@ const ALLOWED = {
     "Waiting on the admin screen specified in docs/VILLAGE_LAND.md. The lane that built the route could not edit Admin.tsx, which another wave holds. Delete this line when the screen lands.",
   "POST /api/admin/land/imagery":
     "Waiting on the same screen as PUT /api/admin/land. Delete this line when the screen lands.",
+  "POST /api/admin/site-pull":
+    "The fetch half of 'paste your site address' shipped on its own, deliberately: it is the security surface and it was built and reviewed apart from the screen that calls it. The setup screen and the brand extractor are separate lanes. Delete this line when the screen lands.",
+  "POST /api/admin/site-pull/assets":
+    "Waiting on the same screen as POST /api/admin/site-pull, and on the rights checkbox that screen has to render. Delete this line when the screen lands.",
 };
 
 /**

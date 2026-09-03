@@ -61,6 +61,7 @@ import { register as registerMapSceneRoutes } from "./routes/mapScene";
 import { register as registerBadgesRoutes } from "./routes/badges";
 import { register as registerMessagingRoutes } from "./routes/messaging";
 import { register as registerStaysRoutes } from "./routes/stays";
+import { register as registerSitePullRoutes } from "./routes/sitePull";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -19901,6 +19902,7 @@ ${inner}
     res.json(await latestRates(getPool()));
   });
 
+  registerSitePullRoutes(app, { isAdmin, adminActor, overLimit, clientIp, uploadsDir: UPLOADS_DIR });
   // Brand overlay: the Setup Wizard reads/writes this to white-label the site live.
   app.get("/api/admin/brand", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
