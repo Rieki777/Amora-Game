@@ -8,9 +8,15 @@
  *  - This machine (no Docker): the Railway MySQL's public TCP proxy, via
  *    TEST_DATABASE_URL in the local .env — always with a scratch schema,
  *    NEVER the app's own database.
- *  - No TEST_DATABASE_URL at all: DB-backed suites skip loudly. The JSON-era
- *    tests still run everywhere, so a contributor without a database still
- *    has a meaningful (if smaller) suite.
+ *  - No TEST_DATABASE_URL at all: DB-backed suites skip, and the RUN fails.
+ *    The JSON-era tests still run everywhere, so a contributor without a
+ *    database still has a meaningful (if smaller) suite, but they have to ask
+ *    for it with ALLOW_NO_TEST_DB=1. Before 2026-09-02 this line said "skip
+ *    loudly" and nothing was loud: `pnpm test` with no .env skipped 1,190
+ *    tests across 91 files and exited 0. The loudness now lives in
+ *    `server/db/provisioningReport.ts`'s globalTeardown, which is the only
+ *    place in this harness that can affect a run's exit code, because every
+ *    caller of `provisionTestDb` sits behind a skip guard (see below).
  *
  * The scratch schema name is UNIQUE PER PROVISION: village_test_<epoch>_<pid>_<n>.
  *
@@ -89,8 +95,17 @@ async function sweepStaleSchemas(admin: mysql.Connection): Promise<void> {
  *    the local MariaDB and CI's MySQL each clone their own dialect exactly.
  *    `server/db/harness.test.ts` asserts a clone is column-for-column and
  *    index-for-index identical to a schema that ran the migrations itself.
- *  - THE FAIL-LOUD SKIP. No TEST_DATABASE_URL still throws, and the suites
- *    still skip on `testDbConfigured()`.
+ *  - THE SKIP. The suites still skip on `testDbConfigured()`, and
+ *    `provisionTestDb` still throws on a missing TEST_DATABASE_URL.
+ *
+ *    Read that second half honestly: the throw is on a path nothing reaches.
+ *    Every caller is inside `describe.skipIf(!testDbConfigured())`, so a
+ *    missing variable means the suite is skipped and `provisionTestDb` is
+ *    never called, so the throw never fires. This comment used to call that
+ *    combination "the fail-loud skip", which read as a guarantee and was a
+ *    dead branch. What actually makes a database-less run loud is the
+ *    globalTeardown in `./provisioningReport.ts`: it counts the schemas the
+ *    run provisioned and fails a whole run that provisioned none.
  *
  * The template's identity is the sha of every migration file's NAME and BYTES
  * plus the collation asked for, so a new migration means a new template and a
@@ -435,6 +450,16 @@ export interface TestDb {
   drop(): Promise<void>;
 }
 
+/**
+ * The gate 91 test files sit behind, via `describe.skipIf(!testDbConfigured())`.
+ *
+ * This function is deliberately quiet and must stay that way. A guard that
+ * throws here would take out the JSON-era suite too, and a `console.warn` here
+ * fires once per gated FILE, which is 91 identical lines scrolling past in the
+ * middle of a run: noise, not a signal. Whether a run that skipped these is
+ * allowed to exit 0 is decided ONCE, at the end, by
+ * `hollowRunVerdict` in ./provisioningReport.ts.
+ */
 export function testDbConfigured(): boolean {
   return !!process.env.TEST_DATABASE_URL;
 }

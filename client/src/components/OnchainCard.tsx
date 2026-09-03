@@ -142,7 +142,7 @@ export default function OnchainCard() {
           </button>
         )}
       </div>
-      {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2 mb-3">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2 mb-3">{error}</p>}
 
       {!verified ? (
         <p className="text-sm text-gray-500">

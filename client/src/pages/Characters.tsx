@@ -270,7 +270,7 @@ export default function Characters() {
                 >
                   {playing ? "Save this look" : "Walk this path"}
                 </button>
-                {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
+                {error ? <p role="alert" className="mt-3 text-sm text-red-700">{error}</p> : null}
               </div>
             </section>
 

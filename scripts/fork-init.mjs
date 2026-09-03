@@ -204,6 +204,27 @@ const blankKeys = [];
 const defaultedKeys = [];
 let commentBlock = [];
 
+/**
+ * Which section of `.env.example` the reader is currently inside.
+ *
+ * The dividers were already detected here, to stop a section header leaking
+ * into the next variable's explanation, and then thrown away. Keeping the text
+ * is what lets the report below separate "the server will not start without
+ * this" from "only if you run your own on-chain listener".
+ *
+ * That distinction stopped being cosmetic on 2026-09-02. Documenting the
+ * nineteen variables the template had been missing took the unresolved list
+ * from 28 to 47, and a flat wall of 47 items each with a paragraph under it is
+ * a worse answer to "what do I do next" than a short list was, even though it
+ * is a more complete one. Grouping is how the file gets to be complete AND the
+ * report gets to be short.
+ */
+let section = "";
+
+/** Sections whose blanks are genuinely the founder's next actions. Everything
+ *  else is opt-in, and is listed by name with a pointer rather than in full. */
+const ACTIONABLE = /^(REQUIRED|STRONGLY RECOMMENDED|WHO FOUNDS THIS VILLAGE)/;
+
 for (const line of templateLines) {
   const m = line.match(KEY_LINE);
   if (!m) {
@@ -212,8 +233,10 @@ for (const line of templateLines) {
       const text = line.replace(/^#\s?/, "");
       // A section-header divider ("── REQUIRED: ... ──") separates blocks;
       // it is not itself part of the next variable's explanation.
-      if (/^──/.test(text)) commentBlock = [];
-      else commentBlock.push(text);
+      if (/^──/.test(text)) {
+        commentBlock = [];
+        section = text.replace(/^──\s*/, "").replace(/\s*──\s*$/, "").trim();
+      } else commentBlock.push(text);
     } else {
       // A blank line (or any non-comment line) also separates comment
       // blocks, so the file's header does not leak into the first variable.
@@ -235,7 +258,7 @@ for (const line of templateLines) {
     defaultedKeys.push({ key, value: templateValue.trim() });
   } else {
     outLines.push(line);
-    blankKeys.push({ key, comment: commentBlock.join(" ") });
+    blankKeys.push({ key, comment: commentBlock.join(" "), section });
   }
   commentBlock = [];
 }
@@ -280,11 +303,37 @@ if (defaultedKeys.length) {
   for (const d of defaultedKeys) console.log(`  ${d.key}=${d.value}`);
 }
 
+const actionable = blankKeys.filter((b) => ACTIONABLE.test(b.section));
+const optional = blankKeys.filter((b) => !ACTIONABLE.test(b.section));
+
 console.log("");
-console.log(`Inherited from the template, not resolved, needs a human step (${blankKeys.length}):`);
-for (const b of blankKeys) {
+console.log(`Your next steps: ${actionable.length} variable(s) this script cannot fill in.`);
+console.log("Every one of these closes something that is otherwise shut.");
+for (const b of actionable) {
+  console.log("");
   console.log(`  ${b.key}`);
   for (const wrapped of wrap(b.comment, 74)) console.log(`    ${wrapped}`);
+}
+
+if (optional.length) {
+  // Named, never explained in full. A founder who needs Stripe knows they need
+  // Stripe; a founder who does not should not have to read past it. The
+  // explanation for each is one line away, in the file this just read.
+  const bySection = new Map();
+  for (const b of optional) {
+    if (!bySection.has(b.section)) bySection.set(b.section, []);
+    bySection.get(b.section).push(b.key);
+  }
+  console.log("");
+  console.log(`Opt in later, when you want the feature (${optional.length}, none of them blocking):`);
+  for (const [name, keys] of bySection) {
+    console.log("");
+    for (const wrapped of wrap(name, 74)) console.log(`  ${wrapped}`);
+    for (const wrapped of wrap(keys.join(", "), 72)) console.log(`    ${wrapped}`);
+  }
+  console.log("");
+  console.log("  What each one does, and what breaks without it, is the comment above it");
+  console.log(`  in ${path.relative(ROOT, examplePath)}.`);
 }
 
 console.log("");

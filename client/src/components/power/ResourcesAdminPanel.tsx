@@ -263,8 +263,8 @@ export default function ResourcesAdminPanel({ password }: { password: string }) 
             one circle budget (what the circle holds this season).
           </div>
         )}
-        {problem && <p className="mt-2 text-sm text-red-600">{problem}</p>}
-        {note && <p className="mt-2 text-sm text-teal-deep">{note}</p>}
+        {problem && <p role="alert" className="mt-2 text-sm text-red-600">{problem}</p>}
+        {note && <p role="status" className="mt-2 text-sm text-teal-deep">{note}</p>}
       </div>
 
       {/* ── Spending rules ── */}

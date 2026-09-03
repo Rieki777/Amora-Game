@@ -486,7 +486,7 @@ function Compose({ onDone }: { onDone: (created: boolean) => void }) {
           <option value={8}>8 weeks</option>
         </select>
       </label>
-      {error && <p className="text-sm text-red-700">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       <div className="flex gap-2">
         <button
           type="button"
