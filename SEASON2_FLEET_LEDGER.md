@@ -174,9 +174,16 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
 
 ## 3 - Resource registry
 
-- **Migration numbers.** Highest taken across all local refs, remote refs and 140+ worktrees:
-  **0130**. Next free: **0131**. Gaps at 0111 and 0115-0119 are BURNED, never reuse them
-  (the applied-ledger keys on filename and would replay).
+- **Migration numbers.** Highest taken across all local refs, remote refs and 200+ worktrees:
+  **0131**. 0132-0139 are RESERVED by the governance build. Next free: **0140**. Gaps at 0111 and
+  0115-0119 are BURNED, never reuse them (the applied-ledger keys on filename and would replay).
+- **A READING OF THIS NUMBER IS GOOD FOR MINUTES, NOT HOURS.** On 2026-09-02 I measured all three
+  ways at 17:40, got 0130, and told three lanes that 0131 was free. The housing lane created
+  `drizzle/0131_a_village_names_its_own_homes.sql` at 21:18 and pushed it. A correct reading went
+  wrong in under four hours with roughly ten lanes live. **Re-measure immediately before you create
+  the file, never at the point you plan it, and treat a number another lane gives you as needing a
+  fresh check.** The line below about this line being stale for a week is the slow version of the
+  same failure; this is the fast one.
 - **Claim a number here before creating the file.**
 - **This line was stale by four for a week.** It said "highest 0122, next free 0123" while
   `origin/main` carried 0123 through 0126, and two sessions read it and believed it. A number
@@ -184,6 +191,12 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   under-reports, so run all three scans (the directory, `git ls-tree` over every remote AND
   local ref, and every `drizzle/*.sql` on disk across the worktrees), then
   `node scripts/check-migration-numbers.mjs --next` to confirm.
+- **housing lane, 2026-09-02: holds 0131** for `drizzle/0131_a_village_names_its_own_homes.sql`.
+  Recorded here by the bridge lane rather than by its author, because it was created on a worktree
+  and pushed hours after the surrounding numbers were measured, which is exactly the case this
+  section exists to catch.
+- **governance build, 2026-09-02: RESERVES 0132 to 0139.** A reservation that lives only in one
+  session's head is not a reservation, so it is written down here.
 - **bridge-primitives lane, 2026-09-02: claims 0127, 0128, 0129 and 0130** for the platform
   primitives under the Amora x Saberra integration. All four are additive only.
   `0127_external_proposals.sql` adds `external_proposals` (the vendor proposal queue, with a
