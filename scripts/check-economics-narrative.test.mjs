@@ -159,6 +159,20 @@ function newRepo(label) {
   git(root, ["commit", "-m", "base"]);
   const base = git(root, ["rev-parse", "HEAD"]);
   git(root, ["checkout", "-q", "-b", "work"]);
+  /*
+   * ONE OFF-SURFACE COMMIT ON THE BRANCH, so `main` does not contain HEAD.
+   *
+   * Without it every fixture that commits nothing sits exactly on its base,
+   * which since the F8 fix is a different question: "the base already contains
+   * HEAD" now falls back to HEAD^ rather than reporting an empty range. That
+   * fallback is the point of F8 and the cases at the end of this file build it
+   * deliberately. Here it would silently change what every other case is
+   * asking, so the branch is given a commit of its own that touches nothing on
+   * the surface. Cases that want the fallback pass --base HEAD.
+   */
+  fs.writeFileSync(path.join(root, ".keep"), "a commit so the branch is not its own base\n");
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-m", "chore: branch point"]);
   return { root, base, write };
 }
 
@@ -362,6 +376,66 @@ check("FIXTURE: HUNK RULE reads changed lines, not their CONTEXT", () => {
   commitAll(repo, "chore: edit a line NEXT TO the transfer, not the transfer");
   const { code, out } = runGuard(repo, ["--base", withContext]);
   assert.strictEqual(code, 0, `only the CHANGED line may count, not its neighbours:\n${out}`);
+});
+
+check("FIXTURE: a base that ALREADY CONTAINS HEAD falls back to HEAD^ and fires (F8)", () => {
+  // merge-base(HEAD, base) is HEAD here, so the range is empty and the guard
+  // used to report "Nothing on the economy surface changed" over a changed
+  // economy.ts. The only tell was `0 file(s) changed in total`.
+  const repo = newRepo("base-contains-head");
+  repo.write("server/lib/economy.ts", "// changed\nexport const x = 2;\n");
+  commitAll(repo, "feat: change the mint");
+  const { code, out } = runGuard(repo, ["--base", "HEAD"]);
+  assert.strictEqual(code, 1, `a base containing HEAD must fall back to HEAD^, not pass:\n${out}`);
+  assert.match(out, /already contains HEAD, so HEAD\^/, "the base line must say what it fell back to");
+  assert.match(out, /server\/lib\/economy\.ts/);
+});
+
+check("FIXTURE: the HEAD^ fallback still passes when the last commit is off-surface", () => {
+  // The other direction. The fallback must not turn into "always fire".
+  const repo = newRepo("base-contains-head-clean");
+  repo.write("README.md", "nothing to do with the economy\n");
+  commitAll(repo, "docs: readme");
+  const { code, out } = runGuard(repo, ["--base", "HEAD"]);
+  assert.strictEqual(code, 0, out);
+  assert.match(out, /Nothing on the economy surface changed/);
+});
+
+check("FIXTURE: A DIRECT PUSH TO MAIN, where origin/main IS the commit under test (F8)", () => {
+  // The real CI path this was invisible on: ci.yml runs on push to every
+  // branch, GITHUB_BASE_REF is empty on a push, so the fallback candidate is
+  // origin/main, and on a direct push to main that ref IS HEAD. Built with
+  // update-ref rather than a real push, so the fixture needs no remote.
+  const repo = newRepo("direct-push");
+  repo.write("server/lib/ledger.ts", "// changed\nexport const x = 2;\n");
+  commitAll(repo, "feat: change the ledger");
+  git(repo.root, ["checkout", "-q", "main"]);
+  git(repo.root, ["merge", "-q", "--ff-only", "work"]);
+  git(repo.root, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+  // No --base: this is exactly what CI would resolve on that push.
+  const { code, out } = runGuard(repo);
+  assert.strictEqual(code, 1, `a direct push to main must not report a vacuous pass:\n${out}`);
+  assert.match(out, /server\/lib\/ledger\.ts/);
+  assert.ok(!/0 file\(s\) changed in total/.test(out), "the vacuous-pass tell must be gone");
+});
+
+check("FIXTURE: base contains HEAD and HEAD is a ROOT commit exits 2, not 0", () => {
+  // Nothing to compare against at all. Returning HEAD would make the range
+  // empty again and print the same green this fix exists to remove.
+  const root = path.join(FIXTURES, "root-commit");
+  fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+  fs.copyFileSync(GUARD, path.join(root, "scripts", "check-economics-narrative.mjs"));
+  fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(root, DOC), "# doc\n");
+  git(root, ["init", "-b", "main"]);
+  git(root, ["config", "user.email", "guard-self-test@example.invalid"]);
+  git(root, ["config", "user.name", "guard self test"]);
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-m", "the only commit"]);
+  git(root, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+  const { code, out } = runGuard({ root });
+  assert.strictEqual(code, 2, `a root commit with no range must be 2, got ${code}:\n${out}`);
+  assert.match(out, /root commit with no parent/);
 });
 
 check("FIXTURE: a base ref that does not resolve exits 2, and says so", () => {

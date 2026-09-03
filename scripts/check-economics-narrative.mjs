@@ -287,7 +287,42 @@ export function resolveBase() {
   for (const c of found.slice(1)) {
     if (git(["merge-base", "--is-ancestor", best.sha, c.sha]).ok) best = c;
   }
-  return best;
+
+  /*
+   * ── THE BASE ALREADY CONTAINS HEAD ─────────────────────────────────────
+   *
+   * When the base ref contains the commit under test, merge-base(HEAD, base)
+   * IS HEAD, so the diff is empty and every guard downstream of it reports
+   * "nothing changed". That is not a hypothetical path here: ci.yml runs on
+   * `push` to every branch, GITHUB_BASE_REF is empty on a push so the
+   * fallback is origin/main, and this repository's own notes record that
+   * direct pushes to main happen. On exactly that path this guard printed
+   * PASSED over a changed economy, with `0 file(s) changed in total` as the
+   * only tell. Found by the adversary pass, F8.
+   *
+   * The answer is the one check-migration-compat.mjs already reached, and
+   * whose absence here was an omission when resolveBase was copied from it:
+   * if HEAD is the base branch, the previous release is HEAD's first parent,
+   * so compare HEAD^..HEAD.
+   *
+   * A ROOT COMMIT HAS NO PARENT, and there the honest answer is that there is
+   * nothing to compare against. That returns an ERROR, so the caller exits 2.
+   * Returning HEAD would make the diff empty again and print the same green
+   * this whole block exists to remove.
+   */
+  const headSha = head.text;
+  if (best.sha !== headSha) return best;
+
+  const parent = git(["rev-parse", "--verify", "HEAD^{commit}^"]);
+  if (!parent.ok) {
+    return {
+      error:
+        `${best.ref} already contains HEAD, so there is no range between them, and HEAD is a root ` +
+        "commit with no parent to fall back to. There is nothing to compare. Pass an explicit " +
+        "--base if you know what this change should be measured against.",
+    };
+  }
+  return { ref: `${best.ref} (already contains HEAD, so HEAD^)`, sha: parent.text, viaParent: true };
 }
 
 /** Files changed between the base and HEAD, and files dirty in the tree. */
