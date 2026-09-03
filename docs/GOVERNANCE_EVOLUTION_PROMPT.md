@@ -9,20 +9,34 @@ and where a claim is a reading rather than a measurement it says so.
 
 ## 0. Read this first (added 2026-09-02)
 
-This brief now has three layers, and the later ones win where they disagree with the earlier ones.
+This brief has several layers, and the later ones win where they disagree with the earlier ones.
+The layers, oldest first: sections 1 to 11, then 12, then 13 to 18, then 19, then 19B, then 19C to
+19F, then 20 with 20.8, 20.10 and 20.11, then 21. Where a later layer changed a rule, the older text
+now carries a dated note in place saying so, and sections 20.2, 20.3, 20.5 and 20.7 are written to
+the current model rather than to the model they were drafted under.
 
 - **Sections 1 to 11** are the 2026-08-31 brief. Keep reading them: the reasoning is sound and the
   founder's quotes there are still his rulings. Three of its claims are superseded, named below.
 - **Section 12** is the founder's fuller vision, stated 2026-09-02, in his words. It is the target
   the document must describe.
 - **Section 19** is his answer to section 15, given the same evening, and the mandate to build.
+  **Sections 19B to 19F** are the later rounds, of 2026-09-02 night and 2026-09-03 morning, and the
+  later letter wins over the earlier one wherever they touch the same rule.
 - **Section 20** is the execution plan the coordinator runs: lanes, ownership, migration numbers, merge order, the QA walk. **Section 21** specifies the eight additions the founder accepted on 2026-09-03.
 - **Sections 13 to 18** are what fourteen readers measured against the repository on 2026-09-02,
   each reader's citations re-opened by a second, adversarial agent. Where section 13 contradicts
   sections 1 to 11, section 13 is right. The full reports, with evidence tables, are outside the
   repository at `C:\Users\taren\Desktop\Amora\governance-sources\reports\` (section 18).
 
-**Sections 19C to 19E replace the steward-approval model wherever sections 3, 15, 19, 19B and the section 20.2 lane rows still describe one:** the steward is a 72-hour veto window, a token send executes at pass unless a seated steward votes no, and a Game change lands automatically at the later of the next new moon and the window's close. Section 20.8 records the audit that found the stale rows and the correction wave.
+**Sections 19C to 19F and section 20.11 supersede sections 3, 15, 19, 19B, 20.2, 20.3, 20.5 and 20.8 wherever those describe an approval gate, a hold, a queue, a cycle number on the vote path, a head-count quorum, or a fallback after cycles without quorum.** None of those six things exists in the current model. What stands instead:
+
+- The steward holds a **veto window**, never an approval. A Game change lands at its `lands_at` instant whether or not anybody holds the seat, and a seated steward may veto until it lands. The window is at least 72 hours and stays open until the change lands (19C, 19E, 20.11).
+- A **token send** executes at the close of its ballot. A seated steward's no on a token send fails it at the close, on the record, with a reason (19C, 19D, 20.11).
+- `lands_at` is a **timestamp** taken from the active clock, never a cycle number on the vote path, and nothing is held or queued (19C, 20.8, 20.11).
+- **Quorum and unity are pure token weight**, with people counts always shown beside the weight. The head-count quorum of section 20.8 is withdrawn (19F).
+- A tier that misses quorum three cycles running simply **does not pass**. There is no fallback (19F), and section 20.11 gives that outcome its counter, its warning and its one door.
+
+Section 20.8 records the audit that found the stale rows; section 20.11 records the second pass that found them still standing and required this rewrite.
 
 **Three claims in sections 1 to 11 are now wrong.**
 
@@ -183,10 +197,17 @@ All quotes 2026-08-31. These supersede anything older, R90 included.
 - **The role must be voted back in each season.** If it is not, it expires.
 - **A steward approves a passed proposal before it takes effect**, and can refuse. The veto is the
   purpose of the role, not a side effect: it exists to catch harm the village could not see.
+  *(Superseded by 19C on 2026-09-03: there is no approval step and nothing waits on a steward. A
+  Game change lands at its `lands_at` instant unless a seated steward vetoes it inside the window,
+  and a token send executes at the close unless a seated steward votes no on it. The veto stays the
+  purpose of the role, exactly as he says here.)*
 - **Auto-execute is the maturity path.** Build it as a GRADIENT, not a switch. His phrase is "more
   and more power", and a village may reasonably auto-execute quest payouts while keeping a steward
   on mechanics changes. The dispatcher's fail-safe absence is already the mechanism: a per-subject
   auto-execute flag defaulting to off gives you the whole gradient without a second decision path.
+  *(Read through 19C on 2026-09-03: the gradient needs no code of its own, because a village that
+  seats no steward simply has nobody who can veto. The per-subject map keeps one meaning, which
+  subject kinds a steward MAY veto, and the flag no longer gates whether a change lands.)*
 - **Relinquishing is reversible, but only through the village.** A founder can step back; only a
   vote can fill the seat again. A founder cannot take it back themselves.
 
@@ -251,6 +272,10 @@ whose terms end within 14 days and notifies their holders. Governance week is on
 job before adding a second thing that knows about the end of a season.
 
 ### THE ONE OPEN QUESTION: what executes when there is no steward?
+
+*(Answered by 19C on 2026-09-03: the passed proposal lands. A Game change takes effect at the close
+of its veto window whether or not anybody holds the seat, so neither the frozen village nor the
+queue below was ever built. The three options are kept for the reasoning they carry.)*
 
 Governance week makes this the exception rather than the rule, but it does not remove it: a village
 may not hold the week, or may hold it and vote the steward out with nobody else standing. A season
@@ -1207,6 +1232,8 @@ numbers do not hold (section 0).
 - **The word "steward" already means three things.** In shipped quest copy it is the administrator
   who consents to work. "Village Steward" is a persona path in `shared/gameConfig.ts`. The founder's
   steward is an approver of passed proposals. Name them apart in the document.
+  *(Superseded by 19C on 2026-09-03: the founder's steward holds a veto over passed proposals, not
+  an approval. The naming collision itself still needs solving.)*
 - **The only post-pass human gate is the mechanics auto-apply brake.** `governance.auto_apply_enabled`
   (founder ring, default TRUE, meaning auto-apply is ON and described as an emergency brake) covers
   the mechanics closer only. When off, a pass is held with `held = "auto-apply is off"`, admins are
@@ -1384,6 +1411,14 @@ admin write (founder / vote / steward / operator) as data both the document and 
 
 ## 14. Vision against code: the gap table
 
+*(Three rows below were written under the approval model and are superseded by 19C to 19F on
+2026-09-03: "Steward approves before effect" is now a veto window with `lands_at` and
+`veto_closes_at` as timestamps on the row and no `held` state at all; "Steward expires each season"
+keeps its terms and its loud vacancy but has no approval route to show it on; "Auto-execute as a
+gradient" needs no code, because a village that seats no steward has nobody who can veto. The row
+"Passed changes land at the next cycle start" reads `lands_at` as a timestamp rather than a cycle
+number. Everything else in the table stands.)*
+
 | Section 12 element | Exists today | Missing | Where it attaches |
 |---|---|---|---|
 | One to three founders | `users.role = founder` tier; ends at launch | Nothing enforces a count | Document the tier; enforce only if he asks |
@@ -1460,10 +1495,17 @@ added; one seat each and any one steward approves; passed proposals QUEUE when t
 dispatcher's `held` field is the queue marker) and the vacancy is loud; the steward is named, because
 his answer every time has been that transparency is the protection; a refusal returns the proposal to
 its proposer with the reason and keeps its backers, the way a missed quorum already does.
+*(Superseded by 19C, 19D and 19F on 2026-09-03: the steward vetoes rather than approves, so nothing
+queues on an empty seat and no proposal waits; any single steward may veto, unless the village turns
+on the Steward Council setting, under which a veto needs a majority of the seated stewards. The
+named steward, the returned proposal and the kept backers all stand.)*
 
 **Q7. Late approval.** A steward approves after the new moon has passed. *Recommendation:* the
 proposal rolls to the following boundary, because it is the only rule under which "takes effect at the
 start of a cycle" stays literally true; the row shows its new landing cycle; no deadline and no lapse.
+*(Superseded by 19C on 2026-09-03: there is no late approval, because there is no approval. A Game
+change lands at the later of the next new moon and 72 hours after the close, and the veto window
+closes at the same instant, so a steward who says nothing has let it land.)*
 
 **Q8. Does `governance.weight_mode` leave the founder ring?** It was placed there to stop a majority
 entrenching itself. *Recommendation:* yes, as its own subject type `governance_mode` with a
@@ -1590,6 +1632,9 @@ links, eight Sociocratic Circles, votes on what kind of season) and fail on a ne
    steward and no auto-execute flag covers it, write the approval row and return
    `held = "waiting for a steward"`; the approve and refuse routes re-enter the same closer body;
    `Decision.tsx` already renders `held`. Auto-execute becomes a per-subject map defaulting off.
+   *(Superseded by 19C on 2026-09-03: the seam writes `lands_at` and `veto_closes_at` and returns
+   no `held` state, because nothing waits for a steward. The per-subject map records which kinds a
+   steward MAY veto. Section 20.2's dispatcher row is the current shape.)*
 2. **Founders seated as stewards inside the launch closer**, idempotent, with a term.
 3. **Real expiry on the permission plane, with a loud vacancy.** Rewrite `seatLapse.test.ts` and the
    seat-record e2e as the new rule first.
@@ -1611,6 +1656,11 @@ links, eight Sociocratic Circles, votes on what kind of season) and fail on a ne
     conditions, generated from the same sources as the document.
 
 ### 16.4 Tests to write red first
+
+*(The first three tests below were written under the approval model and are superseded by 19C on
+2026-09-03. Their replacements: a passed Game change applies nothing before `lands_at`; it applies
+at `lands_at` with no steward in the loop; a veto inside the window returns it with the reason; a
+steward's no on a token send fails it at the close; an empty veto reason is refused.)*
 
 Pending approval applies nothing and `held` names the steward; approval executes; an empty refusal
 reason is refused; a refusal records name, reason and ballot; a founder inherits at launch with a
@@ -1635,6 +1685,9 @@ rhythm); move the five named flakes into `scripts/known-flakes.json`.
 ---
 
 ## 17. What to do first (replaces section 11)
+
+*(Superseded by section 20 on 2026-09-02, which is the plan the coordinator actually runs. Kept for
+its reasoning. Step 5's "steward approval" reads as the steward's veto window after 19C.)*
 
 1. **Your own worktree from `origin/main`**, `.env` copied in, built, and the three governance suites
    run alone and inside the full run before you touch anything. Say the commit SHA in everything you
@@ -1752,6 +1805,9 @@ coordinator proceeds on:** the new moon itself. A passed proposal is stamped wit
 lands in, one routine applies everything that is due, and both the hourly job and the human close
 call that routine, so whichever runs first applies it and the other finds nothing left to do. A
 member sees "lands at cycle 331" on the proposal from the moment it passes.
+*(Superseded by 19C and 20.11 on 2026-09-03: `lands_at` is a timestamp taken from the active clock,
+never a cycle number, and the page reads "lands at <instant>" with the veto countdown beside it. The
+rest of this answer, one routine and two callers that cannot apply twice, stands.)*
 
 ### Q5, the cycle as a setting: yes
 
@@ -1773,6 +1829,11 @@ seat per catalyst, any one steward approves, proposals queue when the seat is em
 named, a refusal returns the proposal with its reason). And the document must say plainly that a
 village with no steward and self-executing agreements is a HEALTHY state, the one the training
 wheels come off into. Never render an empty steward seat as a warning once a village has chosen it.
+*(Superseded in part by 19C, 19D and 19F on 2026-09-03: the steward holds a veto window rather than
+an approval, so nothing queues on an empty seat; any single steward may veto, and a Steward Council
+setting makes a veto need a majority of the seated stewards. The healthy stewardless village, the
+named steward and the refusal that returns the proposal with its reason all stand, and the empty
+seat is still never rendered as a warning.)*
 
 ### Q7, late approval: explained, and the default
 
@@ -1785,6 +1846,9 @@ changes land at cycle starts; (b) it waits for the NEXT new moon after the appro
 holds and the proposal shows its new landing date; (c) it expires because the steward missed the
 moon, which punishes the village for a steward's absence. **Default the coordinator proceeds on:**
 (b). The proposal rolls to the following new moon and the page says so.
+*(Superseded by 19C on 2026-09-03: the situation cannot arise, because no proposal waits for a
+steward to act. A Game change lands at the later of the next new moon and 72 hours after the close;
+a steward who is away simply does not veto, and it lands.)*
 
 ### Q8, the vote mode leaves the founder ring: yes
 
@@ -1891,6 +1955,9 @@ rule of section 12 applies to the path with NO steward in it: a subject the vill
 auto-execute lands at the next boundary through `applyDueGovernance`. So a village with training
 wheels on gets changes when a steward says yes, and a village that has taken them off gets changes
 at the new moon. Coordinator's reconciliation; flagged for him in section 20.7.
+*(Withdrawn by 19C on 2026-09-03: there is no approval to execute at. A token send executes at the
+close of its ballot, and a Game change lands at its `lands_at` instant unless a seated steward vetoes
+it inside the window. His quote above stays as the record of what he said that night.)*
 
 **Q9, confirmed, with the reason.**
 
@@ -1965,18 +2032,8 @@ itself is the hub session's work (the prompt at the end).
 > "Merge PR #140 if it's good to go! You can also put a lane on the governance module image row to
 > do that too!"
 
-### 20.7 What the second round changes in the build
-
-- **The dispatcher lane was briefed with the old Q7 default** (late approval rolls to the following
-  boundary). The correction is small and contained: on approval, execute now; `lands_at_cycle` is
-  stamped only for subjects in the auto-execute map. A follow-up lane applies it after Phase 1's
-  verify, and the resume script carries the corrected prompt so a re-run gets it right.
-- **Thresholds-for-thresholds** joins the thresholds lane's scope in Phase 2 (the tier settings are
-  editable by catalysts before the Birthing; after it, a tier change is priced at the tier's own
-  current bar).
-- **Two coordinator readings flagged for him:** that non-human roles with a representative are
-  available from day one and the 144 line is shown as guidance; and that "lands at the next cycle"
-  now describes the auto-execute path only, with steward approval executing at once.
+*(Section 20.7, which records what this round changed in the build, was written here by mistake and
+now sits in its own place after section 20.6.)*
 
 ### 19C. Rulings of 2026-09-03, early: the steward is a veto window, and other beings from day one
 
@@ -2215,9 +2272,9 @@ so a coordinator that loses its context can pick it up.
 |---|---|---|---|
 | **clock** | `shared/lunar.ts`, new `shared/cycleClock.ts`, every consumer that imports lunar arithmetic, the client `CycleClock` | The `CycleClock` seam (`boundsFor`, `idFor`, `parseId`, `startOf`); lunar implementation unchanged; a calendar implementation with its own id prefix; `cycle.mode` setting, lunar default, boundary-timed, launch-grade; past cycles frozen with their ids; a boot assertion that no setting is shown that nothing reads | `0132` if a column is needed |
 | **thresholds** | `shared/governanceEngine.ts`, `shared/ballotSubjects.ts`, the Governance category of `shared/gameVariables.ts`, `server/lib/mechanics.ts`, the open path in `server/lib/ballots.ts` | A criticality tier on every setting with a tier-to-quorum-and-unity map; the 97/97 recommended ceiling with a warning above it; `SUBJECT_THRESHOLDS` as settings with the registry as floors; a per-subject abstain policy and minimum-yes-heads; the Birthing requires every frozen seat to vote yes; a mixed change set priced at the highest floor among its elements; the one-vocabulary rule replaced by typed items | none |
-| **steward** | new `server/lib/stewardship.ts`, new `server/routes/governanceApprovals.ts`, `server/lib/orgChart.ts`, the `term-watch` job, `roleCapabilitiesFor`, `server/lib/founderGrant.ts` | `ballot_approvals` (ballot id, decided by, decision, reason NOT NULL on refusal); term columns on `role_holders`; `roleCapabilitiesFor` drops lapsed holdings; `term-watch` says the seat is empty and makes the vacancy loud where the approval is needed; approve and refuse routes gated by a new `steward.approve` capability; the seating of every catalyst as a steward, idempotent, with a term ending at the next season turn, exposed as one function the launch closer calls; a village with no steward documented as healthy | `0133` approvals, `0134` terms |
-| **dispatcher** | the governance region of `server/index.ts`, new `server/lib/changeset.ts`, `server/lib/dryRun.ts` | The closer split into settle and execute; the approval hold (`held = "waiting for a steward"`) and the per-subject auto-execute map with the mechanics brake kept as its entry; `lands_at_cycle` stamped at pass; `applyDueGovernance(pool, at)` called from both the hourly settlement job and the human cycle close; late approval rolls to the following boundary; the `governance_mode` subject type with its executor; the changeset as typed namespaces on `mechanics_proposals.change_set` (dials, mint rules, weight allocation, mode switch, module lifecycle, brand fields, roles) applied through the existing writers in one transaction, all or nothing, with the blocking element named; a durable executor-pending row | `0135` landing and supersedes columns, `0136` executor-pending |
-| **delegation** | new `server/lib/delegation.ts`, new `server/routes/delegation.ts`, the tally path in `server/lib/ballots.ts` | Delegations that copy the choice and never move the weight; transitive resolution; cycle refusal at creation; the delegator's row shows who they actually followed; effective concentration per member; concentration visible on the weights route | `0137` delegations |
+| **steward** | new `server/lib/stewardship.ts`, new `server/routes/governanceVeto.ts`, `server/lib/orgChart.ts`, the `term-watch` job, `roleCapabilitiesFor`, `server/lib/founderGrant.ts` | Built in Phase 1b: a veto record in place of the approval record (ballot id, vetoed by, reason NOT NULL, capped, public, permanent and redactable), and one `steward.veto` capability that no admin route can grant or revoke, seating and unseating happening only through the `role_seat` and `role_unseat` executors; term columns on `role_holders` stamped as instants from the cycle clock, kept per term, surviving an unrelated appointment; `roleCapabilitiesFor` drops lapsed holdings; `term-watch` says the seat is empty, treats "no season is running" as loud, and never renders a village that has chosen no steward as a fault; the seating of every catalyst as a steward, idempotent, with a term ending at the next season turn, exposed as one function the launch closer calls. There is no approve route, no refuse route, no hold and no queue: nothing waits on a steward, and a passed Game change lands whether or not the seat is filled. Phase 1c (`steward-veto-fix`) adds: a steward's no fails TOKEN SENDS only and never a ballot the steward is the subject of, evaluated at the close, the row closing as `vetoed` with `vetoed_by` and the reason, the steward's own weight counting in the tally like anyone's, so the override at the highest set tier and the dashboard's "payouts blocked" row both reach it; `DENIABLE` false on `steward.veto`, with the comment saying why, because in the veto model a paused veto means the change lands, and a red-first badge-deny test beside admin self-seating; the constitutional tier on the five steward settings, `governance.steward_subjects`, `governance.auto_execute_subjects`, `governance.veto_hours`, `governance.steward_council` and `governance.highest_tier`, with seat and unseat of a steward-capable role and every edit to the veto map keeping their timing and their window and NOT being vetoable, and a change set mixing such an element with any other kind refused at validation naming both elements; the three window notices as their own notification types pinned to immediate, the "off" preference refused while a member holds a steward-capable role, and a notice whose moment has passed suppressed rather than sent late | `0133` the veto record (the number reserved for approvals), `0134` terms; Phase 1c takes its numbers from the coordinator |
+| **dispatcher** | the governance region of `server/index.ts`, new `server/lib/changeset.ts`, `server/lib/dryRun.ts`, the admin cycles region, the admin mechanics apply route, the withdraw reset, its own landing job | Built in Phase 1b: the closer split into settle and execute; the classification every subject carries, TOKEN_SEND or GAME_CHANGE, with the per-subject veto map recording which kinds a steward may veto (default: every Game change) and which execute at the close (default: token sends); a token send executes at the close, a Game change lands at `lands_at` and never earlier; `lands_at` and `veto_closes_at` are TIMESTAMPS on the row, so there is no hold, no queue and no cycle number anywhere on the vote path; `applyDueGovernance(pool, at)` as its own five-minute job outside the settlement job, electing a single executor with a guarded claim UPDATE, idempotent on status, logging "nothing due" apart from "did not run" and marking a row stalled if the brake was off when it came due; a ballot closes when its window ends, by the settlement path, so no human hand picks the steward's days, with early close refused on every method and an admin apply inside a veto window refused; the changeset as typed namespaces on `mechanics_proposals.change_set` (dials, mint rules, weight allocation, mode switch, module lifecycle, brand fields, roles) applied in two phases, validate then apply, irreversible writes last, all or nothing with the blocking element named, a per-element ledger row for every write and every written-through cache reloaded after; the `governance_mode` subject type with its executor; a durable executor-pending row. Phase 1c (`dispatcher-fix`) fixes: the veto window read as "at least 72 hours, and until it lands", so `veto_closes_at = lands_at` with 72 hours as the floor and every surface reading one instant through one helper; the timing choice every proposal carries, with defaults per kind, a token send at acceptance and a Game change at the new moon, and a Game change chosen at acceptance still landing no earlier than its window closes; `weight_allocation` named a GAME_CHANGE in the classification table with the reason; the landing instant taken from the ACTIVE clock through the clock lane's `nextBoundaryAfter`, with any change set touching a cycle-timed dial, a mint rule or a stage multiplier snapping `lands_at` forward to the next boundary on every path, at-acceptance included; the claim UPDATE run against the table that actually holds `lands_at`, that table's status vocabulary gaining `applying` and `stalled` in the same migration, rows resting in `passed_verified` and `passed_onsite` backfilled with a `lands_at`, and the veto fields living on the BALLOT so a proposal returned after a veto and passed again still lands; a row that reaches passed with `lands_at` already in the past restamped to now plus the window, marked late-settled with the reason, and every steward told; auto-settle of ballots run beside `applyDueGovernance`, outside the settlement job's early returns; the element ledger keyed on (ballot id, element index) with TEXT values and the proposal id beside the ballot id, and the executor-pending table taking its own id; the override decided by the tier the resubmission actually carried at, landing regardless of any steward once that tier is the village's highest set tier, recorded with an explicit relation (`renews`, `overrides`, `replaces`) and refused when a renewal points at a vetoed row; the `role_seat` executor refusing a subject who is no longer a member and naming them; a binding ballot refused on a subject type with no closer, naming the subject and the practice-vote door | `0135` landing and supersedes columns, `0136` executor-pending; Phase 1c takes its numbers from the coordinator |
+| **delegation** | new `server/lib/delegation.ts`, new `server/routes/delegation.ts`, the tally path in `server/lib/ballots.ts` | Built in Phase 1b: delegations that copy the choice and never move the weight; transitive resolution; cycle refusal at creation; the delegator's row shows who they actually followed; effective concentration per member; concentration visible on the weights route; **acceptance**, so a delegation carries nothing until the delegate accepts it, with the copied choice suppressed on the delegator's row while choices are hidden ("cast, following Ren"), withdrawing a delegation or taking a vote back restoring the not-cast state, a delegate's unvoted delegation count visible on the live ballot, and a delegated row never counting on a subject at 100 unity, the Birthing included. Phase 1c (`delegation-fix`) fixes: `accepted_at` resets to NULL when a delegation is re-pointed, in the same migration that adds it, so a re-point is never pre-accepted | `0137` delegations; Phase 1c takes its number from the coordinator |
 | **docgen** | new `scripts/generate-governance-doc.mjs`, `scripts/check-governance-doc.mjs`, `scripts/generate-governance-doc.test.mjs`, `server/db/governanceDoc.test.ts`, `docs/GOVERNANCE.md`, `.gitattributes`, `ci.yml`, `CLAUDE.md`, `README.md`, ruling 4 in `scripts/generate-token-doc.mjs` | The generated document of TODAY exactly as section 16.2 specifies, with every ruling in sections 3, 4, 5, 12 and 19 carried verbatim with date and status, every section 14 gap named as staged, clans and voice for other beings named as staged at 144 players; the guard in CI; the self-test; the database test | none |
 
 **Merge order:** clock, thresholds, steward, dispatcher, delegation, docgen. The merge agent
@@ -2227,11 +2284,18 @@ regenerates both documents after each merge and refuses to continue on a red gua
 
 | Lane | Builds |
 |---|---|
-| **mechanics-section** | The admin panel's game tabs renamed the **Game Mechanics** section and public always: `mayReadAdmin` true for everyone on the game tabs, every write still on `mayAct`; before the Birthing catalysts edit directly and everyone watches; after it every control renders "propose this change", edits collect into a visible change log (the staging tray, drafts as its store), and one button submits the tray as one proposal; operator tabs and every surface carrying personal data stay where they are; save-honesty defects in section 13.5 fixed; mobile first, because the founder plays from a phone |
+| **mechanics-section** | The admin panel's game tabs renamed the **Game Mechanics** section and public always: `mayReadAdmin` true for everyone on the game tabs, every write still on `mayAct`; before the Birthing catalysts edit directly and everyone watches; after it every control renders "propose this change", edits collect into a visible change log (the staging tray, drafts as its store), and one button submits the tray as one proposal; operator tabs and every surface carrying personal data stay where they are; save-honesty defects in section 13.5 fixed; mobile first, because the founder plays from a phone. Also the two additions section 21 gives this lane. **Proposal recipes (21.6):** "start from a recipe" is the first door on the section, one card per recipe with its tier stated in people and weight, hidden when its module is off, the tier always derived from the recipe's items as the highest floor among them and never declared by hand, the shipped registry in `shared/governanceRecipes.ts`, a village free to add its own at the structural tier and to hide shipped ones, a recipe blank that resolves a person sitting behind the people-view capability, and a recipe opening the ordinary wizard so it then obeys validation, the dry run, the story requirement, the timing choice and the window like any hand-built proposal. **The story requirement (21.1):** the wizard states the requirement as soon as the tier is known, counts characters live, prices every add in the tray with its tier chip and the story it implies, applies the structural story requirement to a routine change that moves a value by more than a stated multiple, and refuses publish with the same sentence the server uses |
 | **birthing** | The launch renamed the Birthing in copy; the proposal document reveals the Game: the founding Voice distribution as a table with each catalyst's share of the total, the structure (modules on, roles declared, clans named, dials changed from default, seasons seeded), and the conditions; the invitation to name non-human governance roles on the founding screen; the founding-allocation act behind one exempted faucet; catalysts become players after it carries |
-| **ballot-surfaces** | Viewer-aware ballot serving: who voted visible, how they voted hidden, names revealed only after half the required count, a village setting for public voting; the people-and-weight sentence on every card and page; `shareOfTotal` on standing and weights in display units; the 0.1-shows-as-100 defect fixed; objection asks on every method and visible to the proposer; the withdraw-and-rewrite door with the predecessor's asks carried over; "lands at cycle N" on every held proposal; the steward's approve and refuse on the decision page with the vacancy shown |
-| **delegation-ui** | Give and withdraw a delegation from the standing page; see who you actually followed on each vote; the concentration view for every player |
+| **ballot-surfaces** | Viewer-aware ballot serving: who has voted is visible, how they voted is hidden, the names of those who voted appear only once half the required weight has been cast and never below a floor of three named voters, and a village setting switches to public voting; while a ballot is open and secret the payload carries a participation count and, after the half mark, those names, and nothing else, with no per-choice tallies, no `silent[]` names and no cast times, the route needing a session, and a roll small enough that the tally determines the choices saying so; the people-and-weight sentence on every card, page, tier control and notice ("3 of 9 people voted, holding 97% of the weight"); `shareOfTotal` on standing and weights in display units and the 0.1-shows-as-100 defect fixed; the voter's own share of total voice, with the top holders' shares, shown in the vote widget BEFORE the choice; objection asks on every method and visible to the proposer, under the capped, public, redactable free-text rule; the withdraw-and-rewrite door with the predecessor's asks carried over; one carried state on a passed proposal, reading "lands at <instant>" with the countdown "veto until <instant>" beside it, in the viewer's zone with the UTC instant alongside; a veto control on the decision page rendered ONLY to a member who holds a steward-capable seat, its reason field carrying the permanence warning above the input. No approve control, no refuse control and no vacancy warning: an empty steward seat is a state a village may choose, and the page says so plainly. Also the two additions section 21 gives this lane: the new-moon digest's page at `/governance/moon/<cycle id>` and its feed item (21.4), members-only by name, the mail carrying the act and a link rather than the text; and the stranger's view (21.8), under which every governance and mechanics route answers an anonymous request with either 401 or a payload the PII walker accepts, the public page shows aggregates only, and `/governance`, the moon pages and the constitution route send noindex unless the village opts in with the sentence "public means other people keep copies forever" |
+| **delegation-ui** | Give, accept and withdraw a delegation from the standing page, with the pending offer shown to the delegate and nothing carried until they accept; a re-pointed delegation asks for acceptance again; see who you actually followed on each vote, and "cast, following Ren" on your own row while choices are hidden; a delegate's unvoted delegation count on the live ballot; the concentration view for every player |
 | **clans** | The naming surface only: clans as named groups anchored on a living being, editable in the Game Mechanics section, with the 144-player unlock for voice shown as a staged feature, never as a broken one |
+| **windows** | The lane 19E created; section 20.11 moved it forward so it runs in Phase 1c, and Phase 2 carries its surfaces. Owns the open and publish paths (`openBallot` in `server/lib/ballots.ts`, the mechanics publish route, the ceremonies), the new Governance settings (the per-kind window choice, `governance.highest_tier`) and the refusal copy. Per proposal kind a village chooses always open, or a window. Two shapes ship as the guiding defaults, the last seven days of every month and the last two weeks of every season, and "month" means the active clock's cycle, lunar by default (19F). The arithmetic 20.11 requires: the window is evaluated per element and the strictest applies; a window shape no longer than the vote window is refused; an opening whose vote would close outside the window is refused; the veto hours are capped at one cycle; anything coming back, a resubmission, an override or a renewal, opens outside its window for a stated grace; the refusal names the element that narrowed the window and the date it next opens, and the tray keeps the edits so nothing is lost. The village's highest set tier is the override tier and is itself priced at the highest tier |
+| **dashboard** | The lane 19B asked for and 21.3 specified, and it owns the WHOLE front of the Game Mechanics section under one ordering rule: what needs this viewer's action, then what changed, then the doors, then the read-backs, with a stated empty state for each band. The action band: what is open to vote on now, what lands at the next moon with its countdown, what expires this moon with a renew door, and a delegation waiting to be accepted. The doors: propose, start from a recipe, the constitution. The read-backs: which Hypha corner the dials describe, concentration of voice, participation over three moons in people and weight, and the module's state. Steward accountability (19E): who holds the seat, when the term ends, the vetoes this season with their reasons, and the payouts blocked. The governance timeline of 21.3 is the front's spine and the default tab on a phone, served by `GET /api/governance/timeline` with the `.ics` feed behind a scoped, expiring, self-rotatable token whose copy says a subscribed URL is a password that leaves the village |
+| **quests** | The first governance actions as quests, in his framing: this is how we empower ourselves, evolve the Game and keep making it better. The chain is make your first proposal, cast your first vote, give your first delegation. The first quest completes alone on any day of the moon, with no dependency on a window or a boundary, and the delegation quest completes on the OFFER rather than on the delegate's acceptance, so no player is left stuck in somebody else's inbox. The chain is seeded only once the governance module actually serves members, so a fork never ships a board of broken quests |
+| **phone-IA** | The information architecture for a phone, because the founder plays from one. Every governance surface renders at 375px with no horizontal scroll and no control the step needs left below the fold: the dashboard, the timeline, the wizard, the tray, the decision page, the veto control, the digest and the constitution. It owns the navigation shared between them and the one-thumb path from a notification to the act that notification names. The QA walk of 20.5 is pinned to 375px and is this lane's acceptance |
+| **maia** | The neutral summariser of 21.7, on the existing assistant plumbing (`docs/MAIA_BRAIN_SPEC.md`): an "In plain words" panel on the decision page, generated from a fixed server-assembled payload under a fixed identity with no tools, keyed to the ballot version and the objection count, cached and regenerated only on resubmission. It never recommends and never evaluates. It states people and weight, names what changes and when it lands, lists every objection's ask, and is labelled as an assistant's summary. A proposal body is untrusted input: the panel quotes the text and never follows an instruction inside it. With the assistant not configured the panel shows one honest sentence and nothing else |
+| **dispatcher-2** | The Phase 2 follow-up 21.9 names. Sunset clauses and trial moons (21.2): `expires_after_cycles` on a Game change, every previous value in the element ledger, a scheduled reversion that lands through `applyDueGovernance` with no veto window and no steward able to stop it, renewals that cancel it, and a trial priced one tier below its setting's natural tier under the cooldown. A trial may never touch a META_SETTING (quorum, unity, any tier setting, the veto map, the window settings, the trial cooldown, the highest tier, the veto hours, the council setting), and a token send may never be trialled. Reversions are honest and ordered: each element applies only where its value still equals what the trial wrote, the rest is recorded as superseded naming the ballot that moved it, a reversion is suspended at a renewal's carry and re-armed if the renewal is vetoed, it is scheduled from the landing instant under the clock it was computed with, and rows due at one instant apply in a stated total order. And the new-moon digest's composition (21.4), by `applyDueGovernance` when it crosses a boundary, after asserting every row due inside the closed cycle is applied, vetoed or stalled, one digest per cycle whatever the mint rules say, with "no digest composed" logged apart from "digest empty"; the digest's page and feed item ship with `ballot-surfaces` (21.9) |
+| **docgen** | The Phase 1 lane returns for the living constitution of 21.5: one facts module shared by the generated document and `GET /api/governance/constitution` so the two cannot disagree, plus the `text/markdown` variant on `Accept` and a two-line route in a new `server/routes/constitution.ts`. The route describes THIS village now, needs no session, is cached five minutes, and never carries a member's name, id, balance, vote or delegation; participation is published for closed cycles only, snapshotted at close, without weight on the anonymous variant, suppressed below three participants, and rendered through the people-and-weight helper. A PII walker refuses display names and free-text reasons and enumerates the routes from the router rather than from a list |
 
 ### 20.4 Phase 3, the record
 
@@ -2243,17 +2307,39 @@ regenerated one final time against the merged tree.
 ### 20.5 Phase 4, playing the Game
 
 A fresh village provisioned locally against the local MySQL, the built server started, and a fake
-account driven through the Browser pane: claim the village as a catalyst; name the clans and a
-non-human role; allocate founding Voice and see the shares; invite two more catalysts; open the
-Birthing; watch it refuse an abstention; carry it unanimously; become a player; open the Game
-Mechanics section as a plain member; stage three edits and submit them as one proposal; vote; see
-who voted and not how; object with an ask; watch the proposer withdraw, rewrite and resubmit with
-the ask carried; pass it; see the steward hold; approve as the steward; see "lands at cycle N";
-turn the moon and see it land; propose a mode switch bundled with a Voice distribution and see the
-highest floor; delegate a vote and see who was followed; let a steward's term lapse and see the
-vacancy; switch the cycle setting and see nothing about the past change. Every rough edge found is
-a lane in the next pass. The coordinator writes the walk down as a runbook and turns it into an e2e
-script so the walk runs in CI after this.
+account driven through the Browser pane at a 375px viewport for the whole of it.
+
+Claim the village as a catalyst; name the clans and a non-human role with its representative;
+allocate founding Voice and see each catalyst's share of the total; invite two more catalysts; open
+the Birthing; watch it refuse an abstention; carry it unanimously; become a player; open the Game
+Mechanics section as a plain member; start from a recipe and watch the wizard fill; be refused for a
+story too short at the structural tier, read the sentence naming the shortfall, and fix it; stage
+three edits and submit them as one proposal; read the computed instants on the wizard before the
+press, closes at, veto until, lands at; vote; see who has voted and not how, and see the names
+appear only after half the required weight has been cast and never below three of them; read the
+people-and-weight sentence on every card; see your own share of total voice before you choose;
+object with an ask; watch the proposer withdraw, rewrite and resubmit with the ask carried; pass it;
+see "lands at <instant>" on the decision page with the countdown "veto until <instant>" beside it;
+veto it as the seated steward with a reason, and watch it return to its proposer carrying that
+reason and keeping its backers; bring it back and pass it again at the village's highest set tier,
+and watch it land regardless of the steward with the override's relation recorded beside the veto
+reason; open a second Game change, let its window close with nobody acting as steward at all, and
+watch the landing job apply it on its own; try to close a ballot early and be refused on every
+method; try the admin mechanics apply route inside a veto window and be refused; propose a token
+send and watch a seated steward's no fail it at the close, with the veto on the record and the
+reason on the page; try a setting for one moon and watch it revert at the next boundary with both
+writes in the element ledger; propose a mode switch bundled with a Voice distribution and see the
+highest floor priced; try to bundle a veto-map edit with an ordinary dial and be refused at
+validation naming both elements; delegate a vote, accept the delegation as the delegate, and see who
+was followed; propose outside a governance window and be refused with the date it next opens; let a
+steward's term lapse and see the seat go empty without the page calling it a fault; switch the cycle
+setting and see nothing move about the past; read the timeline on a phone; read the new-moon digest;
+read the constitution route as a stranger and find no names in it; read the assistant's summary and
+find no recommendation in it.
+
+Every rough edge found is a lane in the next pass. The coordinator writes the walk down as a runbook,
+signs it off against the checklist in 20.6, and turns it into an e2e script so the walk runs in CI
+after this.
 
 ### 20.6 What the coordinator adds beyond the founder's list
 
@@ -2272,6 +2358,34 @@ script so the walk runs in CI after this.
 - **Every governance act posts to the feed and notifies**, with the people-and-weight sentence.
 - **The bridge to the hub stays out of scope** and is described honestly in the document.
 - **The fake account's walk becomes a CI script**, so the Game cannot quietly stop being playable.
+- **"Good enough to keep playing" is a printed checklist**, adopted from the audit of 20.8, and the
+  walk in 20.5 is signed off against it line by line:
+  1. every step ends in a state change a plain member can read on a page, with no SQL;
+  2. zero unhandled 500s across the whole walk;
+  3. zero console errors across the whole walk;
+  4. every page in the walk renders at 375px;
+  5. every ruling in sections 19 to 19F maps to a named step in the walk, or is listed as staged
+     with the reason it is staged;
+  6. any step that had to be faked, a moon turned by hand, a job run by hand, a seat granted
+     directly, is written down with what was faked and why.
+
+### 20.7 What the second round changes in the build
+
+- **The dispatcher lane's brief was corrected before Wave B.** It was first briefed with the old Q7
+  default, under which a late approval rolled to the following boundary. That default is gone twice
+  over: 19B replaced it with "approval executes at once", and 19C then withdrew the approval gate
+  itself. The lane builds the veto model of 19C to 19F, and the resume script carries the corrected
+  prompt so a re-run gets it right. What is left over is named as Phase 1c in section 20.11: the
+  window read as "at least 72 hours, and until it lands", the timing defaults per kind, the landing
+  instant taken from the active clock, the landing loop's own table and statuses, and the override's
+  tier and relation.
+- **Thresholds-for-thresholds** joins the thresholds lane's scope in Phase 2 (the tier settings are
+  editable by catalysts before the Birthing; after it, a tier change is priced at the tier's own
+  current bar).
+- **Two coordinator readings flagged for him:** that non-human roles with a representative are
+  available from day one and the 144 line is shown as guidance; and that a Game change lands with no
+  steward in the loop, so a village that seats nobody is a village that can still act, which is the
+  end state his training-wheels framing points at.
 
 ### 20.8 The adversarial audit of 2026-09-03, and what it changed
 
@@ -2370,14 +2484,15 @@ calendar and hub on top of a governance module that ships off.
 
 **The correction wave (Phase 1b).** Wave A lanes were briefed from the old rows. After Merge A:
 `steward-veto` converts the approval record to a veto record, renames the capability, makes it
-ungrantable by admin routes, stamps terms from the clock; `thresholds-heads` adds head-count
-quorum, minimum yes heads, the delegated-row rule at 100 unity, the tier render in heads, and
-blanks the hub URL default; `delegation-consent` adds acceptance, suppression while hidden, the
+ungrantable by admin routes, stamps terms from the clock; `thresholds-heads` *(19F withdrew the
+head-count quorum and the tier render in heads)* adds minimum yes heads, the delegated-row rule at
+100 unity, the people counts shown beside weight everywhere, and blanks the hub URL default;
+`delegation-consent` adds acceptance, suppression while hidden, the
 uncast path and the unvoted count; `dispatcher` builds the veto-window model with the widened
 ownership (the admin cycles region, the admin apply route, the withdraw reset, the own job);
 `clock` with the widened ownership (seasons default, `voiceClaim.ts`, `suggestNextSeasonDates`, the
 cycle-mode landing precondition); `docgen-refresh` regenerates against the merged tree with the
-widened scope (sections 3, 4, 5, 12, 19 to 19E, withdrawn sentences as struck history). Then Merge
+widened scope (sections 3, 4, 5, 12, 19 to 19F, withdrawn sentences as struck history). Then Merge
 B, verify, fix.
 
 ### 20.10 The coordination document's governance row (PLAN_TO_A.md, main at 6e441d7)
