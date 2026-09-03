@@ -37,7 +37,39 @@ function gitSha() {
   }
 }
 
+/**
+ * The date of the commit this bundle was built from.
+ *
+ * The build marker used to read `2026-07-28-wave1-<sha>`, where the SHA was
+ * stamped here and the date in front of it was hand-written in
+ * server/index.ts. The SHA stayed true and the date did not: on 2026-09-02 a
+ * deployment built from a 2026-09-01 commit was still announcing itself as
+ * 2026-07-28, five weeks wrong, in a string the launch registry reads, the
+ * fork runbook tells people to verify deploys with, and the feedback relay
+ * sends upstream as the identity of the deployment a bug came from.
+ *
+ * The half a human maintains is the half that goes stale. So both halves are
+ * derived now, and neither can drift from the other.
+ *
+ * The COMMIT date rather than the build date, because it identifies the code.
+ * Rebuilding the same commit tomorrow should not look like a new version.
+ */
+function gitCommitDate() {
+  const fromEnv = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "";
+  try {
+    // %cs is the committer date as strict YYYY-MM-DD, no timezone ambiguity.
+    return execSync(`git show -s --format=%cs ${fromEnv || "HEAD"}`, {
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+  } catch {
+    return "";
+  }
+}
+
 const sha = gitSha();
+const commitDate = gitCommitDate();
 
 const result = await build({
   entryPoints: ["server/index.ts"],
@@ -55,6 +87,13 @@ const result = await build({
     // JSON.stringify, not a bare quote: an empty SHA must compile to a
     // valid empty string literal, and the server treats "" as "dev".
     __BUILD_SHA__: JSON.stringify(sha),
+    // The marker is composed HERE, whole, rather than half here and half in
+    // server/index.ts. That split is what let the date go stale while the SHA
+    // stayed true. It also keeps the monolith ratchet happy: index.ts gets to
+    // shrink instead of carrying a second constant and its explanation.
+    __BUILD_MARKER__: JSON.stringify(
+      commitDate && sha ? commitDate + "-" + sha : (commitDate || sha || ""),
+    ),
   },
 });
 

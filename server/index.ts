@@ -806,9 +806,9 @@ const BCRYPT_SALT_ROUNDS = 10;
  * build script), with the hand-written label kept as a human-readable
  * prefix. A build with no git context falls back to "dev".
  */
-declare const __BUILD_SHA__: string | undefined;
-const BUILD_LABEL = "2026-07-28-wave1";
-const BUILD_MARKER = `${BUILD_LABEL}-${typeof __BUILD_SHA__ === "string" && __BUILD_SHA__ ? __BUILD_SHA__ : "dev"}`;
+// Composed whole at build time. See scripts/build-server.mjs and buildMarker.test.ts.
+declare const __BUILD_MARKER__: string | undefined;
+const BUILD_MARKER = typeof __BUILD_MARKER__ === "string" && __BUILD_MARKER__ ? __BUILD_MARKER__ : "dev";
 
 /**
  * The legal caution card a deployment must accept before internal trading
