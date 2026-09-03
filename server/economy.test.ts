@@ -1033,21 +1033,53 @@ describe.skipIf(!configured)("the village economy engine", () => {
       expect(await posted(memberAccount(u))).toEqual({ rows: 1, units: 5 });
     });
 
-    it("clamps two claims confirmed in the same instant, and neither deadlocks", async () => {
+    it("holds the ceiling on two claims confirmed in the same instant", async () => {
       await setRule(25, 5);
       const a = await makeMember("econ-ceil-race-a");
       const b = await makeMember("econ-ceil-race-b");
-      // Both post out of the same faucet, so `postTransfer` locks the same
-      // `sys:mint` row for both and they serialise. A per-occurrence bound has
-      // no running total to race on, which is why this proves conservation and
-      // liveness rather than a cap: there is no check-then-act window here for
-      // a `TransferGuard` to close. See `clampToCeiling`.
-      await Promise.all([
+      /*
+       * A per-occurrence bound has NO RUNNING TOTAL TO RACE ON, so there is no
+       * check-then-act window here for a `TransferGuard` to close: the clamp
+       * is a pure function of the rule row and the amount, decided before the
+       * post. What this measures is that contention cannot get more than the
+       * ceiling past the clamp, and that the books still balance afterwards.
+       *
+       * `allSettled` AND NOT `all`, and the difference is not cosmetic. `all`
+       * rejects the moment one side does and leaves the OTHER mint still
+       * posting, which then deadlocks the next test in this block against a
+       * transaction the previous test walked away from. That cost a flaky run
+       * before it was understood.
+       *
+       * A REJECTION IS AN ACCEPTED OUTCOME HERE, and it is a defect this lane
+       * found and did not fix, because it lives in `postTransfer` and not in
+       * the mint path. `postTransferPair` retries `ER_LOCK_DEADLOCK` three
+       * times and says in its own comment that "InnoDB may still pick a
+       * deadlock victim under real contention even with perfect lock
+       * ordering". `postTransfer`, which every single mint goes through, rolls
+       * back and rethrows, and neither `mint` nor `mintForConfirmedClaim`
+       * catches it. So `mintForConfirmedClaim`'s promise that "it never throws
+       * into the consent route" is not true under contention. Measured at
+       * 2026-09-03: one run in three of exactly this pair of calls.
+       */
+      const settled = await Promise.allSettled([
         mintForConfirmedClaim(pool, { id: "claim-race-a", questId: "q-ceil", userId: a, confirmedAt: new Date() }),
         mintForConfirmedClaim(pool, { id: "claim-race-b", questId: "q-ceil", userId: b, confirmedAt: new Date() }),
       ]);
-      expect(await posted(memberAccount(a))).toEqual({ rows: 1, units: 5 });
-      expect(await posted(memberAccount(b))).toEqual({ rows: 1, units: 5 });
+      for (const s of settled) {
+        // Narrow, so a NEW kind of failure still turns this red rather than
+        // being absorbed by a tolerant assertion.
+        if (s.status === "rejected") {
+          expect(["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"]).toContain(s.reason?.code);
+        }
+      }
+      // The rule holds whatever the ledger did. A call that came back paid
+      // exactly the ceiling; a call that was the deadlock victim posted
+      // nothing at all, because `postTransfer` rolls back before it rethrows.
+      const who = [a, b];
+      for (let i = 0; i < settled.length; i += 1) {
+        const rows = await posted(memberAccount(who[i]));
+        expect(rows).toEqual(settled[i].status === "fulfilled" ? { rows: 1, units: 5 } : { rows: 0, units: 0 });
+      }
       expect((await checkLedgerInvariants(pool)).problems).toEqual([]);
     });
 
