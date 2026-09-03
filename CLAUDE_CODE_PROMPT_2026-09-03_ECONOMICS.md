@@ -143,9 +143,11 @@ Name the economy surface explicitly in the guard so the list is reviewable:
 the token registry migrations, and the mint-rule routes.
 
 **Give the guard its own self-test**, in the shape of
-`scripts/check-token-doc.test.mjs`. An unrun guard is a comment; a guard with no
-self-test is a comment that looks like a guard. This repo has both mistakes on
-record.
+`scripts/check-identity-keys.test.mjs` or `scripts/check-migration-compat.test.mjs`,
+both of which build real fixtures and assert real exit codes. An unrun guard is a
+comment; a guard with no self-test is a comment that looks like a guard. This repo
+has both mistakes on record, and note that the token doc guard itself does NOT
+have a self-test today, which is worth fixing while you are in there.
 
 ---
 
