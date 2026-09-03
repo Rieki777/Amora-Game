@@ -44,8 +44,19 @@ STILL OPEN, neither blocking:
   `BACKUP_EXPORT_TOKEN` do not exist. `openssl rand -hex 32` gives the token;
   set it on the Railway app service and as a GitHub secret, set ORIGIN to
   `https://amora.regencivics.earth`. Or make the jobs warn instead of fail.
-- Two lanes are still running on suggested tasks: making the silent
-  TEST_DATABASE_URL skip loud, and `role="alert"` on the signup error banner.
+- (CLOSED) Both suggested-task lanes merged in `458b2eb`, each verified by a
+  second independent agent that re-ran the controls rather than reading the diff.
+  `pnpm test` with no database now exits 1 and names the 1,190 tests across 91
+  files that did not run; `ALLOW_NO_TEST_DB=1` buys the smaller suite back and
+  prints a receipt saying the run proves nothing about the ledger, the economy or
+  any route; CI outranks that waiver. And the signup error banner now announces
+  to screen readers, confirmed from Chrome's accessibility tree rather than the
+  source, along with a sweep of the other refusal surfaces.
+
+  Both of testDb.ts's claims to be loud were false and are corrected in place.
+  `:11` was aspirational. `:92` was literally true of `provisionTestDb` and
+  meaningless, because every caller sits inside `describe.skipIf(...)` so the
+  throw was unreachable: a dead branch that read as a guarantee.
 
 RESOLVED, recorded so nobody re-opens it: the backup reporting 89 users before
 2026-08-31T14:39 and 5 after was a CORRECTION, not data loss. The pre-repoint
