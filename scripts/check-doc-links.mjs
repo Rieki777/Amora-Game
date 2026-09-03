@@ -92,7 +92,7 @@ const SKIPPED = [
   // Says so itself, in the first line of the file: "SUPERSEDED (2026-07-26):
   // see MODULES_MASTER_PLAN.md (v3) ... all build orders and status tables
   // here are stale."
-  "AMORA_FOUNDATION_UPGRADE_PLAN.md",
+  "AMORA_FOUNDATION_UPGRADE_PLAN.md", // brand-ok: a filename here, not identity in code
 
   // Dated work orders. Each describes the tree on the morning it was written
   // and was answered months ago, so its paths are evidence of what the author
