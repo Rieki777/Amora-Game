@@ -112,7 +112,10 @@ export default function SetPassword() {
                     placeholder="Repeat it"
                     className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
-                  {error && <p className="text-sm text-destructive">{error}</p>}
+                  {/* role="alert": the only signal that a password did not
+                      save. Setting a password is not optional and there is no
+                      second route to it. */}
+                  {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
                   <button
                     type="submit"
                     disabled={busy || !token}

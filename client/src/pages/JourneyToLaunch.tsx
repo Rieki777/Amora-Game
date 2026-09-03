@@ -464,7 +464,7 @@ function TestRun() {
       </div>
 
       {problem && (
-        <p className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{problem}</p>
+        <p role="alert" className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{problem}</p>
       )}
 
       {report && (

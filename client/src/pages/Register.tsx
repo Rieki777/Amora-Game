@@ -120,8 +120,22 @@ export default function Register() {
             </div>
 
             <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-lg p-8 space-y-8">
+              {/*
+                role="alert", the same as Login.tsx's matching box. All three
+                things that land here are refusals of a submit the member just
+                pressed - the passwords not matching, no path chosen, and a
+                registration the server turned down - and without the role a
+                screen reader says nothing at all: the button appears to do
+                nothing and the only account-creation form on the site becomes
+                a dead end. The box is CONDITIONALLY RENDERED, so the role
+                arrives with the text rather than sitting in an empty region.
+                That is the same shape Login.tsx uses and it announces,
+                because the mount happens well after first paint, in response
+                to a press.
+              */}
               {error && (
                 <motion.div
+                  role="alert"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"

@@ -326,7 +326,7 @@ export default function NotifyPrefsPanel({ onDeleted }: { onDeleted?: () => void
                 Cancel
               </button>
             </div>
-            {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+            {error && <p role="alert" className="text-xs text-red-600 mt-2">{error}</p>}
           </div>
         )}
       </div>

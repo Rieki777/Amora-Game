@@ -207,7 +207,11 @@ export default function QuestActions({
       ) : (
         <ConsentedReward claim={claim} />
       )}
-      {error && <p className="text-xs text-red-600 mt-1.5">{error}</p>}
+      {/* role="alert": claiming, submitting and abandoning a quest all
+          report their refusal here, and it is the only report. Without the
+          role a member using a screen reader presses Claim, hears nothing,
+          and has no way to learn the quest was already taken. */}
+      {error && <p role="alert" className="text-xs text-red-600 mt-1.5">{error}</p>}
     </div>
   );
 }

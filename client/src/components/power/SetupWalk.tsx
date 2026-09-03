@@ -230,7 +230,9 @@ export default function SetupWalk({
           </div>
         )}
 
-        {status && <p className="text-xs text-red-600 mt-3">{status}</p>}
+        {/* `status` only ever holds a caught error message (every setStatus
+            call site is a .catch), so role="alert", not role="status". */}
+        {status && <p role="alert" className="text-xs text-red-600 mt-3">{status}</p>}
       </div>
     </div>
   );
