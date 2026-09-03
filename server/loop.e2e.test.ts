@@ -29,6 +29,7 @@ import os from "os";
 import path from "path";
 import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
 import { verifyDocument } from "./lib/villageExport";
+import { villageMoonLabel } from "../shared/villageMoon";
 
 /**
  * UNIQUE PER PROCESS, like the scratch schema (see testDb.ts). This was a
@@ -794,6 +795,13 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // were held to different standards and a double credit passed.
     expect(peerFlows.json.totals.received, "the other side of the same 13").toBe(13);
     expect(peerFlows.json.totals.distinctAcknowledgers, "one sender, counted once").toBe(1);
+
+    // The member's own moons, on their own profile, by the same rule as the
+    // founders' report: the id is the key and the moon is the label.
+    for (const c of peerFlows.json.byCycle) {
+      expect(c.cycleId, "the key the row is filed under is still there").toBeTruthy();
+      expect(villageMoonLabel(c.moon), "and it is not what the profile prints").not.toContain(c.cycleId);
+    }
   });
 
   it("records every movement in the ledger, and the balance is a derived cache", async () => {
@@ -3094,6 +3102,19 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     expect(peerRow.receivedHearts + peerRow.receivedAcks).toBe(peerRow.received);
     expect(peerRow.name).toBe("Grateful Peer");
     expect(peerRow.distinctSenders).toBe(1);
+
+    // AND IT NAMES A MOON, NEVER A ROW ID. This report is the one the founders
+    // carry outside the building, so the line at the top of it has to be
+    // readable by somebody who has never seen the database. The stored id
+    // stays in the payload as the key; nothing prints it.
+    for (const c of cc.json.settlement) {
+      expect(c.moon, "every settled cycle carries its village moon").toBeTruthy();
+      expect(c.moon.cycleNumber).toBe(c.cycleNumber);
+      const label = villageMoonLabel(c.moon);
+      expect(label.length, "the moon has something to say").toBeGreaterThan(0);
+      expect(label, "no stored id reaches the page").not.toContain("lunar-");
+      expect(label, "and no moon anybody could count to zero").not.toMatch(/Moon (0|-\d)/);
+    }
 
     // Module health mirrors stored intent vs what's actually served.
     const mods = Object.fromEntries(cc.json.modules.map((m: any) => [m.id, m]));

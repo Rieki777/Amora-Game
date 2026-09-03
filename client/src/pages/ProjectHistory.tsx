@@ -1,6 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useVillageName } from "@/hooks/useVillageName";
 import { authToken } from "@/lib/gameApi";
+import { villageMoonLabel } from "@shared/villageMoon";
 import { useState, useEffect, FormEvent } from "react";
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
@@ -510,7 +511,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
 
   const copyForHypha = (cycle: any) => {
     const lines = [
-      `Cycle ${cycle.cycleNumber} settlement (closed ${cycle.closedAt ? new Date(cycle.closedAt).toLocaleDateString() : "date not recorded"})`,
+      `${villageMoonLabel(cycle.moon)} settlement (closed ${cycle.closedAt ? new Date(cycle.closedAt).toLocaleDateString() : "date not recorded"})`,
       ...cycle.totals.map((t: any) =>
         `${t.name}: ${t.received} received (${t.receivedHearts} gratitude + ${t.receivedAcks} acknowledgments) from ${t.distinctSenders} member(s)` +
         (t.credited ? ` → ${t.credited} ${cycle.poolToken ?? ""} credited` : ""),
@@ -554,9 +555,8 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
         <div className="space-y-5">
           {data.settlement.map((c: any) => (
             <div key={c.cycleId}>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-semibold text-stone-700">
-                  Cycle {c.cycleNumber}
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
+                <p className="text-sm font-semibold text-stone-700">{villageMoonLabel(c.moon)}
                   <span className="text-stone-400 font-normal"> · closed {c.closedAt ? new Date(c.closedAt).toLocaleDateString() : "date not recorded"}</span>
                   {c.poolCredited > 0 && <span className="text-teal-deep font-normal"> · pool released {c.poolCredited} {c.poolToken}</span>}
                 </p>
