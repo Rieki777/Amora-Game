@@ -1430,18 +1430,37 @@ export function render(f) {
   );
   p();
 
-  p("### 4. Voting weight cannot be switched back and forth");
+  /*
+   * REWRITTEN 2026-09-02. This ruling used to read "Voting weight cannot be
+   * switched back and forth" and marked the missing one-way lock as staged
+   * work. The founder reversed it that day: the mode is a village setting that
+   * may move in either direction, the change touches only how votes are
+   * COUNTED, and Voice holdings are untouched by it. The code never
+   * implemented the lock, so the reversal costs nothing to adopt and the old
+   * text was the only thing saying otherwise. docs/GOVERNANCE.md carries the
+   * founder's words for this one in full, as its ruling 14.
+   */
+  p("### 4. Voting weight switches back and forth, and holdings survive it");
   p();
-  p("**Staged.** Not built.");
+  p("**Half built.**");
   p();
   const wm = f.dials.weightMode;
   p(
     `Today \`${wm.key}\` is a ${wm.ring ?? "standard"}-ring dial with ${wm.choices?.length ?? 0} choices ` +
       `(${(wm.choices ?? []).map((c) => `\`${c.value}\``).join(", ")}), defaulting to \`${wm.default}\`. ` +
       `\`${f.dials.weightToken.key}\` decides which token weighs a vote when the mode is token, defaulting to ` +
-      `\`${f.dials.weightToken.default}\`. Every ballot freezes the weights when it opens, so a change mid-vote cannot ` +
-      "move a result. What is missing is the one-way lock: nothing stops a village moving between one person one vote " +
-      "and token weight and back.",
+      `\`${f.dials.weightToken.default}\`. Nothing refuses a change in either direction, and switching reads or ` +
+      "ignores holdings without deleting one: balances are ledger rows and a custom allocation is its own table, so a " +
+      "village can move from one person one vote to token weight and back and every holding survives the trip. Every " +
+      "ballot freezes the weights when it opens, so a change mid-vote cannot move a result either.",
+  );
+  p();
+  p(
+    "What is missing is the VILLAGE'S OWN VOTE on it. The dial sits in the founder ring, refused to a change set and " +
+      "to anybody who reaches the admin route through a capability, so today the switch is an administrator's act. The " +
+      "founder has ruled that it becomes proposable through a subject type of its own with a launch-grade floor, timed " +
+      "to a cycle boundary, and that the ordinary dial path keeps refusing it so the change cannot arrive by a side " +
+      "door. See `docs/GOVERNANCE.md`.",
   );
   p();
 
