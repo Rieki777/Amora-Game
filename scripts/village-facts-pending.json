@@ -1,6 +1,6 @@
 {
   "note": "Village facts welded into client copy, recorded per file and per rule. This list only ever shrinks. Read scripts/check-village-facts.mjs before editing it, and lower PENDING_CEILING in that file to match the total here.",
-  "total": 101,
+  "total": 36,
   "rules": {
     "money": {
       "what": "a currency amount in display text",
@@ -28,50 +28,24 @@
     }
   },
   "counts": {
-    "client/src/components/Layout.tsx::token-name": 1,
-    "client/src/components/ProfileJourney.tsx::token-name": 1,
-    "client/src/components/ProfileSheet.tsx::token-name": 4,
     "client/src/components/SwapCard.tsx::money": 1,
     "client/src/config/mobileNav.ts::token-name": 1,
     "client/src/config/nav.ts::token-name": 1,
     "client/src/pages/Admin.tsx::money": 3,
-    "client/src/pages/Admin.tsx::token-name": 5,
+    "client/src/pages/Admin.tsx::token-name": 4,
     "client/src/pages/Admin.tsx::unit": 2,
-    "client/src/pages/CoCreatorsGuide.tsx::token-name": 17,
+    "client/src/pages/CoCreatorsGuide.tsx::token-name": 2,
     "client/src/pages/Contribute.tsx::money": 1,
-    "client/src/pages/CrowdpoolCampaign.tsx::token-name": 1,
-    "client/src/pages/GoodNeighbor.tsx::token-name": 1,
-    "client/src/pages/HowWeCreate.tsx::token-name": 9,
     "client/src/pages/InvestorJourney.tsx::money": 1,
     "client/src/pages/InvestorJourney.tsx::person-name": 1,
     "client/src/pages/LoveLetter.tsx::money": 6,
-    "client/src/pages/LoveLetter.tsx::token-name": 1,
     "client/src/pages/MasterPlan.tsx::unit": 1,
     "client/src/pages/Opportunities.tsx::money": 8,
-    "client/src/pages/Opportunities.tsx::token-name": 4,
-    "client/src/pages/Profile.tsx::token-name": 1,
-    "client/src/pages/ProposeQuest.tsx::token-name": 1,
-    "client/src/pages/ProsperityJourney.tsx::token-name": 8,
-    "client/src/pages/PublicProfile.tsx::token-name": 1,
     "client/src/pages/ResidentJourney.tsx::money": 2,
-    "client/src/pages/ResidentJourney.tsx::token-name": 2,
-    "client/src/pages/ResidentRights.tsx::token-name": 4,
     "client/src/pages/Stay.tsx::money": 1,
-    "client/src/pages/StewardJourney.tsx::token-name": 2,
-    "client/src/pages/StewardRights.tsx::token-name": 5,
-    "client/src/pages/Wallet.tsx::money": 1,
-    "client/src/pages/Wallet.tsx::token-name": 3
+    "client/src/pages/Wallet.tsx::money": 1
   },
   "entries": {
-    "client/src/components/Layout.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/components/ProfileJourney.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/components/ProfileSheet.tsx::token-name": {
-      "since": "2026-09-03"
-    },
     "client/src/components/SwapCard.tsx::money": {
       "since": "2026-09-03",
       "note": "A hard dollar prefix in the money formatter. Five more of the same shape are listed under Admin, Contribute, Stay and Wallet."
@@ -99,15 +73,6 @@
     "client/src/pages/Contribute.tsx::money": {
       "since": "2026-09-03"
     },
-    "client/src/pages/CrowdpoolCampaign.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/GoodNeighbor.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/HowWeCreate.tsx::token-name": {
-      "since": "2026-09-03"
-    },
     "client/src/pages/InvestorJourney.tsx::money": {
       "since": "2026-09-03"
     },
@@ -119,9 +84,6 @@
       "since": "2026-09-03",
       "note": "The dropdown on the page that collects money: four USD bands submitted as data, plus the suggested range above it and the placeholder below."
     },
-    "client/src/pages/LoveLetter.tsx::token-name": {
-      "since": "2026-09-03"
-    },
     "client/src/pages/MasterPlan.tsx::unit": {
       "since": "2026-09-03",
       "note": "The land tile's label at line 36, which is the fallback when a village states no unit. A hectares village that leaves the note box empty publishes its land in acres."
@@ -130,43 +92,13 @@
       "since": "2026-09-03",
       "note": "Eight USD investment bands with no settings hook at all."
     },
-    "client/src/pages/Opportunities.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/Profile.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/ProposeQuest.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/ProsperityJourney.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/PublicProfile.tsx::token-name": {
-      "since": "2026-09-03"
-    },
     "client/src/pages/ResidentJourney.tsx::money": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/ResidentJourney.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/ResidentRights.tsx::token-name": {
       "since": "2026-09-03"
     },
     "client/src/pages/Stay.tsx::money": {
       "since": "2026-09-03"
     },
-    "client/src/pages/StewardJourney.tsx::token-name": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/StewardRights.tsx::token-name": {
-      "since": "2026-09-03"
-    },
     "client/src/pages/Wallet.tsx::money": {
-      "since": "2026-09-03"
-    },
-    "client/src/pages/Wallet.tsx::token-name": {
       "since": "2026-09-03"
     }
   }
