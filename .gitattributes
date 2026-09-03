@@ -13,3 +13,8 @@ docs/prototypes/grounds-v0.html -text
 # strips carriage returns as well, so a hand edit in an editor that writes CRLF
 # still reads as content rather than as a whole-file difference.
 docs/TOKENS.md -text
+
+# docs/GOVERNANCE.md is GENERATED (scripts/generate-governance-doc.mjs) and
+# guarded the same way its sibling above is, so it needs the same byte pinning
+# for the same reason.
+docs/GOVERNANCE.md -text
