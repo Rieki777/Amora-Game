@@ -57,6 +57,35 @@ export function formatTokenAmount(units: number, decimals: number): string {
  * Voice and what an unregistered slug honestly means. It never guesses at a
  * token's scale from its name.
  */
+/**
+ * The inverse of `formatTokenAmount`: what a member TYPED, into what the ledger
+ * stores. Mirrors the server's `toLedgerUnits` in server/lib/economy.ts, and
+ * rounds for the same reason it does, because 0.1 * 1000 is not 100 in binary.
+ *
+ * THIS EXISTS BECAUSE HALF A FIX IS WORSE THAN NONE. The decimals sweep taught
+ * the send card to DISPLAY a balance in human units and left its input posting
+ * MINOR units to an endpoint that truncates and moves exactly that many. A
+ * member holding 10000 saw "You hold 1", typed 1, and moved 0.0001. Before the
+ * sweep the card said 10000 and the input took 10000: both wrong, and agreeing,
+ * which is survivable in a way that disagreeing is not.
+ */
+export function toMinorUnits(typed: string | number, decimals: number): number {
+  // An empty box is not a zero. `Number("")` is 0 and `Number(" ")` is 0, so a
+  // plain finite check would turn a member who typed nothing into a member who
+  // asked to send nothing, and this function is one call away from the ledger.
+  if (typeof typed === "string" && typed.trim() === "") return NaN;
+  const n = Number(typed);
+  if (!Number.isFinite(n)) return NaN;
+  const d = Number(decimals) || 0;
+  return Math.round(n * 10 ** d);
+}
+
+/** The smallest amount a token can express, for an input's `min` and `step`. */
+export function smallestUnit(decimals: number): number {
+  const d = Number(decimals) || 0;
+  return d <= 0 ? 1 : 10 ** -d;
+}
+
 export function decimalsOf(map: Record<string, number> | undefined | null, slug: string): number {
   return Number(map?.[slug] ?? 0) || 0;
 }
