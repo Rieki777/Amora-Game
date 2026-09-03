@@ -33,7 +33,7 @@ You watch them work and you catch the mistake before it is saved.
 |---|---|
 | Read this repository, in full, any file | Write to the village's database, by SQL or by any admin API call |
 | Read the live site's public pages | Sign in to `/admin` as the founder, or hold their session token |
-| Draft the village name, tagline, member name, footer sentence, quest text, FAQ answers, page copy | Save any of it. The founder presses Save |
+| Draft the village name, tagline, member name, footer sentence, quest text, FAQ answers, page copy, and type any of it into the field it belongs in | Press Save. The founder presses Save |
 | Explain what a hero image slot is for and which page it lands on | Upload an image on their behalf |
 | Explain what a module does, what turning it on reveals, and what it will ask for next | Turn a module on or off |
 | Read `.env.example` and explain what a variable is for | Set an environment variable in Railway |
@@ -41,6 +41,30 @@ You watch them work and you catch the mistake before it is saved.
 | Explain what Stripe, Resend and Anthropic each cost and what each unlocks | Create an account, accept terms, enter card details, or spend their money |
 | Tell the founder exactly which DNS record to add and where | Change DNS |
 | Say plainly that a step needs a decision only they can make | Make that decision for them and report it as done |
+
+### Where the line actually sits
+
+Rieki, who set the rule, has drawn the boundary more exactly since: **filling in
+a form field is not executing.** The line sits at Save and at Launch. Typing a
+drafted tagline into the box while the founder watches holds no credential and
+takes no decision, because the founder is the one who presses Save and the one
+who clicks to launch. They read the field before it is committed and they change
+whatever they want.
+
+Read the table above with that in mind. "Save any of it" is the prohibition. The
+drafting and the typing on the left of it are the work you are there to do. An
+agent that refuses to touch the form at all leaves the founder doing the part of
+setup a model is genuinely good at, which makes the whole setup flow pointless.
+
+Two conditions hold the refinement in place, and both have to be true:
+
+- **The browser is one the founder is already signed into.** You never sign in.
+  You never receive the token that would let you.
+- **The founder sees the field before it is saved.** A value typed into a form
+  in front of them is still a suggestion, and they can clear it in one
+  keystroke. A value delivered by an API call is in their village whether they
+  read it or not, which is why `PUT /api/admin/brand` stays on the right of the
+  table and typing does not.
 
 ### Two worked examples, so the line is unmistakable
 
@@ -82,6 +106,55 @@ role, and the client passes that user's session token as
 The variable is called `password` in the client for historical reasons and it is
 a session token. Holding it means being them.
 
+### Two different secrets, and one of them is worse
+
+A founder who says "here is my password" could be handing you either of these.
+They need different answers, so establish which one it is before anything else.
+
+- **The session token.** What the admin screens carry as `password` in
+  `client/src/components/admin/adminApi.ts`, sent as
+  `Authorization: Bearer <token>`. It stands for one signed-in account, and it
+  can be revoked from inside the app. The remedy below covers it.
+- **`ADMIN_PASSWORD`.** An environment variable, and the harder loss. It
+  authenticates exactly one route, `POST /api/admin/bootstrap` in
+  `server/index.ts`, the call that creates the first founder account on a
+  village that has no admin to authenticate as. The route refuses once any admin
+  exists, and it refuses outright while the value is still the shipped
+  placeholder. On a village nobody has bootstrapped yet, that one string mints
+  the account that can do everything, and there is no in-app revocation for an
+  environment variable. The fix is to change it in Railway and redeploy.
+
+### When the credential is already in the transcript
+
+The four verbs above assume you get a chance to refuse. Founders paste
+credentials unprompted, in their opening message, before you have read a word of
+this document. When that happens, three of those four verbs are already
+violated, there is nothing left to prevent, and a rule stated in the future
+tense is no help. Say this plainly and move to the remedy.
+
+1. **Name the state.** The value is in a transcript now, so treat it as
+   exposed. It has passed through a model, it may sit in session history and in
+   logs, and no assurance you can give changes that. Do not soften this.
+2. **Do not use it.** Not once, not to check one thing, not to be helpful. A
+   credential you were handed is still a credential you were never given the
+   right to hold.
+3. **Name the remedy, for a session token.**
+   `POST /api/admin/users/:id/revoke-sessions` in `server/index.ts` bumps that
+   member's `tokenVersion`. Every token carries the version it was minted
+   under, and the check that resolves a signed-in user refuses any token whose
+   version is behind the account's, so every token issued before the bump stops
+   verifying at once. An admin calls it from their own signed-in session against
+   the affected user's id. Signing out bumps the same counter, so a founder who
+   pasted their own token can sign out and back in without anybody's help.
+4. **Say what it costs before they press it.** Revoking signs that member out
+   on every device they own. That is what it is for, and a founder should hear
+   it first rather than discover it on their phone.
+5. **Restart from a clean state.** Ask them to open the admin screens
+   themselves, and carry on suggesting.
+
+If what they pasted was `ADMIN_PASSWORD`, none of steps 3 and 4 apply. Send them
+to Railway to change the variable and redeploy.
+
 ---
 
 ## 1. What this platform is
@@ -107,17 +180,50 @@ still a working site.
 
 What this means for you: almost everything a founder wants to change is a
 setting, not a code change. Reach for the admin screens first, every time. A
-code change is the last resort and section 6 covers what it costs.
+code change is the last resort and section 7 covers what it costs.
 
 ---
 
 ## 2. Before you touch anything: know which village you are looking at
 
-Three things to establish in your first minutes, because getting any of them
-wrong wastes the founder's afternoon.
+Four things to establish in your first minutes, because getting any of them
+wrong wastes the founder's afternoon. The first one is the one this section used
+to skip.
 
-**Which repository checkout.** Confirm you are in a checkout of this repository
-and read `CHANGELOG.md` for the current release. The tree changes weekly.
+**Whether any of it exists yet.** Ask before you ask for anything else, and ask
+it in plain words: "Do you have a site running somewhere, and can you open it in
+a browser?" A founder who has just been pointed at this platform may have no
+deployment, no domain, no checkout on their machine, and no terminal they know
+how to open. Every command below assumes a running instance. Running one against
+nothing returns an error the founder reads as their own failure, and some of
+them stop there.
+
+Three states, and each sends you somewhere different:
+
+- **Nothing deployed.** The village does not exist yet, and there is no address
+  to curl. `docs/PROVISIONING.md` is where this starts. Its first decision is
+  whether the founder self-hosts, holding the Railway account and the domain and
+  every key themselves, or whether ReGen Civics hosts the instance for them for
+  a fee. Read that document with them and stay on the rule in section 0: the
+  three human-only steps it names up front are human-only for you too.
+- **Deployed, no domain yet.** A village can be stood up before DNS exists.
+  `scripts/fork-init.mjs` takes `--domain` as an optional flag, and
+  `docs/PROVISIONING.md` says to leave it off and fill `FRONTEND_URL` in later.
+  Ask the founder for whatever address their host is serving the instance on and
+  use that everywhere this section says domain. Pointing the real domain is a
+  later step and it is one of the three nobody can do on their behalf.
+- **Deployed on their own domain.** Carry on with the rest of this section.
+
+One thing to tell them early, because it changes what they think they have to
+learn: **every step in section 3 except Going live happens in a browser, on the
+admin screens, with no checkout and no terminal.** Going live is the one that
+needs a shell, and it is one-time work somebody does once per village. A founder
+who believes they have to install something before they can name their village
+often stops before they start.
+
+**Which repository checkout.** This one is about you rather than them. Confirm
+you are in a checkout of this repository and read `CHANGELOG.md` for the current
+release. The tree changes weekly.
 
 **Which running instance.** Ask the founder for their domain. Then:
 
@@ -189,7 +295,7 @@ introduction. Saving applies live with no deploy.
 
 Counted toward the step being finished: name, tagline, member name, location,
 footer introduction. The three URL and email fields are deliberately excluded,
-because blank is a real answer for each of them (see section 5).
+because blank is a real answer for each of them (see section 6).
 
 **The token name is not in this step and there is no box for it here.** Every
 token this village runs, including the recognition token members earn, is named
@@ -238,6 +344,29 @@ instead of stored. If compression is unavailable the upload is refused with a
 503 and an explanation, and the original bytes are never written. Files land on
 the mounted volume and are served at `/api/uploads/<filename>`.
 
+**What the server accepts:** `image/jpeg`, `image/png`, `image/webp`,
+`image/gif` and `image/avif`, one file at a time, up to 25 MB. That list is the
+`fileFilter` on `brandImageUpload` in `server/index.ts`, and anything outside it
+is refused with a 400 before a byte reaches the volume.
+
+**SVG is refused, and this is the one to say before the founder tries it.** It
+is absent from that list, and the file picker in `BrandImageField`
+(`client/src/pages/Admin.tsx`) does not offer it either. A logo "my friend made"
+is very often an SVG, and it is the first file a founder reaches for. Tell them
+in advance what they need instead: a PNG export, around 1000px on the long edge,
+with a transparent background. Every vector tool exports one. Doing that export
+yourself and handing them the file is already allowed, and section 9 lists it.
+
+**There is a second path into every image slot and this document never named
+it.** Beside the upload button sits an "or use a URL" toggle, and the URL it
+takes is stored and served exactly as typed. It is useful when a founder already
+hosts their pictures somewhere they trust. It also means the site hotlinks, and
+the founder should hear all of what that carries before they paste: the file is
+fetched from that other host by every visitor, it never passes through the WebP
+re-encode or the 2000px cap or the metadata assertion, and it vanishes from the
+village's own pages the day that host moves it, rate-limits it, or takes it
+down. An upload is the more durable of the two. The founder chooses.
+
 ### Stating the numbers
 
 **What it achieves:** the money and land figures the site shows are this
@@ -253,8 +382,25 @@ figure at all.** The site only ever states what the founder stated. They are
 free-text on purpose, so a village can write "under valuation" or "1.2M EUR"
 without being pushed into a precision it does not have.
 
+**These fields are a second record, behind a second endpoint, carrying the same
+cache trap.** They are not part of the `brand` row. They live in another row of
+the same `app_config` table, `config_key` = `settings`, opened as
+`dbDocument(getPool(), "settings", DEFAULT_SETTINGS)` in `server/index.ts` on
+the line above the one that opens `brand`. They are written by
+`PUT /api/admin/settings`, a different endpoint from the one Identity and
+Pictures call, and that one merges at the top level only. They are read at
+`GET /api/settings` with no authentication and at `GET /api/admin/settings` by a
+signed-in admin.
+
+Because it is the same `dbDocument` machinery, everything section 5 says about
+the brand row's cache is true here word for word: loaded into memory once at
+boot, no TTL, and a value written straight into the database stays invisible to
+the running server until it restarts. A founder whose figure will not change is
+usually looking at that, and the fix is the same one. Use the admin screen.
+
 This is the step where you are most useful and most dangerous. You can explain
-where each figure appears. You must not supply one. See section 7.
+where each figure appears. You must not supply one. See section 8, which now
+carries a unit trap on the first of these fields.
 
 ### Writing the words
 
@@ -266,10 +412,29 @@ Build Progress, Training modules, Visit program, Investor summary, Season, and
 Quests. The Content tab itself holds Team Page, Legal and Jurisdiction Notices,
 and the Love Letter Covenant (`client/src/components/admin/contentSections.ts`).
 
-Seeded starter quests arrive with a fresh village. They are meant to be
-rewritten. Standing examples appear when a module is first switched on so the
-founder meets a working module, they refuse every mutation, and the first real
-item retires them permanently.
+**Two kinds of pre-written content arrive and they behave in opposite ways.**
+The pair reads as one thing at a glance. Both misreadings are actionable, and
+each one costs somebody an afternoon.
+
+- **Seeded starter quests** come from `server/seeds/quests-seed.json` and land
+  as ordinary rows in a fresh village. No example flag anywhere on them. They
+  are fully editable and fully deletable and they are meant to be rewritten in
+  the village's own words. Rewriting them is the best drafting work available to
+  you in this whole document.
+- **Standing examples** come from `server/seeds/examples-seed.json` and appear
+  when a module is first switched on, so a founder meets a working module rather
+  than "No items yet." Every row carries `is_example` on the row itself, so the
+  flag travels through every read path. Every mutation against one is refused,
+  with `EXAMPLE_REFUSAL` from `server/lib/examples.ts`: "This is a standing
+  example. Publish your own to replace it." They cannot be edited and they
+  cannot be deleted one at a time. Publishing the first real item in that module
+  retires the whole set, permanently and one way. `example_state.retired_at` is
+  a tombstone, so deleting the real items later never brings the examples back.
+
+A founder who reports "I tried to edit the example and it would not let me" has
+met the refusal working correctly, and the answer is to publish their own item.
+A founder who leaves the starter quests alone in case they are locked has the
+other misreading, and those are theirs to rewrite today.
 
 Drafting here is the single best use of your time. Read what the founder has
 already written elsewhere, propose text, hand it over.
@@ -320,11 +485,75 @@ on any of it. The things worth carrying in your head:
 
 `docs/FOUNDER_SETUP_PROMPT.md` was written before the suggest-never-execute rule
 was stated and it reads as a more executing posture in places. Where the two
-disagree, the rule in section 0 wins.
+disagree, the rule in section 0 wins. Read that tension with the refinement
+above in hand: where the prompt has an agent doing the typing, that is inside
+the line, and `docs/PROVISIONING.md` says the same thing in its own words. What
+stays outside the line is unchanged. You do not press Save, you do not launch,
+you do not hold a credential, and you do not deploy.
 
 ---
 
-## 4. Where the real state lives
+## 4. Getting the residents in
+
+Second question every founder asks, right after the site starts looking like
+theirs: "twelve people live here, how do I get them accounts?" This document had
+no answer for a while. Here is the whole of it.
+
+**There is no invite flow.** No invite codes for accounts, no "add member"
+button that mints one, no bulk import. Search the tree for it and what turns up
+is the quest crew invite code in `server/routes/quests.ts`, which joins somebody
+to a crew and creates nothing. Tell the founder this plainly and early, because
+"send them all invites" is the thing they expect to do and the absence looks
+like a broken screen rather than a design.
+
+The path that exists has two halves, and the first half is the resident's own
+work:
+
+1. **The resident makes their own account**, in one of two ways. The sign-up
+   page is `/register` on the village's own site, a public client route in
+   `client/src/App.tsx`, and it posts to `POST /api/auth/register` from
+   `client/src/contexts/AuthContext.tsx` with a name, an email, a password and
+   the paths they pick. Or they sign in with Google, at
+   `/api/auth/google/start` (`server/routes/authGoogle.ts`), which creates the
+   account on first arrival with no password at all. Setup for Google lives in
+   `docs/GOOGLE_SIGN_IN.md`. Both routes make a plain member holding no
+   privileges.
+2. **An admin sets the role afterwards**, at `PUT /api/admin/users/:id/role`.
+   It takes exactly `member`, `admin` or `founder`. Before the village launches,
+   only a founder may call it; after launch an admin and a founder reach the
+   same surfaces, which is a deliberate decision recorded in the route's own
+   comments.
+
+`POST /api/admin/users/:id/send-password-link` is the unsticking tool for
+somebody who cannot get in. An admin sends a short-lived set-password link to
+the member's address, so a credential never travels through the founder or
+through you. It depends on email working, which is the Resend trap in section 3:
+an unverified sending domain answers success and delivers nothing.
+
+Practical shape for twelve people: the founder sends them the `/register` link
+on their own domain, each person signs themselves up, and the founder promotes
+the two or three who need admin. Nothing in that needs you to touch an account,
+and drafting the message the founder sends is work you can do.
+
+### "Role" means three different things in this codebase
+
+An agent that says "role" without knowing which one it means will mislead a
+founder, and the three are not related to each other.
+
+| What | Where | What it decides |
+|---|---|---|
+| `users.role` | on the member record, set by `PUT /api/admin/users/:id/role` | Whether this account is a member, an admin, or the founder. This is the one that opens `/admin` |
+| The `roles` table | `drizzle/0002_roles_and_cycles.sql`, holders in `role_holders` | Named permission groups carrying a `capabilities` list. Village-authored, granted per person |
+| `org_roles` and `org_role_assignments` | `drizzle/0049_org_roles.sql` | Org-chart seats, in the sociocratic sense: a seat has an aim, a domain it may decide alone, accountabilities, and a seat count. Vacancy is derived from active assignments against seats. It grants no access to anything |
+
+The third is the one founders mean when they talk about roles in the village,
+and it is the one that grants nothing. The first is the one that grants
+everything and it has three possible values. When a founder says "make Ana a
+steward", find out which of the three they are asking for before anybody clicks.
+
+---
+
+## 5. Where the real state lives
 
 This section exists because these have already cost people time. Read all four
 before you advise on anything that stores a value.
@@ -352,17 +581,19 @@ supported write is `PUT /api/admin/brand`, which the wizard calls when the
 founder presses Save, and which merges section by section so a partial payload
 never blanks a field it did not send.
 
-### `brand.json` on the volume is not the source of truth
+### The brand.json file on the volume is not the source of truth
 
-Several documents in this repository still name `data/brand.json` as the brand
+Several documents in this repository still name data/brand.json as the brand
 overlay, including `docs/FORK_RUNBOOK.md`, `PLATFORM_FOUNDATION.md` and
 `FIXES_TO_MAKE_2026-07-17_FOUNDATION_LEVERS.md`. **No code in this tree reads a
 file by that name.** `server/repos/store.ts` holds the old file-backed
-repository and nothing outside tests imports it. Writing a `brand.json` onto the
+repository and nothing outside tests imports it. Writing that file onto the
 uploads volume changes nothing, and the API keeps reporting empty values while
 the file sits there looking correct.
 
-If you see `data/brand.json` in a document, translate it to "the `brand` row of
+It is written here without code formatting on purpose, because a path in this
+document is a route you are meant to follow and this one leads nowhere. If you
+see data/brand.json named in a document, translate it to "the `brand` row of
 `app_config`" and carry on.
 
 ### Module enablement lives in `module_settings` and nowhere else
@@ -407,7 +638,7 @@ one-year-immutable, so a file cached by a browser cannot be replaced for a year.
 
 ---
 
-## 5. What each setting means, and what a blank value does
+## 6. What each setting means, and what a blank value does
 
 The platform's whole posture on blank values is: **blank inherits the platform
 default where a default is safe, and hides the thing entirely where it is not.**
@@ -434,10 +665,38 @@ platform default. Everything else wins.
 
 Two identity values are served by the config API and have **no field in the
 wizard**: `project.country` and `project.fiatCurrency`. Their platform defaults
-are `CR` and `CRC`. Grepping this tree found no client code reading either one,
-and no admin screen that writes them, so today they appear to be display-only
-values with no door. Flag it to the founder if it comes up, and do not tell them
-it is set somewhere it is not.
+are `CR` and `CRC`. They are two different situations, and an earlier version of
+this document called them the same thing and was wrong about one of them.
+
+**`project.fiatCurrency` is read, and it decides what money looks like.**
+`defaultDisplayCurrency()` in `shared/money.ts` reads it, and two callers use
+that helper. `CurrencyPicker` (`client/src/components/power/CurrencyPicker.tsx`)
+fetches `/api/game/config` and takes the project's currency as the code a viewer
+starts on. `resourcesDefaultUnit()` in `server/index.ts` uses it as the declared
+unit a new resources rule starts in. A grep for the key name finds the helper
+and misses both callers, because neither of them names the key, and that is
+exactly how the earlier claim was made and how it survived review. The
+repository's own gate says why the key matters:
+`scripts/check-identity-keys.mjs` carries `project.fiatCurrency` in its
+`KNOWN_PENDING` list, with the reason "prices render against it, so clearing it
+before the founder sets one changes displayed money."
+
+The platform default is `CRC`, `mergedConfig()` substitutes it whenever the
+village has left the value blank, and no admin screen writes it. So a village
+outside Costa Rica displays colones and nobody chose that. On the original Costa
+Rican village it is invisibly correct, which is why it stayed. The helper's own
+fallback is `CHF` and it never fires through the config merge, because the merge
+has already put `CRC` there. `PUT /api/admin/brand` spreads whatever `project`
+object it is handed, so the value is storable, and nothing in the wizard sends
+it. Giving a founder a real door for this is a code change, which section 7
+covers, and section 0 still holds: you do not make that call yourself.
+
+**`project.country` is genuinely dead.** The only thing in this tree that
+touches it is `mergedConfig()`, which merges it and serves it. No reader, no
+writer, no admin field. It is an ISO code with nothing behind it. One thing that
+looks like a reader is not one: `defaultDisplayCurrency()` accepts `country` in
+its parameter type and never looks at it. Reading the body settles that in three
+lines, and it is worth doing before repeating either half of this paragraph.
 
 Behaviour, as opposed to identity, lives in a different plane: the variable
 registry in `shared/gameVariables.ts`, with per-village overrides in the
@@ -454,7 +713,7 @@ quietly read zero. Rename the display name and every surface follows.
 
 ---
 
-## 6. If you propose a code change
+## 7. If you propose a code change
 
 Most founder requests are settings. Some are not. When you genuinely need a code
 change, propose a diff to the founder and let them decide who applies it. These
@@ -478,6 +737,35 @@ fails CI, and CI is `.github/workflows/ci.yml`.
 Both refusals are proven by their own test suite (`server/serverIndexRatchet.test.ts`)
 and both run as named CI steps. The path out is extraction into a new component
 or a new route module, which lowers the number and keeps it lowered.
+
+### Two gates guard the exact fields the founder is filling in
+
+These are the ones to know before you touch identity, because they govern the
+same values sections 3 and 6 are about. Both run as named steps in
+`.github/workflows/ci.yml`.
+
+- **Brand guard** (`scripts/check-brand-refs.mjs`, CI step "Brand guard").
+  Platform code carries no village's brand. Three zones: `server/lib/**`,
+  `shared/**`, `scripts/**`, `drizzle/**` and every file not in the baseline are
+  hard-clean, where any hit fails. `shared/gameConfig.ts`, `server/seeds/**` and
+  the documents are declared homes and exempt, because brand belongs in them.
+  `server/index.ts` and `client/src/**` are a ratchet whose per-file counts may
+  only fall. A genuine false positive takes an inline `brand-ok: <reason>`, and
+  the waivers are counted and printed.
+- **Identity keys** (`scripts/check-identity-keys.mjs`, CI step "Identity
+  keys"). Every identity slot in `GAME_CONFIG` is empty, or holds an approved
+  platform-neutral value, or holds somebody's identity, and this decides which
+  without knowing a single proper noun. It exists because the brand guard cannot
+  see this class of leak: `shared/gameConfig.ts` is the brand guard's declared
+  home, and two of the three strings that put one village's identity into every
+  fork's defaults contain no village name for a word-matching guard to match. It
+  carries a dated `KNOWN_PENDING` list of keys still populated on purpose, with
+  a ceiling that only falls, and it prints that list on every run.
+
+Read the identity gate before you tell a founder that a config value has no
+reader. Its `KNOWN_PENDING` entries carry the reason each key is still
+populated, and one of those entries is what corrected the `project.fiatCurrency`
+claim this document used to make in section 6.
 
 ### The image budget is a ratchet too
 
@@ -518,7 +806,7 @@ save them an edit later.
 The server serves the SPA shell with a status of 200 for any unmatched path, so
 that client-side routing works. Four families of path are carved out and answer
 an honest 404: `/api/*`, `/assets/*`, `/org/*` and `/.well-known/*`. Everything
-else that does not match a route gets `index.html` and a 200.
+else that does not match a route gets the SPA shell and a 200.
 
 So when you check whether something is deployed: **read the content type, not
 the status code.** A request for a missing document outside those four prefixes
@@ -540,7 +828,7 @@ tree.
 
 ---
 
-## 7. What you cannot know, and must ask
+## 8. What you cannot know, and must ask
 
 You will be tempted to fill these in, because a blank field looks like a
 problem and you are good at producing plausible text. Every one of these is a
@@ -551,6 +839,29 @@ publishes it as a fact about itself.
 access, soil, what grows there. Whether the road is passable in the wet season.
 You cannot know any of it and the master plan page will print whatever is
 entered.
+
+**The acres trap, and it is worth reading before a founder types a number.**
+The Settings field is labelled "Size of the land", and the note box beside it
+hints `acres, hectares` (`client/src/pages/Admin.tsx`). So a founder anywhere
+metric enters `40` in the value and `hectares` in the note, correctly, exactly
+as invited. The tile that renders it on the master plan is hardcoded
+`label: "Total Acres"` in `client/src/pages/MasterPlan.tsx`, and that tile
+renders the value and the label and nothing else. The note is dropped on the
+floor. Of the four tiles in that row, only the appraisal renders its note, and
+it does that further down the page inside the valuation sentence. A village
+entering 40 hectares publishes "40" under "Total Acres" on the page it sends to
+investors, understating its own land by a factor of 2.47.
+
+**Check what the public page actually renders before you advise anybody on
+units.** Open the village's own master plan and read the tile. A fix to this is
+in flight and may have landed by the time you read this, so treat the label as
+something to look at rather than something to assume. If the tile still reads
+"Total Acres" for every village, say so plainly: the unit on that tile is not
+the founder's to set yet, and the two honest options are to enter the figure in
+acres, or to write the unit into the value itself, which is free text and does
+render. If the tile has been fixed to carry the unit, say that instead and let
+the note do its job. Either way the number is theirs, and the reason to raise it
+at all is that the wrong answer is silent.
 
 **The community's own words.** What a member is called. What the recognition
 token is called. How they describe what they are doing and why. These are
@@ -579,7 +890,7 @@ truth gives you better material than one handed a guess.
 
 ---
 
-## 8. Things you can safely do
+## 9. Things you can safely do
 
 A short list, so the rule in section 0 does not read as "do nothing".
 
@@ -596,14 +907,20 @@ A short list, so the rule in section 0 does not read as "do nothing".
   change.
 - Read the Journey to Launch checklist with them and explain each open item.
 - Prepare an image locally, at the right size and format, and hand them the
-  file to upload.
+  file to upload. Converting a logo from SVG, which the upload refuses, to a
+  PNG at around 1000px, which it accepts, is the common case.
+- Type a value the founder has approved into the field it belongs in, in their
+  own signed-in browser, and leave Save to them. Section 0 covers where that
+  line sits.
+- Draft the message a founder sends their residents pointing them at
+  `/register`, and explain who needs promoting afterwards.
 - Write down what they decided, so the next session starts from a record.
 - Tell them when something in this document disagrees with the code, and trust
   the code.
 
 ---
 
-## 9. Where to read next
+## 10. Where to read next
 
 | For | Read |
 |---|---|
@@ -626,7 +943,7 @@ disagreement, with `docs/ARCHITECTURE.md` next.
 
 ---
 
-## 10. What is unverified in this document
+## 11. What is unverified in this document
 
 Written down so that a later reader can tell what was checked from what was
 taken on report. Everything not listed here was read in this repository before
@@ -636,19 +953,33 @@ it was written down.
   puts the assistant connection first and moves map styling into the map. That
   is a stated intention and it is not in this tree. Section 3 is written by goal
   so it survives the change.
-- **The `brand.json` incident.** That somebody wrote to a `brand.json` file on
-  the volume and the API kept reporting empty values is reported experience, and
+- **The brand.json incident.** That somebody wrote to a file of that name on the
+  volume and the API kept reporting empty values is reported experience, and
   this document did not verify the event. What was verified is the part that
   matters: no code in this tree reads a file of that name, several documents
   still name it, and the brand record is the `app_config` row.
-- **`project.country` and `project.fiatCurrency`** were traced by grep to the
-  config merge and to nothing else. No client reader and no admin writer was
-  found. A reader may exist that the grep missed, and a lane in flight is
-  reported to be changing this area.
-- **The paths this document names are not covered by a CI link check.**
-  `scripts/check-doc-links.mjs` resolves the paths named by six listed builder
-  documents and this file is not one of them. Every path here was resolved by
-  hand on the day it was written, and nothing stops one rotting later.
+- **`project.fiatCurrency` was wrong here and is now corrected.** An earlier
+  version of this section said the key had no reader. It has three, reached
+  through `defaultDisplayCurrency()` rather than by its own name, which is why a
+  grep for the key found nothing. Section 6 carries the corrected account and
+  names each reader. The lesson generalises: a grep for a config key finds the
+  callers that name it and misses every one that reads it through a helper.
+  `project.country` was rechecked at the same time and is genuinely dead.
+- **Whether the acres label has been fixed.** Section 8 describes a master plan
+  tile hardcoded to "Total Acres" while the Settings note box invites hectares.
+  Both halves were read in this tree. A separate lane was reported to be fixing
+  the rendering, and this document did not verify whether that landed. Read the
+  tile before advising, which is what section 8 tells you to do anyway.
+- **The paths this document names are now covered by the CI link check.** This
+  file is in the `DOCS` list in `scripts/check-doc-links.mjs`, so every
+  repo-relative path it names is resolved on every build and a rename that
+  breaks one fails the gate. Three references were dead when the check was first
+  pointed at this file. Two of them named the brand overlay file that does not
+  exist, which is the whole point of the section naming it, so they are written
+  in plain text now rather than as code. The gate reads a backticked filename as
+  a route it must resolve, and it is right to. What it does not check: anchors,
+  external links, and whether a path that resolves still holds what this
+  document says it holds.
 - **Deployment specifics vary by village.** The `/app/data` mount path, the
   Railway service names and the build trigger are read from this repository's
   own Dockerfile and provisioning document. A self-hosted village running the
