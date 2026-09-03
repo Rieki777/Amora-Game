@@ -111,13 +111,21 @@ export const ECONOMICS_KEY = "economics";
 /**
  * The only sources that may drive a NON-FAUCET account below zero.
  *
- * Mirrored from `ALLOW_NEGATIVE_SOURCES` in server/lib/ledger.ts:257, spelt
- * out here because this file may not import it. This model never posts either
- * of these sources, so in practice any negative non-faucet balance it produces
- * is a violation. The set is still written down so the check reads as the
- * ledger's rule and never as "negative is always wrong".
+ * MIRRORED FROM `ALLOW_NEGATIVE_SOURCES`, declared at server/lib/ledger.ts:266,
+ * spelt out here because this file may not import anything under `server/`. In
+ * the SAME ORDER the keystone declares it, so a comparison can be exact.
+ *
+ * IT HELD TWO OF THREE AND THAT WAS A REAL DEFECT. `reversal` is every clawback
+ * `reverse()` posts, and the keystone's own comment says why it is in the set:
+ * a clawback has to be able to FINISH against a member who already spent what
+ * it takes back. A mirror missing it called a lawful negative a broken ledger.
+ * The keystone is static ON PURPOSE ("extending it is a one-line reviewed
+ * change to the keystone, not a runtime registration"), so this copy is checked
+ * against the real one by `server/dryRunMirror.test.ts`, which may import both
+ * sides. That test is the only place the two can be compared, and it compares
+ * them member for member and in order.
  */
-export const ALLOW_NEGATIVE_SOURCES = ["stay_night", "payment_reversal"];
+export const ALLOW_NEGATIVE_SOURCES = ["stay_night", "payment_reversal", "reversal"];
 
 /** The recognition token's slug (`HEARTS`, server/lib/economy.ts:78). */
 export const RECOGNITION_SLUG = "gratitude";
@@ -338,8 +346,21 @@ export interface EconomicsMemo {
   rules: RuleActivity[];
   /** Rules that promised something the engine could not deliver. */
   unpayable: UnpayableRule[];
-  /** The last posting source that DEBITED each account, for the negative check. */
-  lastDebitSource: Record<string, string>;
+  /**
+   * ALLOW-NEGATIVE DEBITS, summed, keyed by ACCOUNT AND TOKEN.
+   *
+   * Keyed by both because a negative is a fact about one account's holding of
+   * ONE token. A memo keyed by the account alone let a `stay_night` debit of
+   * credits exempt a negative in recognition, and made the verdict on two
+   * identical balances depend on whichever debit happened to come last.
+   *
+   * SUMMED rather than remembered, because the bound is the honest reading:
+   * the most a lawful negative can be is what the allow-negative postings
+   * actually took out. `checkLedgerInvariants` (server/lib/ledger.ts:886)
+   * exempts an account with ANY such debit today; the keystone lane is
+   * bounding that, and this mirror is bounded from the start.
+   */
+  allowNegativeDebits: Record<string, bigint>;
   /** Faucet postings the closed-Game gate refused. */
   issuanceRefusals: number;
   /** Member stages with no `progression.multiplier.<stage>` in the registry. */
@@ -408,10 +429,15 @@ function stringVariable(state: SimState, key: string): string | null {
 interface Book {
   balances: Record<string, Record<string, bigint>>;
   faucets: Record<string, true>;
-  lastDebitSource: Record<string, string>;
+  allowNegativeDebits: Record<string, bigint>;
   postings: number;
   issuanceRefusals: number;
   launched: boolean;
+}
+
+/** The key an allow-negative bound is held under: one account, one token. */
+export function negativeKey(account: string, slug: string): string {
+  return `${account}|${slug}`;
 }
 
 function balanceOf(book: Book, account: string, slug: string): bigint {
@@ -493,7 +519,13 @@ function post(
   if (!fromIsFaucet && after < BigInt(0) && !negativeAllowed) return false;
   setBalance(book, from, slug, after);
   setBalance(book, to, slug, balanceOf(book, to, slug) + amount);
-  book.lastDebitSource[from] = source;
+  // Only an ALLOW-NEGATIVE debit raises the bound, and it is recorded against
+  // the account AND the token it moved. Every other debit records nothing,
+  // because it can never make a negative lawful.
+  if (ALLOW_NEGATIVE_SOURCES.indexOf(source) >= 0) {
+    const key = negativeKey(from, slug);
+    book.allowNegativeDebits[key] = (book.allowNegativeDebits[key] ?? BigInt(0)) + amount;
+  }
   book.postings += 1;
   assertConserved(book.balances, slug, `${source} of ${String(amount)} from ${from} to ${to}`);
   return true;
@@ -661,15 +693,40 @@ function confirmationsThisCycle(quests: QuestsSummary, multiplier: number, rng: 
 }
 
 /**
- * The allowance a member may give this cycle, in minor units.
+ * WHAT THE ENGINE SCALES THE GRATITUDE ALLOWANCE BY, WHICH TODAY IS NOTHING.
  *
- * `allowanceFor` (server/lib/economy.ts:610) computes
- * `Math.round(numberVar("gratitude.base_budget") * stageMultiplier)`, and the
- * multiplier is `numberVar("progression.multiplier.<stage>")`
- * (server/index.ts:3922). Recognition has no decimals in any village that has
- * not changed it, so the whole number the server computes is already minor
- * units; the token's own `decimals` is applied here so a village that scaled
- * it still gets the right answer.
+ * ONE FUNCTION, read by two callers, and that is the point. `allowanceFor`
+ * below posts through it and the `econ_allowance_unscaled` flag asks it whether
+ * to speak. When the decimals sweep fixes `give` and `allowanceFor` together,
+ * this function returns the real scale, the model posts the right number, and
+ * the flag goes quiet on its own, because both are reading the same answer.
+ *
+ * WHY IT IS 1 TODAY. `allowanceFor` (server/lib/economy.ts:610) returns
+ * `Math.round(numberVar("gratitude.base_budget") * stageMultiplier)`, a HUMAN
+ * figure, and `give` (economy.ts:934) hands that number straight to
+ * `postTransfer` with no `toLedgerUnits` anywhere on the path. `postTransfer`
+ * reads what it is handed as MINOR UNITS. So on a recognition token with no
+ * decimals, which is every village that has not changed it, the two readings
+ * agree and nothing is wrong. Above zero decimals the engine posts an allowance
+ * of 100 as 100 minor units, which is 0.01 of a token, and every gift in the
+ * village is `10 ** decimals` too small.
+ *
+ * The model MIRRORS THE ENGINE AS BUILT. Scaling here would preview a village
+ * nobody is living in, and would hide the defect behind a preview that looked
+ * right.
+ */
+function allowanceScale(recognition: TokenSpec | null): bigint {
+  void recognition;
+  return BigInt(1);
+}
+
+/**
+ * The allowance a member may give this cycle, in the units the ENGINE posts.
+ *
+ * `Math.round(numberVar("gratitude.base_budget") * stageMultiplier)`
+ * (`allowanceFor`, server/lib/economy.ts:610), with the multiplier from
+ * `numberVar("progression.multiplier.<stage>")` (server/index.ts:3922), and
+ * then whatever the engine scales it by, which is `allowanceScale` above.
  */
 function allowanceFor(state: SimState, member: MemberSpec, recognition: TokenSpec | null): bigint {
   const base = numberVariable(state, "gratitude.base_budget");
@@ -677,8 +734,7 @@ function allowanceFor(state: SimState, member: MemberSpec, recognition: TokenSpe
   if (base === null || multiplier === null) return BigInt(0);
   const whole = Math.round(base * Math.max(0, multiplier));
   if (!(whole > 0)) return BigInt(0);
-  const decimals = recognition ? Math.max(0, Math.trunc(recognition.decimals)) : 0;
-  return BigInt(whole) * powTen(decimals);
+  return BigInt(whole) * allowanceScale(recognition);
 }
 
 /**
@@ -770,7 +826,7 @@ function stepCycle(
   const book: Book = {
     balances: copyBalances(state.balances ?? {}),
     faucets: faucetIndex(tokens),
-    lastDebitSource: {},
+    allowNegativeDebits: {},
     postings: 0,
     issuanceRefusals: 0,
     // `SimState.launched` and no assumption. `issuanceRefusal`
@@ -1039,7 +1095,7 @@ function stepCycle(
     poolClosed,
     rules: ruleActivity,
     unpayable,
-    lastDebitSource: book.lastDebitSource,
+    allowNegativeDebits: book.allowNegativeDebits,
     issuanceRefusals: book.issuanceRefusals,
     stagesWithoutMultiplier,
     seatVoice,
@@ -1122,12 +1178,19 @@ function invariantsOf(state: SimState): Violation[] {
       const slug = held[j];
       const value = row[slug];
       if (value >= BigInt(0)) continue;
-      const source = memo ? memo.lastDebitSource[account] : undefined;
-      if (source && ALLOW_NEGATIVE_SOURCES.indexOf(source) >= 0) continue;
+      // BOUNDED, and keyed by account AND token. A lawful negative is at most
+      // what the allow-negative postings against THIS account in THIS token
+      // actually took out. Anything past that is value that never existed.
+      const allowed = memo ? (memo.allowNegativeDebits[negativeKey(account, slug)] ?? BigInt(0)) : BigInt(0);
+      const owed = -value;
+      if (allowed > BigInt(0) && owed <= allowed) continue;
       out.push({
         invariant: "ledger.no_negative_non_faucet",
         cycle: state.cycle,
-        detail: `${account} holds ${String(value)} ${slug} on an ordinary account, and only a faucet may go below zero. The last debit there was ${source ? `"${source}"` : "not recorded by this run"}, and the ledger permits a negative only from ${ALLOW_NEGATIVE_SOURCES.join(", ")}.`,
+        detail:
+          `${account} holds ${String(value)} ${slug} on an ordinary account, and only a faucet may go below zero. ` +
+          `Postings from ${ALLOW_NEGATIVE_SOURCES.join(", ")} took ${String(allowed)} ${slug} out of it, ` +
+          `which is the most of that a negative may lawfully be, and it is short by ${String(owed - allowed)}.`,
       });
     }
   }
@@ -1224,6 +1287,23 @@ function flagsOf(state: SimState, cycle: number, fallback: EconomicsAssumptions)
             : `Write the amount the token can hold, so the rule says what it pays. The column keeps four decimal places and ${rule.tokenSlug} keeps ${decimals}.`,
       });
     }
+  }
+
+  // (l) THE GRATITUDE ALLOWANCE IS POSTED WITHOUT CONVERSION.
+  //
+  // Asked of `allowanceScale`, which is the same function `allowanceFor` posts
+  // through, so this flag cannot disagree with the number above it and goes
+  // quiet the moment the engine starts scaling.
+  const recognitionToken = tokenBySlug(tokens, RECOGNITION_SLUG);
+  const recognitionDecimals = recognitionToken ? Math.max(0, Math.trunc(recognitionToken.decimals)) : 0;
+  if (recognitionDecimals > 0 && allowanceScale(recognitionToken) === BigInt(1)) {
+    out.push({
+      code: "econ_allowance_unscaled",
+      severity: "danger",
+      cycle,
+      sentence: `${RECOGNITION_SLUG} holds ${recognitionDecimals} decimal place(s), and the gratitude allowance is posted as minor units with no conversion, so every gift in this village is ${String(powTen(recognitionDecimals))} times smaller than the allowance says.`,
+      actionable: "The decimals sweep lane F fixes give and allowanceFor together. Until it lands, a village whose recognition token holds decimal places cannot give what its dial promises.",
+    });
   }
 
   // (i) The Game has not started. Nothing can be minted at all until the

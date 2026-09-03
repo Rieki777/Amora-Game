@@ -26,10 +26,12 @@ import {
   parseEconomicsAssumptions,
 } from "./economicsAssumptions";
 import {
+  ALLOW_NEGATIVE_SOURCES,
   ECONOMICS_KEY,
   assertConserved,
   ceilingOutcome,
   economicsModel,
+  negativeKey,
   readEconomicsMemo,
   ruleCannotPay,
   writtenAmount,
@@ -556,6 +558,187 @@ describe("economics model, invariants", () => {
     expect(message).toContain("village-voice");
     expect(message).toContain("10000");
     expect(message).toContain("a posting with one leg");
+  });
+});
+
+describe("the allow-negative mirror, keyed and bounded", () => {
+  /**
+   * A state with a hand-built memo, which is the only way to reach the lawful
+   * branch: this model never posts an allow-negative source itself, so a
+   * bounded exemption has to be constructed the way the ledger would have
+   * produced it.
+   */
+  function withDebits(debits: Record<string, bigint>, extra: Record<string, Record<string, bigint>>) {
+    const { model, stepped } = runOneCycle("lunar");
+    const memo = { ...readEconomicsMemo(stepped)!, allowNegativeDebits: debits };
+    const state: SimState = {
+      ...stepped,
+      balances: { ...stepped.balances, ...extra },
+      models: { ...stepped.models, [ECONOMICS_KEY]: memo },
+    };
+    return { model, state };
+  }
+
+  const negatives = (r: { model: ReturnType<typeof economicsModel>; state: SimState }) =>
+    r.model.invariants(r.state).filter((v) => v.invariant === "ledger.no_negative_non_faucet");
+
+  it("holds every source the ledger holds, reversal included", () => {
+    // The list itself is compared against the ledger's runtime value in
+    // server/dryRunMirror.test.ts, which is the only test that may import both.
+    // Here it is only asserted that the member the mirror was missing is back.
+    expect(ALLOW_NEGATIVE_SOURCES).toContain("reversal");
+    expect(ALLOW_NEGATIVE_SOURCES).toContain("stay_night");
+    expect(ALLOW_NEGATIVE_SOURCES).toContain("payment_reversal");
+    expect(ALLOW_NEGATIVE_SOURCES).toHaveLength(3);
+  });
+
+  it("lets a negative stand only as far as the allow-negative debits reach", () => {
+    /*
+     * `checkLedgerInvariants` (server/lib/ledger.ts:886) exempts an account
+     * holding ANY debit from one of these sources, for that account AND that
+     * token. Unbounded, that exempts a negative of any size once a single
+     * clawback has touched the account. The bound is the honest reading: what a
+     * clawback took out is the most a lawful negative can be.
+     */
+    const key = negativeKey("mem:u1", "credits");
+    const exactly = withDebits(
+      { [key]: BigInt(25) },
+      { "mem:u1": { credits: BigInt(-25) }, "sys:treasury": { credits: BigInt(50) } },
+    );
+    expect(negatives(exactly)).toHaveLength(0);
+
+    const over = withDebits(
+      { [key]: BigInt(25) },
+      { "mem:u1": { credits: BigInt(-26) }, "sys:treasury": { credits: BigInt(51) } },
+    );
+    expect(negatives(over)).toHaveLength(1);
+    expect(negatives(over)[0].detail).toContain("took 25 credits out of it");
+    expect(negatives(over)[0].detail).toContain("short by 1");
+  });
+
+  it("does not let a debit in one token exempt a negative in another", () => {
+    // A stay_night burn of credits says nothing about a negative in
+    // recognition. Keyed by account alone, it exempted it.
+    const wrongToken = withDebits(
+      { [negativeKey("mem:u1", "credits")]: BigInt(900) },
+      { "mem:u1": { gratitude: BigInt(-900) }, "sys:treasury": { gratitude: BigInt(900) } },
+    );
+    expect(negatives(wrongToken)).toHaveLength(1);
+    expect(negatives(wrongToken)[0].detail).toContain("gratitude");
+    expect(negatives(wrongToken)[0].detail).toContain("took 0 gratitude out of it");
+
+    // The same debit against the same token does exempt it.
+    const rightToken = withDebits(
+      { [negativeKey("mem:u1", "gratitude")]: BigInt(900) },
+      { "mem:u1": { gratitude: BigInt(-900) }, "sys:treasury": { gratitude: BigInt(900) } },
+    );
+    expect(negatives(rightToken)).toHaveLength(0);
+  });
+
+  it("answers the same for the same balances however the run reached them", () => {
+    /*
+     * The verdict used to be decided by whichever debit came last, so two runs
+     * ending on identical balances disagreed about whether the ledger was
+     * broken. A bound over sums cannot depend on order: the same debits in any
+     * arrangement give the same total.
+     */
+    const held = { "mem:u1": { credits: BigInt(-25) }, "sys:treasury": { credits: BigInt(50) } };
+    const key = negativeKey("mem:u1", "credits");
+    const oneWay = withDebits({ [key]: BigInt(10) + BigInt(15) }, held);
+    const otherWay = withDebits({ [key]: BigInt(15) + BigInt(10) }, held);
+    expect(negatives(oneWay).length).toBe(negatives(otherWay).length);
+    expect(negatives(oneWay)).toHaveLength(0);
+    // And an unrelated debit elsewhere changes nothing about this account.
+    const noisy = withDebits({ [key]: BigInt(25), [negativeKey("mem:u2", "credits")]: BigInt(9999) }, held);
+    expect(negatives(noisy)).toHaveLength(0);
+  });
+
+  it("treats a run with no memo as a run that earned no exemption", () => {
+    // Fail closed. A state nothing stepped has no record of a clawback, so a
+    // negative on it is a negative nobody can account for.
+    const { model, stepped } = runOneCycle("lunar");
+    const bare: SimState = {
+      ...stepped,
+      balances: { ...stepped.balances, "mem:u1": { credits: BigInt(-25) }, "sys:treasury": { credits: BigInt(50) } },
+      models: {},
+    };
+    expect(model.invariants(bare).map((v) => v.invariant)).toContain("ledger.no_negative_non_faucet");
+  });
+});
+
+describe("the gratitude allowance, mirrored as the engine posts it", () => {
+  /** The same village with every token carrying `decimals` places. */
+  function scaled(decimals: number): VillageSnapshot {
+    const snap = snapshot("lunar");
+    snap.quests = { open: 2, confirmedPerCycle: 0, gratitudePerConfirmation: BigInt(0) };
+    snap.tokens = snap.tokens.map((t) => ({ ...t, decimals }));
+    snap.balances["mem:u2"] = {};
+    snap.members = [
+      { id: "u1", accountId: "mem:u1", stage: "member", seats: [] },
+      { id: "u2", accountId: "mem:u2", stage: "member", seats: [] },
+    ];
+    return snap;
+  }
+
+  it("posts the number the engine posts, unscaled, at any decimals", () => {
+    /*
+     * `allowanceFor` (server/lib/economy.ts:610) returns
+     * `Math.round(numberVar("gratitude.base_budget") * stageMultiplier)`, which
+     * is 100 * 2 = 200, a HUMAN figure. `give` (economy.ts:934) hands that
+     * straight to `postTransfer` with NO `toLedgerUnits` anywhere on the path,
+     * and `postTransfer` reads what it is handed as MINOR UNITS. So the engine
+     * posts 200, and 50 after `shareCapFor` (economy.ts:683) takes its quarter,
+     * whatever `decimals` says. A model that scaled by 10^decimals would post
+     * 500,000 at four places and preview a village nobody is living in.
+     */
+    const model = economicsModel({ ...ONE_QUEST, gratitudeAllowanceGivenShare: 1 });
+    const stepped = model.step(initialState(scaled(4)), 1, makeRng(SEED));
+    const memo = readEconomicsMemo(stepped)!;
+    expect(memo.allowanceTotal).toBe(BigInt(400));
+    expect(memo.gratitudeGiven).toBe(BigInt(100));
+    expect(stepped.balances["mem:u1"].gratitude).toBe(BigInt(50));
+    expect(stepped.balances["mem:u2"].gratitude).toBe(BigInt(50));
+
+    // And it is the same number at zero decimals, which is the whole point: the
+    // engine's answer does not move with the registry, and neither does this.
+    const flat = model.step(initialState(scaled(0)), 1, makeRng(SEED));
+    expect(readEconomicsMemo(flat)!.allowanceTotal).toBe(BigInt(400));
+    expect(flat.balances["mem:u1"].gratitude).toBe(BigInt(50));
+  });
+
+  it("says out loud that every gift is smaller than the dial promises", () => {
+    const model = economicsModel({ ...ONE_QUEST, gratitudeAllowanceGivenShare: 1 });
+    const stepped = model.step(initialState(scaled(4)), 1, makeRng(SEED));
+    const flag = model.flags(stepped, 1).filter((f) => f.code === "econ_allowance_unscaled")[0];
+    expect(flag.severity).toBe("danger");
+    expect(flag.sentence).toContain("4 decimal place(s)");
+    expect(flag.sentence).toContain("10000 times smaller");
+    expect(flag.actionable).toContain("decimals sweep lane F");
+
+    // Quiet on a village whose recognition token has no decimal places, which
+    // is every village that has not changed it.
+    const flat = model.step(initialState(scaled(0)), 1, makeRng(SEED));
+    expect(model.flags(flat, 1).map((f) => f.code)).not.toContain("econ_allowance_unscaled");
+    // And quiet on the default fixture.
+    const plain = runOneCycle("lunar");
+    expect(plain.model.flags(plain.stepped, 1).map((f) => f.code)).not.toContain("econ_allowance_unscaled");
+  });
+
+  it("compares the pool against an allowance in the same units", () => {
+    /*
+     * `econ_pool_exhausts` weighs `allowanceTotal` against
+     * `gratitude.pool_per_cycle`. While the allowance was scaled by 10^decimals
+     * and the pool was not, that sentence compared two different units and
+     * cried exhaustion on a village that was fine. Both are the dial's own
+     * whole numbers now.
+     */
+    const model = economicsModel(ONE_QUEST);
+    const stepped = model.step(initialState(scaled(4)), 1, makeRng(SEED));
+    // 400 of allowance against a pool of 1000 (shared/gameVariables.ts:117).
+    expect(readEconomicsMemo(stepped)!.allowanceTotal).toBe(BigInt(400));
+    expect(readEconomicsMemo(stepped)!.poolSize).toBe(BigInt(1000));
+    const exhausts = model.flags(stepped, 1).filter((f) => f.code === "econ_pool_exhausts");
+    expect(exhausts.map((f) => f.sentence).join(" ")).not.toContain("worth less than one minor unit");
   });
 });
 
