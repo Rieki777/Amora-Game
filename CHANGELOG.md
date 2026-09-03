@@ -9,17 +9,111 @@ that pins a version keeps running exactly the software that was tested for
 it. `ops/RELEASES.md` explains the version channels, how to pin one, and how
 to pull the image if you host your own village.
 
+## How to read this file
+
+**`docs/UPGRADING.md` is the procedure.** Read it before your first upgrade.
+It covers the backup to take, what happens while a release installs, and how
+to put the previous version back.
+
+Read every entry between the version you are on and the version you are moving
+to. Each one answers the same three questions:
+
+- **What changed for your village.** In plain words.
+- **What you must do.** Usually nothing. Anything listed here is done *before*
+  you start the upgrade.
+- **Does it touch your data.** Whether the release reshapes your database on
+  the way up, and whether going back would undo it.
+
+**Starting a new image changes your database**, every time, by itself, before
+the village answers anyone. That is why **Does it touch your data** is on
+every entry, including the ones that say no.
+
+---
+
+## Unreleased
+
+Work that is on `main` and has **not been published as an image**. No village
+is running this. It is written down here as it lands so that the next release
+entry is a record rather than a reconstruction.
+
+At the last count there were 174 commits and five database changes waiting
+here since 1.1.0. That is a large jump for one release, and it is the reason
+`docs/UPGRADING.md` tells you to move one release at a time.
+
+### What changed for your village
+
+- **The first payout of a village's life is no longer lost.** Every village
+  stood up so far lost its first payout to a bug in the economy loop. Fixed.
+  It does not recover payouts already missed.
+- **Seats stop paying Gratitude by default.** Holding a seat now pays Village
+  Credits. Gratitude remains available and stops being the automatic choice.
+  A confirmed quest's Gratitude is unaffected.
+- **The ownership token stops carrying another village's name.** Every village
+  booted with the founding village's word on the token that represents
+  ownership of its land, in both the name members read and the internal
+  identifier. Both are corrected, and the identifier is frozen from here on.
+- **Two people editing the same list no longer erase each other.** A whole-list
+  save could silently discard another person's change made seconds earlier,
+  with both saves reporting success. Nine lists were affected, including tools,
+  submissions and milestones.
+- **A village can say where it is,** and gets a picture of its own ground under
+  the Living Map instead of somebody else's valley.
+- **A second way to sign in,** with a Google button, and a founder can claim
+  their village from a phone without a shell.
+- **A failed update now shows a page that explains itself** instead of a blank
+  error, and says that no data was lost.
+- **A new village gets artwork made from its own name.**
+
+### What you must do
+
+- **Set `FOUNDER_EMAILS`** if you have not. Signing in and holding the founder
+  role are settled together now, and this variable is what settles it.
+- **Read the data note below before upgrading.** Two of the five changes alter
+  information you already have.
+
+### Does it touch your data
+
+**Yes. Five changes, and two of them are one-way.**
+
+| Change | What it does | Undone by going back? |
+|---|---|---|
+| Migration ledger checksum | Adds a column recording what was in each applied change | Yes, harmless either way |
+| Collection versions | Adds a counter per list so a save can tell it is stale | Yes, harmless either way |
+| Village land | Adds one row holding where the village is | Yes, harmless either way |
+| Ownership token rename | **Changes existing rows.** Corrects the token name and identifier | **No** |
+| Seat payouts | **Changes existing rows.** Switches a seat payout setting off | **No** |
+
+Both one-way changes are corrections to values that were wrong. Going back to
+1.1.0 leaves the corrected values in place, which is the intended outcome.
+Take the backup in `docs/UPGRADING.md` Step 4 anyway.
+
+> **Not yet verified.** These five changes reached `main` in commits that no
+> completed test run covers, so the automatic check that proves a release can
+> be rolled back has not run on any of them. `docs/RELEASING.md` describes the
+> run that has to happen before this becomes a release.
+
+---
+
 ## 1.1.0 (2026-08-31)
 
 The first release you can name and pin.
+
+### What you must do
+
+Nothing. This is the first packaged release. If you are standing a village up
+for the first time, `docs/PROVISIONING.md` is the walkthrough.
+
+### Does it touch your data
+
+No. 1.1.0 is the starting point, so there is nothing to migrate from.
+
+### What changed for your village
 
 Before this, there was one way to run a village: deploy whatever was newest
 in the source repository at that moment. Two villages deployed on different
 days were running different software, and neither could say which. From here
 on, each release is packaged once, proved to start before it is published,
 and kept available under its own number for as long as anyone needs it.
-
-### What a steward gets
 
 - **A version number.** Your village runs 1.1.0. Its `/health` page reports
   the exact commit inside that release, so the version and the running

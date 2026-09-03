@@ -38,8 +38,11 @@ Two things from it worth repeating because they cost people a session:
 
 - **Use Node 22.** It is pinned in `.node-version` and CI runs it. A newer local runtime builds
   green and goes red in CI with no local signal at all. `CLAUDE.md` has the write-up.
-- **A database is optional to start.** Without `TEST_DATABASE_URL` the database-backed suites skip
-  loudly rather than pass hollowly. `docs/FORK_RUNBOOK.md` covers provisioning when you want them.
+- **A database is optional to start, but you have to say so.** Without `TEST_DATABASE_URL` a
+  whole `pnpm test` now exits non-zero and names the 91 files it skipped, because a skipped
+  third that exits 0 is indistinguishable from a pass. Run `ALLOW_NO_TEST_DB=1 pnpm test` for
+  the smaller suite, and read the skip count as the result.
+  `docs/FORK_RUNBOOK.md` covers provisioning a database when you want the rest.
 
 If you are standing up a village rather than changing the platform, you want `docs/PROVISIONING.md`
 instead, and `README.md` has the other doors.
