@@ -273,14 +273,23 @@ export default function Circles() {
                 <PeopleLockNote people={people} seats={seatCounts.seats} held={seatCounts.held} />
               </div>
             )}
-            {circles === null && !failed && (
-              <div className="text-center text-muted-foreground py-16">Loading circles…</div>
-            )}
-            {failed && (
-              <div className="text-center text-muted-foreground py-16">
-                The circles are catching their breath. Please refresh in a moment.
-              </div>
-            )}
+            {/* One region, present from first paint, that the loading line
+                and the failure line take turns filling. A live region added
+                to a node that MOUNTS with its own text is missed by some
+                screen readers; this one is already there, so the swap from
+                "Loading circles" to the refusal is what gets announced.
+                role="status" and not "alert": a list that did not load is
+                news, not an interruption of something the member was doing. */}
+            <div role="status">
+              {circles === null && !failed && (
+                <div className="text-center text-muted-foreground py-16">Loading circles…</div>
+              )}
+              {failed && (
+                <div className="text-center text-muted-foreground py-16">
+                  The circles are catching their breath. Please refresh in a moment.
+                </div>
+              )}
+            </div>
 
             {today.length > 0 && (
               <div className="mb-16">

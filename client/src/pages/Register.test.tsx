@@ -53,12 +53,13 @@ describe("Register", () => {
     await user.click(screen.getByRole("button", { name: /investor/i }));
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
-    // FINDING (not this lane's to fix - out of "colour only" scope for this
-    // file): unlike Login.tsx's matching error box, this one carries no
-    // role="alert", so a screen reader never hears it - only sees red text.
-    // Asserted here as plain text, not screen.findByRole("alert"), so this
-    // test documents the gap instead of silently working around it.
-    expect(await screen.findByText(/passwords do not match/i)).toBeInTheDocument();
+    // findByRole("alert"), not findByText: the box now carries role="alert",
+    // the same as Login.tsx's, so the refusal is SPOKEN and not merely
+    // painted red. Asserting the role is what makes that a guarantee - the
+    // text assertion this replaced passed just as happily while a screen
+    // reader said nothing.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/passwords do not match/i);
     expect(registerMock).not.toHaveBeenCalled();
   });
 
@@ -72,9 +73,26 @@ describe("Register", () => {
     await user.type(screen.getByLabelText(/confirm password/i), "hunter2");
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
-    // Same role="alert" gap as above.
-    expect(await screen.findByText(/select at least one path/i)).toBeInTheDocument();
+    // Same role="alert" guarantee as above.
+    expect(await screen.findByRole("alert")).toHaveTextContent(/select at least one path/i);
     expect(registerMock).not.toHaveBeenCalled();
+  });
+
+  it("speaks a registration the server turned down, not just paints it red", async () => {
+    // The third thing that lands in that box, and the only one that is not a
+    // client-side guard: a rejected register(). Same role, same box.
+    registerMock.mockRejectedValueOnce(new Error("That email is already here"));
+    const user = userEvent.setup();
+    renderRegister();
+
+    await user.type(screen.getByLabelText(/^name$/i), "Rye");
+    await user.type(screen.getByLabelText(/^email$/i), "rye@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "hunter2");
+    await user.type(screen.getByLabelText(/confirm password/i), "hunter2");
+    await user.click(screen.getByRole("button", { name: /investor/i }));
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/already here/i);
   });
 
   it("submits name, email, password and the chosen paths together", async () => {
