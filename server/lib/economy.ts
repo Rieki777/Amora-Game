@@ -495,18 +495,78 @@ export async function mint(pool: Pool, input: MintInput): Promise<MintOutcome> {
 }
 
 /**
- * Clamp a from_source amount to its rule's ceiling.
+ * What one occurrence of a rule may post, clamped to that rule's ceiling.
  *
  * A rule that mints a number somebody else typed, with no ceiling, is an open
  * faucet with a form in front of it. The ceiling is not advisory and it is not
  * nullable-as-unlimited: 0 means zero, which is the same fail-closed reading
  * the swap caps use.
+ *
+ * ── WHAT THE CEILING BOUNDS, AND WHAT IT DOES NOT ──────────────────────────
+ *
+ * ONE OCCURRENCE, in the rule's own human units. Ten confirmed quests against
+ * `amount 25, ceiling 250` issue 250 and an eleventh issues 25 more, and that
+ * is the rule working: 25 is what the village promised per confirmed quest and
+ * the ceiling says no single payment may exceed 250. This column is NOT a
+ * per-cycle budget and reading it as one would stop the shipped default
+ * `role.cycle credits, amount 25, ceiling 250` after the tenth seat, in every
+ * village with more than ten seats, with nobody having decided that. The
+ * per-cycle question is a real one and it needs its own column and a founder's
+ * answer; see the report in docs/ECONOMICS.md section 4.
+ *
+ * The reading is the schema's own: drizzle/0071_economy_core.sql calls this
+ * column "the hard cap on any from_source amount", `publicRules` and the Mint
+ * panel both print it as "up to N, as much as the work was posted for", and
+ * `queueRuleChange` refuses a single amount above it as "a rule that
+ * contradicts itself".
+ *
+ * ── WHY A FIXED AMOUNT IS CLAMPED HERE TOO ────────────────────────────────
+ *
+ * This used to answer `rule.amount` for a fixed rule and never look at the
+ * ceiling, on the reading that `queueRuleChange` had already refused an amount
+ * above it. It has not: that check is skipped entirely when a change carries a
+ * ceiling and no amount, so a village that lowers a rule from 25 to a ceiling
+ * of 5 leaves the row at `amount 25, ceiling 5` and every later mint pays 25.
+ * The governed field a village votes on is labelled "the most it can pay"
+ * (shared/mintRuleKeys.ts), so the vote has to bind where the payment happens
+ * rather than at the form somebody filled in first.
  */
 export function clampToCeiling(posted: number, rule: MintRule): number {
-  const asked = Number(posted);
+  // A fixed amount ignores what the source posted, and always did. What it no
+  // longer ignores is its own ceiling.
+  const asked = rule.amount !== null ? Number(rule.amount) : Number(posted);
   if (!Number.isFinite(asked) || asked <= 0) return 0;
-  if (rule.amount !== null) return rule.amount;
-  return Math.min(asked, rule.ceiling);
+  const ceiling = Number(rule.ceiling);
+  // A ceiling that is not a number fails closed rather than opening the
+  // faucet. `mint_rules.ceiling` is NOT NULL, so this is the unreachable
+  // branch that stays cheap to keep unreachable.
+  if (!Number.isFinite(ceiling) || ceiling < 0) return 0;
+  return Math.min(asked, ceiling);
+}
+
+/**
+ * Why this rule can pay nothing at all, or null when it can pay something.
+ *
+ * Said in the founder's words and not the log's, because it goes into the same
+ * `unpayable` list `ruleCannotPay` feeds, and a village reading that list is
+ * trying to work out which of its own numbers is wrong.
+ *
+ * A ceiling of zero is a REAL ANSWER and not an empty one: `mint_rules.ceiling`
+ * is NOT NULL DEFAULT 0 and `mintRuleValueProblem` tells a village in as many
+ * words that "a ceiling is zero or more, and zero means zero". So it earns a
+ * sentence rather than the silence an `amount` of zero gets, which is a village
+ * saying "not this one, not now" about the payment itself.
+ */
+export function ceilingRefusal(rule: MintRule, tokenName: string): string | null {
+  // The CEILING alone, never the clamp: a from_source rule's payable amount
+  // depends on what the work posted and is unknowable from the row, so asking
+  // the clamp here would call every from_source rule broken.
+  const ceiling = Number(rule.ceiling);
+  if (Number.isFinite(ceiling) && ceiling > 0) return null;
+  return (
+    `this rule's ceiling is ${rule.ceiling}, so it can pay no ${tokenName} at all. ` +
+    `Raise the ceiling or pause the rule`
+  );
 }
 
 // ── Reversal ────────────────────────────────────────────────────────────────
@@ -1246,11 +1306,11 @@ export async function mintForConfirmedClaim(
       });
       continue;
     }
-    const human = r.amount;
+    const asked = r.amount;
     // Zero is a decision and stays quiet. A village that sets a rule to 0 has
     // said "not this one, not now", and shouting about it every consent would
     // bury the rules that are genuinely broken.
-    if (human <= 0) continue;
+    if (asked <= 0) continue;
     // A rule the engine cannot honour is REPORTED, not skipped. This used to
     // be `if (!faucet) continue`, which is how a village could enable a
     // credits rule, watch the Mint panel say it pays, and find out a moon
@@ -1260,6 +1320,18 @@ export async function mintForConfirmedClaim(
       unpayable.push({ token: r.tokenSlug, reason: problem });
       continue;
     }
+    // THE CEILING BINDS HERE, and until this line it bound nowhere at all:
+    // `clampToCeiling` had no caller in the shipped server, so a rule left at
+    // `amount 25, ceiling 5` by a ballot that lowered only the ceiling went on
+    // paying 25 for ever. It is applied in the rule's own human units, before
+    // `toLedgerUnits`, because that is the unit `mint_rules.ceiling` and
+    // `mint_rules.amount` share: both are `decimal(18,4)` on the same row.
+    const barred = ceilingRefusal(r, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
+    if (barred) {
+      unpayable.push({ token: r.tokenSlug, reason: barred });
+      continue;
+    }
+    const human = clampToCeiling(asked, r);
     // The ledger takes integers. A rule of 0.1 voice posts 100 thousandths,
     // because posting 0.1 posts nothing at all.
     const amount = toLedgerUnits(r.tokenSlug, human);
@@ -1400,10 +1472,19 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
       out.unpayable.push({ token: r.tokenSlug, reason: problem });
       return false;
     }
+    // A ceiling of zero is the third way, and the same class again: the row
+    // says the rule pays 25 and says the most it may pay is nothing. Asked
+    // ONCE here rather than once per seat, like every other reason in this
+    // filter. See `clampToCeiling` for what the column bounds.
+    const barred = ceilingRefusal(r, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
+    if ((r.amount ?? 0) > 0 && barred) {
+      out.unpayable.push({ token: r.tokenSlug, reason: barred });
+      return false;
+    }
     // An amount that rounds to nothing in this token's minor units is the
     // other way a rule pays nobody while looking alive. Same class, same
     // report: a rule of 0.1 on a whole-unit token posts zero.
-    const human = r.amount ?? 0;
+    const human = clampToCeiling(r.amount ?? 0, r);
     if (human > 0 && toLedgerUnits(r.tokenSlug, human) <= 0) {
       out.unpayable.push({
         token: r.tokenSlug,
@@ -1436,7 +1517,9 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
     const userId = String(seat.user_id);
     const seatId = String(seat.id);
     for (const r of payable) {
-      const human = r.amount ?? 0;
+      // Clamped, like the quest path, and for the same reason: the ceiling is
+      // what the village voted on and the amount is what it typed first.
+      const human = clampToCeiling(r.amount ?? 0, r);
       if (human <= 0) continue;
       const units = toLedgerUnits(r.tokenSlug, human);
       const faucet = faucetFor(r.tokenSlug)!;
