@@ -253,7 +253,7 @@ function exists(token, docRelPath) {
 
 /**
  * A citation carries its address with it: `server/index.ts:216`,
- * `drizzle/0009_ledger.sql:62`, `shared/modules.ts:moduleListingProblems`. The
+ * `drizzle/0009_ledger_accounts_and_transfers.sql:62`, `shared/modules.ts:moduleListingProblems`. The
  * file is the claim and the suffix is a pointer into it, so the suffix is
  * dropped and the file resolved on its own. Checking the whole string instead
  * reported every cited line in the repository as a dead path, which is how a
