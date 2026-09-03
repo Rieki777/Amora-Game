@@ -506,24 +506,39 @@ describe("what a whole change set costs", () => {
 describe("which kinds this build will take to a vote", () => {
   const effective = () => "100";
 
-  it("names the two it can carry out, and no more", () => {
-    expect(Array.from(EXECUTABLE_ITEM_KINDS).sort()).toEqual(["dial", "mint_rule"]);
+  /*
+   * WIDENED BY THE DISPATCHER LANE, and this test was rewritten with it. The
+   * set used to be two kinds because two executors existed. Four more landed in
+   * `server/lib/changeset.ts` (weight allocation, the vote-mode switch, a
+   * module's lifecycle, and the minting rules that were already here), so the
+   * list this pins is longer. What has NOT changed is the property the test is
+   * for: a kind outside the set is refused at validation rather than voted on
+   * and silently dropped, and `brand_field` and `role` are still outside it.
+   */
+  it("names the kinds it can carry out, and no more", () => {
+    expect(Array.from(EXECUTABLE_ITEM_KINDS).sort()).toEqual([
+      "dial",
+      "mint_rule",
+      "mode_switch",
+      "module_lifecycle",
+      "weight_allocation",
+    ]);
     for (const kind of CHANGE_ITEM_KINDS) {
-      if (kind === "dial" || kind === "mint_rule") continue;
-      expect(EXECUTABLE_ITEM_KINDS.has(kind), kind).toBe(false);
+      if (EXECUTABLE_ITEM_KINDS.has(kind)) continue;
+      expect(["brand_field", "role"]).toContain(kind);
     }
   });
 
   it("refuses a kind it cannot apply, rather than voting on it and doing nothing", async () => {
     const { problems, normalized } = await validateChangeSet(
       noPool,
-      [{ kind: "mode_switch", to: "token" } as ChangeItem],
+      [{ kind: "brand_field", field: "project.name", to: "Somewhere" } as ChangeItem],
       effective,
       0,
     );
     expect(problems.length).toBe(1);
     expect(problems[0].problem).toContain("cannot yet carry out");
-    expect(problems[0].problem).toContain("mode_switch");
+    expect(problems[0].problem).toContain("brand_field");
     expect(normalized).toEqual([]);
   });
 

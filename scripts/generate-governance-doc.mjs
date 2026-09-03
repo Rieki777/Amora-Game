@@ -1162,6 +1162,8 @@ const SUBJECT_WORDS = {
   role_seat: "Puts a named member into a seat.",
   role_unseat: "Takes a named member out of a seat.",
   village_launch: "Starts the Game. Token issuance turns on and does not turn off.",
+  // Added by the dispatcher lane with the executor it describes.
+  governance_mode: "Changes how one vote is weighed, and which token carries the weight when it is a token.",
 };
 
 /**
@@ -1209,6 +1211,10 @@ const KNOWN_DIALS = [
   "governance.auto_apply_enabled",
   "governance.steward_subjects",
   "governance.auto_execute_subjects",
+  // The three the dispatcher lane added with the veto window (2026-09-03).
+  "governance.veto_hours",
+  "governance.steward_council",
+  "governance.highest_tier",
   "governance.change_cooldown_days",
   "governance.weight_mode",
   "governance.weight_token",
@@ -1508,11 +1514,10 @@ const RULINGS = [
     status: (f) => (f.dials.weightMode.ring === "founder" && f.staged.governanceModeSubject ? "**Half built.**" : "**Built.**"),
     note: (f) =>
       `Built: \`${f.dials.weightMode.key}\` carries ${f.dials.weightMode.choices.length} choices, nothing refuses a change in ` +
-      "either direction, and switching reads or ignores holdings and deletes none of them. So the code already behaves the " +
-      `way this ruling describes. Staged: the village's own vote on it. The dial is ${f.dials.weightMode.ring} ring, refused to a ` +
-      "change set and to anybody who reaches the admin route through a capability, so a switch is an administrator's act " +
-      "today. His second quote is his answer to whether it should leave that ring, and the answer is yes, through a " +
-      "subject type of its own with a launch-grade floor.",
+      "either direction, and switching reads or ignores holdings and deletes none of them. The village's own vote on it " +
+      "landed on 2026-09-03 as the `governance_mode` subject type, with an executor that writes the dial through the one " +
+      "amendment ledger and a landing instant a steward can stop it inside. Once the Game has started the admin route " +
+      "refuses the flip and names the vote, so the switch is the village's act and no longer an administrator's."
   },
   {
     id: 15,
@@ -1698,7 +1703,8 @@ function stalenessProblem(staged) {
     [!staged.cycleSetting, 13, "a cycle setting"],
     [!staged.clans, 18, "clans"],
     [!staged.secrecy, 22, "a voter-identity setting"],
-    [!staged.governanceModeSubject, 14, "a governance_mode subject type"],
+    // Ruling 14 came off this list on 2026-09-03: the governance_mode subject
+    // type and its executor landed, and its note now describes what shipped.
   ];
   for (const [built, ruling, what] of complaints) {
     if (!built) continue;
