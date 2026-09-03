@@ -383,6 +383,27 @@ has never hurt anyone: the ledger is empty.
 away. The engine reports that as `unpayable` rather than paying zero silently,
 which is right, but nothing stops the rule being saved.
 
+**The material library is the first module swept, and it answers five callers
+plus two readers.** `server/lib/library.ts` converts at each of its five posting
+legs (the intake award in `recordIntake`, the dual-signed award in
+`approveIntake`, the deposit in `reserveItem`, and the fee and release legs in
+`settleLoan`), and converts back in the two places that carry a ledger figure
+out to a person: `intakeMintedThisCycle`, whose sum meets a per-member cap
+declared in credits, and `supplyVsBacking`, whose over-issuance flag compares
+the mint's issue against an appraisal a steward typed. Neither of those two
+contains a `postTransfer`, so a sweep keyed on the posting primitive walks past
+both, and the cap is the one that breaks TIGHT: read raw at 4 decimals, a single
+75-credit award leaves 750000 against a cap of 500 and the donor is locked out
+of the rest of the lunation. **The decision on the stored mirror:
+`library_loans.escrow_credits` STAYS in whole credits**, along with
+`library_items.credit_value`, `wear_fee` and `damage_fee`, because every Library
+game variable declares its unit as credits and those columns hold what a steward
+types and a member is quoted. `escrowReconciliation` therefore converts the
+column UP to meet the ledger, so the boot invariant still compares integers, and
+**the flip migration must NOT backfill any library table**. A loan opened before
+the flip reconciles after it with the column untouched, which
+`server/lib/library.test.ts` carries across the flip and proves.
+
 ---
 
 ## 8. What is enforced, and what is only convention
