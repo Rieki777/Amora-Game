@@ -2405,6 +2405,150 @@ Two of its coordination rules join section 20.1: **the ratchet baselines are sha
 pending list); whoever merges re-measures the combined tree rather than taking either side. And
 **before the landing push, re-check that `main` has not moved.**
 
+### 20.11 The second adversarial pass (2026-09-03) and the fix wave it requires
+
+Nine lenses over sections 12 to 21 and the Phase 1b lane briefs, 122 findings, 80 put to two
+skeptics, 54 survived, synthesised into twelve risks. The full text is at
+`C:\Users\taren\Desktop\Amora\governance-sources\audit2_2026-09-03.md`. Its two structural
+observations are accepted as rules: a lane follows the paraphrase in its prompt over the founder's
+words when they differ, so every prompt now carries 19F and section 21 by reference AND the
+superseded sentences are edited in place; and no layer of this brief may leave the text it
+supersedes standing unmarked.
+
+**Adopted by the coordinator.** Each is a named task in Phase 1c (below) or a Phase 2 lane.
+
+- **Trials cannot touch the dials that price other proposals.** A META_SETTING class (quorum,
+  unity, every tier setting, the veto map, the window settings, the trial cooldown, the highest
+  tier, the veto hours, the council setting) can never be trialled; while any trial of a pricing
+  dial were somehow in force, every other ballot is priced at its NATURAL tier; the story
+  requirement is priced at the natural tier. A threshold moves at its own current bar, as 19B says.
+- **The veto map is constitutional and cannot be vetoed.** `governance.steward_subjects`,
+  `auto_execute_subjects`, `veto_hours`, `steward_council` and `highest_tier` carry the
+  constitutional tier. Seat and unseat of a steward-capable role, and edits to the veto map, keep
+  their timing and window like any Game change but are NOT vetoable, and a change set that mixes
+  such an element with any other kind is refused at validation naming both elements. That closes
+  both readings of the bundle contradiction.
+- **A steward's no fails token sends only, never a ballot they are the subject of, and it is a
+  veto on the record.** The failing no needs a reason under the same capped, public, redactable
+  rule; the row closes as `vetoed` with `vetoed_by` and the reason, so the override at the highest
+  set tier and the dashboard's "payouts blocked" row both reach it. The block is evaluated at
+  close, and the steward's own weight counts in the tally like anyone's.
+- **`steward.veto` is not deniable.** DENIABLE is false and the comment says why in the veto
+  model's direction: a paused veto means the change lands. The badge-deny path joins the red-first
+  test beside admin self-seating.
+- **The landing loop names its table and its statuses.** The claim UPDATE runs against the table
+  that holds `lands_at`, that table's status vocabulary gains `applying` and `stalled` in the same
+  migration, rows already resting in `passed_verified` and `passed_onsite` are backfilled with a
+  `lands_at`, and the veto fields live on the BALLOT so a proposal returned to open after a veto
+  and passed again lands. A row that reaches passed with `lands_at` already in the past is
+  restamped to now plus the window, marked late-settled with the reason, and every steward told.
+  Auto-settle of ballots runs beside `applyDueGovernance`, outside the settlement job's early
+  returns.
+- **The veto window is "at least 72 hours, and until it lands."** 19C's own words give the steward
+  until the cycle ends when more than three days remain, so `veto_closes_at = lands_at` is the rule
+  and the 72 hours is the floor; 19E's copy is read that way and every surface reads one instant
+  through one helper. (Recorded as a reading; question 1 below.)
+- **Timing defaults per kind.** A token send defaults to at acceptance; a Game change defaults to
+  the new moon. His stated reason for the new-moon default was new activities starting together,
+  which a payout for finished work is not. (Question 3 below.)
+- **`weight_allocation` is a GAME_CHANGE**, named in the classification table with the reason.
+- **The landing instant comes from the active clock.** The clock lane exports `nextBoundaryAfter`
+  before Wave B merges and the dispatcher's formula calls it; any change set touching a
+  cycle-timed dial, a mint rule or a stage multiplier snaps its `lands_at` forward to the next
+  boundary on every path, at-acceptance included.
+- **The element ledger is keyed** on (ballot id, element index) with TEXT values and the proposal
+  id beside the ballot id; the executor-pending table takes its own id so a resumed attempt keeps
+  the failure it exists to record.
+- **The override is decided by the tier the resubmission actually carried at**, with an explicit
+  relation (`renews`, `overrides`, `replaces`); a renewal may not point at a vetoed row.
+- **Steward notices are immediate.** The three window notices have their own notification types
+  pinned to "immediate" in the mail cadence; the "off" preference is refused while a member holds a
+  steward-capable role; a notice whose moment has passed is suppressed rather than sent late.
+- **A re-pointed delegation is not pre-accepted.** `accepted_at` resets to NULL on re-point in the
+  same migration that adds it.
+- **Windows get their lane and their arithmetic.** The window is evaluated per element and the
+  strictest applies; a window shape no longer than the vote window is refused; an opening whose
+  vote would close outside the window is refused; the veto hours are capped at one cycle; anything
+  coming back (a resubmission, an override, a renewal) opens outside its window for a stated grace;
+  "the last seven days of every month" means the active clock's cycle, lunar by default; the
+  refusal names the element that narrowed the window and when it next opens. (Question 6 below.)
+- **Reversions are honest and ordered.** A reversion reads each element's current value and
+  applies only where it still equals the value the trial wrote, records the rest as superseded
+  naming the ballot that moved them, is suspended at a renewal's CARRY and re-armed if the renewal
+  is vetoed, is scheduled from the landing instant under the clock it was computed with, and is
+  refused when a renewal's landing would fall after it; `applyDueGovernance` applies rows due at
+  one instant in a stated total order; a proposal carrying an expiry cannot choose at acceptance.
+- **The digest is the landing job's.** Composed by `applyDueGovernance` when it crosses a boundary,
+  after asserting every row due inside the closed cycle is applied, vetoed or stalled; one digest
+  per cycle whatever the mint rules say; "no digest composed" logs apart from "digest empty".
+- **Section 21's surfaces obey 20.8's privacy rules.** The constitution route publishes
+  participation for closed cycles only, snapshotted at close, without weight on the anonymous
+  variant, suppressed below three participants, and renders tiers through the people-and-weight
+  helper; the moon digest is members-only by name and mails the act with a link rather than the
+  text; `/governance`, the moon pages and the constitution route send noindex unless a village opts
+  in with the sentence "public means other people keep copies forever"; the story fields take the
+  four free-text rules with a ceiling as well as a floor and are rendered from their columns so a
+  redaction reaches the page, with a hash of the original frozen so the ballot stays provably
+  unaltered; the summariser generates from a fixed server-assembled payload under a fixed identity
+  with no tools, keyed to ballot version and objection count; the ICS feed uses a scoped, expiring,
+  self-rotatable token and its copy says a subscribed URL is a password that leaves the village;
+  the PII walker refuses display names and free-text reasons and enumerates routes from the
+  router; recipe blanks that resolve a person sit behind the people-view capability.
+- **Three cycles without quorum has a mechanism.** A per-subject counter; the second miss warns
+  that the next ends it and states the tier as the obstacle; the third closes it as a named
+  terminal state with one door, withdraw and rewrite carrying the backers.
+- **Weight that cannot vote leaves the denominator.** A non-human seat's weight is excluded from
+  the quorum denominator while its representative seat is vacant or has not voted for N cycles,
+  the excluded weight is shown beside the people count, the stalemate re-run also fires for an
+  unvotable bloc, and the stalemate warning computes the maximum reachable quorum against the
+  weight that actually votes. This is arithmetic telling the truth, not the tier fallback 19F
+  withdrew. (Question 5 below.)
+- **The wizard shows the computed instants** (closes at, veto until, lands at) before the press;
+  the tray prices every add with its tier chip and the story requirement it implies; a routine
+  change that moves a value by more than a stated multiple takes the structural story requirement.
+- **The dashboard owns the front** with an ordering rule (what needs this viewer's action, what
+  changed, the doors, the read-backs) and a stated empty state.
+- **The first governance quest completes alone on any day of the moon**, and the delegation quest
+  completes on the offer.
+- **The lineage points at copies a fork can open.** The three sources stay as links, and the
+  text extracts already held outside the repository are added under `docs/sources/` with the
+  founder's permission recorded, so the section is not three dead doors for a fork.
+- **Amora's own season list** is handled in Phase 3 alongside the fresh-village default, so 19E's
+  season window has dates to refuse with.
+
+**Put to the founder, with the default the build proceeds on.**
+
+1. **The veto window's length.** Your words give both "72 hours from close" and "until the cycle
+   ends when more than three days remain". Default: the window stays open until the change lands,
+   never less than 72 hours, and the copy says "at least 72 hours, and until it lands".
+2. **A steward's no.** Token payments only, and never a ballot the steward is the subject of.
+   Default: that narrower reading.
+3. **Payout timing.** A payout for finished work defaulting to the new moon waits up to 29 days.
+   Default: payouts execute at acceptance unless the proposer chooses the moon; Game changes keep
+   the moon.
+4. **Trials of pricing dials.** Default: never.
+5. **Weight that cannot vote.** Default: it leaves the quorum denominator and the village is told,
+   which is not the automatic tier drop you withdrew.
+6. **Windows.** Default: a window gates the opening only, refuses an opening whose vote would close
+   after the window shuts, and anything coming back opens outside the window.
+7. **Public by default?** Default: members-only for names, amounts and reasons; counts and rules
+   public; a per-village opt-in whose copy says other people keep copies forever.
+8. **Freeze or erasure.** Default: erasure wins for the words, the proposal, author and time stay,
+   and a hash of the original keeps the ballot provably unaltered.
+
+**Phase 1c, the fix wave.** After Merge B lands, the Phase 1b run is paused and five fix lanes run on
+the merged tree with the URGENT items above, each in its own worktree: `dispatcher-fix`,
+`steward-veto-fix`, `thresholds-fix`, `delegation-fix`, and the new `windows` lane. Then a merge,
+the corrected `docgen-refresh`, the independent proof pass with its hunt list corrected (a 97%
+weight holder carrying alone is his decision, not a finding), and a fix round. Phase 2 branches
+only from that tree.
+
+**Regression against the first audit**, as the second pass judged it: handled or partly for all
+twelve, three reopened (the approval-model text still standing in 20.3 and 20.5, the small-village
+bar with no door, and section 21's surfaces routing around 20.8's privacy rules), one accepted by
+the founder (pure-weight concentration). Sections 20.2, 20.3 and 20.5 are rewritten in place to the
+veto model in the same commit as this section.
+
 ---
 
 ## 21. Eight additions, specified (2026-09-03)
