@@ -137,6 +137,23 @@ purpose: cancel-in-progress is on and runs are cancelled constantly at this
 merge rate, and `always()` would run a ten-minute suite on every cancelled one.
 Splitting the job is still worth doing and is still open.
 
+**A green on a branch behind main is not a green on CI.** A pull request runs
+the workflow file on ITS OWN branch, so a branch cut before a gate existed is
+never judged by that gate. Measured 2026-09-03: two branches 23 commits behind
+main passed `verify` in about ten minutes each while carrying two
+`check-village-facts` violations, because the step that catches them is not in
+the ci.yml being executed. Thirty-three steps ran and the two that mattered
+were never invoked. The green was entirely true about what it tested and
+entirely silent about what will judge the branch at rebase. The honest
+statement is "green on N of the M gates that will judge it", and the way to
+get the real answer before rebasing is to run the gates from a merged tree:
+
+```bash
+T=$(git merge-tree --write-tree origin/main HEAD)   # empty output means conflict
+mkdir /c/m && git archive "$T" | tar -x -C /c/m
+(cd /c/m && node scripts/check-village-facts.mjs)   # needs node_modules
+```
+
 1. **`ci.yml` is one job of sequential steps with no `if: always()`, and the
    test suite is the second-to-last of them.** Any guard before it failing
    means the suite never runs, and the build still reports a single red step.
