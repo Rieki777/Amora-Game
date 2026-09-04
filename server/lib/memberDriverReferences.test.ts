@@ -16,6 +16,12 @@
  *   means asking about this member again, which needs the reference to still
  *   resolve. A complete erasure retires it; an incomplete one keeps it.
  *
+ * WHY THIS IS A SECOND FILE. server/memberDrivers.test.ts is the unit-level
+ * home and covers what the village SAYS when a store answers or does not,
+ * against a stand-in pool. These cases need a real database because they are
+ * about the mapping table itself, so they live apart rather than making that
+ * fast file slow.
+ *
  * No TEST_DATABASE_URL and the suite skips loudly (harness rule).
  */
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
