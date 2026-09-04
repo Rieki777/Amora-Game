@@ -379,7 +379,14 @@ export function authToken(): string | null {
  * left the notification bell and the module manifest permanently anonymous.
  */
 export function clearAuthToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Same storage-blocked browser as authToken above. The read was guarded and
+    // the write was not, two lines apart, so a member with site data off loaded
+    // the page and then crashed on Sign Out. Dropping a session that was never
+    // storable has already happened.
+  }
 }
 
 export async function gameFetch(path: string, init: RequestInit = {}): Promise<Response> {
