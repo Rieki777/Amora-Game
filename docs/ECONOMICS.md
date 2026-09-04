@@ -2324,24 +2324,50 @@ lifecycle exactly: ENUMERATE, SETTLE, RESOLVE.
 ### What happens to a departing member's balance, line by line
 
 `sweepBalances(pool, { exitId, userId })` is the only settlement move exit owns.
-In plain words:
+**Re-read line by line on 2026-09-04 at `1861f7d`, because the levers of R4
+landed inside this function and four of these steps had gone stale.** In plain
+words:
 
-1. It reads `balancesFor(mem:<userId>)`, which is every token that account holds.
-2. It walks them in whatever order the map yields.
-3. **Any balance at or below zero is skipped.** A debt is never touched here: it
+1. It reads the exit row itself and refuses while the cooling period stands
+   (`coolingRefusal`), so a caller that did not know about `exit.cooling_days`
+   cannot skip it. The refusal names the date.
+2. It reads `balancesFor(mem:<userId>)`, which is every token that account holds,
+   and the tokens this exit has already PAID the member, which it skips. A Voice
+   conversion credits the leaver, and a second settle would otherwise take a
+   share of those same credits back under a fresh key.
+3. It walks the balances in whatever order the map yields.
+4. **Any balance at or below zero is skipped.** A debt is never touched here: it
    resolves through the domain that created it, and sweeping a negative would be
    the village paying the member to leave.
-4. Each positive balance is posted from `mem:<userId>` to `sys:exit-settlement`
-   through `postTransfer`, in full, with `source: "exit_settlement"`,
-   `sourceRef: <exitId>`, the description `Balance settled at departure`, and the
-   idempotency key `exit:<exitId>:sweep:<token>`.
-5. **The amount is the balance as read, unconverted.** That balance is already in
-   minor units, so this is correct today and is one of the two call sites that
-   would break if anybody "fixed" units inside `postTransfer` (section 7).
-6. A refused post does not stop the sweep. It is collected into `errors` and the
+5. **Each positive balance is SPLIT, and only the remainder leaves.** The kept
+   share is `exit.keep_pct.<kind>` for that token's kind, computed in minor units
+   and floored; the remainder is the balance minus that share, and it posts to
+   whichever of four accounts `exit.remainder_account` names. On the shipped
+   defaults every share is 0 and the account is `sys:exit-settlement`, so the
+   posting a default village sees is the whole balance to exit settlement, which
+   is what this step used to say happened always. Source `exit_settlement`,
+   `sourceRef: <exitId>`, description `Balance settled at departure`, key
+   `exit:<exitId>:sweep:<token>`. A remainder of zero posts nothing.
+6. **Voice gets a second decision, and one branch of it CREDITS the member.**
+   `exit.voice_on_exit` is `forfeit` (the share goes with everything else, the
+   default), `keep` (refused at save time, honoured here if a stored value
+   predates the guard) or `convert`, which posts a `postTransferPair`: the Voice
+   share out to the remainder account and credits IN to the member from
+   `sys:treasury`, both legs or neither, under two distinct keys. The credits come
+   from the treasury and never from a faucet, because a faucet leg is issuance and
+   would print credits at a departure; a treasury that cannot cover it refuses the
+   whole pair.
+7. **What is POSTED is the balance as read, unconverted.** That balance is already
+   in minor units, so this is correct at any scale and is one of the call sites
+   that would break if anybody "fixed" units inside `postTransfer` (section 7).
+   What is RETURNED is HUMAN, divided once with `fromLedgerUnits`, because both
+   its consumers show it to a person.
+8. A refused post does not stop the sweep. It is collected into `errors` and the
    loop continues, so one bad token cannot strand the rest.
-7. It returns `{ swept, errors }`. The route appends `swept` to the exit row's
-   resolution text and sets the exit's status to `settling`.
+9. It returns **seven fields**, `{ swept, errors, refusal, policy, captured, note,
+   paidOut }`. The route appends `note`, which `sweepBalances` itself built and
+   which carries the captured split, to the exit row's resolution text, and sets
+   the exit's status to `settling`.
 
 The key shape is what makes a double click safe: one sweep per exit per token,
 forever. Re-running it moves nothing.
@@ -2383,11 +2409,33 @@ platform's words, naming every field that does. Adopting the platform's meaning 
 still available; adopting its wording while claiming the community decided it is
 not.
 
-So the state today is exact: **a departing member's positive balances move to
-`sys:exit-settlement` and stay there.** No code pays them out, converts them,
-values them, or returns them. `sys:exit-settlement` is not a faucet, so what it
-holds is real and traceable, and the village has to decide what happens to it.
-That decision is item 4 in section 11 and R4 in section 16.
+So the state today is exact, **and the sentence that used to stand here is not,
+because the levers landed under it.** It read: no code pays them out, converts
+them, values them, or returns them. Three of those four are now things the code
+does, on a village that has set the dials. `exit.keep_pct.<kind>` RETURNS a share
+by leaving it in the member's account; `exit.voice_on_exit: convert` CONVERTS
+Voice and PAYS the member credits out of `sys:treasury`; and
+`exit.voice_convert_rate` is the VALUATION that conversion applies. What no code
+does is decide what any of those numbers should be.
+
+The honest statement, split the way the thing itself is split:
+
+- **On the shipped defaults nothing has changed and that is measured.** Every
+  keep share is 0, the remainder account is `sys:exit-settlement`, cooling is 0,
+  Voice is forfeit, there is no vote and no sellback. A departing member's
+  positive balances move to `sys:exit-settlement` and stay there.
+  `sys:exit-settlement` is not a faucet, so what it holds is real and traceable.
+  `server/lib/exitDefaults.test.ts` runs a whole departure against a schema with
+  no `exit.%` row and compares every field of every `token_ledger` row to what
+  `origin/main`'s `sweepBalances` writes; the two dumps are identical.
+- **On a village that has voted the dials, the settlement genuinely pays.** The
+  line-by-line above is the whole of it, and the split that ACTUALLY applied is
+  captured on `exits.resolution` at the moment it applies, because the amount
+  changes with the dials and the idempotency key does not.
+- **What the village OWES is still undecided, and that is the part that has not
+  moved.** The levers say how a settlement executes. They do not answer what
+  contributed value is worth, which is what `DEFAULT_EXIT_POLICY`'s placeholder
+  says out loud. That decision is item 4 in section 11 and R4 in section 16.
 ### The levers a village can set (R4)
 
 Ten dials now describe an exit policy, in the `Exit` category of
@@ -2625,13 +2673,21 @@ quest advertised.
 
 ### 15.3 Wren thanks Ash, 5 gratitude
 
-Two writes, in this order, and the order is the defect in 10.2.
+Two writes, in **one transaction**, which is the shape 10.1 and 10.2 left behind.
+Re-read 2026-09-04 at `1861f7d`, because this example used to describe the code
+those two entries fixed.
 
-1. `writeGratitudeRow` opens a SERIALIZABLE transaction, locks Wren's row,
-   re-reads the allowance INSIDE the lock, runs `checkGive`, and writes one
-   `gratitude_log` row. **That row is the spend**: the allowance is a sum over
-   this table, so the note is what charges the cycle.
-2. After the lock releases, one ledger row:
+1. `writeGratitudeRow` opens a REPEATABLE READ transaction (it ran at
+   SERIALIZABLE, which is what deadlocked every giver in the village against
+   every other), takes `SELECT ... FOR UPDATE` on Wren's own row, which is what
+   serialises a member against themselves, re-reads the allowance INSIDE that
+   lock, runs `checkGive`, and writes one `gratitude_log` row. **That row is the
+   spend**: the allowance is a sum over this table, so the note is what charges
+   the cycle.
+2. **Inside the same transaction**, through `postTransferOn`, one ledger row.
+   Both or neither: the note used to commit first and the credit posted
+   afterwards in a transaction of its own, which is 10.2, and a member could be
+   charged for a credit nobody received.
 
 | Posted by | From | To | Token | Amount | Source | Idempotency key |
 |---|---|---|---|---|---|---|
@@ -2695,7 +2751,7 @@ decided rather than re-splitting a pool that is already partly out the door.
 
 | # | Posted by | From | To | Token | Amount | Source | Idempotency key |
 |---|---|---|---|---|---|---|---|
-| 1 | `chargeSeat` | `mem:<wren>` | `sys:event-escrow` | `credits` | **10** (10) | `event_seat_fee` | `seat:<eventId>:-:<wren>:1:pay` |
+| 1 | `chargeForPlace`, `server/lib/eventSeats.ts` | `mem:<wren>` | `sys:event-escrow` | `credits` | **10** (10) | `event_seat_fee` | `seat:<eventId>:-:<wren>:1:pay` |
 | 2a | the gathering is held | `sys:event-escrow` | `sys:treasury` | `credits` | **10** (10) | `event_seat_kept` | `seat:<eventId>:-:<wren>:1:keep` |
 | 2b | or it is cancelled | `sys:event-escrow` | `mem:<wren>` | `credits` | **10** (10) | `event_seat_refund` | `seat:<eventId>:-:<wren>:1:refund` |
 
@@ -2714,8 +2770,11 @@ which that is legal.
 ### 15.6 Wren leaves
 
 An admin opens the exit, and Wren's open state is enumerated. Suppose it is clean.
-The admin presses settle-balances, and `sweepBalances` writes one row per positive
-balance:
+The admin presses settle-balances. **This example is on PLATFORM DEFAULTS, which
+for exit means every keep share at 0, the remainder to `sys:exit-settlement`,
+cooling at 0 and Voice forfeit**, so `sweepBalances` writes one row per positive
+balance. A village that has voted the levers of R4 gets a different set of rows,
+and section 14 walks that case:
 
 | Posted by | From | To | Token | Amount | Source | Idempotency key |
 |---|---|---|---|---|---|---|
@@ -2727,10 +2786,18 @@ Then resolve anonymises the account and vacates the seat. Wren's contributions
 stay part of the village record; every ledger row stays exactly where it is, and
 conservation holds.
 
-**And then nothing.** `sys:exit-settlement` now holds 290 credits and 60 voice
-that belong to nobody and that no code path will ever move again. That is the
-whole of what the village owes a departing member today: a number in an account,
-and a written promise that the community will decide.
+**And then nothing, ON THESE DEFAULTS.** `sys:exit-settlement` now holds 290
+credits and 60 voice that belong to nobody, and no code path in this build will
+move them again: nothing reads `sys:exit-settlement` to pay anybody out of it.
+That is the whole of what a DEFAULT village gives a departing member: a number in
+an account, and a written promise that the community will decide.
+
+The levers change where the value goes and never who decides what it is worth.
+Had Amora voted `exit.keep_pct.credit` to 40, Wren would have kept 116 credits
+and 174 would have moved; had it voted `exit.voice_on_exit` to `convert`, the
+Voice would have left and credits would have come back from `sys:treasury` at
+`exit.voice_convert_rate`. Neither of those is the village answering what
+contributed value is honoured at, which is still item 4 in section 11.
 
 ---
 
