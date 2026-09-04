@@ -26,6 +26,8 @@ import { useTokenName } from "@/hooks/useTokenNames";
 import QuestActions from "@/components/QuestActions";
 import QuestCrews from "@/components/QuestCrews";
 import QuestCard, { difficultyColors, iconFor, QuestPoster } from "@/components/QuestCard";
+import NeedChips, { type NeedTag } from "@/components/NeedChips";
+import NeedTagPicker from "@/components/admin/NeedTagPicker";
 import {
   currentClaims, gateLabel, relativeWhen, statusIs,
   type BoardQuest, type FieldSigns,
@@ -45,6 +47,10 @@ export default function QuestDetail() {
   const [roleName, setRoleName] = useState<string>("");
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  // What this quest is for (R1, R18). It arrives on the same detail read, so
+  // the chips are painted with the page and never after a second round trip.
+  const [needTags, setNeedTags] = useState<NeedTag[]>([]);
+  const iAmAdmin = !!user && (user.role === "admin" || user.role === "founder");
 
   useEffect(() => {
     if (!questId) return;
@@ -63,6 +69,7 @@ export default function QuestDetail() {
         if (!live) return;
         setQuest(d?.quest ?? null);
         setRelated(Array.isArray(d?.related) ? d.related : []);
+        setNeedTags(Array.isArray(d?.needs) ? d.needs : []);
       })
       .catch(() => { if (live) setFailed(true); })
       .finally(() => { if (live) setLoaded(true); });
@@ -239,11 +246,30 @@ export default function QuestDetail() {
             )}
           </div>
 
+          {/* What this quest is for. A description of the work and never a
+              condition on it: the claim gate reads the stage floor and the
+              role gate above, and no tag reaches either. */}
+          <NeedChips tags={needTags} className="mt-3" />
+
           {quest.isExample && (
             <p className="mt-4 text-sm text-muted-foreground bg-amber/10 border border-amber/30 rounded-xl px-4 py-3">
               A standing example. It shows what a quest looks like here until the
               village posts its own, and it cannot be claimed.
             </p>
+          )}
+
+          {/* The founder's own control, on the page the quest already has.
+              client/src/pages/Admin.tsx is at its line ratchet, so the quest
+              editor there cannot grow a picker; this is the door. */}
+          {iAmAdmin && (
+            <div className="mt-5">
+              <NeedTagPicker
+                subjectType="quest"
+                subjectRef={quest.id}
+                tags={needTags}
+                onChanged={setNeedTags}
+              />
+            </div>
           )}
         </div>
       </section>
