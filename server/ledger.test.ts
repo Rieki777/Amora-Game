@@ -524,4 +524,369 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
     expect(theirs.get("claim-other-1")).toBe(7);
   });
 
+  /*
+   * ── W3 adversary findings, closed here ────────────────────────────────────
+   *
+   * Every case below is one of the four W3 lanes' repros, rewritten to read
+   * outcomes rather than return values: balances, ledger rows and the boot
+   * invariant report. Each names its finding, quotes what the adversary
+   * observed, and asserts the fact that observation was a lie about.
+   */
+
+  describe("W3 F12/F13: allowNegative is a capability, not a flag beside a string", () => {
+    /** Fund an account through the ordinary primitive, so nothing is raw. */
+    const fund = async (member: string, amount: number, key: string) => {
+      const r = await postTransfer(pool, {
+        from: RECOGNITION_FAUCET, to: memberAccount(member),
+        amount, source: "admin_mint", idempotencyKey: key,
+      });
+      expect(r.ok).toBe(true);
+    };
+
+    it("refuses `allowNegative: true`, which used to take an account holding 10 down to -990", async () => {
+      // ADVERSARY A1, verbatim: postTransfer with source "reversal",
+      // allowNegative true, 1000 out of an account holding 10.
+      // Observed then: `A1 ok= true err= undefined balance= -990`.
+      await fund("f12-a1", 10, "f12-a1-fund");
+      const attack = await postTransfer(pool, {
+        from: memberAccount("f12-a1"), to: TREASURY, amount: 1000,
+        source: "reversal",
+        // The old signature took `true` here. It is a type error now, and the
+        // cast is what an attacker (or a JavaScript caller) actually has.
+        allowNegative: true as unknown as typeof CLAWBACK_DEBT,
+        idempotencyKey: "reversal:local:f12-a1",
+      });
+      expect(attack.ok).toBe(false);
+      expect(String(attack.error)).toContain("capability the ledger issues");
+      expect(await balanceOf(pool, memberAccount("f12-a1"), PLATFORM_TOKEN)).toBe(10);
+    });
+
+    it("refuses a forged proof, and a real proof spent on the wrong source", async () => {
+      await fund("f12-forge", 10, "f12-forge-fund");
+      const forged = await postTransfer(pool, {
+        from: memberAccount("f12-forge"), to: TREASURY, amount: 1000,
+        source: "reversal",
+        allowNegative: { reason: "reversal" } as unknown as typeof CLAWBACK_DEBT,
+        idempotencyKey: "reversal:local:f12-forge",
+      });
+      // Shape is not the gate. Identity is: this object is not one of the three.
+      expect(forged.ok).toBe(false);
+      expect(String(forged.error)).toContain("capability the ledger issues");
+
+      const wrongReason = await postTransfer(pool, {
+        from: memberAccount("f12-forge"), to: TREASURY, amount: 1000,
+        source: "stay_night", allowNegative: CLAWBACK_DEBT,
+        idempotencyKey: "f12-forge-mismatch",
+      });
+      expect(wrongReason.ok).toBe(false);
+      expect(String(wrongReason.error)).toContain("licenses source");
+      expect(await balanceOf(pool, memberAccount("f12-forge"), PLATFORM_TOKEN)).toBe(10);
+    });
+
+    it("keeps source `reversal` inside the mirror namespace, both ways", async () => {
+      await fund("f12-ns", 10, "f12-ns-fund");
+      // ADVERSARY B6: all three keystone sources let an arbitrary caller
+      // create debt. `reversal` cannot be spelled outside reverse() now,
+      // because a mirror is keyed `reversal:<village>:<original>`.
+      const loose = await postTransfer(pool, {
+        from: memberAccount("f12-ns"), to: TREASURY, amount: 5,
+        source: "reversal", allowNegative: CLAWBACK_DEBT,
+        idempotencyKey: "f12-ns-not-a-mirror",
+      });
+      expect(loose.ok).toBe(false);
+      expect(String(loose.error)).toContain("reserved for the mirror reverse() derives");
+
+      // And the other direction: the namespace does not accept a squatter.
+      const squat = await postTransfer(pool, {
+        from: RECOGNITION_FAUCET, to: memberAccount("f12-ns"), amount: 1,
+        source: "quest_consent", idempotencyKey: "reversal:local:f12-ns-squat",
+      });
+      expect(squat.ok).toBe(false);
+      expect(String(squat.error)).toContain("only reverse() may write");
+      expect(await balanceOf(pool, memberAccount("f12-ns"), PLATFORM_TOKEN)).toBe(10);
+    });
+
+    it("refuses every near-miss spelling of a keystone source, which used to tag an account for free", async () => {
+      // ADVERSARY B2/A7. "REVERSAL" was postable with NO flag at all,
+      // because the JS gate is byte-exact and never saw it, and it then
+      // exempted the account from invariant 5 because the SQL gate's
+      // collation could not tell it from `reversal`. Observed:
+      // {"reversal ":0, "REVERSAL":0, "ReVeRsAl":0} where 0 means an illegal
+      // negative went UNREPORTED.
+      await fund("f13-variants", 10, "f13-variants-fund");
+      const variants = ["REVERSAL", "reversal ", " reversal", "ReVeRsAl", "reversal\t", "Stay_Night", "PAYMENT_REVERSAL"];
+      for (const variant of variants) {
+        const r = await postTransfer(pool, {
+          from: memberAccount("f13-variants"), to: TREASURY, amount: 1,
+          source: variant, idempotencyKey: `f13-variant:${JSON.stringify(variant)}`,
+        });
+        expect([variant, r.ok]).toEqual([variant, false]);
+        expect(String(r.error)).toContain("differs only in case or whitespace");
+      }
+      expect(await balanceOf(pool, memberAccount("f13-variants"), PLATFORM_TOKEN)).toBe(10);
+    });
+
+    it("reads the SQL half of the gate byte-exactly, so a `REVERSAL` row buys no exemption", async () => {
+      // The variants are refused at the write now, so the only way this row
+      // exists is a legacy one or a hand insert. Manufacture it the way the
+      // adversary did and check the boot report, which is the surface that
+      // was blind.
+      const account = memberAccount("f13-sql");
+      await pool.query(
+        "INSERT IGNORE INTO ledger_accounts (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
+        [account, "member", "f13-sql", "f13-sql"],
+      );
+      await pool.query(
+        "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, idempotency_key) VALUES " +
+          "('led-f13-tag', ?, ?, ?, 1, 'REVERSAL', 'f13-sql-tag')," +
+          "('led-f13-hole', ?, ?, ?, 500, 'quest_consent', 'f13-sql-hole')",
+        [account, TREASURY, PLATFORM_TOKEN, account, TREASURY, PLATFORM_TOKEN],
+      );
+      await pool.query(
+        "INSERT INTO token_balances (account_id, token_type, balance) VALUES (?,?,-501) " +
+          "ON DUPLICATE KEY UPDATE balance = balance - 501",
+        [account, PLATFORM_TOKEN],
+      );
+      await pool.query(
+        "INSERT INTO token_balances (account_id, token_type, balance) VALUES (?,?,501) " +
+          "ON DUPLICATE KEY UPDATE balance = balance + 501",
+        [TREASURY, PLATFORM_TOKEN],
+      );
+
+      const report = await checkLedgerInvariants(pool);
+      const mine = report.problems.filter((p) => p.includes(account));
+      expect(mine.length).toBe(1);
+      expect(mine[0]).toContain("is negative: -501");
+      // The `REVERSAL` row counts for nothing, so the whole -501 is unlawful.
+      expect(mine[0]).toContain("holds no allow-negative debit at all");
+
+      await pool.query("DELETE FROM token_ledger WHERE id IN ('led-f13-tag','led-f13-hole')");
+      await pool.query("UPDATE token_balances SET balance = balance + 501 WHERE account_id = ? AND token_type = ?", [account, PLATFORM_TOKEN]);
+      await pool.query("UPDATE token_balances SET balance = balance - 501 WHERE account_id = ? AND token_type = ?", [TREASURY, PLATFORM_TOKEN]);
+      expect((await checkLedgerInvariants(pool)).ok).toBe(true);
+    });
+  });
+
+  describe("W3 F14: the keystone set is frozen for real, not by its type", () => {
+    it("throws on .add, .delete and .clear, and on the borrowed-method form", () => {
+      // ADVERSARY A9: `(ALLOW_NEGATIVE_SOURCES as Set<string>).add("spend")`
+      // then a post with source "spend" and allowNegative. Observed:
+      // `A9 before ok= false insufficient gratitude | after add() ok= true |
+      //  balance= -490`, and `A9 negatives while mutated: []`.
+      const before = Array.from(ALLOW_NEGATIVE_SOURCES).sort();
+      const live = ALLOW_NEGATIVE_SOURCES as Set<string>;
+      expect(() => live.add("spend")).toThrow(/frozen/);
+      expect(() => live.delete("reversal")).toThrow(/frozen/);
+      expect(() => live.clear()).toThrow(/frozen/);
+      // A subclass would leave this one working. A Proxy has no [[SetData]].
+      expect(() => Set.prototype.add.call(live, "spend")).toThrow(TypeError);
+      expect(Array.from(ALLOW_NEGATIVE_SOURCES).sort()).toEqual(before);
+      expect(ALLOW_NEGATIVE_SOURCES.has("spend")).toBe(false);
+      expect(ALLOW_NEGATIVE_SOURCES.size).toBe(3);
+    });
+
+    it("still reads as a Set everywhere the ledger uses one", () => {
+      expect(ALLOW_NEGATIVE_SOURCES instanceof Set).toBe(true);
+      expect(ALLOW_NEGATIVE_SOURCES.has("reversal")).toBe(true);
+      expect(ALLOW_NEGATIVE_SOURCES.has("REVERSAL")).toBe(false);
+      let counted = 0;
+      ALLOW_NEGATIVE_SOURCES.forEach(() => { counted += 1; });
+      expect(counted).toBe(3);
+      expect([...ALLOW_NEGATIVE_SOURCES].sort()).toEqual(["payment_reversal", "reversal", "stay_night"]);
+    });
+
+    it("leaves the debt gate exactly where it was after the mutation attempt", async () => {
+      try { (ALLOW_NEGATIVE_SOURCES as Set<string>).add("spend"); } catch { /* the point */ }
+      await postTransfer(pool, {
+        from: RECOGNITION_FAUCET, to: memberAccount("f14-gate"), amount: 10,
+        source: "admin_mint", idempotencyKey: "f14-gate-fund",
+      });
+      const r = await postTransfer(pool, {
+        from: memberAccount("f14-gate"), to: TREASURY, amount: 500,
+        source: "spend", allowNegative: CLAWBACK_DEBT, idempotencyKey: "f14-gate-attack",
+      });
+      expect(r.ok).toBe(false);
+      expect(await balanceOf(pool, memberAccount("f14-gate"), PLATFORM_TOKEN)).toBe(10);
+    });
+  });
+
+  describe("W3 F17/F24: a collation collision is refused, never called a duplicate", () => {
+    it("refuses a second occurrence whose key differs only by case", async () => {
+      // ADVERSARY A1 (keys lane): mint `...usr-aB1` then `...usr-Ab1`.
+      // Observed: `first {"ok":true,"duplicate":false,"balance":7} second
+      // {"ok":true,"duplicate":true,"balance":7}` and ONE row for both keys.
+      // The second member was silently not paid while mint reported ok.
+      const first = await postTransfer(pool, {
+        from: RECOGNITION_FAUCET, to: memberAccount("collide-one"), amount: 7,
+        source: "quest_consent", idempotencyKey: "quest.completed:local:q:c:usr-aB1",
+      });
+      expect(first.ok && !first.duplicate).toBe(true);
+      const second = await postTransfer(pool, {
+        from: RECOGNITION_FAUCET, to: memberAccount("collide-two"), amount: 7,
+        source: "quest_consent", idempotencyKey: "quest.completed:local:q:c:usr-Ab1",
+      });
+      expect(second.ok).toBe(false);
+      expect(second.duplicate).toBe(false);
+      expect(String(second.error)).toContain("collides with the already-posted key");
+      // Nobody was quietly told they had been paid.
+      expect(await balanceOf(pool, memberAccount("collide-two"), PLATFORM_TOKEN)).toBe(0);
+      expect(await balanceOf(pool, memberAccount("collide-one"), PLATFORM_TOKEN)).toBe(7);
+    });
+
+    it("refuses a trailing-space variant, and still replays the exact key as a duplicate", async () => {
+      // ADVERSARY A2: `bare {...balance:3} padded {"duplicate":true,...}`
+      // under the PAD SPACE half of the local collation.
+      await postTransfer(pool, {
+        from: RECOGNITION_FAUCET, to: memberAccount("pad-one"), amount: 3,
+        source: "quest_consent", idempotencyKey: "quest.completed:local:pad:c:u",
+      });
+      const padded = await postTransfer(pool, {
+        from: RECOGNITION_FAUCET, to: memberAccount("pad-two"), amount: 3,
+        source: "quest_consent", idempotencyKey: "quest.completed:local:pad:c:u ",
+      });
+      // A NO PAD collation (mysql:8's utf8mb4_0900_ai_ci) lets this through as
+      // a second row, which is also correct: two keys, two occurrences, two
+      // payments. What must never happen is two occurrences reported as one.
+      if (!padded.ok) {
+        expect(String(padded.error)).toContain("collides with the already-posted key");
+        expect(await balanceOf(pool, memberAccount("pad-two"), PLATFORM_TOKEN)).toBe(0);
+      } else {
+        expect(padded.duplicate).toBe(false);
+        expect(await balanceOf(pool, memberAccount("pad-two"), PLATFORM_TOKEN)).toBe(3);
+      }
+      const replay = await postTransfer(pool, {
+        from: RECOGNITION_FAUCET, to: memberAccount("pad-one"), amount: 3,
+        source: "quest_consent", idempotencyKey: "quest.completed:local:pad:c:u",
+      });
+      expect(replay.ok && replay.duplicate).toBe(true);
+      expect(await balanceOf(pool, memberAccount("pad-one"), PLATFORM_TOKEN)).toBe(3);
+    });
+  });
+
+  describe("W3 F5: invariant 5 is bounded by what the allow-negative legs took", () => {
+    /**
+     * The account's cache and the ledger have to agree or invariant 4 fires
+     * instead of invariant 5, so these build the illegal negative the way the
+     * adversary did (a posting that skipped `postTransfer`) and then move both
+     * sides by hand.
+     */
+    const manufacture = async (
+      member: string,
+      rows: Array<{ id: string; amount: number; source: string; key: string }>,
+    ) => {
+      const account = memberAccount(member);
+      await pool.query(
+        "INSERT IGNORE INTO ledger_accounts (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
+        [account, "member", member, member],
+      );
+      let total = 0;
+      for (const r of rows) {
+        await pool.query(
+          "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, idempotency_key) VALUES (?,?,?,?,?,?,?)",
+          [r.id, account, TREASURY, PLATFORM_TOKEN, r.amount, r.source, r.key],
+        );
+        total += r.amount;
+      }
+      for (const [acct, delta] of [[account, -total], [TREASURY, total]] as Array<[string, number]>) {
+        await pool.query(
+          "INSERT INTO token_balances (account_id, token_type, balance) VALUES (?,?,?) " +
+            "ON DUPLICATE KEY UPDATE balance = balance + VALUES(balance)",
+          [acct, PLATFORM_TOKEN, delta],
+        );
+      }
+      return account;
+    };
+    const unmanufacture = async (account: string, ids: string[], total: number) => {
+      await pool.query(`DELETE FROM token_ledger WHERE id IN (${ids.map(() => "?").join(",")})`, ids);
+      await pool.query("UPDATE token_balances SET balance = balance + ? WHERE account_id = ? AND token_type = ?", [total, account, PLATFORM_TOKEN]);
+      await pool.query("UPDATE token_balances SET balance = balance - ? WHERE account_id = ? AND token_type = ?", [total, TREASURY, PLATFORM_TOKEN]);
+    };
+
+    it("reports a -99925 balance that one lawful 25 clawback used to excuse forever", async () => {
+      // ADVERSARY B4. Observed then: `B4 balance= -99925 | negatives: []`.
+      // The exemption was an EXISTENCE test, so a single reversal debit put
+      // the account outside invariant 5 for that token permanently.
+      const rows = [
+        { id: "led-b4-lawful", amount: 25, source: "reversal", key: "reversal:local:b4-original" },
+        { id: "led-b4-hole", amount: 99900, source: "quest_consent", key: "b4-hole" },
+      ];
+      const account = await manufacture("b4-member", rows);
+      const report = await checkLedgerInvariants(pool);
+      const mine = report.problems.filter((p) => p.includes(account));
+      expect(mine.length).toBe(1);
+      expect(mine[0]).toContain("is negative: -99925");
+      expect(mine[0]).toContain("only -25 of that is lawful");
+      await unmanufacture(account, rows.map((r) => r.id), 99925);
+    });
+
+    it("still passes a genuine -25 after a clawback of a spent 25", async () => {
+      // The lawful shape the bound must not break: the member owes exactly
+      // what the clawback took, and the village still boots.
+      const rows = [{ id: "led-b3-lawful", amount: 25, source: "reversal", key: "reversal:local:b3-original" }];
+      const account = await manufacture("b3-member", rows);
+      const report = await checkLedgerInvariants(pool);
+      expect(report.problems.filter((p) => p.includes(account))).toEqual([]);
+      await unmanufacture(account, ["led-b3-lawful"], 25);
+    });
+
+    it("cannot be laundered clean by a 1-unit clawback posted after the fact", async () => {
+      // ADVERSARY C1. Observed then:
+      //   C1 before, balance= -4900 negatives: ["non-faucet account mem:c1 ..."]
+      //   C1 launder post ok= true
+      //   C1 after,  balance= -4901 negatives: []
+      // One minor unit silenced a standing boot failure that predated it.
+      const account = await manufacture("c1-member", [
+        { id: "led-c1-hole", amount: 4900, source: "quest_consent", key: "c1-hole" },
+      ]);
+      const before = (await checkLedgerInvariants(pool)).problems.filter((p) => p.includes(account));
+      expect(before.length).toBe(1);
+
+      await manufacture("c1-member", [
+        { id: "led-c1-launder", amount: 1, source: "reversal", key: "reversal:local:c1-launder" },
+      ]);
+      const after = (await checkLedgerInvariants(pool)).problems.filter((p) => p.includes(account));
+      expect(after.length).toBe(1);
+      expect(after[0]).toContain("is negative: -4901");
+      expect(after[0]).toContain("only -1 of that is lawful");
+      await unmanufacture(account, ["led-c1-hole", "led-c1-launder"], 4901);
+    });
+
+    it("does not let one token's clawback excuse another token's debt", async () => {
+      // ADVERSARY B1/A8 held on the old code and must keep holding: the bound
+      // is per (account, token), not per account.
+      const account = memberAccount("b1-member");
+      await pool.query(
+        "INSERT IGNORE INTO ledger_accounts (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
+        [account, "member", "b1-member", "b1-member"],
+      );
+      await registerToken(pool, { slug: "b1-other", name: "B1 Other", kind: "credit", governance: "platform", transferable: false });
+      await pool.query(
+        "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, idempotency_key) VALUES " +
+          "('led-b1-lawful', ?, ?, ?, 50, 'reversal', 'reversal:local:b1-original')," +
+          "('led-b1-other', ?, ?, 'b1-other', 5, 'quest_consent', 'b1-other-hole')",
+        [account, TREASURY, PLATFORM_TOKEN, account, TREASURY],
+      );
+      const moves: Array<[string, string, number]> = [
+        [account, PLATFORM_TOKEN, -50], [TREASURY, PLATFORM_TOKEN, 50],
+        [account, "b1-other", -5], [TREASURY, "b1-other", 5],
+      ];
+      for (const [acct, token, delta] of moves) {
+        await pool.query(
+          "INSERT INTO token_balances (account_id, token_type, balance) VALUES (?,?,?) " +
+            "ON DUPLICATE KEY UPDATE balance = balance + VALUES(balance)",
+          [acct, token, delta],
+        );
+      }
+      const mine = (await checkLedgerInvariants(pool)).problems.filter((p) => p.includes(account));
+      expect(mine.length).toBe(1);
+      expect(mine[0]).toContain("b1-other");
+      await pool.query("DELETE FROM token_ledger WHERE id IN ('led-b1-lawful','led-b1-other')");
+      await pool.query("UPDATE token_balances SET balance = balance + 50 WHERE account_id = ? AND token_type = ?", [account, PLATFORM_TOKEN]);
+      await pool.query("UPDATE token_balances SET balance = balance - 50 WHERE account_id = ? AND token_type = ?", [TREASURY, PLATFORM_TOKEN]);
+      await pool.query("UPDATE token_balances SET balance = balance + 5 WHERE account_id = ? AND token_type = 'b1-other'", [account]);
+      await pool.query("UPDATE token_balances SET balance = balance - 5 WHERE account_id = ? AND token_type = 'b1-other'", [TREASURY]);
+      expect((await checkLedgerInvariants(pool)).ok).toBe(true);
+    });
+  });
+
 });
