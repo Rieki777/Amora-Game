@@ -77,7 +77,8 @@ import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import { writtenAmount } from "../../shared/dryRun/economicsModel";
 import type { MintRuleSpec, TokenGovernance, TokenSpec, VillageSnapshot } from "../../shared/dryRun/types";
 import { VARIABLES } from "../../shared/gameVariables";
-import { CREDITS, HEARTS, VILLAGE_VOICE, VOICE_DECIMALS, faucetFor, villageId } from "./economy";
+import { CREDITS, HEARTS, VILLAGE_VOICE, faucetFor, villageId } from "./economy";
+import { CURRENCY_DECIMALS, VOICE_DECIMALS } from "../../shared/tokenScale";
 import { TREASURY } from "./ledger";
 import { spendSinkFor } from "./spending";
 
@@ -141,8 +142,10 @@ export interface EconomyProvenance {
  * way to issue from. `dryRunEconomyReader.test.ts` asserts this list against a
  * freshly migrated schema so the claim is measured and not remembered.
  *
- * `decimals` is the column default of 0 for every row the migrations seed
- * (0006:32), and `active` defaults to 1 there too.
+ * `decimals` was the column default of 0 for every row the migrations seed
+ * (0006:32) until `0162`, which raises the currency-like ones to
+ * `CURRENCY_DECIMALS`. That is why `credits` carries a scale here and the two
+ * hypha mirrors and recognition do not. `active` still defaults to 1 there.
  */
 interface SeedTokenRow {
   slug: string;
@@ -155,7 +158,7 @@ const SEED_TOKENS: readonly SeedTokenRow[] = [
   { slug: HEARTS, kind: "recognition", decimals: 0, governance: "platform" },
   { slug: "equity", kind: "equity", decimals: 0, governance: "hypha" },
   { slug: "voice", kind: "voice", decimals: 0, governance: "hypha" },
-  { slug: CREDITS, kind: "credit", decimals: 0, governance: "platform" },
+  { slug: CREDITS, kind: "credit", decimals: CURRENCY_DECIMALS, governance: "platform" },
   { slug: VILLAGE_VOICE, kind: "voice", decimals: VOICE_DECIMALS, governance: "platform" },
 ];
 
@@ -228,7 +231,7 @@ function specFor(slug: string, kind: string, decimals: number, governance: Token
  * The fallback mirrors `toLedgerUnits` (server/lib/economy.ts:154) exactly,
  * including its one special case: a rule naming a token that is not registered
  * scales as whole units unless it is the village voice token, which rides in
- * thousandths whether or not its row has loaded yet.
+ * hundredths whether or not its row has loaded yet.
  */
 function decimalsOf(tokens: readonly TokenSpec[], slug: string): number {
   for (let i = 0; i < tokens.length; i += 1) {

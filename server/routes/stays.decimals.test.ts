@@ -186,11 +186,23 @@ describe.skipIf(!configured)("stay credits across a decimals flip", () => {
   });
 
   /*
-   * ── Half one: today. Every conversion below is the identity here, and the
-   * point of this half is that it STAYS the identity. A units fix that moved
-   * a number at decimals 0 would be re-denominating a live village.
+   * ── Half one: WHOLE UNITS. Every conversion below is the identity at zero
+   * places, and the point of this half is that it STAYS the identity. A units
+   * fix that moved a number at decimals 0 would be re-denominating any village
+   * whose token has no scale.
+   *
+   * The scale is SET here and no longer inherited. This half used to be called
+   * "at today's scale" and leaned on stay credits happening to carry 0, which
+   * the 2026-09-04 scale ruling ended: a credit token is currency-like and
+   * `0162` gives it two places. Leaning on a platform default made this half
+   * silently change what it was asking the day that default moved, so it now
+   * names the scale it is about.
    */
-  describe("at today's scale, nothing moves", () => {
+  describe("at whole units, nothing moves", () => {
+    beforeAll(async () => {
+      await setDecimals(STAY_CREDIT, 0);
+    });
+
     it("stores a typed token price verbatim and hands it back verbatim", async () => {
       const accId = await room("acc-d0");
       const put = await api("PUT", `/api/admin/stays/accommodations/${accId}/prices`, {

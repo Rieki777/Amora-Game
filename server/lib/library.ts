@@ -33,8 +33,9 @@
  *   one. `library_items.credit_value` is an appraisal a steward typed.
  *   `library_loans.escrow_credits`, `wear_fee` and `damage_fee` are the same
  *   number a member is quoted. Those columns STAY human. The decision is
- *   deliberate and it is the reason the decimals flip needs no backfill on
- *   this module's tables: nothing here mirrors the ledger's scale.
+ *   deliberate and it is the reason 0162 needed no backfill on this module's
+ *   tables when library credits went to two decimals: nothing here mirrors the
+ *   ledger's scale.
  *
  *   MINOR UNITS is what `token_ledger.amount` holds, at whatever scale the
  *   registry says the token carries. Every one of the five posting legs
@@ -53,6 +54,7 @@
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { balanceOf, ledgerEntryExists, memberAccount, MINT_FAUCET, postTransfer, registerToken, tokenDef, TREASURY } from "./ledger";
 import { fromLedgerUnits, toLedgerUnits } from "./economy";
+import { CURRENCY_DECIMALS } from "../../shared/tokenScale";
 import { numberVar } from "./variables";
 import { cycleIdFor, currentCycle } from "./gratitude-cycles";
 import { recordEvent } from "./events";
@@ -73,6 +75,16 @@ export async function ensureLibraryToken(pool: Pool): Promise<void> {
     kind: "credit",
     governance: "platform",
     transferable: false,
+    /*
+     * A CREDIT TOKEN IS CURRENCY-LIKE, so it carries the currency scale from
+     * the day it is created. This is stated here and not left to
+     * `registerToken`'s whole-unit default because a FRESH village would
+     * otherwise create this token at 0 while a migrated one holds 2, and
+     * `registerToken` leaves `decimals` out of its upsert on purpose, so
+     * nothing would ever reconcile the two. The migration that rescaled the
+     * existing rows is the other half of this line.
+     */
+    decimals: CURRENCY_DECIMALS,
   });
 }
 
@@ -681,7 +693,7 @@ export async function assertLibraryInvariants(pool: Pool): Promise<void> {
   if (!rec.ok) {
     // The comparison is in minor units and the sentence is in credits: this is
     // read by an operator under pressure while boot is refused, and a number in
-    // ten-thousandths is the last thing that surface should hand them. The
+    // hundredths is the last thing that surface should hand them. The
     // minor figures ride along in parentheses so the two can be reconciled
     // against the raw rows without a calculator.
     throw new Error(

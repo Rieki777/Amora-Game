@@ -43,6 +43,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { fromLedgerUnits, toLedgerUnits } from "./economy";
+import { CURRENCY_DECIMALS } from "../../shared/tokenScale";
 import { ledgerEntryExists, MINT_FAUCET, memberAccount, postGraceNightBurn, postTransfer, registerToken, tokenDef } from "./ledger";
 import { spendSinkFor } from "./spending";
 import { numberVar } from "./variables";
@@ -67,6 +68,16 @@ export async function ensureStayToken(pool: Pool): Promise<void> {
     kind: "credit",
     governance: "platform",
     transferable: false,
+    /*
+     * A CREDIT TOKEN IS CURRENCY-LIKE, so it carries the currency scale from
+     * the day it is created. This is stated here and not left to
+     * `registerToken`'s whole-unit default because a FRESH village would
+     * otherwise create this token at 0 while a migrated one holds 2, and
+     * `registerToken` leaves `decimals` out of its upsert on purpose, so
+     * nothing would ever reconcile the two. The migration that rescaled the
+     * existing rows is the other half of this line.
+     */
+    decimals: CURRENCY_DECIMALS,
   });
 }
 

@@ -159,20 +159,27 @@ export async function ensureVoiceToken(pool: Pool, displayName?: string): Promis
 }
 
 /**
- * Voice rides in thousandths, and every other token in whole units.
+ * Voice rides in hundredths, and so does every token a village spends.
  *
  * `token_ledger.amount` is an INT with a CHECK that it is positive, and
  * `postTransfer` runs `Math.trunc` over what it is handed. A rule that mints
  * 0.1 voice therefore posts ZERO: not an error, not a refusal, just a member
  * who was never paid and a ledger that looks fine. The registry has carried a
  * `decimals` column since 0006 for exactly this, so voice stores 100 and
- * displays 0.1, the way the payments module has always handled money.
+ * displays 1, the way the payments module has always handled money.
  *
  * Doing it the other way, widening the ledger's amount to a decimal, would
  * change the keystone every other module posts through and every invariant
  * proved over it. Minor units are the cheaper truth.
+ *
+ * BOTH NUMBERS LIVE IN `shared/tokenScale.ts` AND ARE ONLY RE-EXPORTED HERE, so
+ * that the client surfaces and this engine cannot be handed different scales.
+ * Read that file for why Voice keeps a scale at all, which is waning, and why it
+ * came down from three to two, which is that two scales are fewer places a
+ * display and an input can disagree than three.
  */
-export const VOICE_DECIMALS = 3;
+export { CURRENCY_DECIMALS, VOICE_DECIMALS } from "../../shared/tokenScale";
+import { CURRENCY_DECIMALS, VOICE_DECIMALS, decayUnits } from "../../shared/tokenScale";
 
 /**
  * THE ONE REGISTRY READ FOR A TOKEN'S SCALE.
@@ -2644,7 +2651,7 @@ export async function decayVoice(
       continue;
     }
 
-    const units = Math.floor((balanceUnits * pct) / 100);
+    const units = decayUnits(balanceUnits, pct);
     if (units <= 0) {
       out.skippedTooSmall += 1;
       continue;

@@ -40,7 +40,7 @@ import {
   seedSnapshotFields,
   type EconomySnapshotFields,
 } from "./dryRunEconomyReader";
-import { CREDITS, HEARTS, VILLAGE_VOICE, VOICE_DECIMALS, villageId } from "./economy";
+import { CREDITS, CURRENCY_DECIMALS, HEARTS, VILLAGE_VOICE, VOICE_DECIMALS, villageId } from "./economy";
 import { seedEconomy } from "./economySeed";
 import { recordGameStart } from "./gameStart";
 import { RECOGNITION_FAUCET, TREASURY, loadTokenRegistry, memberAccount, postTransfer } from "./ledger";
@@ -169,16 +169,18 @@ describe.skipIf(!configured)("the economy snapshot of a live village", () => {
     const places = decimalsOf(snapshot.tokens);
 
     // The four rows the migrations seed, plus the one `ensureVoiceToken`
-    // registers at boot. Every migrated row takes `decimals int NOT NULL
-    // DEFAULT 0` (drizzle/0006_token_registry.sql:32); village-voice takes
-    // VOICE_DECIMALS (server/lib/economy.ts:151), which is 3 today.
+    // registers at boot. `0006` gives every migrated row `decimals int NOT NULL
+    // DEFAULT 0` and `0162` then raises the currency-like ones, which is
+    // `credits` here: recognition and the two hypha mirrors stay whole and
+    // village-voice takes VOICE_DECIMALS.
     expect(Object.keys(places).sort()).toEqual(["credits", "equity", "gratitude", "village-voice", "voice"]);
     expect(places["gratitude"]).toBe(0);
-    expect(places["credits"]).toBe(0);
+    expect(places["credits"]).toBe(CURRENCY_DECIMALS);
     expect(places["voice"]).toBe(0);
     expect(places["equity"]).toBe(0);
     expect(places["village-voice"]).toBe(VOICE_DECIMALS);
-    expect(VOICE_DECIMALS).toBe(3);
+    expect(VOICE_DECIMALS).toBe(2);
+    expect(CURRENCY_DECIMALS).toBe(2);
 
     // The three facts behind three of `ruleCannotPay`'s four refusals.
     const gratitude = tokenBySlug(snapshot.tokens, HEARTS);
@@ -239,21 +241,21 @@ describe.skipIf(!configured)("the economy snapshot of a live village", () => {
       "rule-role.cycle-village-voice",
     ]);
 
-    // 10 village-voice at three places is 10000 minor units, and the column
-    // holds the whole number as four-place text.
+    // 10 village-voice at two places is 1000 minor units, and the column holds
+    // the whole number as four-place text whatever the token's own scale is.
     const questVoice = ruleById(snapshot.mintRules, "rule-quest.completed-village-voice");
-    expect(questVoice.amount).toBe(BigInt(10000));
+    expect(questVoice.amount).toBe(BigInt(10 * 10 ** VOICE_DECIMALS));
     expect(questVoice.amountRaw).toBe("10.0000");
-    expect(questVoice.ceiling).toBe(BigInt(100000));
+    expect(questVoice.ceiling).toBe(BigInt(100 * 10 ** VOICE_DECIMALS));
     expect(questVoice.ceilingRaw).toBe("100.0000");
     expect(questVoice.enabled).toBe(true);
     expect(questVoice.recipient).toBe("claimant");
 
-    // 25 credits at no places is 25 minor units.
+    // 25 credits at two places is 2500 minor units, since 0162.
     const questCredits = ruleById(snapshot.mintRules, "rule-quest.completed-credits");
-    expect(questCredits.amount).toBe(BigInt(25));
+    expect(questCredits.amount).toBe(BigInt(25 * 10 ** CURRENCY_DECIMALS));
     expect(questCredits.amountRaw).toBe("25.0000");
-    expect(questCredits.ceiling).toBe(BigInt(250));
+    expect(questCredits.ceiling).toBe(BigInt(250 * 10 ** CURRENCY_DECIMALS));
 
     // Off, and still in the snapshot. A change set can turn it on, so a
     // snapshot that dropped it could not preview that decision at all.
@@ -422,13 +424,16 @@ describe.skipIf(!configured)("a rule written below its token's own resolution", 
         "VALUES (?,?,?,?,?,?,?,?)",
       ["rd-fine-grain", VILLAGE, "gratitude.given", "fine-grain", "0.0004", "0.0004", "receiver", 1],
     );
-    // A figure the column holds exactly and a double does not. Three places
-    // of village-voice against a four-place column is the only shape in this
-    // build where the two arithmetics can disagree, and this is that shape.
+    // A figure the column holds exactly and a double does not. TWO places of
+    // village-voice against a four-place column, and the figure had to be
+    // re-chosen when the scale ruling took Voice from three places to two:
+    // `0.5005` discriminated the two arithmetics at THREE places and both give
+    // 50 at two, so keeping it would have left a green test that proved
+    // nothing. `1.0050` is the same shape at the new scale, found the same way.
     await pool.query(
       "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
         "VALUES (?,?,?,?,?,?,?,?)",
-      ["rd-half-up", VILLAGE, "gratitude.given", VILLAGE_VOICE, "0.5005", "9", "receiver", 1],
+      ["rd-half-up", VILLAGE, "gratitude.given", VILLAGE_VOICE, "1.0050", "9", "receiver", 1],
     );
     // No amount at all: the amount rides on whatever the source posted.
     await pool.query(
@@ -473,12 +478,12 @@ describe.skipIf(!configured)("a rule written below its token's own resolution", 
 
   it("scales on the column's text, where a double would land a unit short", async () => {
     const rule = ruleById(await rules(), "rd-half-up");
-    // 0.5005 at three places is 500.5 minor units, and half goes up, so 501.
-    expect(rule.amount).toBe(BigInt(501));
-    expect(rule.amountRaw).toBe("0.5005");
+    // 1.0050 at two places is 100.5 minor units, and half goes up, so 101.
+    expect(rule.amount).toBe(BigInt(101));
+    expect(rule.amountRaw).toBe("1.0050");
     // The same figure through a double, which is what this reader refuses to
-    // do: 0.5005 is not representable, 0.5005 * 1000 is 500.49999999999994,
-    // and the nearest whole number to that is 500. One thousandth of
+    // do: 1.0050 is not representable, 1.0050 * 100 is 100.49999999999999,
+    // and the nearest whole number to that is 100. One hundredth of
     // somebody's Voice, lost to IEEE, on every occurrence this rule fires.
     //
     // THIS LINE IS THE POINT OF THE TEST. The two amounts either side of it
@@ -486,7 +491,7 @@ describe.skipIf(!configured)("a rule written below its token's own resolution", 
     // neither of them can tell a text scaling from a float one. This figure
     // was found by scanning every four-place decimal against three places
     // until the two answers parted, and it is the smallest one that does.
-    expect(Math.round(Number(rule.amountRaw) * 1000)).toBe(500);
+    expect(Math.round(Number(rule.amountRaw) * 100)).toBe(100);
   });
 
   it("reads a NULL amount as null, with an empty string beside it", async () => {
@@ -494,7 +499,8 @@ describe.skipIf(!configured)("a rule written below its token's own resolution", 
     expect(rule.amount).toBeNull();
     expect(rule.amountRaw).toBe("");
     // The ceiling column is NOT NULL, so a from-source rule still has a cap.
-    expect(rule.ceiling).toBe(BigInt(5));
+    // 5 credits at two places, since 0162.
+    expect(rule.ceiling).toBe(BigInt(5 * 10 ** CURRENCY_DECIMALS));
     expect(rule.ceilingRaw).toBe("5.0000");
   });
 });
@@ -567,9 +573,9 @@ describe.skipIf(!configured)("the seed fallback, and saying it is a seed", () =>
       "rule-role.cycle-village-voice",
     ]);
     const voice = ruleById(snapshot.mintRules, "rule-role.cycle-village-voice");
-    expect(voice.amount).toBe(BigInt(50000));
+    expect(voice.amount).toBe(BigInt(50 * 10 ** VOICE_DECIMALS));
     expect(voice.amountRaw).toBe("50.0000");
-    expect(voice.ceiling).toBe(BigInt(200000));
+    expect(voice.ceiling).toBe(BigInt(200 * 10 ** VOICE_DECIMALS));
     expect(provenance.mintRules.source).toBe("seed");
     expect(provenance.mintRules.clause).toBe("mint rules: seed defaults (5 rows)");
   });
@@ -595,7 +601,7 @@ describe.skipIf(!configured)("the seed fallback, and saying it is a seed", () =>
     // that once: `sys:voice-decay` arrived with drizzle/0148_voice_that_waned
     // from the decay lane, and this line is what said so. Twice now:
     // `sys:redemption-hold` and `sys:redeemed` arrived with
-    // drizzle/0155_a_member_redeems_what_they_hold from the redemption lane, and
+    // drizzle/0161_a_member_redeems_what_they_hold from the redemption lane, and
     // both belong in the snapshot by the rule above, because a redemption posts
     // into one of them and then the other. If you are here
     // because you added an account, add it to the list and read the sentence

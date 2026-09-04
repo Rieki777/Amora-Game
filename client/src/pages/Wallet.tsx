@@ -152,9 +152,9 @@ export default function Wallet() {
    * number while the Standing chip on their own profile, off the same ledger
    * through `loadStanding`, said 10. The wallet is the one they believe.
    *
-   * Absent map means every token is whole, which is what every token was
-   * before Voice. See client/src/lib/tokenAmount.ts for why this landed before
-   * the move to 4 decimals rather than inside it.
+   * Absent map means every token is whole, which is the safe reading and not
+   * the true one since the 2026-09-04 scale ruling: four of the seven tokens
+   * carry two decimals now. See client/src/lib/tokenAmount.ts.
    */
   const tokenDecimals: Record<string, number> = data?.mine?.tokenDecimals ?? {};
   /*

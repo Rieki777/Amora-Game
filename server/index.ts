@@ -16155,7 +16155,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
        * and not a name worth inventing.
        */
       tokenNames: Object.fromEntries(Object.keys(ledger).map((s) => [s, tokenDef(s)?.name ?? s])),
-      tokenDecimals: Object.fromEntries(Object.keys(ledger).map((s) => [s, tokenDef(s)?.decimals ?? 0])), // THE SCALE OF EACH OF THOSE NUMBERS. `ledger` is the INT column verbatim, so it is MINOR units: Voice at decimals 3 ships 10000 for a member who earned 10, and this payload handed that straight to a card that printed it while their profile chip, off loadStanding, said 10 in the same second. Divide at the render site, through client/src/lib/tokenAmount.ts, which carries the why and why it has to land BEFORE every token moves to 4 decimals.
+      tokenDecimals: Object.fromEntries(Object.keys(ledger).map((s) => [s, tokenDef(s)?.decimals ?? 0])), // THE SCALE OF EACH OF THOSE NUMBERS. `ledger` is the INT column verbatim, so it is MINOR units: Voice at decimals 2 ships 1000 for a member who earned 10, and this payload handed that straight to a card that printed it while their profile chip, off loadStanding, said 10 in the same second. Divide at the render site, through client/src/lib/tokenAmount.ts, which carries the why. Since the 2026-09-04 scale ruling four of the seven tokens carry two decimals, so this is the ordinary case and no longer one token's exception.
       wallet: { address: user.walletAddress ?? null, verifiedAt: user.walletVerifiedAt ?? null },
       onchain,
       economicsEnabled,
