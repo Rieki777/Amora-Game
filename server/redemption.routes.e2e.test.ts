@@ -321,6 +321,29 @@ describe.skipIf(!DB_CONFIGURED)("the redemption doors", () => {
     420_000,
   );
 
+  it("shows a steward the queue, with the member's name and the warnings that ride", async () => {
+    await mintTo(wrenId, 60);
+    const asked = await call("POST", "/api/redemptions", { token: CREDITS, amount: 60, askedFor: "a lathe" }, wrenToken);
+    expect(asked.status, asked.text.slice(0, 300)).toBe(201);
+    const id = String(asked.json?.redemption?.id ?? "");
+    const q = await call("GET", "/api/admin/redemptions", undefined, founderToken);
+    expect(q.status, q.text.slice(0, 300)).toBe(200);
+    const row = (q.json?.redemptions ?? []).find((r: any) => r.id === id);
+    expect(row, "the queue must carry the open redemption").toBeTruthy();
+    expect(row.memberName).toBe("Wren");
+    expect(row.askedFor).toBe("a lathe");
+    expect(row.amount).toBe(60);
+    // The warnings are an ARRAY on every row, including an empty one. A
+    // missing field renders nothing on the steward's card and says nothing
+    // about whether there was anything to say.
+    expect(Array.isArray(row.warnings)).toBe(true);
+    // This member has opened several this moon by now, so the frequency
+    // warning is real rather than hypothetical, and it never blocks.
+    expect(row.warnings.map((w: any) => w.key)).toContain("frequency");
+    // Tidy up so the later cases start from a queue they own.
+    expect((await call("POST", `/api/redemptions/${id}/withdraw`, undefined, wrenToken)).status).toBe(200);
+  }, 300_000);
+
   it("gives the tokens back when a steward refuses, and tells the member why", async () => {
     await mintTo(wrenId, 40);
     const before = await balanceOf(wrenToken);
