@@ -17,9 +17,10 @@
  * Runs against the S5 harness: a scratch schema with every real migration
  * applied. No TEST_DATABASE_URL and the suite skips loudly (harness rule).
  */
+import { reservationsForMember } from "./housing";
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
 import mysql from "mysql2/promise";
-import { createReservation, reservationsForMember, setReservationStatus } from "../lib/housing";
+import { createReservation, setReservationStatus } from "../lib/housing";
 import { endFact, factsForMember, membersHoldingFact, recordFact } from "./investorPath";
 import {
   closeVenture,

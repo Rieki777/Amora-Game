@@ -37,6 +37,7 @@
  * `village_id` column, which is not an omission here: 0049 predates the scope
  * retrofit and the whole org plane is single-village.
  */
+import { reservationsForMember } from "./housing";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { SeatingFacts } from "../lib/pathLadders";
 

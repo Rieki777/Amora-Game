@@ -37,10 +37,11 @@
  * moon gets the window with no number on it, which is the honest answer and is
  * what `villageMoonLabel` already produces.
  */
+import { reservationsForMember } from "../repos/housing";
 import type { Express } from "express";
 import { LADDER_PATH_IDS, type LadderPathId } from "../../shared/pathLadders";
 import type { AppDeps } from "../lib/appDeps";
-import { reservationsForMember } from "../lib/housing";
+import { } from "../lib/housing";
 import { laddersFor, type MoonOf } from "../lib/pathLadders";
 import { moonOneCycle, villageMoonFor } from "../lib/villageMoon";
 import { factsForMember } from "../repos/investorPath";

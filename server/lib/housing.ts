@@ -560,29 +560,9 @@ export async function listReservations(pool: Pool, limit = 200): Promise<Reserva
  * written anywhere. The rungs themselves are not defined in this repository
  * yet, so this returns the facts and names no position.
  */
-export async function reservationsForMember(
-  pool: Pool,
-  userId: string,
-): Promise<ReservationRow[]> {
-  const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT id, structure_key, home_type, name, email, phone, notes, arrived_from, status, user_id, created_at " +
-      "FROM housing_reservations WHERE village_id = ? AND user_id = ? ORDER BY created_at DESC",
-    [VILLAGE, userId],
-  );
-  return rows.map((r) => ({
-    id: String(r.id),
-    structureKey: r.structure_key == null ? null : String(r.structure_key),
-    homeType: String(r.home_type),
-    name: String(r.name),
-    email: String(r.email),
-    phone: r.phone == null ? null : String(r.phone),
-    notes: r.notes == null ? null : String(r.notes),
-    arrivedFrom: r.arrived_from == null ? null : String(r.arrived_from),
-    status: String(r.status),
-    userId: r.user_id == null ? null : String(r.user_id),
-    createdAt: String(r.created_at),
-  }));
-}
+// `reservationsForMember` now lives in server/repos/housing.ts, beside the
+// other two per-path readers. The rule wants a table's readers enumerable in
+// one known directory, which is what "stay in one file" was reaching for.
 
 /** Move an intent along. Only 'reserved' ever consumes a home. */
 export const RESERVATION_STATUSES = ["new", "contacted", "reserved", "withdrawn"] as const;

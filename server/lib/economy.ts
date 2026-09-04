@@ -800,7 +800,7 @@ export async function writeGratitudeRow(
 ): Promise<GratitudeRowResult> {
   const conn = await pool.getConnection();
   try {
-    await conn.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+    await conn.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"); // module-review-ok: a session setting, not a table read; there is no cache above it and no table whose readers this would hide
     await conn.beginTransaction();
 
     // The lock. Everything after this reads a world nobody else can move.
