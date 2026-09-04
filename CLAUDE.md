@@ -16,6 +16,13 @@ code carries no village's brand — that rule is enforced mechanically (see Gate
 3. `docs/FORK_RUNBOOK.md` — provisioning, env vars, seeds. **Any session that adds an env var,
    seed, or provisioning step appends one line there, same session.**
 4. `docs/FEEDBACK_HUB_CONTRACT.md` — only when touching the feedback relay.
+5. **`SEASON2_FLEET_LEDGER.md` section 27, THE LANDING ORDER** — read it before you touch a
+   contended resource, and append a row when you claim one. Several sessions run against this
+   repository at once, and section 27 is where they stay out of each other's way: migration
+   numbers, the six ratchet baselines, `server/index.ts`, `ci.yml`, the shared integration
+   worktrees, plus the hazards that have actually cost time (removing a worktree can delete the
+   shared `node_modules`; a stale tree runs a major version behind the lockfile). It replaces a
+   coordinator session deliberately, because a file cannot hit a session limit mid-merge.
 
 `MODULES_MASTER_PLAN.md` Part 1 is known-stale; never trust it over code. The repo skill lives
 in `.claude/skills/`.
@@ -104,6 +111,20 @@ Two things that follow:
 - **Stopping such a lane and taking its committed work is correct**, not a shortcut. Verify
   the branch yourself with the gates plus the targeted suites, which is what should have
   happened anyway.
+
+**And the integrator should PUSH the composed tree and read the run, rather than running the
+full suite locally.** Same rule, one step further, and it only became true when the repository
+went public: `verify` is 8 to 10 minutes on a clean machine with the pinned Node 22 and MySQL 8,
+against 25 minutes locally on a quiet box and 46.6 measured under load, and it now costs nothing.
+The composed tree is not an obstacle, because a composed tree can be pushed to a branch and CI
+will read it there. The one case with no ref to push is a pair-merge scratch, and even there run
+only the suites the two branches share.
+
+Two things that stop this producing a false green, both paid for on 2026-09-04. Read the STEP
+COUNT and WHICH step: a healthy `verify` is 45 steps, the billing outage produced runs that died
+in 2 to 3 seconds having started nothing, and an npm outage failed one dependency step on a run
+where everything else passed. And a cancelled run is not a red, since `ci.yml` cancels superseded
+runs per ref. Full detail, with the traps, in `SEASON2_FLEET_LEDGER.md` section 27d.
 
 Two CI budgets cap the client: main JS **700 KB** and total `dist/public` **6600 KB**, both
 measured after `pnpm build`. Read the numbers off `MAX_MAIN_JS_KB` and `MAX_TOTAL_DIST_KB` in
