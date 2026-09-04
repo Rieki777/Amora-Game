@@ -139,7 +139,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Ledger",
     label: "Admin mint cap per lunar cycle",
     description:
-      "The most any admins can mint by hand, in total, per token, per lunar cycle (S9's mint endpoint enforces it as an aggregate, not per call). A cap on manual issuance is what makes 'the numbers mean something' a property of the system instead of a promise from whoever holds admin. 0 disables manual minting entirely.",
+      "The most any admins can mint by hand, in total, per token, per lunar cycle (S9's mint endpoint enforces it as an aggregate, not per call). COUNTED IN WHOLE TOKENS, so 100 means a hundred of the token and not a hundred of whatever the ledger stores underneath. A cap on manual issuance is what makes 'the numbers mean something' a property of the system instead of a promise from whoever holds admin. 0 disables manual minting entirely.",
     type: "integer",
     default: "10000",
     min: 0,
@@ -151,7 +151,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Ledger",
     label: "Second steward needed above",
     description:
-      "A hand-mint larger than this waits for a SECOND steward to agree before any tokens move. The record keeps who asked, who agreed, when, and the exact amount and token, so nobody can change what was signed for afterwards. 0 turns the second signature off. Minting to your own account is refused at any amount and this dial does not reach that rule.",
+      "A hand-mint larger than this waits for a SECOND steward to agree before any tokens move. COUNTED IN WHOLE TOKENS, so 100 means a hundred of the token. Set it against what a large grant looks like in your village, and know that it is the only place a second pair of eyes is required. The record keeps who asked, who agreed, when, and the exact amount and token, so nobody can change what was signed for afterwards. 0 turns the second signature off. Minting to your own account is refused at any amount and this dial does not reach that rule.",
     type: "integer",
     default: "100",
     min: 0,
