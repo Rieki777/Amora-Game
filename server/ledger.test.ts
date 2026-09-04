@@ -658,7 +658,7 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
       expect(mine.length).toBe(1);
       expect(mine[0]).toContain("is negative: -501");
       // The `REVERSAL` row counts for nothing, so the whole -501 is unlawful.
-      expect(mine[0]).toContain("holds no allow-negative debit at all");
+      expect(mine[0]).toContain("only 0 of that is lawful");
 
       await pool.query("DELETE FROM token_ledger WHERE id IN ('led-f13-tag','led-f13-hole')");
       await pool.query("UPDATE token_balances SET balance = balance + 501 WHERE account_id = ? AND token_type = ?", [account, PLATFORM_TOKEN]);

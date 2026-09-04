@@ -1269,22 +1269,24 @@ export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport
    */
   const allowNeg = Array.from(ALLOW_NEGATIVE_SOURCES);
   const [negatives] = await pool.query<RowDataPacket[]>(
-    "SELECT account_id, token_type, balance, lawful FROM (" +
-      "SELECT tb.account_id, tb.token_type, tb.balance, COALESCE((" +
-      "SELECT SUM(t.amount) FROM token_ledger t WHERE t.from_account = tb.account_id " +
-      "AND t.token_type = tb.token_type AND CAST(t.source AS BINARY) IN (?)" +
-      "), 0) AS lawful FROM token_balances tb " +
-      "JOIN ledger_accounts a ON a.id = tb.account_id WHERE a.faucet = 0 AND tb.balance < 0" +
-      ") n WHERE n.balance < -n.lawful",
+    "SELECT tb.account_id, tb.token_type, tb.balance, COALESCE(d.lawful, 0) AS lawful FROM token_balances tb " +
+      "JOIN ledger_accounts a ON a.id = tb.account_id " +
+      "LEFT JOIN (SELECT from_account, token_type, SUM(amount) AS lawful FROM token_ledger " +
+      "WHERE CAST(source AS BINARY) IN (?) GROUP BY from_account, token_type) d " +
+      "ON d.from_account = tb.account_id AND d.token_type = tb.token_type " +
+      "WHERE a.faucet = 0 AND tb.balance < 0 AND tb.balance < -COALESCE(d.lawful, 0)",
     [allowNeg],
   );
   for (const r of negatives) {
+    // The bound, said in the sentence: how far this account was allowed to go
+    // and how far it went. ONE SHAPE rather than two branches, because an
+    // account with no allow-negative debit at all is the lawful floor of zero
+    // and reads correctly as one.
     const lawful = Number(r.lawful);
+    const lawfulFloor = -lawful;
     problems.push(
-      `non-faucet account ${r.account_id} is negative: ${r.balance} ${r.token_type}` +
-        (lawful > 0
-          ? `, and only ${-lawful} of that is lawful (its allow-negative debits total ${lawful})`
-          : ", and it holds no allow-negative debit at all"),
+      `non-faucet account ${r.account_id} is negative: ${r.balance} ${r.token_type}, and only ` +
+        `${lawfulFloor} of that is lawful (its allow-negative debits total ${lawful})`,
     );
   }
 

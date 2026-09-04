@@ -70,12 +70,24 @@ check("READER: occurrenceKeys finds the quest key and renders its real shape", (
   const keys = occurrenceKeys(ROOT);
   const quest = keys.find((k) => k.name === "questCompleted");
   assert.ok(quest, `keys.questCompleted is gone from the reader's view; it found: ${keys.map((k) => k.name).join(", ")}`);
-  assert.strictEqual(quest.shape, "quest.completed:<v>:<questId>:<claimId>:<userId>");
+  // Both segments of this pin moved on 2026-09-03 and the reason is in each
+  // half. `esc(...)` because a colon in an id used to move the boundary
+  // between two segments and collapse two occurrences into one key (W3 F18,
+  // ECONOMICS.md 10.16); `:<esc(tokenSlug)>` because the two mint sites used
+  // to append the slug AFTER the builder returned, unescaped, so the shape
+  // this reader printed was one the ledger never held (W3 F10).
+  assert.strictEqual(
+    quest.shape,
+    "quest.completed:<esc(v)>:<esc(questId)>:<esc(claimId)>:<esc(userId)>:<esc(tokenSlug)>",
+  );
   // The seat key's spelling is load-bearing (renaming it repays every seat), so
   // it is pinned here as well as described in the document.
   const seat = keys.find((k) => k.name === "roleCycle");
   assert.ok(seat, "keys.roleCycle is gone from the reader's view");
-  assert.strictEqual(seat.shape, "role.cycle:<v>:<cycleKey>:<seatId>:<userId>");
+  assert.strictEqual(
+    seat.shape,
+    "role.cycle:<esc(v)>:<esc(cycleKey)>:<esc(seatId)>:<esc(userId)>:<esc(tokenSlug)>",
+  );
   assert.ok(keys.length >= 8, `expected at least 8 occurrence keys, read ${keys.length}`);
 });
 
