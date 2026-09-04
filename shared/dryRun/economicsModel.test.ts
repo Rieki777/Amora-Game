@@ -685,48 +685,119 @@ describe("the gratitude allowance, mirrored as the engine posts it", () => {
     return snap;
   }
 
-  it("posts the number the engine posts, unscaled, at any decimals", () => {
+  it("keeps the allowance human and converts once, at the posting", () => {
     /*
-     * `allowanceFor` (server/lib/economy.ts:610) returns
+     * THE SWEEP MEASURED THE SHIPPED PATH AND IT IS HUMAN UNTIL THE LEDGER.
+     * `allowanceFor` (server/lib/economy.ts:851) returns
      * `Math.round(numberVar("gratitude.base_budget") * stageMultiplier)`, which
-     * is 100 * 2 = 200, a HUMAN figure. `give` (economy.ts:934) hands that
-     * straight to `postTransfer` with NO `toLedgerUnits` anywhere on the path,
-     * and `postTransfer` reads what it is handed as MINOR UNITS. So the engine
-     * posts 200, and 50 after `shareCapFor` (economy.ts:683) takes its quarter,
-     * whatever `decimals` says. A model that scaled by 10^decimals would post
-     * 500,000 at four places and preview a village nobody is living in.
+     * is 100 * 2 = 200 a member, and its `spent` and `remaining` are human.
+     * `shareCapFor` (economy.ts:956) takes its quarter of that human total, so
+     * the cap is 50 whole recognition tokens. `gratitude_log.amount` stores the
+     * human number. The ONE conversion is `toLedgerUnits(HEARTS, amount)` at
+     * the `postTransferOn` inside `give` (economy.ts:1425).
+     *
+     * So at four decimal places a gift of 50 posts 500000 minor units, and the
+     * allowance, the cap and the expired figure all stay at their human 400,
+     * 50 and 300. Every one of those three is a number a member reads.
      */
     const model = economicsModel({ ...ONE_QUEST, gratitudeAllowanceGivenShare: 1 });
     const stepped = model.step(initialState(scaled(4)), 1, makeRng(SEED));
     const memo = readEconomicsMemo(stepped)!;
+    // HUMAN, all three.
     expect(memo.allowanceTotal).toBe(BigInt(400));
     expect(memo.gratitudeGiven).toBe(BigInt(100));
-    expect(stepped.balances["mem:u1"].gratitude).toBe(BigInt(50));
-    expect(stepped.balances["mem:u2"].gratitude).toBe(BigInt(50));
+    expect(memo.gratitudeExpired).toBe(BigInt(300));
+    // MINOR, at the ledger, and only there.
+    expect(stepped.balances["mem:u1"].gratitude).toBe(BigInt(500000));
+    expect(stepped.balances["mem:u2"].gratitude).toBe(BigInt(500000));
+    expect(stepped.balances["sys:gratitude-pool"].gratitude).toBe(BigInt(-1000000));
+    // Which is 50 whole tokens each, the number `checkGive` weighed.
+    expect(Number(stepped.balances["mem:u1"].gratitude) / 10000).toBe(50);
 
-    // And it is the same number at zero decimals, which is the whole point: the
-    // engine's answer does not move with the registry, and neither does this.
+    /*
+     * AT ZERO DECIMALS THE CONVERSION IS THE IDENTITY, which is why no village
+     * running the shipped default has ever seen a difference: the same 50 is
+     * both the human gift and the posting.
+     */
     const flat = model.step(initialState(scaled(0)), 1, makeRng(SEED));
-    expect(readEconomicsMemo(flat)!.allowanceTotal).toBe(BigInt(400));
+    const flatMemo = readEconomicsMemo(flat)!;
+    expect(flatMemo.allowanceTotal).toBe(BigInt(400));
+    expect(flatMemo.gratitudeExpired).toBe(BigInt(300));
     expect(flat.balances["mem:u1"].gratitude).toBe(BigInt(50));
+
+    // THE THREE THINGS THAT BREAK IF THE SCALE MOVES EARLIER. The cap's floor
+    // is one WHOLE token, the expired figure is what a member reads as
+    // remaining, and the pool splits by the human figure the settlement reads
+    // out of `gratitude_log`. All three are identical at 0 and at 4 places.
+    expect(flatMemo.allowanceTotal).toBe(memo.allowanceTotal);
+    expect(flatMemo.gratitudeGiven).toBe(memo.gratitudeGiven);
+    expect(flatMemo.gratitudeExpired).toBe(memo.gratitudeExpired);
   });
 
-  it("says out loud that every gift is smaller than the dial promises", () => {
+  it("has nothing to say about the allowance now that the conversion is real", () => {
+    /*
+     * `econ_allowance_unscaled` was raised while the engine posted a human
+     * allowance into a minor-unit ledger. The sweep fixed `give` and
+     * `allowanceFor` together, `allowanceScale` returns the real conversion,
+     * and the flag goes quiet by reading the same function the posting reads.
+     * Its condition never changed, which is the whole point of putting both on
+     * one seam: the flag cannot say one thing while the arithmetic does another.
+     *
+     * The code stays as a tripwire. Breaking `allowanceScale` back to 1 while a
+     * token carries decimals makes it speak again, which is the red run this
+     * test's failure mode is.
+     */
     const model = economicsModel({ ...ONE_QUEST, gratitudeAllowanceGivenShare: 1 });
-    const stepped = model.step(initialState(scaled(4)), 1, makeRng(SEED));
-    const flag = model.flags(stepped, 1).filter((f) => f.code === "econ_allowance_unscaled")[0];
-    expect(flag.severity).toBe("danger");
-    expect(flag.sentence).toContain("4 decimal place(s)");
-    expect(flag.sentence).toContain("10000 times smaller");
-    expect(flag.actionable).toContain("decimals sweep lane F");
-
-    // Quiet on a village whose recognition token has no decimal places, which
-    // is every village that has not changed it.
-    const flat = model.step(initialState(scaled(0)), 1, makeRng(SEED));
-    expect(model.flags(flat, 1).map((f) => f.code)).not.toContain("econ_allowance_unscaled");
-    // And quiet on the default fixture.
+    for (const places of [0, 2, 3, 4]) {
+      const stepped = model.step(initialState(scaled(places)), 1, makeRng(SEED));
+      const codes = model.flags(stepped, 1).map((f) => f.code);
+      expect(`${places} places: ${codes.indexOf("econ_allowance_unscaled") >= 0}`).toBe(`${places} places: false`);
+    }
+    // And quiet on the default fixture, which is every village that has not
+    // touched its registry.
     const plain = runOneCycle("lunar");
     expect(plain.model.flags(plain.stepped, 1).map((f) => f.code)).not.toContain("econ_allowance_unscaled");
+  });
+
+  it("holds the per-person cap at one whole token, never at one minor unit", () => {
+    /*
+     * `shareCapFor` (server/lib/economy.ts:956) is
+     * `max(1, floor(total * gratitude.max_share_per_recipient / 100))` over the
+     * HUMAN total, so its floor is one whole recognition token. Scaling the
+     * allowance before this line would make the floor 0.0001 of a token at four
+     * places, a cap the engine has never allowed.
+     *
+     * Measured at a base budget of 1, where the floor is the only thing holding
+     * the cap up: 1 * 2 = 2 allowance, and 25% of 2 floors to 0, so the cap is
+     * the floor of 1. The gift is therefore 1 whole token, which posts as 10000
+     * at four places.
+     */
+    const snap = scaled(4);
+    snap.variables["gratitude.base_budget"] = "1";
+    const model = economicsModel({ ...ONE_QUEST, gratitudeAllowanceGivenShare: 1 });
+    const stepped = model.step(initialState(snap), 1, makeRng(SEED));
+    const memo = readEconomicsMemo(stepped)!;
+    expect(memo.allowanceTotal).toBe(BigInt(4));
+    expect(memo.gratitudeGiven).toBe(BigInt(2));
+    expect(stepped.balances["mem:u1"].gratitude).toBe(BigInt(10000));
+  });
+
+  it("splits the pool by the human figure the settlement reads", () => {
+    /*
+     * The close reads `gratitude_log` (`settleCycle`,
+     * server/lib/gratitude-cycles.ts:202), whose `amount` column is human, and
+     * `gratitude_log.amount` is NOT backfilled by the flip migration, so it
+     * does not move scale. The ratio is unit-free, so the shares come out the
+     * same either way; asserting it at two scales is what proves the model is
+     * reading the human figure and not the balance.
+     */
+    const model = economicsModel({ ...ONE_QUEST, gratitudeAllowanceGivenShare: 1 });
+    const deep = readEconomicsMemo(model.step(initialState(scaled(4)), 1, makeRng(SEED)))!;
+    const flat = readEconomicsMemo(model.step(initialState(scaled(0)), 1, makeRng(SEED)))!;
+    // 1000 credits (shared/gameVariables.ts:117), halved, at both scales.
+    expect(deep.poolDistributed).toBe(BigInt(1000));
+    expect(flat.poolDistributed).toBe(deep.poolDistributed);
+    expect(deep.poolRemainder).toBe(BigInt(0));
   });
 
   it("compares the pool against an allowance in the same units", () => {
