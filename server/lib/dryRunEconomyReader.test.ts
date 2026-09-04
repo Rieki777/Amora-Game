@@ -582,11 +582,20 @@ describe.skipIf(!configured)("the seed fallback, and saying it is a seed", () =>
     expect(provenance.variables.source).toBe("live");
     expect(provenance.variables.rows).toBe(0);
     // Every system account the migrations seed is there, and all of them are
-    // empty. Thirteen of them, which is more than the five faucets a token can
+    // empty. Fourteen of them, which is more than the five faucets a token can
     // issue from: the escrows, the sinks and the settled-voice vault are
     // ordinary accounts and they belong in the snapshot for the same reason,
     // which is that a posting into an account the snapshot does not know about
     // cannot be previewed at all.
+    //
+    // A NEW SYSTEM ACCOUNT IS EXPECTED TO BREAK THIS CASE, AND THAT IS THE
+    // POINT. The list is pinned rather than counted or filtered because a
+    // pinned enumeration costs exactly one red per legitimate addition, and
+    // the alternative costs an addition nobody notices. It has already earned
+    // that once: `sys:voice-decay` arrived with drizzle/0148_voice_that_waned
+    // from the decay lane, and this line is what said so. If you are here
+    // because you added an account, add it to the list and read the sentence
+    // above to check the snapshot should carry it. It almost certainly should.
     expect(Object.keys(snapshot.balances).sort()).toEqual([
       "sys:cycle-pool",
       "sys:event-escrow",
@@ -599,6 +608,7 @@ describe.skipIf(!configured)("the seed fallback, and saying it is a seed", () =>
       "sys:mint",
       "sys:treasury",
       "sys:voice-bridge",
+      "sys:voice-decay",
       "sys:voice-mint",
       "sys:voice-settled",
     ]);

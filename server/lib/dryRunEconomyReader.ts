@@ -291,7 +291,7 @@ async function liveTokens(conn: PoolConnection): Promise<TokenSpec[]> {
  * TWO READS, because two different facts are wanted and one table holds only
  * one of them. `token_balances` is a CACHE recomputed from `token_ledger`
  * (drizzle/0009:77), so a faucet that has never issued anything has no row at
- * all. `ledger_accounts` is where an account EXISTS, and the thirteen system
+ * all. `ledger_accounts` is where an account EXISTS, and the fourteen system
  * accounts the migrations seed are all there from the first boot. That figure
  * is measured in `dryRunEconomyReader.test.ts` and not counted by hand: the
  * first draft of this comment said seven and the test said otherwise.
