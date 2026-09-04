@@ -52,6 +52,7 @@ import { register as registerPlayersRoutes } from "./routes/players";
 import { register as registerOrgSeatingRoutes } from "./routes/orgSeatings";
 import { register as registerOrgRoutes } from "./routes/org";
 import { register as registerReviewRoutes } from "./routes/review";
+import { register as registerHoldersRoutes } from "./routes/holders";
 import { register as registerGovernanceWeightRoutes } from "./routes/governanceWeights";
 import { register as registerGovernanceWizardRoutes } from "./routes/governanceWizard";
 import { register as registerDelegationRoutes } from "./routes/delegation";
@@ -4771,7 +4772,7 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<Era
   // ── Lane C: the stores outside this village ────────────────────────────────
   // Asked AFTER the local sweep, so a slow or refusing driver never delays the
   // one deletion this deployment fully controls.
-  const external = await forgetMemberEverywhere(target.id);
+  const external = await forgetMemberEverywhere(getPool(), target.id);
   for (const miss of external.unconfirmed) {
     // An erasure that did not complete is a fact about an OBLIGATION, so it
     // gets an audit row of its own beside the integration_health failure the
@@ -27408,6 +27409,7 @@ ${inner}
   registerReviewRoutes(app, {
     isAdmin, authedUser, guardCapability, mayAct, adminActor, getPool, members, questsRepo,
   });
+  registerHoldersRoutes(app, { guardCapability, getPool });
 
   // ── Season patterns (0050) ───────────────────────────────────────────────
   //
@@ -27814,7 +27816,7 @@ ${inner}
        * could not be read is NAMED in the file the member downloads, so a
        * partial export announces itself instead of looking complete.
        */
-      externalStores: await exportMemberEverywhere(user.id),
+      externalStores: await exportMemberEverywhere(getPool(), user.id),
     };
     res.setHeader("Content-Disposition", `attachment; filename="my-data-${user.id}.json"`);
     res.json(exportDoc);

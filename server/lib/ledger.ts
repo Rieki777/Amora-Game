@@ -241,20 +241,43 @@ export interface TransferInput {
   /**
    * Permit this post to drive a NON-FAUCET account below zero. Only honored
    * when `source` is in ALLOW_NEGATIVE_SOURCES — a negative balance is the
-   * truthful state after a grace-night burn or a chargeback clawback, never
-   * a convenience for ordinary spending paths.
+   * truthful state after a grace-night burn, a chargeback clawback or a
+   * correction of value already spent, never a convenience for ordinary
+   * spending paths.
    */
   allowNegative?: boolean;
 }
 
 /**
  * The only sources that may legally drive a non-faucet account negative
- * (with allowNegative set): stay-night burns inside the grace window, and
- * mechanical reversal legs after a refund/dispute. Static ON PURPOSE —
- * extending it is a one-line reviewed change to the keystone, not a runtime
- * registration that can race the boot invariant check.
+ * (with allowNegative set): stay-night burns inside the grace window,
+ * mechanical reversal legs after a refund/dispute, and `reversal`, the source
+ * `reverse()` in server/lib/economy.ts stamps on every correction it writes.
+ * Static ON PURPOSE — extending it is a one-line reviewed change to the
+ * keystone, not a runtime registration that can race the boot invariant check.
+ *
+ * ── WHY A CORRECTION MAY TAKE SOMEBODY BELOW ZERO ───────────────────────
+ *
+ * A reversal claws back value that was posted in error, and the member may
+ * already have spent it. Without this the clawback is simply REFUSED: the
+ * mistaken credit stands, the ledger keeps reporting value the village never
+ * meant to issue, and the only remaining fix is a hand-written row. With it,
+ * the clawback completes and the member's balance goes negative by whatever
+ * they had already spent.
+ *
+ * A negative balance is not a debt the platform collects. It is the honest
+ * statement that this member holds less than nothing until new earnings bring
+ * them back to zero, and the overdraft check below already refuses any further
+ * spend that would take an account under water, so a member at -5 simply
+ * cannot spend until they are back above it. It sits in the balance every
+ * surface already reads rather than in a suspense account beside it, which is
+ * the point: somebody has to be able to see it and ask.
  */
-export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal"]);
+export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set([
+  "stay_night",
+  "payment_reversal",
+  "reversal",
+]);
 
 export interface TransferResult {
   ok: boolean;
@@ -940,7 +963,8 @@ export interface InvariantReport {
  *     path that skipped the discipline).
  *  5. No non-faucet account is ILLEGALLY negative — negative is legal only
  *     where the account has a debit from an ALLOW_NEGATIVE_SOURCES source
- *     (grace-night burn, payment reversal); anything else refuses boot.
+ *     (grace-night burn, payment reversal, a `reverse()` correction clawing
+ *     back value the member had already spent); anything else refuses boot.
  *  6. NO RECOGNITION, EQUITY OR VOICE TOKEN IS MARKED TRANSFERABLE. Only
  *     credit tokens are ever sent between members. This one is here because
  *     the wrong value shipped and sat unread: 0006 seeded `gratitude` with

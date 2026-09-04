@@ -1353,10 +1353,30 @@ export function render(f) {
       "claim anyone has to trust.",
   );
   p();
+  // One plain sentence per excepted source, and the build stops if a new one
+  // is added without one. The count and the list are both read from the code,
+  // so the paragraph cannot say "two" while the set holds three; the GLOSS is
+  // the part a human has to write, and the failure is what makes them.
+  const negGloss = {
+    stay_night: "a stay burnt inside its grace window",
+    payment_reversal: "the reversal leg after a refund",
+    reversal: "a correction clawing back value the member had already spent",
+  };
+  const negMissing = f.allowNegative.filter((s) => !negGloss[s]);
+  if (negMissing.length) {
+    fail(
+      `token-doc: ALLOW_NEGATIVE_SOURCES gained ${negMissing.join(", ")} with no plain sentence. ` +
+        "Add one to negGloss in this generator, so the document says what the exception is for.",
+    );
+  }
+  const negJoin = (parts) =>
+    parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : (parts[0] ?? "");
+  const negWord = ["No", "One", "Two", "Three", "Four", "Five"][f.allowNegative.length] ?? String(f.allowNegative.length);
+  const negVerb = f.allowNegative.length === 1 ? "source is" : "sources are";
   p(
-    `An ordinary account cannot go below zero. Two sources are excepted today, in \`ALLOW_NEGATIVE_SOURCES\`: ` +
-      `${f.allowNegative.map((s) => `\`${s}\``).join(" and ")}. Both are honest states rather than conveniences: a stay ` +
-      "burnt inside its grace window, and the reversal leg after a refund.",
+    `An ordinary account cannot go below zero. ${negWord} ${negVerb} excepted today, in \`ALLOW_NEGATIVE_SOURCES\`: ` +
+      `${negJoin(f.allowNegative.map((s) => `\`${s}\``))}. Each is an honest state rather than a convenience: ` +
+      `${negJoin(f.allowNegative.map((s) => negGloss[s]))}.`,
   );
   p();
   p(

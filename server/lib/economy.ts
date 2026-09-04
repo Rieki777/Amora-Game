@@ -150,16 +150,27 @@ export async function ensureVoiceToken(pool: Pool, displayName?: string): Promis
  */
 export const VOICE_DECIMALS = 3;
 
+/**
+ * How finely this token is held, in one place.
+ *
+ * The fallback matters: the registry is loaded from the database, and voice is
+ * the one token whose decimals a caller can reach before that load has
+ * happened. Written out twice, the save-time guard in `queueRuleChange` could
+ * have said "whole units" about a token the poster below scales by a thousand,
+ * and refused a founder an amount that was perfectly payable.
+ */
+function decimalsOf(tokenSlug: string): number {
+  return tokenDef(tokenSlug)?.decimals ?? (tokenSlug === VILLAGE_VOICE ? VOICE_DECIMALS : 0);
+}
+
 /** Human amount to ledger units. Rounds, because 0.1 * 1000 is not 100 in binary. */
 export function toLedgerUnits(tokenSlug: string, human: number): number {
-  const decimals = tokenDef(tokenSlug)?.decimals ?? (tokenSlug === VILLAGE_VOICE ? VOICE_DECIMALS : 0);
-  return Math.round(Number(human) * 10 ** decimals);
+  return Math.round(Number(human) * 10 ** decimalsOf(tokenSlug));
 }
 
 /** Ledger units back to the number a member reads on their chip. */
 export function fromLedgerUnits(tokenSlug: string, units: number): number {
-  const decimals = tokenDef(tokenSlug)?.decimals ?? (tokenSlug === VILLAGE_VOICE ? VOICE_DECIMALS : 0);
-  return Number(units) / 10 ** decimals;
+  return Number(units) / 10 ** decimalsOf(tokenSlug);
 }
 
 // ── Village scope ───────────────────────────────────────────────────────────
@@ -524,11 +535,33 @@ export function clampToCeiling(posted: number, rule: MintRule): number {
  *
  * Refunds are always reversals. Never a fresh mint: a mint would inherit none
  * of these guards and would be a way to make the token it claims to return.
+ *
+ * ── THE MIRROR IS READ OFF THE ORIGINAL ROW, NEVER TAKEN FROM THE CALLER ──
+ *
+ * This used to take `from`, `to`, `tokenSlug` and `amount` from its caller and
+ * check only that SOME row carried the original key. So it would reverse a
+ * 25-credit posting as a 1,000,000-credit payment to the same member, in a
+ * different token, in either direction, and nothing would notice: conservation
+ * still balances, because a mirror is two legs, and the audit reads "reversal
+ * of <key>" and believes it. An audit did exactly that and every invariant
+ * stayed green.
+ *
+ * Money that can be created has to be correctable. But a correction that can
+ * invent its own amount is not a correction, it is a mint with a nicer name.
+ * So the four numbers are DERIVED from the row the key names — amount, token,
+ * and both accounts, swapped — and a caller value that disagrees is refused
+ * rather than quietly overridden. Refused, because a caller passing a
+ * different amount believes something false about what it is undoing, and
+ * correcting it silently would leave that belief in place.
+ *
+ * The caller's fields are therefore OPTIONAL and are only ever an assertion.
+ * Callers that pass them get them checked; callers that pass nothing get the
+ * true mirror.
  */
 export async function reverse(
   pool: Pool,
   originalKey: string,
-  opts: { from: string; to: string; tokenSlug: string; amount: number; note?: string },
+  opts: { from?: string; to?: string; tokenSlug?: string; amount?: number; note?: string } = {},
 ): Promise<MintOutcome> {
   if (originalKey.startsWith("reversal:")) {
     return { ok: false, error: "a reversal cannot itself be reversed" };
@@ -537,8 +570,10 @@ export async function reverse(
   const tooLong = keyTooLong(mirrorKey);
   if (tooLong) return { ok: false, error: tooLong };
 
+  // The row, not its existence. Everything the mirror posts comes from here.
   const [orig] = await pool.query<RowDataPacket[]>(
-    "SELECT 1 FROM `token_ledger` WHERE `idempotency_key` = ? LIMIT 1",
+    "SELECT `from_account`, `to_account`, `token_type`, `amount` FROM `token_ledger` " +
+      "WHERE `idempotency_key` = ? LIMIT 1",
     [originalKey],
   );
   if (!orig.length) {
@@ -546,12 +581,45 @@ export async function reverse(
   }
 
   // The mirror runs the opposite way: what the original credited, this debits.
+  const from = String(orig[0].to_account);
+  const to = String(orig[0].from_account);
+  const tokenSlug = String(orig[0].token_type);
+  const amount = Number(orig[0].amount);
+
+  const disagreement =
+    opts.amount !== undefined && Number(opts.amount) !== amount
+      ? `this posting moved ${amount} and a reversal of ${Number(opts.amount)} was asked for`
+      : opts.tokenSlug !== undefined && opts.tokenSlug !== tokenSlug
+        ? `this posting moved ${tokenSlug} and a reversal in ${opts.tokenSlug} was asked for`
+        : opts.from !== undefined && opts.from !== from
+          ? `this posting credited ${from} and a reversal out of ${opts.from} was asked for`
+          : opts.to !== undefined && opts.to !== to
+            ? `this posting was sent by ${to} and a reversal back to ${opts.to} was asked for`
+            : null;
+  if (disagreement) {
+    return { ok: false, error: `a reversal undoes exactly what was posted: ${disagreement}` };
+  }
+
   const res = await postTransfer(pool, {
-    from: opts.from,
-    to: opts.to,
-    tokenType: opts.tokenSlug,
-    amount: opts.amount,
+    from,
+    to,
+    tokenType: tokenSlug,
+    amount,
     source: "reversal",
+    /*
+     * A CLAWBACK OF ALREADY-SPENT VALUE MUST BE ABLE TO COMPLETE.
+     *
+     * The account this debits may have spent what it was wrongly given.
+     * Without this the overdraft check refuses the whole correction, the
+     * mistaken credit stands, and the only remaining repair is a hand-written
+     * ledger row. With it, the correction lands and the member's balance goes
+     * negative by whatever they had already spent — which is the true
+     * statement of what they hold, is carried in the balance every surface
+     * reads rather than in a suspense account beside it, and clears itself as
+     * they earn. `reversal` is in ALLOW_NEGATIVE_SOURCES for exactly this;
+     * see the note on that set.
+     */
+    allowNegative: true,
     // Prefix, because source_ref is varchar(120) and a quest occurrence key can
     // run past it. A prefix is enough for the allowance query, which matches on
     // `gratitude.given:<village>:%`, and the whole key rides in the note so a
@@ -1275,7 +1343,16 @@ export async function mintForConfirmedClaim(
   pool: Pool,
   claim: { id: string; questId: string; userId: string; confirmedAt?: Date | string | null },
 ): Promise<{
-  minted: Array<{ token: string; amount: number }>;
+  /**
+   * What was posted, in the token's own MINOR UNITS — the number that went
+   * into the ledger row, not the human figure the rule was read as. Voice
+   * rides in thousandths, so a rule of 0.1 posts 100 and this says 100. It
+   * used to say 0.1 while the ledger said 100, which made the log and the
+   * ledger two different accounts of the same payment and left nothing to
+   * reconcile them against. `runSettlement` already reports units; this is the
+   * same field, spelled the same way, so the two mint paths agree.
+   */
+  minted: Array<{ token: string; units: number }>;
   skipped?: string;
   /**
    * Rules that were enabled, in force, and could not pay. An empty array is
@@ -1304,7 +1381,7 @@ export async function mintForConfirmedClaim(
   }
 
   const rules = await rulesFor(pool, "quest.completed");
-  const minted: Array<{ token: string; amount: number }> = [];
+  const minted: Array<{ token: string; units: number }> = [];
   const unpayable: Array<{ token: string; reason: string }> = [];
   for (const r of rules) {
     // Recognition is the consent route's job. See above.
@@ -1364,7 +1441,8 @@ export async function mintForConfirmedClaim(
       // quietly paid in one token instead of two.
       idempotencyKey: `${keys.questCompleted(villageId(), claim.questId, claim.id, claim.userId)}:${r.tokenSlug}`,
     });
-    if (res.ok && !res.duplicate) minted.push({ token: r.tokenSlug, amount: human });
+    // UNITS, which is what `mint` was handed and what the ledger row holds.
+    if (res.ok && !res.duplicate) minted.push({ token: r.tokenSlug, units: amount });
     // A refusal from the ledger itself is the same class of news as a rule the
     // engine cannot honour, and it was equally silent before: the ledger's own
     // sentence went into a variable nobody read.
@@ -1755,6 +1833,52 @@ export async function queueRuleChange(
     const ceiling = change.ceiling ?? Number(rule.ceiling ?? 0);
     if (ceiling > 0 && change.amount > ceiling) {
       return { ok: false, error: `${change.amount} is above this rule's ceiling of ${ceiling}` };
+    }
+    /*
+     * ── AN AMOUNT THAT ROUNDS AWAY IS REFUSED AT SAVE TIME ────────────────
+     *
+     * `mint_rules.amount` is decimal(18,4) and most tokens here have decimals
+     * 0, so a founder could save 0.4 Village Credits, watch the form accept
+     * it, watch the Mint panel publish the rule as live, and have it pay
+     * nothing for the rest of the village's life. Both mint paths already
+     * report it — `mintForConfirmedClaim` and `runSettlement` name it as
+     * unpayable — but only once somebody has already been promised it and
+     * gone unpaid, in a log the founder is not reading.
+     *
+     * The column can hold it, the token cannot, and the honest place to say so
+     * is the moment it is typed. The refusal names the smallest amount this
+     * token CAN hold so the founder knows what to type instead.
+     */
+    const slug = String(rule.token_slug);
+    const step = 1 / 10 ** decimalsOf(slug);
+    /*
+     * A TOLERANCE, BECAUSE THE SCALING ITSELF DRIFTS. 1.001 is a whole number
+     * of Voice's thousandths and `1.001 * 1000` is 1000.9999999999999 in
+     * binary, so an exact whole-number test would refuse a perfectly payable
+     * amount — 175 of them below 10 in that token alone, measured. The test
+     * "accepts a fraction the token can actually hold" pins 1.001 for this.
+     *
+     * The number this comment used to carry, `0.3 * 1000`, is exactly 300 and
+     * proves nothing. It arrived from the lane this was ported from and was
+     * never checked.
+     */
+    const scaled = Number(change.amount) * 10 ** decimalsOf(slug);
+    const drift = Math.abs(scaled - Math.round(scaled));
+    if (drift > 1e-6 * Math.max(1, Math.abs(scaled))) {
+      return {
+        ok: false,
+        error:
+          `${change.amount} is not a whole number of this token's smallest unit. ` +
+          `${slug} is held in steps of ${step}, so round to the nearest one.`,
+      };
+    }
+    if (toLedgerUnits(slug, change.amount) <= 0) {
+      return {
+        ok: false,
+        error:
+          `${change.amount} is smaller than the smallest amount ${slug} can hold, ` +
+          `which is ${step}. A rule saved at this amount would pay nobody.`,
+      };
     }
   }
 
