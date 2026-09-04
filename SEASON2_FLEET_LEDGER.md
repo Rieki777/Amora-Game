@@ -369,6 +369,30 @@ observations tonight the flaky set is:
     loop.e2e  G1 the one apply         (control rep 2)
     governance.routes.e2e  advisory notification   (kit lane)
     governance.routes.e2e  closing changes nothing (control rep 2)
+    mapScene  settles a genuine race           (2026-09-04, profile integration)
+
+A FIFTH, and its mechanism is known rather than suspected. `server/lib/mapScene.test.ts
+> two admins, one map > settles a genuine race: exactly one of six concurrent publishes
+wins` fails with "Deadlock found when trying to get lock". It fires six concurrent
+publishes at the shared MySQL on :3307, so it is the suite's most lock-contended case and
+the first to lose when other lanes are running.
+
+Observed across three full runs of the SAME tree family on one night: green at 3c739ce
+(4353 of 4353), red at e30fa6e (4352 of 4353) with only this test failing. Two lanes had
+already reported it independently, each correctly diagnosing contention rather than their
+own diff, and it vanished on a quiet machine.
+
+**This one may be a real defect wearing a flake's clothes, and that is why it is recorded
+rather than dismissed.** A deadlock means MySQL rolled a transaction back. If the publish
+path is expected to survive six concurrent writers, it wants a retry and the test is
+telling the truth; if it is not, the test asserts more concurrency than the product
+promises. Deciding which is a product question nobody has answered, so do not "fix" it by
+loosening the assertion.
+
+Contrast with `powerRunway ... THE WHOLE CHAIN HAD NO ADMIN IN IT`, which looked identical
+and was NOT added here: its cause was an audit read racing a fire-and-forget write, the
+remedy already existed twenty lines away in a sibling file, and it was fixed in 48758d4.
+Reach for the ledger only when a clean fix genuinely is not available.
 
 **THE LANDING CRITERION IS THEREFORE A SET COMPARISON, NOT A COUNT.** An integration run that
 fails only tests already in that flaky set is NO WORSE THAN BASELINE. An integration run that
