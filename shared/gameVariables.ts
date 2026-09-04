@@ -137,9 +137,9 @@ export const VARIABLES: VariableDef[] = [
   {
     key: "ledger.admin_mint_cycle_cap",
     category: "Ledger",
-    label: "Admin mint cap per lunar cycle",
+    label: "Issuance cap per lunar cycle",
     description:
-      "The most any admins can mint by hand, in total, per token, per lunar cycle (S9's mint endpoint enforces it as an aggregate, not per call). A cap on manual issuance is what makes 'the numbers mean something' a property of the system instead of a promise from whoever holds admin. 0 disables manual minting entirely.",
+      "The most this village can bring into existence of one token in one lunar cycle, counted across every door and not by hand alone: hand-mints, co-signed grants, treasury stocking, stay-credit comps, purchases and adjustments, and the credits a work-exchange quest releases all spend the same number. It is counted NET, so a credit a member spends back into the faucet inside the same cycle stops counting and can be issued again. Two consequences worth knowing before you set it. A busy month of stays or quests can use the cap up before a steward has minted anything by hand, and the refusal a steward then meets says how much of the lunation's issuance came from those doors. And 0 disables every door that issues this token, because a cap of zero means zero.",
     type: "integer",
     default: "10000",
     min: 0,
