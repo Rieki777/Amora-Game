@@ -424,9 +424,11 @@ export default function TokensTab({ password, lifecycles }: { password: string; 
           <div className="border border-gray-200 rounded-xl p-5">
             <h3 className="font-semibold text-gray-900 mb-1">Mint by hand</h3>
             <p className="text-xs text-gray-500 mb-3">
-              Issues from the dedicated mint faucet, with a reason, audited. All admins
-              together can mint at most {mintCap.toLocaleString()} per token per lunar
-              cycle (ledger.admin_mint_cycle_cap).
+              Issues from the dedicated mint faucet, with a reason, audited. This village
+              can bring at most {mintCap.toLocaleString()} of a token into existence per
+              lunar cycle, counted across every door and not by hand alone, and counted
+              net of what comes back (ledger.admin_mint_cycle_cap). A busy month of stays
+              or quests can use it up before anyone mints anything here.
               {/* State what is true, then get out of the way (R56). Both of
                   these are facts about what the route will do, and neither
                   argues with the village about its own dials. */}
