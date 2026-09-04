@@ -33,14 +33,20 @@ import assert from "node:assert";
 import fs from "node:fs";
 import {
   KNOWN_DIALS,
+  LINEAGE_SOURCES,
   PROSE,
   RULINGS,
   SUBJECT_WORDS,
+  WITHDRAWN,
   classifyDoor,
   collectFacts,
   dialCoverageProblem,
   generate,
+  namedDialProblem,
   proseCoverageProblem,
+  quorumSentence,
+  renderLineage,
+  schemaFacts,
   subjectCoverageProblem,
 } from "./generate-governance-doc.mjs";
 import { checkSpan } from "./check-voice.mjs";
@@ -131,6 +137,116 @@ check("the real routes are all classified, and the count is stated", () => {
   }
 });
 
+check("THE WALK READS EVERY ROUTE MODULE ON DISK, NEVER A LIST OF THEM", () => {
+  // The failure this replaces: `routeFacts` named three files, four more route
+  // modules landed, and the document went on saying delegation was not built
+  // while seven delegation routes were serving members. A directory walk cannot
+  // go stale that way, so the test is that the walk actually reached files the
+  // old list never named.
+  const f = collectFacts();
+  const files = new Set(f.routes.rows.map((r) => r.file));
+  assert.ok(files.size > 2, `the walk read ${files.size} file(s); it should read every module under server/routes`);
+  for (const rel of files) {
+    assert.ok(
+      rel === "server/index.ts" || rel.startsWith("server/routes/"),
+      `the walk read something outside the route modules: ${rel}`,
+    );
+    assert.ok(!/\.(test|spec)\.ts$/.test(rel), `the walk read a test file: ${rel}`);
+  }
+  assert.ok(
+    !f.staged.delegation,
+    "delegation has routes on this tree, so the staged flag that reads the walk must be false",
+  );
+});
+
+console.log("\ngenerate-governance-doc: the schema the document rests on\n");
+
+check("the tables and columns the document states are all present", () => {
+  const facts = schemaFacts();
+  assert.ok(facts.migrationCount > 0, "the schema reader must read migrations, not report a clean zero");
+  assert.ok(facts.shapes.length > 0);
+  for (const shape of facts.shapes) {
+    assert.ok(shape.name && shape.what, `a schema shape is malformed: ${JSON.stringify(shape)}`);
+  }
+});
+
+check("a setting the document names by hand and the registry dropped stops the build", () => {
+  const problem = namedDialProblem(["governance.veto_hours"], [["governance.gone", "something"]]);
+  assert.ok(problem && /governance\.gone/.test(problem), problem);
+  assert.strictEqual(namedDialProblem(["governance.here"], [["governance.here", "something"]]), null);
+});
+
+console.log("\ngenerate-governance-doc: what quorum counts\n");
+
+check("THE QUORUM SENTENCE IS THE ENGINE'S OWN ARITHMETIC, NOT THE RULING'S WORDS", () => {
+  // 19F rules that quorum is pure token weight and 20.8's head-count quorum is
+  // withdrawn. `check-governance-doc.mjs` compares the generator to the file and
+  // never the prose to the code, so without this the document could go on
+  // reciting the ruling for as long as somebody kept regenerating it, whatever
+  // `quorumPctOf` had come to do.
+  const f = collectFacts();
+  const sentence = quorumSentence(f);
+  const text = generate();
+  assert.ok(text.includes(sentence), "the sentence the reader sees is the sentence this test checks");
+
+  if (f.quorumFormula.weightOnly) {
+    assert.ok(/Quorum is weight\./.test(sentence), `the weight-only reading must say so: ${sentence}`);
+    for (const field of f.quorumFormula.weightFields) {
+      assert.ok(sentence.includes(field), `the sentence must name the weight it adds: ${field}`);
+    }
+    assert.ok(!/head count[^ ]* [a-z]/.test(sentence.replace("reads no head count at all", "")),
+      "a weight-only formula names no head count as a thing it reads");
+    assert.strictEqual(f.quorumFormula.headFields.length, 0);
+  } else {
+    assert.ok(/disagree about quorum/.test(sentence), `a head count in the formula must be stated loudly: ${sentence}`);
+  }
+});
+
+check("the concentration 19F accepted is stated in the document, not implied", () => {
+  const text = generate();
+  assert.ok(
+    /97 percent of the Voice carries a constitutional change alone/.test(text),
+    "19F obliges this document to say plainly what pure weight allows one holder to do",
+  );
+  assert.ok(/This platform counts accounts/.test(text), "the accounts-are-not-people sentence has to be on the page");
+});
+
+console.log("\ngenerate-governance-doc: the lineage\n");
+
+check("the lineage renders into both files from one place", () => {
+  const f = collectFacts();
+  const doc = generate();
+  const shelf = renderLineage(f);
+  assert.ok(doc.includes("## Where this comes from"), "the document carries the section");
+  assert.ok(shelf.includes("## Where this comes from"), "the shelf carries the same section");
+  assert.ok(LINEAGE_SOURCES.length === 3, "the founder named three sources");
+  for (const source of LINEAGE_SOURCES) {
+    for (const where of [doc, shelf]) {
+      assert.ok(where.includes(source.url), `the link to ${source.title} is missing`);
+      assert.ok(where.includes(source.copy), `the local copy of ${source.title} is not named`);
+    }
+    assert.ok(
+      fs.existsSync(new URL(`../${source.copy}`, import.meta.url)),
+      `${source.copy} is named as a copy a fork can open and does not exist`,
+    );
+  }
+  assert.ok(
+    doc.includes("docs/GOVERNANCE_EVOLUTION_PROMPT.md") && shelf.includes("docs/GOVERNANCE_EVOLUTION_PROMPT.md"),
+    "the record of the rulings is pointed at from both",
+  );
+});
+
+check("every withdrawn sentence carries the date it was struck", () => {
+  const text = generate();
+  assert.ok(WITHDRAWN.length > 0, "the struck history is the point of keeping it");
+  for (const w of WITHDRAWN) {
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(w.on), `a withdrawal with no date: ${w.what}`);
+    assert.ok(w.by && w.now, `a withdrawal with no author or no replacement: ${w.what}`);
+    assert.ok(text.includes(`~~${w.what}~~`), `a withdrawn sentence is not struck on the page: ${w.what}`);
+    assert.ok(text.includes(`Withdrawn ${w.on} by ${w.by}.`), `a withdrawal does not name when and who: ${w.what}`);
+  }
+});
+
 console.log("\ngenerate-governance-doc: the written half\n");
 
 check("every entry in PROSE renders, and every marker names an entry", () => {
@@ -157,6 +273,12 @@ check("EVERY HUMAN SENTENCE KEEPS THE HOUSE WRITING RULES", () => {
   };
   for (const [key, text] of Object.entries(PROSE)) span(`PROSE.${key}`, text);
   for (const [key, text] of Object.entries(SUBJECT_WORDS)) span(`SUBJECT_WORDS.${key}`, text);
+  // The struck sentences are somebody's words too, and they render on the page
+  // like any other paragraph.
+  for (const [i, w] of WITHDRAWN.entries()) {
+    span(`WITHDRAWN[${i}].what`, w.what);
+    span(`WITHDRAWN[${i}].now`, w.now);
+  }
   const facts = collectFacts();
   for (const r of RULINGS) {
     span(`ruling ${r.id} title`, r.title);
@@ -183,7 +305,10 @@ check("every ruling states a status, a date and where the status came from", () 
   const text = generate();
   for (const r of RULINGS) {
     const label = r.status(facts);
-    assert.ok(/\*\*(Built|Half built|Staged)/.test(label), `ruling ${r.id} has no recognisable status: ${label}`);
+    assert.ok(
+      /\*\*(Built|Half built|Staged|Withdrawn)/.test(label),
+      `ruling ${r.id} has no recognisable status: ${label}`,
+    );
     assert.ok(r.dates.length > 0 && r.dates.every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)), `ruling ${r.id} has no date`);
     const heading = `### ${r.id}. ${r.title}`;
     assert.ok(text.includes(heading), `ruling ${r.id} has no section of its own`);

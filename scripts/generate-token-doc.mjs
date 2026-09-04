@@ -1440,9 +1440,17 @@ export function render(f) {
    * text was the only thing saying otherwise. docs/GOVERNANCE.md carries the
    * founder's words for this one in full, as its ruling 14.
    */
+  /*
+   * REWRITTEN AGAIN 2026-09-03 by the docgen lane. The paragraph below used to
+   * end "What is missing is the VILLAGE'S OWN VOTE on it", and the vote landed:
+   * `governance_mode` is a subject type with an executor, priced at the
+   * constitutional tier. A status line that goes on naming a missing feature
+   * after somebody builds it is the exact failure both generators exist to
+   * stop, so the sentence is replaced by what shipped.
+   */
   p("### 4. Voting weight switches back and forth, and holdings survive it");
   p();
-  p("**Half built.**");
+  p("**Built.**");
   p();
   const wm = f.dials.weightMode;
   p(
@@ -1456,11 +1464,11 @@ export function render(f) {
   );
   p();
   p(
-    "What is missing is the VILLAGE'S OWN VOTE on it. The dial sits in the founder ring, refused to a change set and " +
-      "to anybody who reaches the admin route through a capability, so today the switch is an administrator's act. The " +
-      "founder has ruled that it becomes proposable through a subject type of its own with a launch-grade floor, timed " +
-      "to a cycle boundary, and that the ordinary dial path keeps refusing it so the change cannot arrive by a side " +
-      "door. See `docs/GOVERNANCE.md`.",
+    "The village's own vote on it landed. `governance_mode` is a subject type with an executor of its own, priced at " +
+      "the constitutional tier, so the switch is a decision the village makes and no longer an administrator's act. " +
+      "The ordinary dial path still refuses the key, so the change cannot arrive by a side door, and the dial stays in " +
+      "the founder ring for the catalysts who set the initial conditions before the Game starts. What a passed vote " +
+      "then does, and when it lands, is in `docs/GOVERNANCE.md`.",
   );
   p();
 

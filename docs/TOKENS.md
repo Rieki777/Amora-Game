@@ -262,11 +262,11 @@ Staged: switching a module off, once the game has started and members hold its t
 
 ### 4. Voting weight switches back and forth, and holdings survive it
 
-**Half built.**
+**Built.**
 
 Today `governance.weight_mode` is a founder-ring dial with 3 choices (`equal`, `token`, `custom`), defaulting to `equal`. `governance.weight_token` decides which token weighs a vote when the mode is token, defaulting to `gratitude`. Nothing refuses a change in either direction, and switching reads or ignores holdings without deleting one: balances are ledger rows and a custom allocation is its own table, so a village can move from one person one vote to token weight and back and every holding survives the trip. Every ballot freezes the weights when it opens, so a change mid-vote cannot move a result either.
 
-What is missing is the VILLAGE'S OWN VOTE on it. The dial sits in the founder ring, refused to a change set and to anybody who reaches the admin route through a capability, so today the switch is an administrator's act. The founder has ruled that it becomes proposable through a subject type of its own with a launch-grade floor, timed to a cycle boundary, and that the ordinary dial path keeps refusing it so the change cannot arrive by a side door. See `docs/GOVERNANCE.md`.
+The village's own vote on it landed. `governance_mode` is a subject type with an executor of its own, priced at the constitutional tier, so the switch is a decision the village makes and no longer an administrator's act. The ordinary dial path still refuses the key, so the change cannot arrive by a side door, and the dial stays in the founder ring for the catalysts who set the initial conditions before the Game starts. What a passed vote then does, and when it lands, is in `docs/GOVERNANCE.md`.
 
 ### 5. Voice a founder issues before launch is still a ledger entry, and shows in history as a proposal
 

@@ -62,6 +62,23 @@ With every seat above zero, 100% of the weight is reached only when every seat h
 <!-- written by a person: criticalityToday -->
 Criticality tiers are built. Every setting carries a tier, the tier sets the quorum and the unity a change to it needs, and the tiers and the subject floors are themselves settings a village may raise and may never lower. What is still staged is the rule that a threshold changes at its own current bar.
 
+<!-- written by a person: quorumIsWeight -->
+**Quorum and unity are token weight.** They are computed over the weight token, or over heads when the village runs one person one vote, where every seat weighs one. There is no head-count quorum. The sentence after this one is read out of the arithmetic itself, so it cannot go on saying so after somebody changes the formula.
+
+Read out of the arithmetic: `quorumPctOf` adds `yesW`, `noW`, `abstainW` and divides by the frozen weight of the whole roll. It reads no head count at all. Quorum is weight.
+
+<!-- written by a person: concentrationConsequence -->
+**One holder of 97 percent of the Voice carries a constitutional change alone.** That follows from pure weight, and it is stated here because the founder accepted it as the design: concentration is allowed and invisibility is not. Every ballot, every tier control and every sentence this platform generates about a vote shows the people count beside the weight, and every player's share of the whole is visible to every other player. Transparency is the protection.
+
+<!-- written by a person: accountsNotPeople -->
+**This platform counts accounts.** It has no way to know that two accounts are one person, so a rule asking for three different parties is satisfied by three accounts one person made. A village's own membership practice is the only thing that makes a head count mean people, and no number on this page can do that work for it.
+
+<!-- written by a person: stewardlessHealthy -->
+**A village with no steward is healthy.** It is the state the training wheels come off into, and nothing here renders an empty seat as a warning or a queue. A carried decision lands whether or not anybody holds the seat. An empty seat is a village nobody can stop, and a village that chose that is playing the Game as designed.
+
+<!-- written by a person: englishOnly -->
+Governance copy is English, and only English, in version 1.0. Nothing on these surfaces is translated, and a village whose members read another language is reading these words as they are. It is a limit of this version and it is written down so a fork can plan around it.
+
 <!-- written by a person: publishModule -->
 Read the module state first. While the governance module is off, every path under its prefixes answers 404 to everybody, signed in or not. The mechanics routes are never module-gated, so they answer under every lifecycle.
 
@@ -108,6 +125,14 @@ A vote is one of `yes`, `no`, `abstain`. An outcome is one of `passed`, `failed`
 
 <!-- written by a person: peopleAndWeight -->
 Every sentence this platform generates about a vote states people AND weight together. One of three people voting, holding all of the frozen weight, is a true sentence about a vote; a bare participation percentage is not, whatever sits beside it.
+
+<!-- written by a person: nonHumanSeats -->
+**A seat held for a being other than a person votes.** Its representative is a member or an agent built to hold that point of view, and the seat is filled and emptied by a vote like any other. Whether its weight counts toward quorum is a village setting, off by default: when it is out, its weight leaves both halves of the fraction and its cast vote still counts toward unity; when it is in, weight that provably cannot vote leaves the denominator, so a representative who drifts away cannot freeze the village. The excluded weight is shown beside the people count, always.
+
+`governance.nonhuman_in_quorum` ships `false` and `governance.absent_cycles` ships `3`, so on a fresh village a seat held for a being other than a person is outside the quorum arithmetic and its vote still counts toward unity.
+
+<!-- written by a person: noFallback -->
+**Nothing falls back.** A tier that misses quorum three cycles running does not pass. The second miss warns that the next one ends it and names the tier as the obstacle; the third closes the question in a named terminal state with one door, which is to withdraw and rewrite, carrying the backers. The stalemate warning computes the most quorum a village could reach against the weight that can actually vote, so it fires on arithmetic and never on a static number.
 
 ## The dials a village holds
 
@@ -209,6 +234,133 @@ What closing a decision DOES, per subject type, and the one place that question 
 
 10 subject types execute something. Whether a member's vote BINDS is derived from this same table, so the word on the decision page and the behaviour at the close cannot come apart.
 
+## Two kinds of decision, and when each one happens
+
+<!-- written by a person: twoKindsOfDecision -->
+Every decision a village makes is one of two things, and the difference decides WHEN it happens. A **token send** moves balances: a payout, a distribution, a founding allocation. A **Game change** moves the rules everybody plays by: a setting, a threshold, a role, a seat, a module, the brand, the vote mode, the structure. Anything the table below does not name is a Game change, and that is the safe direction. A token send filed as a Game change waits three days. A Game change filed as a token send skips the window that exists to hold it, and only one of those is reversible.
+
+| Subject type | Kind |
+| --- | --- |
+| `token_send` | `token_send` |
+| `quest_payout` | `token_send` |
+| `founding_allocation` | `token_send` |
+
+Every other subject type is a `game_change`, including every one in the closing table above that this table does not name.
+
+| Change-set element | Kind |
+| --- | --- |
+| `dial` | `game_change` |
+| `mint_rule` | `game_change` |
+| `weight_allocation` | `game_change` |
+| `mode_switch` | `game_change` |
+| `module_lifecycle` | `game_change` |
+| `brand_field` | `game_change` |
+| `role` | `game_change` |
+| `token_send` | `token_send` |
+
+<!-- written by a person: weightAllocationIsAGameChange -->
+The allocation of voting weight is a **Game change**, and it is named here because both descriptions can claim it. It writes the custom allocation table, which is a number and never a token: no ledger row, no balance, nothing minted. What it changes is what every future vote weighs, which is as constitutional as a decision gets, so it waits inside a window like any other change to the rules.
+
+<!-- written by a person: timingChoice -->
+Every proposal carries a timing choice, and the proposer makes it: execute at acceptance, or start with the new moon. A token send defaults to acceptance, because a payout for finished work has no reason to wait a moon. A Game change defaults to the new moon, in the founder's words, to carry a pattern of new activities starting then.
+
+| Kind | Timing it defaults to | What that means |
+| --- | --- | --- |
+| `token_send` | `at_acceptance` | it happens when the ballot closes |
+| `game_change` | `next_moon` | it happens at the next boundary of the active clock, and never before its window shuts |
+
+A proposal carries one timing out of 2 (`at_acceptance`, `next_moon`), and the platform default is `next_moon`. A Game change chosen at acceptance still cannot land before its window closes, so it lands at the close of the window. Anything chosen for the new moon lands at the later of the next boundary and the close of the window.
+
+<!-- written by a person: landingInstant -->
+The landing instant is arithmetic over the ballot's own FROZEN closing instant, never over the moment a person pressed close. That matters: if the pass instant were a human press, the proposer would be choosing which three days the seat gets.
+
+<!-- written by a person: bundleWaits -->
+A bundle waits as a whole, under one landing instant and one window. A change set carrying any Game-change element is wholly a Game change, token sends included. Splitting it across two clocks would let the token half execute at the close and be beyond reach while a steward stopped the half that was meant to keep it honest.
+
+<!-- written by a person: snapForward -->
+A change set touching a setting the platform applies at a cycle close, a minting rule, or a per-stage multiplier snaps its landing forward to the next boundary on every path, acceptance timing included. A ceiling that moves under somebody already spending against it is a different village from the one they were playing in an hour ago.
+
+<!-- written by a person: lateSettled -->
+A row that reaches passed with its landing instant already gone is restamped to now plus the window, marked late-settled with the reason, and every steward is told. Without that, a scheduler outage or a late close would hand a steward a window that was over before they heard it had opened, and the record would report it as honoured.
+
+## The veto window
+
+<!-- written by a person: vetoWindowRule -->
+**The window is at least 72 hours, and it stays open until the change lands.** The founder gave both halves of that sentence, and this is how they meet: the closing instant of the window IS the landing instant, and 72 hours is its floor. A vote that carries with a month left in the cycle gives its stewards the month. A vote that carries on the last day gives them three days, which run past the boundary. The window is capped at one cycle of the active clock, so a village cannot set a window longer than the rhythm it lands on.
+
+The floor is 72 hours, held in code. The village's own number is `governance.veto_hours`, an `open`-ring setting defaulting to `72` hours. `governance.steward_subjects` says which kinds of decision the seat may stop and ships `all`. `governance.steward_council` ships `false`: while it is off, any one seated steward stops a change; while it is on, a majority of the seated stewards has to.
+
+<!-- written by a person: vetoAct -->
+A veto is a first-class act. It carries the name of the steward who cast it, a reason that cannot be blank, and a place in the record. The reason is plain text, length-capped, escaped everywhere it renders, public and permanent, and redactable: the words blank and the act, the author and the time stay. The proposal goes back to its proposer with its backers intact, and a proposal returned to open and passed again lands.
+
+<!-- written by a person: vetoOnTheBallot -->
+The veto lives on the BALLOT, and a proposal's display of it derives from that proposal's current ballot. Stamping it on the proposal row instead is how a village that answers its steward's objection and passes the same proposal again gets skipped by the landing gate forever.
+
+<!-- written by a person: stewardNo -->
+**A seated steward's no.** On a token-send ballot only, a seated steward voting no fails it at the close. Never on a ballot the steward is the subject of. It needs a reason under the veto's own rule, and the row closes as vetoed with the steward named, so the override and the dashboard's blocked-payouts row both reach it. The steward's own weight counts in the tally like anybody's. A token send has no window after it closes, so the block has to happen while the ballot is open.
+
+<!-- written by a person: notVetoable -->
+**What no steward may stop.** Seating and unseating a role that carries the veto, and any edit to the settings that say what a steward may stop, keep their timing and their window like any Game change and sit outside every steward's reach. A seat that could veto its own removal is a seat nobody can remove. A change set mixing one of those elements with any other kind is refused when it is validated, naming both elements, so the carve-out cannot carry anything else through beside it.
+
+Read from the code: `role_seat`, `role_unseat`, `village_launch` execute the moment they carry, with no window at all. The ruling of 2026-09-03 asks for something narrower for the two seat acts, which is that they keep their timing and their window like any Game change and that no steward may stop them. The code gives them no window at all, which arrives at the same place by a shorter road, and the difference is written down here because the two are not the same sentence. The Birthing is on that list for a reason of its own: before it carries nobody holds a seat, so a window on it would be hours nobody could use, and it already asks every seat to vote and every seat to say yes.
+
+<!-- written by a person: override -->
+**The override.** A proposal that was stopped may be brought back. Passed again at the village's highest set tier, with the relation stated (`renews`, `overrides` or `replaces`) and the ballot actually PRICED at that tier, it lands whatever any steward says. The record links it to the decision that was stopped and the reason stays visible beside it. A renewal may not point at a decision that was stopped.
+
+The tier the override has to reach is `governance.highest_tier`, an `open`-ring setting defaulting to `constitutional`. Changing it is priced at itself.
+
+<!-- written by a person: notices -->
+Stewards are told three times: when a decision carries, at the half-way point of the window, and two hours before it lands. Each notice is its own kind of notification, pinned to immediate in the mail cadence, because every governance message used to resolve to a daily digest and the last warning before a change landed arrived after it had landed. The off preference is refused while a member holds a seat that carries the veto, and a notice whose moment has passed is suppressed instead of being sent late.
+
+## When a proposal may be opened
+
+<!-- written by a person: windowsIntro -->
+A village may say WHEN a kind of proposal can be opened. Per proposal kind it chooses always open, the last N days of every cycle of the active clock, the last N days of every season, or a window of its own. All of them ship always open, so a fresh village gates nothing.
+
+| Setting | The kind it gates | Ships as |
+| --- | --- | --- |
+| `governance.window_changeset` | When a change to the Game Mechanics can go to the vote | `always_open` |
+| `governance.window_mint_rule` | When a change to what the village mints can go to the vote | `always_open` |
+| `governance.window_governance_mode` | When a change to how votes are counted can go to the vote | `always_open` |
+| `governance.window_role_declare` | When declaring a role can go to the vote | `always_open` |
+| `governance.window_role_seat` | When seating a role can go to the vote | `always_open` |
+| `governance.window_role_unseat` | When taking a seat back can go to the vote | `always_open` |
+| `governance.window_power_transfer` | When moving a power to a role can go to the vote | `always_open` |
+| `governance.window_power_grant` | When granting a power can go to the vote | `always_open` |
+| `governance.window_power_return` | When handing a power back can go to the vote | `always_open` |
+
+`governance.window_grace_days` ships `7` days: how long anything coming back may open outside its window.
+
+<!-- written by a person: windowsRule -->
+The window gates the OPENING and nothing else. It is evaluated per element and the strictest one applies; a window shape no longer than the voting window is refused, and so is an opening whose vote would close after the window shuts. Anything coming back opens outside its window for a stated grace, because the village has already been asked once and a resubmission, an override and a renewal are all openings. The refusal names the element that narrowed the window and when it next opens.
+
+## Delegation
+
+<!-- written by a person: delegationRule -->
+You hand your voice to somebody you choose. A delegated vote is a row for the DELEGATOR carrying the delegate's choice, stamped with whoever finally decided it, so the participation arithmetic stays honest and the frozen electorate keeps meaning what it says. Weight never moves. Chains are transitive and a cycle is refused the moment a delegation is given, never while a season's votes are being counted.
+
+<!-- written by a person: delegationConsent -->
+A delegation carries a choice only once the delegate has accepted it. Pointing it somewhere else clears the acceptance, so nobody inherits a live delegation they never agreed to. While choices are hidden the copied choice is hidden from the delegator too. Withdrawing a delegation or taking a vote back restores the not-cast state, which is a different thing from an abstention and decides quorum. On a subject asking 100 percent unity a delegated row never counts.
+
+7 routes serve it, and they are in the table of what a village publishes below. What a member sees of it is a surface, and the surface is not built yet.
+
+## What happens when a decision lands
+
+<!-- written by a person: landingLoop -->
+One routine decides what is due. It runs as its own five-minute job and the human cycle close calls the same routine, so whichever arrives first applies the row and the other finds nothing left. Exactly one executor runs a due row, elected by a guarded claim on the table that holds the landing instant. Every element is validated again at landing: a seat for a member who has left the village is refused by name.
+
+<!-- written by a person: landingCounts -->
+Every report the landing job returns says which of two quiet states it is in. Nothing due and did not run look identical from outside and mean opposite things, so they are logged apart. A row whose window elapsed while the brake was off is marked stalled, its window reopened, and the stewards told.
+
+<!-- written by a person: atomicity -->
+**Atomicity comes from pre-validation, and this document says so because a member reading the word applied deserves the same sentence a contributor reads.** A change set is validated in full with nothing written, and one failure refuses the whole set naming the element by its place and its own words. Only then does it apply, irreversible writes last, one ledger row per element written, and every written-through cache reloaded from the database afterwards. There is no rollback, because a rollback through these writers would leave the process serving values the tables deny until somebody restarted it.
+
+<!-- written by a person: noCloser -->
+A binding ballot cannot be opened on a subject type that has no closer. Advisory is the exception, and it is an exception on purpose: a practice vote is a real decision that moves nothing. The refusal names the subject and points at the practice-vote door.
+
+<!-- written by a person: digest -->
+At every cycle boundary the landing job composes one digest for the cycle that ended, after asserting that every row due inside it is applied, stopped or stalled. One digest per cycle, whatever runs it, and it posts one item to the feed. No digest composed and digest empty are two different sentences in the log.
+
 ## Starting the Game: the Birthing
 
 <!-- written by a person: launchIntro -->
@@ -242,6 +394,12 @@ In token mode the weight token has to be one this platform itself governs. A tok
 
 <!-- written by a person: weightTrail -->
 Custom allocations are append-only. Every change carries a required reason and lands in a trail every player can read, which is the whole of the protection the founder named: concentration is allowed and invisibility is not.
+
+<!-- written by a person: twoVoices -->
+A village shows ONE Voice. On this platform it is the village's own Voice token. A village graduates to Hypha when it completes a crowdpool and wants a secure vehicle with liquidity, which is a real organisation on Base; from then the token there is the vote, the village Game mirrors it, and every month or season the village goes to Hypha and votes to sync the two. A village using both tools shows both Voices, and the sync keeps them in balance.
+
+<!-- written by a person: voiceIsBuyable -->
+Voice can be bought. Money in mints Voice by default, through a minting rule like any other contribution, and a village or a single proposal may change that. The guard that used to refuse a purchasable token as the weight token is relaxed on purpose, and the protection is the one the founder has named every time: every ballot and the Birthing document show each holder's share.
 
 ## Who may do what
 
@@ -292,19 +450,31 @@ What a village publishes, read from the route registrations. The door on each ro
 | POST | `/api/game/mechanics/proposals/:id/support` | signed in | none |
 | POST | `/api/game/mechanics/proposals/:id/to-hypha` | administrator | none |
 | POST | `/api/game/mechanics/proposals/:id/withdraw` | administrator | none |
+| POST | `/api/game/mechanics/proposals/dry-run` | signed in | none |
 | GET | `/api/game/mechanics/standing` | signed in | none |
 | POST | `/api/governance/advisory` | signed in | none |
 | GET | `/api/governance/ballots` | anyone, including a stranger | none |
 | GET | `/api/governance/ballots/:id` | anyone, including a stranger | none |
 | POST | `/api/governance/ballots/:id/close` | capability | `proposal.decide` |
+| GET | `/api/governance/ballots/:id/landing` | anyone, including a stranger | none |
+| POST | `/api/governance/ballots/:id/no-objection` | anyone, including a stranger | none |
 | POST | `/api/governance/ballots/:id/objections` | signed in | none |
 | POST | `/api/governance/ballots/:id/objections/:objectionId/rule` | signed in | none |
+| POST | `/api/governance/ballots/:id/veto` | anyone, including a stranger | none |
 | POST | `/api/governance/ballots/:id/vote` | signed in | none |
 | POST | `/api/governance/ballots/:id/withdraw` | capability | `proposal.decide` |
+| GET | `/api/governance/concentration` | signed in | none |
+| DELETE | `/api/governance/delegation` | signed in | none |
+| GET | `/api/governance/delegation` | signed in | none |
+| PUT | `/api/governance/delegation` | signed in | none |
+| POST | `/api/governance/delegation/accept` | signed in | none |
+| POST | `/api/governance/delegation/decline` | signed in | none |
+| POST | `/api/governance/delegation/uncast` | signed in | none |
 | GET | `/api/governance/drafts` | signed in | none |
 | POST | `/api/governance/drafts` | signed in | none |
 | DELETE | `/api/governance/drafts/:id` | signed in | none |
 | POST | `/api/governance/mechanics/:id/open-ballot` | signed in | none |
+| POST | `/api/governance/mode-switches` | signed in | none |
 | GET | `/api/governance/objections/answerable` | signed in | none |
 | GET | `/api/governance/objections/lineage` | anyone, including a stranger | none |
 | POST | `/api/governance/power-grants` | signed in | none |
@@ -314,10 +484,12 @@ What a village publishes, read from the route registrations. The door on each ro
 | POST | `/api/governance/role-seats` | signed in | none |
 | POST | `/api/governance/role-unseats` | signed in | none |
 | GET | `/api/governance/standing` | signed in | none |
+| GET | `/api/governance/stewardship` | signed in | none |
+| POST | `/api/governance/vetoes/:id/redact` | administrator | none |
 | GET | `/api/governance/weights` | signed in | none |
 | GET | `/api/governance/wizard` | signed in | none |
 
-36 routes: 23 under the governance prefix and 13 under the mechanics prefix. 8 of them answer a stranger, 2 ask for a named power, and 0 could not be classified from the code by this reader.
+50 routes: 36 under the governance prefix and 14 under the mechanics prefix. 11 of them answer a stranger, 2 ask for a named power, and 0 could not be classified from the code by this reader.
 
 The routes that answer a stranger are the village's public record. At the module's `public` lifecycle they serve the ballot list, one decision in full and the objection lineage to anybody on the internet, which includes each voter's first name, their choice and their frozen weight. Ruling 22 changes that and is staged.
 
@@ -351,9 +523,9 @@ The hub address is `governance.hub_url`, a `founder`-ring dial that ships blank,
 <!-- written by a person: brokenIntro -->
 What is broken today, by name. A document that only described the parts that work would be the same kind of check this repository has spent weeks removing: green about the wrong thing.
 
-- **A close and its executor still decide separately from the steward.** The seat, its capability, its record and its two settings all exist, and the close dispatcher has no step that reads any of them, so a passed ballot runs its executor at the close and an approval or a refusal changes no outcome today. Nothing seats a catalyst as a steward yet either, so no village has one.
+- **Nothing seats a catalyst as a steward.** The seat, the power, the record, the settings, the window and the landing loop that reads them are all built. The closer that runs when the Birthing carries writes the launch facts and nothing else: no role, no seat, no grant. So a fresh village has a veto window that nobody can use until a steward is seated, which today is an act somebody performs by hand.
 - **A close and its executor are not one transaction.** The ballot is closed by one guarded update and the executor runs after it. An executor that throws leaves a ballot closed and passed with nothing applied, and only the mechanics subject has a second door to apply by hand.
-- **3 reads under the governance prefix answer a stranger**, and at the module's `public` lifecycle that means the whole voter roll with names, choices and weights is served to the internet.
+- **6 reads under the governance prefix answer a stranger**, and at the module's `public` lifecycle that means the whole voter roll with names, choices and weights is served to the internet.
 - **A weight in token mode is displayed in ledger units.** A holding a member reads as 0.1 weighs 100 in the tally, and the hand-mint form takes raw units with no hint, so typing 1 for a 3-decimal token mints a thousandth.
 - **Two tokens are called Voice**, the platform's own and the mirror of what lives on Base, and only the first can weigh a vote. The default weight token is neither of them.
 - **A stored reason on a no vote is shown to nobody.** The widget invites a member to say why and the reader that serves votes drops it.
@@ -368,13 +540,13 @@ What is staged: ruled by the founder, described here, and absent from the code. 
 
 - **Catalysts inherit the steward seat at the Birthing, and the seat is re-voted every season** (ruling 2)
 - **Giving up the steward power is reversible, and only the village can fill the seat again** (ruling 3)
-- **Delegation copies the choice, chains are transitive, and concentration is visible** (ruling 7)
 - **One to three catalysts start a village, and Voice is the only token they may issue before the Game starts** (ruling 10)
 - **The Game Mechanics section is public, always, and after the Birthing every control becomes a proposal** (ruling 12)
-- **A village with no steward and self-executing agreements is healthy** (ruling 17)
-- **Voice for other beings, and clans, at 144 players** (ruling 18)
-- **A late approval rolls to the following new moon** (ruling 20)
+- **Clans, and Voice for other beings (the 144 gate was withdrawn a day later)** (ruling 18)
 - **Who voted is visible, how they voted is hidden, and names appear after half** (ruling 22)
+- **Voice for other beings, from the first day, with a representative** (ruling 25)
+- **Voice is buyable, and it decays one percent a cycle** (ruling 32)
+- **Stalemate protection, with a guard against the losing side asking again** (ruling 33)
 
 ## The founder's rulings
 
@@ -452,7 +624,7 @@ The founder reopened this on 2026-09-03: a village MAY block proposals outside d
 
 ### 7. Delegation copies the choice, chains are transitive, and concentration is visible
 
-**Staged.** Not built. Status computed from the code. Said 2026-08-31.
+**Built.** Status computed from the code. Said 2026-08-31.
 
 <!-- the founder's own words -->
 > One more requirement we need to build in is to delegate your vote to another member (where it just copies whatever they do as long as they have your delegation and you can remove and change a vote on an open proposal at anytime. So full rights to the individual but for those who don't want to vote can give their voice to someone they trust.
@@ -582,15 +754,15 @@ Built: withdrawal exists at both layers, a no vote may carry a free-text reason 
 
 ### 17. A village with no steward and self-executing agreements is healthy
 
-**Staged.** Not built. Status stated by a person; the code cannot answer this one. Said 2026-09-02.
+**Built.** Status computed from the code. Said 2026-09-02.
 
 <!-- the founder's own words -->
 > Sure and it's perfectly fine to have no stewards and for the game to have self/executing agreements - Stewards are like the 'training wheels' to the game to help them start - not a desirable endstate. Except one where we're all stewards in our own way.
 
 <!-- written by a person: ruling-17 -->
-An empty steward seat is never a warning, and nothing queues behind it. A village with nobody on the seat is a village nobody can veto: its carried decisions land at their landing time exactly as they would with the seat filled. The vacancy read says that in one sentence and never as a fault report.
+An empty steward seat is never a warning, and nothing queues behind it. A village with nobody on the seat is a village nobody can veto: its carried decisions land at their landing instant exactly as they would with the seat filled. The vacancy read says that in one sentence and never as a fault report.
 
-### 18. Voice for other beings, and clans, at 144 players
+### 18. Clans, and Voice for other beings (the 144 gate was withdrawn a day later)
 
 **Staged.** Not built. Status computed from the code. Said 2026-09-02.
 
@@ -598,27 +770,27 @@ An empty steward seat is never a warning, and nothing queues behind it. A villag
 > part of step 2 is to encourage to name non-human governance roles in your Game (other beings who live on the land) to be part of governance. - For example giving voice to nature (a mountain your project is on a river it borders, the trees and fauna and flora that shares that piece of earth with us) - this creates another idea where a governance function of 'clans' (which groups can name whatever they like and change this name in admin) but groups within the village that anchor on living beings. The water group would tend to the waters the earth group to the land the air group to the air, etc the wolf group would tend to restoring this apex predator - which requires restoring the whole pyramid underneath the beaver clan, etc. etc all clans are namable in admin as well. But these other actors can be given voice - though this is considered a mature feature to build into the Game once you hit 144+ people.
 
 <!-- written by a person: ruling-18 -->
-Clans are a governance object nothing in the code knows about yet: groups within a village, each anchored on a living being or an element, each tending what it is named for, every name editable in the Game Mechanics section. Giving those actors Voice is a MATURE feature and unlocks at 144 or more players. The founding step should invite the catalysts to name non-human governance roles: a mountain, a river, the trees, the fauna and flora that share the land.
+Clans are a governance object nothing in the code knows about yet: groups within a village, each anchored on a living being or an element, each tending what it is named for, every name editable in the Game Mechanics section. The founding step should invite the catalysts to name governance roles for beings other than people: a mountain, a river, the trees, the fauna and flora that share the land. The 144-player gate in this answer was WITHDRAWN on 2026-09-03, one day later: such a seat may be declared from a village's first day, and 144 is guidance on the screen. Ruling 25 carries his words for that.
 
 ### 19. A passed change lands at the new moon itself
 
-**Half built.** Status computed from the code. Said 2026-09-02.
+**Half built, and half withdrawn on 2026-09-03.** Status stated by a person; the code cannot answer this one. Said 2026-09-02.
 
 <!-- the founder's own words -->
 > I don't understand this fully.
 
 <!-- written by a person: ruling-19 -->
-Built: 11 dials wait for the next cycle close instead of applying at the close of the vote, and a minting rule stamped for a coming cycle is promoted on its own by the hourly job at the true boundary. Staged: a passed proposal carries no record of the cycle it lands in, the held state is a status plus a live check against a code list that can change between the vote and the close, and a member is never told which moon their proposal lands on. The ruling: the new moon itself. One routine applies everything due, both the hourly job and the human close call it, whichever runs first applies and the other finds nothing left to do, and the proposal says which cycle it lands in from the moment it passes.
+Built: 11 dials wait for the next cycle close instead of applying at the close of the vote, a minting rule stamped for a coming cycle is promoted on its own by the hourly job at the true boundary, one routine applies everything due, and both its own job and the human close call it, so whichever runs first applies and the other finds nothing left. Withdrawn by his 2026-09-03 words: the part of this answer that stamped a proposal with a CYCLE NUMBER and showed a member "lands at cycle 331". A landing is a timestamp taken from the active clock, and the page reads the instant with the countdown beside it.
 
 ### 20. A late approval rolls to the following new moon
 
-**Staged.** Not built. Status stated by a person; the code cannot answer this one. Said 2026-09-02.
+**Withdrawn on 2026-09-03.** Status stated by a person; the code cannot answer this one. Said 2026-09-02.
 
 <!-- the founder's own words -->
 > explain?
 
 <!-- written by a person: ruling-20 -->
-The case: a proposal passes on the 20th of the moon, the steward is away, and the approval lands after the new moon has come and gone. The ruling is that it waits for the NEXT new moon after the approval, so the promise that changes land at cycle starts holds and the page shows the new landing date. It does not take effect mid-moon on approval, and it does not expire because a steward missed a boundary.
+The case this answered: a proposal passes on the 20th of the moon, the steward is away, and the approval lands after the new moon has come and gone. The situation cannot arise now, because no decision waits for a steward to act. A Game change lands at the later of the next boundary and the close of its window, and a steward who is away simply does not stop it. The answer is kept here for the reasoning it carries and because a reader who learned it needs to see it struck.
 
 ### 21. Nothing is un-votable, criticality raises the bar, and 97 is the recommended ceiling
 
@@ -649,6 +821,205 @@ Votes are named on purpose today: the decision page says this village does not r
 
 <!-- written by a person: ruling-23 -->
 The document, its guard, its self-test and its database test are here. The walk this ruling asks for, a fresh account driven through every governance action on a running site, is what the rest of the work is measured by, and it has not been done yet.
+
+### 24. Two Voices, one shown at a time, and the graduation to Hypha
+
+**Half built.** Status computed from the code. Said 2026-09-02.
+
+<!-- the founder's own words -->
+> Yes village-voice is the Voice
+
+<!-- the founder's own words -->
+> Village Voice is the voice unless they're running on Hypha then it changes, but only show one at the beginning, either they're using the platform or Hypha to vote. What we have is a sort of 'graduation' to Hypha when you complete a crowdpool and you want to accept all those contributions and have a secure vehicle with easy liquidity (an actual DAO on Base using Coinbase's liquidity) then you're using those actual tokens and mirroring your village game with Hypha updates (like every month or season) you would actually go to Hypha and vote to sync up the Games there. Then you would show both types of Voice if they're using both Tools but they should be in balance with every sync.
+
+<!-- written by a person: ruling-24 -->
+The two tokens exist and the platform's own Voice is the one a fresh village weighs a vote with. The hub address ships blank, so a fresh village sends nowhere, and nothing leaves without a shared secret beside it. What is not built is the graduation itself: the moment a completed crowdpool moves the vote to Base, the mirroring, and the monthly or seasonal sync that keeps the two in balance. Until that exists a village shows one Voice, which is the shape this ruling asks for at the beginning anyway.
+
+### 25. Voice for other beings, from the first day, with a representative
+
+**Staged.** Not built. Status computed from the code. Said 2026-09-02 and 2026-09-03.
+
+<!-- the founder's own words -->
+> You expose catalysts at the beginning (even with 3 people) the concept of giving voice to nature and inviting them to consider it by either a human or AI agent taking the perspective - or even talking directly if they have the human ability to the nature beings)
+
+<!-- the founder's own words -->
+> 2. yes voice for other beings at day 1
+
+<!-- written by a person: ruling-25 -->
+This replaces the 144-player unlock of the earlier answer, which becomes guidance on the screen. A village may declare a governance role for a being other than a person from its first day, with a representative who holds that point of view: a member, an agent built for it, or somebody who speaks with that being directly. Nothing in the code declares one yet.
+
+### 26. Every setting shows its cost, and a threshold moves at its own bar
+
+**Half built.** Status computed from the code. Said 2026-09-02.
+
+<!-- the founder's own words -->
+> Yes every setting says what it costs and these are all editable from the start by catalysts to set the initial amounts. but they also can be changed by reaching the same amount they are set at can change their threshold again.
+
+<!-- the founder's own words -->
+> Q9 yes the highest floor among them which discourages people to adjust those settings knowing the storytelling required for higher changes.
+
+<!-- written by a person: ruling-26 -->
+Built: every setting carries a tier, the tier prices a change to it, a bundle takes the highest floor among its elements, and the tiers are settings a catalyst edits before the Birthing. Still staged: the rule that moving a threshold costs that threshold's own CURRENT bar in both directions, so a dial at 97 and 97 needs 97 and 97 to move either way.
+
+### 27. The steward holds a veto window, and nothing waits for a steward
+
+**Built.** Status computed from the code. Said 2026-09-03.
+
+<!-- the founder's own words -->
+> Yes whenever a decision is approved it passes and executes (if it's sending tokens) if it's changing the Game then it starts at the next new moon or automatically if a steward doesn't block it, a steward is given 3 days minimum (so if the vote only gets enough quorum and total votes by the very last day of the lunar cycle then a steward will get 3 days to veto, if it's past longer than 3 days out of the end of the cycle then a steward has until the cycle ends to veto otherwise it goes into effect.
+
+<!-- written by a person: ruling-27 -->
+This is the ruling the whole model turns on, and it withdraws the approval gate of the two rounds before it. A token send executes at the close of its ballot. A Game change never executes at the close: it is stamped with a landing instant and lands there by itself unless a seated steward stops it inside the window. There is no approval, no hold, and no queue when the seat is empty. The window is at least 72 hours and stays open until the change lands, and `governance.veto_hours` carries the village's own number with that floor. `governance.steward_subjects` says which kinds of decision the seat may stop.
+
+### 28. A steward's no fails a token payment, and a veto can be overridden
+
+**Built.** Status computed from the code. Said 2026-09-03.
+
+<!-- the founder's own words -->
+> However if a steward votes down on a token payment proposal than it fails automatically.
+
+<!-- the founder's own words -->
+> Yes stewards can also block payouts, and yes to the veto override
+
+<!-- written by a person: ruling-28 -->
+A seated steward voting no on a token-send ballot fails it at the close, with the steward named and the reason on the record, and the row closes as vetoed so the override and the dashboard both reach it. Two narrowings are the build's own reading and are recorded as such: it applies to token sends and never to every ballot, and a steward cannot fail a ballot they are the subject of. Because a token send has no window after it closes, the block happens while the ballot is open.
+
+### 29. The override tier, the governance windows, the notices and the countdown
+
+**Built.** Status computed from the code. Said 2026-09-03.
+
+<!-- the founder's own words -->
+> We can have a veto override if it goes up to the highest tier they have set as a village (this is also a setting that can change at the highest tier set)
+
+<!-- the founder's own words -->
+> Yes stewards are sent emails and given notifications in the app. But we can also block all proposals from not happening within defined governance windows. Some can be 'always open' but some can have set windows (like the last week of every month or last 2 weeks of every season or whatever) but those two are the default choices we offer to guide.
+
+<!-- the founder's own words -->
+> Steward accountability on dashboard is excellent!
+
+<!-- the founder's own words -->
+> 72 hours from close and a countdown on it.
+
+<!-- written by a person: ruling-29 -->
+The override lands at `governance.highest_tier`, which is itself priced at the highest tier. The windows are 9 settings, one per proposal kind, and each holds one shape: always open, the last N days of every cycle of the active clock, the last N days of every season, or a shape the village writes. All of them ship always open. This supersedes the 2026-08-31 line that proposals are never gated by the calendar: a village may gate them now, and always open stays a choice. The countdown reads one instant through one helper, so no surface can show a deadline the engine does not enforce.
+
+### 30. Lunar months, quorum by weight, the bundle waits, and timing per proposal
+
+**Built.** Status computed from the code. Said 2026-09-03.
+
+<!-- the founder's own words -->
+> governance 'Months' are lunar months starting and ending with the moon as the default
+
+<!-- the founder's own words -->
+> Quorum SHOULD be pure token weight (not counting people, unless it's 1-person-1-vote but we STILL SHOW PEOPLE counts, even though the quorum is calculated by village-voice token weight)
+
+<!-- the founder's own words -->
+> 1. who bundle waits! (along with this proposals can each carry - execute at accept or start with the new moon and to default to starting with the new moon to carry a pattern of new activities starting then).
+
+<!-- the founder's own words -->
+> 2. no any single steward has the ability to veto though we could add a 'Steward Council' option that makes it a majority of them
+
+<!-- the founder's own words -->
+> 3. No if there is 3 cycles without quorum it just doesn't pass.
+
+<!-- the founder's own words -->
+> make sure you add the context and links to those context documents (on governance I gave you at the first) to the governance docs that humans and bots will read to get an understanding of this game.
+
+<!-- written by a person: ruling-30 -->
+A governance month is a lunar month. Quorum and unity read weight and nothing else, which the arithmetic itself confirms: `quorumPctOf` adds yesW, noW, abstainW and divides by the frozen total weight, and it reads no head count at all. The head-count quorum an earlier plan carried is withdrawn, and so is the automatic drop to a lower tier after three cycles without quorum. People counts are shown beside the weight everywhere. A bundle waits as a whole under one landing instant. Any single steward may stop a change, and `governance.steward_council` makes it a majority of the seated stewards. The three sources this document descends from are named in Where this comes from, with a copy of each under `docs/sources/`.
+
+### 31. A non-human seat votes, and whether its weight counts toward quorum is a setting
+
+**Half built.** Status computed from the code. Said 2026-09-03.
+
+<!-- the founder's own words -->
+> 1. default 2. default 3. default 4. default 5. a non-human seat should be voting! Either it is held by an actual human or a bot that is meant to vote to represent that PoV. However, it can also be excluded from quorum (make this a setting too whether to include or exclude from quorum with the default excluded) 6. default 7. default 8. default
+
+<!-- written by a person: ruling-31 -->
+`governance.nonhuman_in_quorum` decides whether such a seat's weight counts toward quorum and ships `false`, and `governance.absent_cycles` says how many cycles a seat may go unvoted before weight that cannot vote leaves the denominator. The arithmetic is built and the seat is not: nothing declares a being other than a person yet, and a representative who is an agent needs an account a ballot can point at. The eight defaults this answer accepted are the veto window, a steward's no on payments only, payouts at acceptance and Game changes at the moon, no trial of a pricing dial, a window that gates the opening only, members-only names and amounts, and erasure winning over the freeze.
+
+### 32. Voice is buyable, and it decays one percent a cycle
+
+**Staged.** Not built. Status stated by a person; the code cannot answer this one. Said 2026-09-03.
+
+<!-- the founder's own words -->
+> Yes, Voice is buyable and decays 1% per cycle by default.
+
+<!-- the founder's own words -->
+> Yes an investment of money is a contribution and does (by default) issue voice. though this can be changed of course by each village and each proposal being 100% editable.
+
+<!-- the founder's own words -->
+> Yes decay is uniform.
+
+<!-- written by a person: ruling-32 -->
+This deliberately relaxes a guard the platform shipped: a token money can buy was refused as the weight token, and the refusal becomes a warning on the control. Money in mints Voice by default through a minting rule like any other contribution, a village or a single proposal may change that, and every ballot and the Birthing document show each holder's share, which is the protection. Decay is uniform across bought and earned Voice, posted to a sink at the cycle close, and never a rewrite of a balance, so the weights a ballot freezes read the balance the ledger holds at that instant with no change to the engine. None of it is in the code today.
+
+### 33. Stalemate protection, with a guard against the losing side asking again
+
+**Staged.** Not built. Status stated by a person; the code cannot answer this one. Said 2026-09-02.
+
+<!-- the founder's own words -->
+> I think so on the stalemate protections but we have to do this in a way where they can't be abused by people who don't like the outcome of a vote.
+
+<!-- the founder's own words -->
+> Yes absolutely first governance as quests that describes how this is how we empower ourselves, evolve the game, make sure we're always making it better, more fun, more empowering, more capable, as we co-create new realities and civilizations together and take this task seriously.
+
+<!-- written by a person: ruling-33 -->
+A ballot may be re-run with a fresh roll only when a frozen seat has provably left the village, recorded in the ledger and never self-declared, and only while the ballot is still open and can no longer reach its quorum. A closed ballot is never re-run, so nobody who dislikes an outcome gets a second vote out of this. The re-run links to the ballot it replaces so the record says why. The same door opens for a bloc of weight that cannot vote, which is arithmetic telling the truth and not the tier fallback that was withdrawn. The second quote is the framing the first governance quests carry.
+
+## What was withdrawn
+
+<!-- written by a person: withdrawnIntro -->
+What this document used to say, and no longer does. Each line was true of an earlier ruling and was withdrawn by a later one, with the date. It is kept because a reader who learned the old rule needs to see it struck, and because a fork reading an older copy of this file should be able to tell which sentences went.
+
+- ~~A steward approves a passed proposal before it takes effect.~~
+  Withdrawn 2026-09-03 by 19C. The steward holds a window and never a gate. A carried decision lands on its own, and the seat's one power is to stop it before it does.
+- ~~A passed proposal QUEUES while the steward seat is empty, and executes when a steward is next voted in.~~
+  Withdrawn 2026-09-03 by 19C. Nothing queues. A village with no steward is a village nobody can stop, and that is the healthy end state.
+- ~~A member sees "lands at cycle 331" on the proposal from the moment it passes.~~
+  Withdrawn 2026-09-03 by 19C and 20.11. A landing is a timestamp taken from the active clock. The page shows the instant with the countdown beside it, and no cycle number appears on the vote path.
+- ~~Voice for other beings, and clans, unlock at 144 players.~~
+  Withdrawn 2026-09-03 by 19B and 19C. A village may declare a seat for a being other than a person on its first day. The 144 line is guidance on the screen.
+- ~~Some settings can never be changed by a vote.~~
+  Withdrawn 2026-09-02 by 19 Q11. Nothing is un-votable. Criticality raises the bar instead, and the recommended ceiling is 97 percent of quorum and 97 percent of unity.
+- ~~Proposals are never gated by the calendar, and a governance window must not become a permission check.~~
+  Withdrawn 2026-09-03 by 19E. A village may block a kind of proposal from being OPENED outside a window it sets. Always open stays a choice and ships as the default.
+- ~~A ballot's full detail, with each voter's name, their choice and their frozen weight, is public.~~
+  Withdrawn 2026-09-02 by 19 Q12. Who has voted is visible once half the required votes are in; how they voted is hidden unless a village turns public voting on. Counts and shares of weight stay visible under every setting.
+- ~~A tier percentage counts weight AND heads, so a quorum needs a minimum number of people as well as a share of the weight.~~
+  Withdrawn 2026-09-03 by 19F. Quorum and unity are pure token weight. People counts are shown beside the weight everywhere, and the concentration that allows is stated in this document as the founder's own decision.
+- ~~A tier that misses quorum three cycles running drops automatically to the tier below it.~~
+  Withdrawn 2026-09-03 by 19F. It simply does not pass. The second miss warns that the next ends it; the third closes the question with one door, which is to withdraw and rewrite.
+- ~~A vetoed proposal is overridden by passing again at the NEXT criticality tier above the one it carried at.~~
+  Withdrawn 2026-09-03 by 19E. It is overridden by passing again at the village's highest set tier, which is itself a setting priced at that tier.
+- ~~A steward's approval executes the proposal at once.~~
+  Withdrawn 2026-09-03 by 19C. There is no approval to execute at. His words that night stay in the record as ruling 27's history.
+- ~~A late approval rolls the proposal to the following new moon.~~
+  Withdrawn 2026-09-03 by 19C. The situation cannot arise, because nothing waits for a steward.
+
+## Where this comes from
+
+<!-- written by a person: lineageIntro -->
+The engine's dials descend from three sources the founder gave, and they are named here so a person or a bot reading this document can go to the root of it.
+
+- [So you want to make a DHO?](https://docs.google.com/presentation/d/1hjjo_p5VqaOkaUml9nR3s8ZGUt1AzCidCSw6VngJ3dc/edit?usp=drivesdk)
+  <!-- written by a person: lineageDeck -->
+  The slide deck "So you want to make a DHO?" (Hypha and SEEDS): the three dials of voice variance, quorum and unity, with the named corners those dials describe.
+  A copy a fork can open: `docs/sources/hypha-dho-deck.md`.
+- [How to do a DHO/DAO](https://youtu.be/_TpyEO6NRnY)
+  <!-- written by a person: lineageTalk -->
+  The talk "How to do a DHO/DAO", a guide for groups building new-paradigm organisations, from SEEDS: Regenerative Renaissance.
+  A copy a fork can open: `docs/sources/how-to-do-a-dho-talk-summary.md`.
+- [Hypha Handbook V0.3](https://docs.google.com/document/d/1hFJPe1N0yyntJ9g-iQFvhtf9j2pDsxmmG-ufxqnAt5g/edit?usp=drivesdk)
+  <!-- written by a person: lineageHandbook -->
+  The Hypha Handbook V0.3. In the founder's words, out of date and written for a different kind of organisation than a village, and still the root of the self-organising and regenerative principles this Game runs on.
+  A copy a fork can open: `docs/sources/hypha-handbook-v0.3-summary.md`.
+
+<!-- written by a person: lineageCopies -->
+Three links are three closed doors for a fork whose members cannot open them. So the text of each source is checked in under `docs/sources/`, attributed, with the founder's permission recorded. The copies are for reading and the originals stay the source.
+
+<!-- written by a person: lineageRecord -->
+`docs/GOVERNANCE_EVOLUTION_PROMPT.md` is the record of the rulings themselves: every question put to the founder, his answer in his own words, the date, and what each answer changed. When this document and that one disagree about a rule, that one is the evidence and this one is the defect.
 
 ## Machine-readable
 
@@ -1422,6 +1793,13 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "file": "server/index.ts"
     },
     {
+      "method": "POST",
+      "path": "/api/game/mechanics/proposals/dry-run",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/governanceLanding.ts"
+    },
+    {
       "method": "GET",
       "path": "/api/game/mechanics/standing",
       "door": "signed in",
@@ -1457,6 +1835,20 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "file": "server/index.ts"
     },
     {
+      "method": "GET",
+      "path": "/api/governance/ballots/:id/landing",
+      "door": "anyone, including a stranger",
+      "capability": null,
+      "file": "server/routes/governanceLanding.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/governance/ballots/:id/no-objection",
+      "door": "anyone, including a stranger",
+      "capability": null,
+      "file": "server/routes/governanceVetoes.ts"
+    },
+    {
       "method": "POST",
       "path": "/api/governance/ballots/:id/objections",
       "door": "signed in",
@@ -1472,6 +1864,13 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     },
     {
       "method": "POST",
+      "path": "/api/governance/ballots/:id/veto",
+      "door": "anyone, including a stranger",
+      "capability": null,
+      "file": "server/routes/governanceVetoes.ts"
+    },
+    {
+      "method": "POST",
       "path": "/api/governance/ballots/:id/vote",
       "door": "signed in",
       "capability": null,
@@ -1483,6 +1882,55 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "door": "capability",
       "capability": "proposal.decide",
       "file": "server/index.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/governance/concentration",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/delegation.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/governance/delegation",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/delegation.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/governance/delegation",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/delegation.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/governance/delegation",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/delegation.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/governance/delegation/accept",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/delegation.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/governance/delegation/decline",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/delegation.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/governance/delegation/uncast",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/delegation.ts"
     },
     {
       "method": "GET",
@@ -1511,6 +1959,13 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "door": "signed in",
       "capability": null,
       "file": "server/index.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/governance/mode-switches",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/governanceMode.ts"
     },
     {
       "method": "GET",
@@ -1577,6 +2032,20 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     },
     {
       "method": "GET",
+      "path": "/api/governance/stewardship",
+      "door": "signed in",
+      "capability": null,
+      "file": "server/routes/governanceVetoes.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/governance/vetoes/:id/redact",
+      "door": "administrator",
+      "capability": null,
+      "file": "server/routes/governanceVetoes.ts"
+    },
+    {
+      "method": "GET",
       "path": "/api/governance/weights",
       "door": "signed in",
       "capability": null,
@@ -1600,6 +2069,249 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     "configKey": "game-start",
     "issuanceRefusedUntilStarted": true
   },
+  "kinds": {
+    "values": [
+      "token_send",
+      "game_change"
+    ],
+    "timings": [
+      "at_acceptance",
+      "next_moon"
+    ],
+    "defaultTiming": "next_moon",
+    "defaultTimingByKind": {
+      "token_send": "at_acceptance",
+      "game_change": "next_moon"
+    },
+    "bySubjectType": {
+      "token_send": "token_send",
+      "quest_payout": "token_send",
+      "founding_allocation": "token_send"
+    },
+    "byChangeSetItem": {
+      "dial": "game_change",
+      "mint_rule": "game_change",
+      "weight_allocation": "game_change",
+      "mode_switch": "game_change",
+      "module_lifecycle": "game_change",
+      "brand_field": "game_change",
+      "role": "game_change",
+      "token_send": "token_send"
+    },
+    "absentMeans": "game_change",
+    "executesAtPassWithNoWindow": [
+      "role_seat",
+      "role_unseat",
+      "village_launch"
+    ],
+    "vetoHoursFloor": 72
+  },
+  "quorum": {
+    "countsWeightFields": [
+      "yesW",
+      "noW",
+      "abstainW"
+    ],
+    "countsHeadFields": [],
+    "dividesByTotalWeight": true,
+    "weightOnly": true
+  },
+  "windows": [
+    {
+      "key": "governance.window_changeset",
+      "label": "When a change to the Game Mechanics can go to the vote",
+      "default": "always_open"
+    },
+    {
+      "key": "governance.window_mint_rule",
+      "label": "When a change to what the village mints can go to the vote",
+      "default": "always_open"
+    },
+    {
+      "key": "governance.window_governance_mode",
+      "label": "When a change to how votes are counted can go to the vote",
+      "default": "always_open"
+    },
+    {
+      "key": "governance.window_role_declare",
+      "label": "When declaring a role can go to the vote",
+      "default": "always_open"
+    },
+    {
+      "key": "governance.window_role_seat",
+      "label": "When seating a role can go to the vote",
+      "default": "always_open"
+    },
+    {
+      "key": "governance.window_role_unseat",
+      "label": "When taking a seat back can go to the vote",
+      "default": "always_open"
+    },
+    {
+      "key": "governance.window_power_transfer",
+      "label": "When moving a power to a role can go to the vote",
+      "default": "always_open"
+    },
+    {
+      "key": "governance.window_power_grant",
+      "label": "When granting a power can go to the vote",
+      "default": "always_open"
+    },
+    {
+      "key": "governance.window_power_return",
+      "label": "When handing a power back can go to the vote",
+      "default": "always_open"
+    }
+  ],
+  "schema": [
+    {
+      "name": "ballots.lands_at",
+      "what": "the instant a carried decision lands"
+    },
+    {
+      "name": "ballots.veto_closes_at",
+      "what": "the instant the window shuts"
+    },
+    {
+      "name": "ballots.timing",
+      "what": "the proposer's choice of when it happens"
+    },
+    {
+      "name": "ballots.vetoed_at",
+      "what": "the act of stopping it, on the ballot the veto answers"
+    },
+    {
+      "name": "ballots.vetoed_by",
+      "what": "who stopped it"
+    },
+    {
+      "name": "ballots.late_settled_at",
+      "what": "a window already over when the row reached passed"
+    },
+    {
+      "name": "the landing statuses",
+      "what": "applying and stalled beside applied and vetoed"
+    },
+    {
+      "name": "the vetoed outcome",
+      "what": "a vetoed decision is not a failed one"
+    },
+    {
+      "name": "mechanics_proposals.lands_at",
+      "what": "the same instant on the proposal a village reads"
+    },
+    {
+      "name": "mechanics_proposals.supersedes_relation",
+      "what": "renews, overrides or replaces, stated rather than guessed"
+    },
+    {
+      "name": "governance_element_ledger",
+      "what": "one row per element written, keyed on the ballot and the element's place in it"
+    },
+    {
+      "name": "governance_executor_pending",
+      "what": "the failure a resumed attempt exists to record"
+    },
+    {
+      "name": "delegations.accepted_at",
+      "what": "a delegation carries a choice only once the delegate accepts it"
+    },
+    {
+      "name": "role_holder_terms",
+      "what": "a term survives an unrelated appointment"
+    }
+  ],
+  "withdrawn": [
+    {
+      "what": "A steward approves a passed proposal before it takes effect.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19C",
+      "now": "The steward holds a window and never a gate. A carried decision lands on its own, and the seat's one power is to stop it before it does."
+    },
+    {
+      "what": "A passed proposal QUEUES while the steward seat is empty, and executes when a steward is next voted in.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19C",
+      "now": "Nothing queues. A village with no steward is a village nobody can stop, and that is the healthy end state."
+    },
+    {
+      "what": "A member sees \"lands at cycle 331\" on the proposal from the moment it passes.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19C and 20.11",
+      "now": "A landing is a timestamp taken from the active clock. The page shows the instant with the countdown beside it, and no cycle number appears on the vote path."
+    },
+    {
+      "what": "Voice for other beings, and clans, unlock at 144 players.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19B and 19C",
+      "now": "A village may declare a seat for a being other than a person on its first day. The 144 line is guidance on the screen."
+    },
+    {
+      "what": "Some settings can never be changed by a vote.",
+      "withdrawnOn": "2026-09-02",
+      "withdrawnBy": "19 Q11",
+      "now": "Nothing is un-votable. Criticality raises the bar instead, and the recommended ceiling is 97 percent of quorum and 97 percent of unity."
+    },
+    {
+      "what": "Proposals are never gated by the calendar, and a governance window must not become a permission check.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19E",
+      "now": "A village may block a kind of proposal from being OPENED outside a window it sets. Always open stays a choice and ships as the default."
+    },
+    {
+      "what": "A ballot's full detail, with each voter's name, their choice and their frozen weight, is public.",
+      "withdrawnOn": "2026-09-02",
+      "withdrawnBy": "19 Q12",
+      "now": "Who has voted is visible once half the required votes are in; how they voted is hidden unless a village turns public voting on. Counts and shares of weight stay visible under every setting."
+    },
+    {
+      "what": "A tier percentage counts weight AND heads, so a quorum needs a minimum number of people as well as a share of the weight.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19F",
+      "now": "Quorum and unity are pure token weight. People counts are shown beside the weight everywhere, and the concentration that allows is stated in this document as the founder's own decision."
+    },
+    {
+      "what": "A tier that misses quorum three cycles running drops automatically to the tier below it.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19F",
+      "now": "It simply does not pass. The second miss warns that the next ends it; the third closes the question with one door, which is to withdraw and rewrite."
+    },
+    {
+      "what": "A vetoed proposal is overridden by passing again at the NEXT criticality tier above the one it carried at.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19E",
+      "now": "It is overridden by passing again at the village's highest set tier, which is itself a setting priced at that tier."
+    },
+    {
+      "what": "A steward's approval executes the proposal at once.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19C",
+      "now": "There is no approval to execute at. His words that night stay in the record as ruling 27's history."
+    },
+    {
+      "what": "A late approval rolls the proposal to the following new moon.",
+      "withdrawnOn": "2026-09-03",
+      "withdrawnBy": "19C",
+      "now": "The situation cannot arise, because nothing waits for a steward."
+    }
+  ],
+  "sources": [
+    {
+      "title": "So you want to make a DHO?",
+      "url": "https://docs.google.com/presentation/d/1hjjo_p5VqaOkaUml9nR3s8ZGUt1AzCidCSw6VngJ3dc/edit?usp=drivesdk",
+      "localCopy": "docs/sources/hypha-dho-deck.md"
+    },
+    {
+      "title": "How to do a DHO/DAO",
+      "url": "https://youtu.be/_TpyEO6NRnY",
+      "localCopy": "docs/sources/how-to-do-a-dho-talk-summary.md"
+    },
+    {
+      "title": "Hypha Handbook V0.3",
+      "url": "https://docs.google.com/document/d/1hFJPe1N0yyntJ9g-iQFvhtf9j2pDsxmmG-ufxqnAt5g/edit?usp=drivesdk",
+      "localCopy": "docs/sources/hypha-handbook-v0.3-summary.md"
+    }
+  ],
   "rulings": [
     {
       "id": 1,
@@ -1662,7 +2374,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-08-31"
       ],
-      "status": "Staged. Not built.",
+      "status": "Built.",
       "statusBasis": "computed"
     },
     {
@@ -1752,12 +2464,12 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-09-02"
       ],
-      "status": "Staged. Not built.",
-      "statusBasis": "stated"
+      "status": "Built.",
+      "statusBasis": "computed"
     },
     {
       "id": 18,
-      "title": "Voice for other beings, and clans, at 144 players",
+      "title": "Clans, and Voice for other beings (the 144 gate was withdrawn a day later)",
       "dates": [
         "2026-09-02"
       ],
@@ -1770,8 +2482,8 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-09-02"
       ],
-      "status": "Half built.",
-      "statusBasis": "computed"
+      "status": "Half built, and half withdrawn on 2026-09-03.",
+      "statusBasis": "stated"
     },
     {
       "id": 20,
@@ -1779,7 +2491,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-09-02"
       ],
-      "status": "Staged. Not built.",
+      "status": "Withdrawn on 2026-09-03.",
       "statusBasis": "stated"
     },
     {
@@ -1808,10 +2520,125 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       ],
       "status": "Half built.",
       "statusBasis": "stated"
+    },
+    {
+      "id": 24,
+      "title": "Two Voices, one shown at a time, and the graduation to Hypha",
+      "dates": [
+        "2026-09-02"
+      ],
+      "status": "Half built.",
+      "statusBasis": "computed"
+    },
+    {
+      "id": 25,
+      "title": "Voice for other beings, from the first day, with a representative",
+      "dates": [
+        "2026-09-02",
+        "2026-09-03"
+      ],
+      "status": "Staged. Not built.",
+      "statusBasis": "computed"
+    },
+    {
+      "id": 26,
+      "title": "Every setting shows its cost, and a threshold moves at its own bar",
+      "dates": [
+        "2026-09-02"
+      ],
+      "status": "Half built.",
+      "statusBasis": "computed"
+    },
+    {
+      "id": 27,
+      "title": "The steward holds a veto window, and nothing waits for a steward",
+      "dates": [
+        "2026-09-03"
+      ],
+      "status": "Built.",
+      "statusBasis": "computed"
+    },
+    {
+      "id": 28,
+      "title": "A steward's no fails a token payment, and a veto can be overridden",
+      "dates": [
+        "2026-09-03"
+      ],
+      "status": "Built.",
+      "statusBasis": "computed"
+    },
+    {
+      "id": 29,
+      "title": "The override tier, the governance windows, the notices and the countdown",
+      "dates": [
+        "2026-09-03"
+      ],
+      "status": "Built.",
+      "statusBasis": "computed"
+    },
+    {
+      "id": 30,
+      "title": "Lunar months, quorum by weight, the bundle waits, and timing per proposal",
+      "dates": [
+        "2026-09-03"
+      ],
+      "status": "Built.",
+      "statusBasis": "computed"
+    },
+    {
+      "id": 31,
+      "title": "A non-human seat votes, and whether its weight counts toward quorum is a setting",
+      "dates": [
+        "2026-09-03"
+      ],
+      "status": "Half built.",
+      "statusBasis": "computed"
+    },
+    {
+      "id": 32,
+      "title": "Voice is buyable, and it decays one percent a cycle",
+      "dates": [
+        "2026-09-03"
+      ],
+      "status": "Staged. Not built.",
+      "statusBasis": "stated"
+    },
+    {
+      "id": 33,
+      "title": "Stalemate protection, with a guard against the losing side asking again",
+      "dates": [
+        "2026-09-02"
+      ],
+      "status": "Staged. Not built.",
+      "statusBasis": "stated"
     }
   ]
 }
 ```
+
+## The tables this rests on
+
+<!-- written by a person: schemaIntro -->
+The tables and columns the rules above rest on. The generator checks every one against the migrations and refuses to render this document when one is missing, so a paragraph here cannot outlive the column it describes. No migration number appears: numbers are claimed across worktrees and renumbered when a build lands.
+
+| Table or column | What it holds |
+| --- | --- |
+| `ballots.lands_at` | the instant a carried decision lands |
+| `ballots.veto_closes_at` | the instant the window shuts |
+| `ballots.timing` | the proposer's choice of when it happens |
+| `ballots.vetoed_at` | the act of stopping it, on the ballot the veto answers |
+| `ballots.vetoed_by` | who stopped it |
+| `ballots.late_settled_at` | a window already over when the row reached passed |
+| `the landing statuses` | applying and stalled beside applied and vetoed |
+| `the vetoed outcome` | a vetoed decision is not a failed one |
+| `mechanics_proposals.lands_at` | the same instant on the proposal a village reads |
+| `mechanics_proposals.supersedes_relation` | renews, overrides or replaces, stated rather than guessed |
+| `governance_element_ledger` | one row per element written, keyed on the ballot and the element's place in it |
+| `governance_executor_pending` | the failure a resumed attempt exists to record |
+| `delegations.accepted_at` | a delegation carries a choice only once the delegate accepts it |
+| `role_holder_terms` | a term survives an unrelated appointment |
+
+Checked against the 127 migration files in `drizzle/`.
 
 ## What this file is made from
 
@@ -1820,19 +2647,27 @@ The generator reads these and fails loudly if any of them moves:
 
 - `shared/governanceEngine.ts`
 - `shared/ballotSubjects.ts`
+- `shared/governanceKinds.ts`
+- `shared/cycleClock.ts`
 - `shared/gameVariables.ts`
 - `shared/capabilities.ts`
 - `shared/modules.ts`
 - `shared/lunar.ts`
 - `server/index.ts`
 - `server/lib/ballots.ts`
+- `server/lib/applyDue.ts`
+- `server/lib/changeset.ts`
+- `server/lib/stewardship.ts`
+- `server/lib/delegation.ts`
 - `server/lib/governanceWeights.ts`
 - `server/lib/gameStart.ts`
 - `server/lib/mechanics.ts`
 - `server/lib/proposalDrafts.ts`
 - `server/lib/gratitude-cycles.ts`
+- `server/lib/governanceWindows.ts`
 - `server/routes/governanceWizard.ts`
-- `server/routes/governanceWeights.ts`
+- `server/routes`
+- `drizzle`
 - `client/src/components/governance/wizardConfig.ts`
 
 <!-- written by a person: madeFromReaders -->
