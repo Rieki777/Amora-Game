@@ -665,6 +665,36 @@ check("FIXTURE: CRLF line endings compare equal to LF", () => {
   assert.strictEqual(code, 0, `a Windows checkout must read the same as a Linux one:\n${out}`);
 });
 
+check("PROSE: every count a region states equals the table it prints", () => {
+  // THE ONE FAILURE THIS GUARD IS STRUCTURALLY BLIND TO, and it shipped.
+  //
+  // The guard compares a GENERATED region to a COMMITTED one, so a sentence
+  // hardcoded inside the generator is identical on both sides and passes
+  // forever however wrong it is. The triggers region said `keys` "builds eight
+  // of them" over a table it derives, and that table has printed NINE rows
+  // since `voiceClaim` was added: the count was a string literal beside a
+  // derived list. Nothing above could see it. The reader check for the same
+  // region asserts `keys.length >= 8`, which is a lower bound and so cannot
+  // notice the sentence and the table disagreeing either.
+  //
+  // The rule this pins is general and cheap: a region that STATES a number
+  // must state the number of the rows it went on to print.
+  const body = rendered.triggers;
+  const stated = body.match(/builds (\d+) of them/);
+  assert.ok(stated, `the triggers region must state its builder count as a NUMERAL it derived, not a word:\n${body.slice(0, 400)}`);
+  // The builder table is the first one in the region: header, separator, rows.
+  const lines = body.split("\n");
+  const head = lines.findIndex((l) => l.startsWith("| Builder |"));
+  assert.ok(head > 0, "the builder table is gone from the triggers region");
+  let rows = 0;
+  for (let i = head + 2; i < lines.length && lines[i].startsWith("|"); i++) rows++;
+  assert.strictEqual(
+    Number(stated[1]),
+    rows,
+    `the triggers region says it builds ${stated[1]} keys and prints ${rows} rows`,
+  );
+});
+
 check("FIXTURE: the real committed document matches the real code", () => {
   // The positive control for the whole file. Every case above builds its own
   // fixture, so all of them could pass against a repository whose actual

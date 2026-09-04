@@ -31,7 +31,7 @@ day it was measured. A number in a doc is a claim about a moment.
 | 5 to 6 | gratitude, Village Voice and the one-way bridge |
 | 7 | **units and decimals**, and the rule before changing a token's scale in either direction |
 | 8 to 9 | what is enforced, and what has actually been proven |
-| 10 to 11 | **36 known defects** with their measurements, and four open decisions |
+| 10 to 11 | **37 known defects** with their measurements, and four open decisions |
 | 12 to 13 | **the spend side**, and what a member is told when they are refused |
 | 14 | **the exit path**, its ten levers and what is still undecided |
 | 15 | **worked examples with real numbers**, posting by posting |
@@ -1920,6 +1920,43 @@ collation-dependent is the join from `token_ledger.source_ref` to
 `source_ref` to an unpadded id; `sourceRef` is written from the note id and
 cannot carry padding, and the key the file writes is derived byte-wise from the
 key itself, so only the village would be taken from the wrong row.
+
+### 10.37 A generated region stated a count the same region's own table contradicted. Fixed on `wt/econ`, measured.
+
+**The guard on this document cannot see a sentence the generator hardcodes**, and
+that is structural rather than a bug in the guard.
+`scripts/check-economics-doc.mjs` regenerates each region and compares it to what
+is committed, so a literal inside `scripts/generate-economics-doc.mjs` is
+byte-identical on both sides and passes forever, however wrong it is.
+
+Measured on 2026-09-04 at `1861f7d`. The triggers region in section 1 read
+"`keys` in `server/lib/economy.ts` builds eight of them" and then printed a table
+it derives from the code with **nine** rows in it: `questCompleted`,
+`gratitudeGiven`, `roleCycle`, `journeyStage`, `welcomeAboard`, `voiceDecay`,
+`transfer`, `reversal` and `voiceClaim`. The count was a string literal at
+`generate-economics-doc.mjs:1131`; the table came from `occurrenceKeys(root)`.
+`voiceClaim` was the ninth and the sentence never moved.
+
+**Nothing in the guard's self-test could catch it either, and the reason is worth
+carrying.** `check-economics-doc.test.mjs` pins the reader with
+`assert.ok(keys.length >= 8)`, which is a LOWER BOUND: it passes at eight, at
+nine and at ninety, so it can never notice the prose and the table disagreeing.
+A bound proves a reader still finds something and says nothing about a number
+printed beside it.
+
+**Two changes.** The sentence derives its count (`builderRows.length`), so it and
+the table are one read. And a new self-test, `PROSE: every count a region states
+equals the table it prints`, parses the numeral out of the rendered region,
+counts the rows of the table below it, and refuses when they differ. Proven to go
+red in both directions the way 10.35 asks: with the literal `8` put back, the
+runner printed `the triggers region says it builds 8 keys and prints 9 rows` and
+the file exited 1; restored, `41 check(s) passed` and the generator is
+byte-identical to what it was.
+
+**What this does NOT close.** The new test guards ONE region's one count, and the
+general shape is any prose a generator writes beside a list it derives. There is
+no reader that finds those pairs on its own, so the next hardcoded count in a
+generated region is invisible again. Naming that here is the honest form of it.
 
 ### The governed numbers a member was told wrong (lane P1)
 
