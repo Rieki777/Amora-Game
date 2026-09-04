@@ -74,12 +74,24 @@ check("READER: occurrenceKeys finds the quest key and renders its real shape", (
   const keys = occurrenceKeys(ROOT);
   const quest = keys.find((k) => k.name === "questCompleted");
   assert.ok(quest, `keys.questCompleted is gone from the reader's view; it found: ${keys.map((k) => k.name).join(", ")}`);
-  assert.strictEqual(quest.shape, "quest.completed:<v>:<questId>:<claimId>:<userId>");
+  // Both segments of this pin moved on 2026-09-03 and the reason is in each
+  // half. `esc(...)` because a colon in an id used to move the boundary
+  // between two segments and collapse two occurrences into one key (W3 F18,
+  // ECONOMICS.md 10.16); `:<esc(tokenSlug)>` because the two mint sites used
+  // to append the slug AFTER the builder returned, unescaped, so the shape
+  // this reader printed was one the ledger never held (W3 F10).
+  assert.strictEqual(
+    quest.shape,
+    "quest.completed:<esc(v)>:<esc(questId)>:<esc(claimId)>:<esc(userId)>:<esc(tokenSlug)>",
+  );
   // The seat key's spelling is load-bearing (renaming it repays every seat), so
   // it is pinned here as well as described in the document.
   const seat = keys.find((k) => k.name === "roleCycle");
   assert.ok(seat, "keys.roleCycle is gone from the reader's view");
-  assert.strictEqual(seat.shape, "role.cycle:<v>:<cycleKey>:<seatId>:<userId>");
+  assert.strictEqual(
+    seat.shape,
+    "role.cycle:<esc(v)>:<esc(cycleKey)>:<esc(seatId)>:<esc(userId)>:<esc(tokenSlug)>",
+  );
   assert.ok(keys.length >= 8, `expected at least 8 occurrence keys, read ${keys.length}`);
 });
 
@@ -312,7 +324,17 @@ check("F7 RUNTIME: the value under NODE_ENV=production equals the documented lis
   // that matters.
   for (const [file, name] of KEYSTONE_SETS) {
     const src = constInitializerText(ROOT, file, name);
-    const probe = `process.stdout.write(JSON.stringify(Array.from(${src}).sort()));`;
+    // `frozenSet` is the keystone lane's sealing wrapper, and this subprocess
+    // is a bare node with none of the module around it, so the name has to be
+    // supplied or the probe fails to evaluate rather than reporting a value.
+    // A shim is honest here for the same reason the reader above accepts the
+    // real one: sealing changes what the value can DO, not what it IS, and
+    // this case measures the VALUE. The shim cannot widen the gate either,
+    // because `frozenStringSet` has already refused every initialiser shape
+    // but the two literal ones before this line runs. That `add` throws is
+    // measured where it belongs, in server/ledger.test.ts.
+    const shim = "const frozenSet = (values) => new Set(values);";
+    const probe = `${shim}process.stdout.write(JSON.stringify(Array.from(${src}).sort()));`;
     const r = spawnSync(process.execPath, ["-e", probe], {
       encoding: "utf8",
       env: { ...process.env, NODE_ENV: "production", VITEST: "" },
@@ -339,17 +361,24 @@ check("F7: verifyKeystoneSets throws when the two readers disagree", () => {
 /*
  * ── F10: the key table is read from the CALL SITES, not from `keys` ────────
  */
-check("F10 READER: the two mint keys carry the :<tokenSlug> the call sites append", () => {
+check("F10 READER: the two mint keys carry the :<tokenSlug>, now from the builder", () => {
   // The exact defect: the document printed the builder's output for the two
-  // highest-volume mints, and the ledger holds that string plus the slug.
+  // highest-volume mints, and the ledger held that string plus the slug,
+  // which the call sites appended after the builder returned.
+  //
+  // THE SLUG IS A BUILDER PARAMETER NOW (keystone lane, W3 F18): appending it
+  // outside also meant it went in unescaped, so a colon in a token slug moved
+  // the boundary between two segments. What this case pins is unchanged, and
+  // it is the thing that matters: the slug is IN the key the ledger holds.
+  // Both readers agree on that string today, which is what closed F10.
   const shapes = new Set(postingKeys(ROOT).sites.map((s) => s.shape));
   assert.ok(
-    shapes.has("quest.completed:<v>:<questId>:<claimId>:<userId>:<tokenSlug>"),
-    "the quest mint key must carry the token slug the call site appends",
+    shapes.has("quest.completed:<esc(v)>:<esc(questId)>:<esc(claimId)>:<esc(userId)>:<esc(tokenSlug)>"),
+    "the quest mint key must carry the token slug",
   );
   assert.ok(
-    shapes.has("role.cycle:<v>:<cycleKey>:<seatId>:<userId>:<tokenSlug>"),
-    "the settlement key must carry the token slug the call site appends",
+    shapes.has("role.cycle:<esc(v)>:<esc(cycleKey)>:<esc(seatId)>:<esc(userId)>:<esc(tokenSlug)>"),
+    "the settlement key must carry the token slug",
   );
   // And the bare builder output must NOT be presented as a key the ledger holds.
   assert.ok(!shapes.has("quest.completed:<v>:<questId>:<claimId>:<userId>"), "the bare builder shape is not a key");

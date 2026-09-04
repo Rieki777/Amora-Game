@@ -1133,13 +1133,13 @@ export const REGIONS = {
       "",
       table(["Builder", "What the builder returns"], builderRows),
       "",
-      "**A builder's output is not always the key.** Both mint paths append the token slug to it " +
-        "at the call site, because one occurrence can pay two tokens and each is its own row; " +
-        "without that segment the second rule would collide with the first, read as a duplicate, " +
-        "and the member would be quietly paid in one token instead of two. Most of the economy " +
-        "does not use a builder at all. So the table below is read from the CALL SITES: every " +
-        "`idempotencyKey` written under `server/`, resolved through templates, builders, " +
-        "conditionals, local constants and local helpers into the string the ledger receives.",
+      "**A builder's output is not always the key.** The token slug used to be appended to it " +
+        "at the two mint call sites rather than built in, which printed a shape here that the " +
+        "ledger never held; it is a builder parameter now, and both tables agree because of it. " +
+        "Most of the economy still does not use a builder at all. So the table below is read " +
+        "from the CALL SITES: every `idempotencyKey` written under `server/`, resolved through " +
+        "templates, builders, conditionals, local constants and local helpers into the string " +
+        "the ledger receives.",
       "",
       table(["Key shape the ledger holds", "Written in"], shapeRows),
       "",

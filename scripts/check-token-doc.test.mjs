@@ -146,7 +146,12 @@ function newTree(label, { doc = EXPECTED, omit = [], ledger = null } = {}) {
       fs.cpSync(path.join(REPO_ROOT, "server"), path.join(root, "server"), { recursive: true });
       const target = path.join(root, "server", "lib", "ledger.ts");
       const src = fs.readFileSync(target, "utf8");
-      const ORIGINAL = 'export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal", "reversal"]);';
+      // The declaration moved from `new Set([...])` to `frozenSet([...])` when
+      // the keystone lane closed W3 F14: the set was mutable at runtime behind
+      // a `ReadonlySet` type, which is a claim and not a property. Only the
+      // TEXT this fixture rewrites changed; the list it holds did not, and the
+      // reader accepts both shapes.
+      const ORIGINAL = 'export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = frozenSet(["stay_night", "payment_reversal", "reversal"]);';
       assert.ok(src.includes(ORIGINAL), "the keystone declaration this fixture rewrites has moved");
       fs.writeFileSync(target, src.replace(ORIGINAL, ledger));
       continue;

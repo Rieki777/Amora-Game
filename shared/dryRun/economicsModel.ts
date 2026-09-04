@@ -367,11 +367,17 @@ export interface EconomicsMemo {
   postings: number;
   /** Quests confirmed this cycle, after the rate multiplier. */
   questsConfirmed: number;
-  /** Allowance granted this cycle, summed over the roll, in minor units. */
+  /**
+   * Allowance granted this cycle, summed over the roll, IN HUMAN UNITS.
+   *
+   * Human because the engine's is: `allowanceFor` (server/lib/economy.ts:851)
+   * returns a human total and reports human `spent` and `remaining`. The one
+   * conversion on the giving path is at the posting. See `allowanceScale`.
+   */
   allowanceTotal: bigint;
-  /** Recognition actually given this cycle, in minor units. */
+  /** Recognition actually given this cycle, in human units, as `gratitude_log` holds it. */
   gratitudeGiven: bigint;
-  /** Allowance that expired unused this cycle, in minor units (founder ruling R9). */
+  /** Allowance that expired unused this cycle, in human units (founder ruling R9). */
   gratitudeExpired: bigint;
   /** The token the value pool pays, and its size as the dial reads it. */
   poolToken: string;
@@ -732,48 +738,61 @@ function confirmationsThisCycle(quests: QuestsSummary, multiplier: number, rng: 
 }
 
 /**
- * WHAT THE ENGINE SCALES THE GRATITUDE ALLOWANCE BY, WHICH TODAY IS NOTHING.
+ * WHAT THE ENGINE CONVERTS A GIFT BY, AT THE POSTING AND NOWHERE ELSE.
  *
- * ONE FUNCTION, read by two callers, and that is the point. `allowanceFor`
- * below posts through it and the `econ_allowance_unscaled` flag asks it whether
- * to speak. When the decimals sweep fixes `give` and `allowanceFor` together,
- * this function returns the real scale, the model posts the right number, and
- * the flag goes quiet on its own, because both are reading the same answer.
+ * The gratitude sweep measured the shipped path and it is human end to end
+ * until the ledger: `allowanceFor` (server/lib/economy.ts:851) returns
+ * `Math.round(numberVar("gratitude.base_budget") * stageMultiplier)`, its
+ * `spent` and `remaining` are human, `shareCapFor` (economy.ts:956) floors at
+ * ONE WHOLE recognition token, `checkGive` weighs a human amount, and
+ * `gratitude_log.amount` stores a human number. The ONE conversion is
+ * `toLedgerUnits(HEARTS, amount)` at the `postTransferOn` call inside `give`
+ * (economy.ts:1425), which is `Math.round(human * 10 ** decimals)`. Going the
+ * other way, `allowanceFor` divides the reversal SUM back down with
+ * `fromLedgerUnits` (economy.ts:905), because that sum came out of the ledger.
  *
- * WHY IT IS 1 TODAY. `allowanceFor` (server/lib/economy.ts:610) returns
- * `Math.round(numberVar("gratitude.base_budget") * stageMultiplier)`, a HUMAN
- * figure, and `give` (economy.ts:934) hands that number straight to
- * `postTransfer` with no `toLedgerUnits` anywhere on the path. `postTransfer`
- * reads what it is handed as MINOR UNITS. So on a recognition token with no
- * decimals, which is every village that has not changed it, the two readings
- * agree and nothing is wrong. Above zero decimals the engine posts an allowance
- * of 100 as 100 minor units, which is 0.01 of a token, and every gift in the
- * village is `10 ** decimals` too small.
+ * SO THIS SCALE IS APPLIED AT THE POST AND NEVER TO THE ALLOWANCE ITSELF, and
+ * the sweep named three things that break if it is applied earlier, each a real
+ * defect rather than a matter of taste:
  *
- * The model MIRRORS THE ENGINE AS BUILT. Scaling here would preview a village
- * nobody is living in, and would hide the defect behind a preview that looked
- * right.
+ *   1. `shareCapFor`'s floor of 1 becomes 0.0001 of a token where the engine's
+ *      is a whole one, so a village with a small allowance previews a cap the
+ *      engine would never allow;
+ *   2. the expired-allowance figure this model reports (`allowanceTotal` minus
+ *      what was given) silently becomes minor, where the engine's `remaining`
+ *      is human, so R9's underutilisation number reads ten thousand times too
+ *      big;
+ *   3. the received-this-cycle figure has to stay human, because it mirrors the
+ *      settlement's own read of `gratitude_log`.
+ *
+ * The pool-share ratio is unit-free either way, so it is the one figure that
+ * does not care.
+ *
+ * ONE FUNCTION, read by two callers, which is what makes the two agree: the
+ * post below converts through it, and the `econ_allowance_unscaled` flag asks
+ * it whether to speak. The flag's condition never changed; it simply goes quiet
+ * now, which is the outcome it was built for.
  */
 function allowanceScale(recognition: TokenSpec | null): bigint {
-  void recognition;
-  return BigInt(1);
+  return powTen(recognition ? recognition.decimals : 0);
 }
 
 /**
- * The allowance a member may give this cycle, in the units the ENGINE posts.
+ * The allowance a member may give this cycle, IN HUMAN UNITS.
  *
  * `Math.round(numberVar("gratitude.base_budget") * stageMultiplier)`
- * (`allowanceFor`, server/lib/economy.ts:610), with the multiplier from
- * `numberVar("progression.multiplier.<stage>")` (server/index.ts:3922), and
- * then whatever the engine scales it by, which is `allowanceScale` above.
+ * (`allowanceFor`, server/lib/economy.ts:851), with the multiplier from
+ * `numberVar("progression.multiplier.<stage>")` (server/index.ts:3922). No
+ * conversion here, because the engine does none here: see `allowanceScale`.
  */
 function allowanceFor(state: SimState, member: MemberSpec, recognition: TokenSpec | null): bigint {
+  void recognition;
   const base = numberVariable(state, "gratitude.base_budget");
   const multiplier = numberVariable(state, `progression.multiplier.${member.stage}`);
   if (base === null || multiplier === null) return BigInt(0);
   const whole = Math.round(base * Math.max(0, multiplier));
   if (!(whole > 0)) return BigInt(0);
-  return BigInt(whole) * allowanceScale(recognition);
+  return BigInt(whole);
 }
 
 /**
@@ -784,6 +803,10 @@ function allowanceFor(state: SimState, member: MemberSpec, recognition: TokenSpe
  * when the allowance itself is zero. The floor of 1 is the engine's, and it is
  * a bound and never a guess: one percent of an allowance of 50 rounds to zero,
  * and a zero there would refuse every send in the village.
+ *
+ * HUMAN IN, HUMAN OUT, and the floor is ONE WHOLE RECOGNITION TOKEN. Handing
+ * this a scaled allowance would make that floor 0.0001 of a token at four
+ * decimal places, which is a cap the engine has never allowed.
  */
 function shareCapFor(state: SimState, allowanceTotal: bigint): bigint {
   if (allowanceTotal <= BigInt(0)) return BigInt(0);
@@ -991,11 +1014,16 @@ function stepCycle(
     const intended =
       (total * BigInt(Math.round(assumptions.gratitudeAllowanceGivenShare * 10000))) / BigInt(10000);
     let left = intended;
+    const scale = allowanceScale(recognition);
     for (let r = 0; r < members.length && left > BigInt(0); r += 1) {
       const receiver = members[r];
       if (receiver.id === giver.id) continue;
+      // HUMAN, all the way to the ledger's door. `checkGive` weighs this
+      // number, `gratitude_log.amount` stores it, and the refusals print it.
       const amount = left < cap ? left : cap;
-      if (post(book, recognition.faucet, receiver.accountId, RECOGNITION_SLUG, amount, "gratitude_received")) {
+      // THE ONE CONVERSION ON THIS PATH, at the post and nowhere earlier,
+      // exactly where `give` puts it (server/lib/economy.ts:1425).
+      if (post(book, recognition.faucet, receiver.accountId, RECOGNITION_SLUG, amount * scale, "gratitude_received")) {
         left -= amount;
         gratitudeGiven += amount;
         receivedThisCycle[receiver.accountId] = (receivedThisCycle[receiver.accountId] ?? BigInt(0)) + amount;
@@ -1397,12 +1425,14 @@ function flagsOf(state: SimState, cycle: number, fallback: EconomicsAssumptions)
 
   // (d) Founder ruling R9: show underutilisation, with the amount.
   if (memo && memo.cycle === cycle && memo.gratitudeExpired > BigInt(0)) {
-    const decimals = decimalsOf(tokens, RECOGNITION_SLUG);
+    // PRINTED RAW, because both figures are already human: the engine's
+    // `remaining` is human and this mirrors it. Running them through
+    // `humanUnits` would divide a human number a second time.
     out.push({
       code: "econ_gratitude_expired",
       severity: "notice",
       cycle,
-      sentence: `${humanUnits(memo.gratitudeExpired, decimals)} of the ${humanUnits(memo.allowanceTotal, decimals)} recognition this village could have given expired unused at the end of this cycle.`,
+      sentence: `${String(memo.gratitudeExpired)} of the ${String(memo.allowanceTotal)} recognition this village could have given expired unused at the end of this cycle.`,
       actionable:
         members.length <= 1
           ? "One member cannot give recognition to anybody, because a member may not thank themselves. The allowance means nothing until a second person joins."

@@ -43,7 +43,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { fromLedgerUnits, toLedgerUnits } from "./economy";
-import { ledgerEntryExists, MINT_FAUCET, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
+import { GRACE_NIGHT_DEBT, ledgerEntryExists, MINT_FAUCET, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
 import { spendSinkFor } from "./spending";
 import { numberVar } from "./variables";
 
@@ -343,7 +343,7 @@ export async function postNightsForStay(pool: Pool, stay: StayRow, todayUtc: str
       sourceRef: stay.id,
       description: `Night of ${night}`,
       idempotencyKey: `stay:${stay.id}:night:${night}`,
-      allowNegative: true,
+      allowNegative: GRACE_NIGHT_DEBT,
     });
     if (!result.ok) return { posted, stopped: true, balance };
     // toBalance is the RECEIVING side (the faucet); re-read the payer.
