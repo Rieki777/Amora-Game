@@ -190,11 +190,25 @@ export function register(app: Express, deps: Deps): void {
      * shown and never what you may claim. A needs tag that gated a payout
      * would be a second capability system nobody voted for.
      *
-     * It rides on the detail read rather than on `GET /api/quests`, so the
-     * board still costs one query and a deep link carries the answer without
-     * a second round trip. An untagged quest answers `[]`, which is a real
-     * zero and not an absent field: a screen can say "nothing yet" and mean it.
+     * It rides on the detail read and not on `GET /api/quests`, so the board
+     * still costs one query and a deep link carries the answer without a
+     * second round trip.
+     *
+     * MEMBER-TIER, AND THE FIELD IS ABSENT FOR A STRANGER. The rest of this
+     * payload is public and stays public. The tags are not, because
+     * `GET /api/needs/scope` withholds the same facts at the same tier and for
+     * the stated reason: the coverage read names the needs with nothing meeting
+     * them, and a village mid-setup gets to finish before a stranger reads its
+     * gaps. Reading the tag off every quest one at a time would rebuild most of
+     * that scope from outside, so this route would otherwise be the door around
+     * that one.
+     *
+     * ABSENT AND NOT `[]`. An untagged quest answers `[]`, which is a real zero
+     * a screen can say "nothing yet" about. A stranger gets no key at all, so
+     * the two facts never arrive looking the same.
      */
+    const viewer = await authedUser(req);
+    if (!viewer) return res.json({ quest, related });
     const needs = await linksForSubject(getPool(), "quest", id);
     res.json({ quest, related, needs });
   });

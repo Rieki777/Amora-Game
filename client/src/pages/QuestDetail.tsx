@@ -21,7 +21,7 @@ import {
   Heart, Lightbulb, ListChecks, Send, Sparkles, Sprout, Users,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { fetchGameMe, QuestClaim, useGameConfig } from "@/lib/gameApi";
+import { fetchGameMe, gameFetch, QuestClaim, useGameConfig } from "@/lib/gameApi";
 import { useTokenName } from "@/hooks/useTokenNames";
 import QuestActions from "@/components/QuestActions";
 import QuestCrews from "@/components/QuestCrews";
@@ -59,7 +59,11 @@ export default function QuestDetail() {
     // One quest and the three beside it, in one small response. Finding the
     // quest inside the whole board meant every deep link carried every other
     // quest's story, steps and tips across the wire.
-    fetch(`/api/quests/${encodeURIComponent(questId)}`)
+    // `gameFetch` and not a bare `fetch`: the need tags on this read are
+    // member-tier, and `authedUser` consults the Authorization header alone.
+    // A signed-in member asking without it is a stranger, which is how three
+    // other pages spent months reading `/api/org` with no holders in it.
+    gameFetch(`/api/quests/${encodeURIComponent(questId)}`)
       .then((r) => {
         if (r.status === 404) return null;
         if (!r.ok) throw new Error(`quest ${r.status}`);

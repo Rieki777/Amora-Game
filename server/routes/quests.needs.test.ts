@@ -81,6 +81,7 @@ describe.skipIf(!configured)("a quest carries the needs it meets", () => {
   let db: TestDb;
   let pool: mysql.Pool;
   let handlers: Map<string, Handler>;
+  let signedIn = true;
 
   /** How many tags this subject carries, read from the table itself. */
   const linkCount = async (subjectRef: string): Promise<number> => {
@@ -97,7 +98,7 @@ describe.skipIf(!configured)("a quest carries the needs it meets", () => {
     const { app, handlers: h } = collect();
     register(app, {
       isAdmin: async () => true,
-      authedUser: async () => ({ id: "u-claimer", name: "A Member" }),
+      authedUser: async () => (signedIn ? { id: "u-claimer", name: "A Member" } : null),
       adminActor: () => ({ id: "founder-1" }),
       getPool: () => pool,
       uploadsDir: ".",
@@ -124,6 +125,7 @@ describe.skipIf(!configured)("a quest carries the needs it meets", () => {
   });
 
   beforeEach(async () => {
+    signedIn = true;
     await pool.query("DELETE FROM `quest_claims`");
     await pool.query("DELETE FROM `quests`");
     await pool.query("DELETE FROM `need_links`");
@@ -167,6 +169,19 @@ describe.skipIf(!configured)("a quest carries the needs it meets", () => {
     expect((byKey.get("play") as any).weight).toBe("partial");
     // The label rides with the link, so a chip needs no second read.
     expect((byKey.get("vitality") as any).needLabel).toBeTruthy();
+  });
+
+  it("sends a stranger no tags at all, which is not the same as none", async () => {
+    await makeQuest("q-forest", "Food forest build day");
+    await linkNeed(pool, { needKey: "vitality", subjectType: "quest", subjectRef: "q-forest" });
+    signedIn = false;
+    const read = await call(handlers, "GET /api/quests/:id", { params: { id: "q-forest" } });
+    expect(read.status).toBe(200);
+    // The quest itself is public and stays public. `GET /api/needs/scope`
+    // withholds the same facts at the same tier, and reading the tag off every
+    // quest one at a time would rebuild the scope from outside.
+    expect(read.body.quest.title).toBe("Food forest build day");
+    expect("needs" in read.body, "the key is absent, so a real zero stays distinguishable").toBe(false);
   });
 
   it("answers an untagged quest with an empty list, which is a real zero", async () => {
