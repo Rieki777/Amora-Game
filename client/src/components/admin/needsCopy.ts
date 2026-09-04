@@ -209,6 +209,11 @@ export function coveredSentence(row: CoverageRow): string {
   if (row.counts.stay) parts.push(say(row.counts.stay, "stay", "stays"));
   if (row.counts.event) parts.push(say(row.counts.event, "event", "events"));
   if (row.counts.place) parts.push(say(row.counts.place, "place on the map", "places on the map"));
+  // `uncovered` is false whenever this is called, so `parts` cannot be empty in
+  // practice. It is guarded anyway: the alternative is the string "undefined"
+  // on a founder's screen if a future payload ever counts a kind this list does
+  // not know about.
+  if (parts.length === 0) return uncoveredSentence(row.label);
   const list =
     parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   const verb = row.total === 1 ? "is" : "are";
