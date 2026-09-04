@@ -158,6 +158,24 @@
   --color-green-light: #dcecd6;
   --color-cream-dark: #e4e4e4;     /* Deeper neutral - reads as a card against --background #f2f2f2 */
   --color-teal-deep-dark: #262626; /* Hover partner for teal-deep - 13.6:1 vs white, so buttons stay AA while pressed */
+
+  /* THE TWO ACCENTS THE NIGHT SHEET IS BUILT ON, given utilities so a
+     component can reach them by name.
+
+     They are declared HERE and not only inside `.sheet-night` because a
+     utility that resolves to nothing outside its one page is a trap for
+     whoever reuses the component next: `text-open` on a light card has to
+     mean something, and what it means is the sage these surfaces already
+     use. `.sheet-night` sets --sheet-notice and --sheet-open, so on the
+     sheet the same two class names are the gold and the living green that
+     palette was measured for, and nothing about the component changes.
+
+     Values everywhere else are the two inks the light set already ships:
+     amber-ink 5.60:1 on white, sage 5.95:1 on white. On the sheet: gold
+     7.87:1 on the panel, living green 7.79:1 on the panel and 7.02:1 on the
+     raised panel. Both clear AA on every surface either one lands on. */
+  --color-notice: var(--sheet-notice, #8d5e19);
+  --color-open: var(--sheet-open, #3d6e4a);
 }
 
 :root {
@@ -1192,16 +1210,20 @@ button, a, [role="button"], input, textarea, select, summary {
   --border: var(--sheet-edge, #6d8175);
   --input: var(--sheet-edge, #6d8175);
   --ring: var(--sheet-earned, #dfab4d);                /* gold: what is earned */
+  /* The same gold, reachable as `text-notice` / `border-notice`. It rides the
+     village's own --sheet-earned knob, so re-tinting what is earned re-tints
+     every notice with it and nothing has to be set twice. */
+  --sheet-notice: var(--sheet-earned, #dfab4d);
   --destructive: var(--sheet-warn, #e0805e);
   --destructive-foreground: var(--sheet-ground, #0d1411);
 
   /* The two accents this world is built on. --sheet-earned is live: it is the
-     focus ring and the ring on the fronted character. --sheet-open is declared
-     and measured but has no consumer yet, because giving it one means editing
-     a component and this lane is palette and typography only. It is written
-     down so the next lane inherits the palette rather than picking a second
-     green. Living green measures 7.79:1 on the panel, 8.86:1 on the ground and
-     7.02:1 on the raised panel, so it is a legible foreground on all three. */
+     focus ring, the ring on the fronted character, and (through --sheet-notice
+     above) every notice edge. --sheet-open now has the consumer this comment
+     used to say it was waiting for: OnchainCard's connected chip takes
+     `text-open`, so the sheet inherited the palette instead of a second green
+     being picked. Living green measures 7.79:1 on the panel, 8.86:1 on the
+     ground and 7.02:1 on the raised panel, a legible foreground on all three. */
   --sheet-open: var(--sheet-living, #6fc48f);
 
   /* Form controls, the caret, the selection and the scrollbar take the UA's
