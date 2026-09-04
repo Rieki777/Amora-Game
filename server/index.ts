@@ -5585,10 +5585,9 @@ async function startServer() {
       (f.skipped.length ? `, ${f.skipped.length} stuck and reported` : "");
   }
   registerJob("exchange-reconcile", 60 * 60 * 1000, runExchangeReconcile);
-  // A redemption nobody answers ends by itself and the held tokens go back in
-  // full. It settles through the same door a human uses, so an expiry cannot
-  // become a second way to move value, and `redemption.expires_after_days` at 0
-  // means a village that would sooner answer late than expire something.
+  // An unanswered redemption ends itself and the held tokens go back in full,
+  // through the same door a human uses, so an expiry is never a second way to
+  // move value. `redemption.expires_after_days` at 0 means never expire.
   registerJob("redemption-reap", 60 * 60 * 1000, async () => {
     const n = await expireRedemptions(getPool());
     return n ? `${n} redemption(s) expired and released` : "nothing expired";
@@ -17473,15 +17472,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
       (byToken[r.token_type] ??= {})[r.account_id] = Number(r.issued);
     }
     /*
-     * WHAT A REDEMPTION HAS RETIRED, BESIDE ISSUANCE AND NEVER NETTED INTO IT.
-     *
-     * A confirmed redemption posts to `sys:redeemed`, which is not a faucet, so
-     * every `issued` figure above is exactly what it was before: what has been
-     * released to date. That is the correct reading and it is also an
-     * incomplete story on its own, because some of what was released can no
-     * longer circulate. Printing the two side by side is the honest form, and
-     * netting them silently would be the change of meaning `spendSinkFor`
-     * refuses in writing.
+     * RETIRED SITS BESIDE ISSUANCE AND IS NEVER NETTED INTO IT. `sys:redeemed`
+     * is not a faucet, so every `issued` figure above still reads what it did:
+     * released to date. Printing both is the honest form, and netting them
+     * silently is the change of meaning `spendSinkFor` refuses in writing.
      */
     const retired = await retiredSupply(getPool());
     res.json({
@@ -20499,22 +20493,13 @@ ${inner}
     const stageBefore = claimant ? await stageOf(claimant) : null;
 
     /*
-     * THE FLIP IS A COMPARE-AND-SWAP, AND THE LOCK THAT MAKES IT ONE ALREADY
-     * EXISTED (lane SM; ECONOMICS.md 10.34 carries the measurement).
-     *
-     * The status test three blocks up reads the claim this request loaded, and
-     * nothing holds that reading. Six consents fired together answered 200
-     * twice. The MONEY was right, because both value legs are keyed on the
-     * claim; nothing else was. `c.amount` becomes whichever request committed
-     * LAST while the ledger paid whichever posted FIRST, so two stewards at
-     * different points of an advertised range leave the claim saying 100 over a
-     * member holding 50; and `addActivity` below carries no dedupe key, so the
-     * village reads the quest completed twice.
-     *
-     * `claimsRepo.update` re-reads the row `FOR UPDATE` inside a transaction,
-     * so this callback sees the row as it is NOW: the test HERE is the atomic
-     * one the test above cannot be. It does not weaken the claim-keyed
-     * idempotency, which still guarantees the money and is untouched.
+     * THE FLIP IS A COMPARE-AND-SWAP AND THE LOCK ALREADY EXISTED. The status
+     * test three blocks up reads the claim this request loaded and nothing
+     * holds that reading, so concurrent consents each answered 200. The money
+     * was right, both legs being keyed on the claim; the RECORD was not, since
+     * `c.amount` takes whichever request committed LAST while the ledger paid
+     * whichever posted FIRST. `claimsRepo.update` re-reads `FOR UPDATE` in a
+     * transaction, so the test HERE is the atomic one. ECONOMICS.md 10.34.
      */
     let alreadyConsented = false;
     const consented = await claimsRepo.update(claim.id, (c) => {

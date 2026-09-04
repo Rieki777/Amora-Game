@@ -41,7 +41,25 @@ const DIST = path.resolve(process.cwd(), "dist/index.js");
  * the only thing worth believing on the day you run it. The first window this
  * file tried, 31100, overlapped two suites at once.
  */
-const PORT = 32002 + (process.pid % 400);
+/*
+ * MOVED FROM 32002 AT INTEGRATION, and the width is deliberate.
+ *
+ * Two sibling lanes each picked 32002 while neither could see the other, the
+ * same collision two migration numbers hit today and for the same reason: a
+ * free-number answer is only true at the moment you check it, and a lane cannot
+ * see a lane.
+ *
+ * Every 400-wide band below the ephemeral range is taken. My own gap scan said
+ * four bands were free and the guard refused all four, because that scan
+ * matched "PORT =" while the guard also counts PORT_A, STUB_PORT,
+ * PORT_NO_TOKEN and the rest. That is the narrow-pattern failure this codebase
+ * has now met five times in a day, committed while fixing an instance of it.
+ *
+ * So this takes the last band and narrows to 300, which ends at 32701 and stays
+ * clear of 32768. The next suite to need a window has to widen the range or
+ * reclaim one, and there is no room left to take quietly.
+ */
+const PORT = 32402 + (process.pid % 300);
 const BASE = `http://127.0.0.1:${PORT}`;
 const ADMIN = "Redeem123!";
 const PASSWORD = "OraRedeem123!";
