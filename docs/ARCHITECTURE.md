@@ -41,7 +41,7 @@ authority; the `data/` volume holds only uploads and archived JSON
 
 | Path | What lives there |
 |---|---|
-| `server/index.ts` | The one Express server: auth, boot, and the routes not yet extracted. **31,119 lines, 485 route registrations**, measured 2026-08-31 by `scripts/check-server-index-size.mjs`, which ratchets both numbers downward. This row said "~8,400 lines" from some earlier era until that guard existed, and then said 545 routes when the script said 544; do not hand-edit these figures, run the script and copy `scripts/server-index-size-baseline.json`. |
+| `server/index.ts` | The one Express server: auth, boot, and the routes not yet extracted. **31,035 lines, 485 route registrations**, measured 2026-09-03 by `scripts/check-server-index-size.mjs`, which ratchets both numbers downward. This row said "~8,400 lines" from some earlier era until that guard existed, and then said 545 routes when the script said 544; do not hand-edit these figures, run the script and copy `scripts/server-index-size-baseline.json`. |
 | `server/routes/*` | Route modules, one per domain, each exporting `register(app, deps)`. Where new routes go. |
 | `server/lib/*` | Domain libraries: ledger, modules, payments, exchange, notify, scheduler, events, secrets, identity, launch, feedback, exit, health, member tokens, the admin-gate marker, `appDeps` … |
 | `server/db/` | `migrate.ts` (the engine), `testDb.ts` (S5 harness), `schema.ts` |
@@ -1277,7 +1277,7 @@ submission aged out.
    `server/routes/faqs.ts`, `training.ts` and `milestones.ts` are the
    worked examples, in ascending order of how much they need.
 
-   **Why not `server/index.ts` any more.** That file is 31,119 lines with
+   **Why not `server/index.ts` any more.** That file is 31,035 lines with
    485 route registrations in one `startServer` closure, and this recipe
    telling every contributor to add to it is a large part of why. It is
    now ratcheted by `scripts/check-server-index-size.mjs`: its line count

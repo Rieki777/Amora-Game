@@ -13,8 +13,7 @@ import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { recognitionNameCheck } from "../shared/launchRequirements";
 import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
-import { sceneStopsFor } from "../shared/questScenes";
-import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
+import { crewsRepo as crewsRepoFactory } from "./lib/crews";
 import {
   ALL_CAPABILITIES,
   capabilityDecision,
@@ -138,11 +137,7 @@ import {
   restoreRevision,
   saveDraft,
 } from "./lib/mapScene";
-import {
-  allRows as housingRows,
-  publicEntries as housingPublicEntries,
-  setAvailability as setHousingAvailability,
-} from "./lib/housing";
+import { publicEntries as housingPublicEntries } from "./lib/housing";
 import { CALENDAR_KINDS, CALENDAR_LAYERS, toSchemaOrg } from "../shared/gatherings";
 import { recordWalkRows, walkReport } from "./lib/walkLog";
 import {
@@ -252,17 +247,7 @@ import {
   weightTokenProblem,
   type WeightModeSnapshot,
 } from "./lib/governanceWeights";
-// Aliased on import: `server/lib/drafts.ts` (the assistant's draft-and-confirm
-// queue) already owns the bare names in this file, and two unrelated features
-// both called "drafts" is exactly the collision the design's own note warned
-// about when it named this module `proposalDrafts.ts`.
-import {
-  ADVISORY_TYPES,
-  deleteDraft as deleteProposalDraft,
-  draftsOf as proposalDraftsOf,
-  saveDraft as saveProposalDraft,
-  typeRefusesCapability,
-} from "./lib/proposalDrafts";
+import { ADVISORY_TYPES, typeRefusesCapability } from "./lib/proposalDrafts";
 import {
   BALLOT_METHODS,
   dialsForMethod,
@@ -331,7 +316,7 @@ import {
   staysOpenState,
   allStays,
 } from "./lib/stays";
-import { createWalletChallenge, formatUnits, readOnchainBalance, readTokenIdentity, readVillageMetric, verifyWalletSignature } from "./lib/base-reads";
+import { createWalletChallenge, readOnchainBalance, readTokenIdentity, verifyWalletSignature } from "./lib/base-reads";
 import {
   allExits,
   blockingStates,
@@ -518,7 +503,6 @@ import {
   listRelations,
   listRelationTypes,
   seedStarterTypes,
-  type NodeKind,
 } from "./lib/orgRelations";
 import {
   buildOrgExport,
@@ -591,7 +575,6 @@ import {
   resolveMemberKey, storeMemberKey,
 } from "./lib/memberSecrets";
 import { RSVP_STATUSES, type RsvpStatus } from "../shared/gatherings";
-import { MEMBER_DRAFT_KINDS } from "../shared/draftKinds";
 import { weekAhead } from "./lib/villageReaders";
 import {
   ABOUT_TIERS, MATCHING_CONSENT_SENTENCE, aboutMeForAssistant, decideMemberDraft, decideStatement, getAgentProfile,
