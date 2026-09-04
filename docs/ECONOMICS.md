@@ -562,6 +562,24 @@ for. So the rule, and it is the rule for any decimals change in either direction
    it, claims it, or sells it, and the correction afterwards is a clawback against
    somebody who did nothing wrong. Too small is a complaint. Too large is a loss.
 
+**OPEN, and named here because this lane could not close it without touching
+production code.** Nine comments in nine files still describe the flip as a
+coming event, and one of them states the reversed ruling as standing. Measured
+2026-09-04 at `1861f7d`, dropping tests:
+`client/src/lib/tokenAmount.ts:13` opens "Rye has ruled that every token moves to
+4 decimals"; `client/src/components/SendTokensCard.tsx:41`,
+`client/src/pages/Library.tsx:97`, `client/src/pages/Stay.tsx:141` and
+`client/src/pages/Wallet.tsx:155` each reason from the day the tokens all move;
+`server/index.ts:16149`, `server/lib/exit.ts:576`, `server/lib/library.ts:36` and
+`server/lib/voiceClaim.ts:331` do the same beside the postings they annotate.
+Every one of them is the JUSTIFICATION for code that is correct and should stay,
+so this is a comment sweep and never a behaviour change: whoever takes it
+replaces the coming-flip reason with the standing one, which is that a
+scale-aware payload and one conversion helper are what stop a display and an
+input disagreeing at ANY scale, and that Village Voice is the token whose scale
+still moves, downward. The comments about what happens AT four decimals as an
+illustration of scale are fine and are not in this count.
+
 Measured at `1861f7d`, `grep -rn "postTransferOn(\|postTransfer(\|postTransferPair(\|postGraceNightBurn(\|postPaymentReversalLeg(\|postClawbackMirror(\|postClawbackMirrorPair(" server/ --include=*.ts`,
 dropping tests, comment lines and `server/lib/ledger.ts` itself: **36 posting call
 sites** across seven exported doors. That figure was **33** when this section was
@@ -3157,9 +3175,36 @@ The narrative guard cannot tell whether the words you added are TRUE. It can onl
 insist that somebody looked. That is the honest limit of it, and it is the reason
 this file still needs reading by a person.
 
+**A third limit, learned on 2026-09-04 and now half closed.** The doc guard
+compares a GENERATED region to a COMMITTED one, so a sentence hardcoded inside
+`scripts/generate-economics-doc.mjs` is identical on both sides and passes
+forever. One shipped: a region that stated a count over a table it derived, and
+the two had disagreed for as long as both existed (10.37). The half that is
+closed is a self-test asserting that region's stated count equals its printed
+rows. The half that is not is every other number a generator writes beside a list
+it derives; there is no reader that finds those pairs.
+
+**What a sweep of this file is actually doing, because the failure mode is
+specific.** Section 10 is a growing list, sections 11, 14 and 16 name absences,
+and a sentence saying a thing does not exist is the sentence nobody rechecks:
+there is no compiler error for it, no test, and neither guard can read prose. So
+the rot runs in ONE direction, toward a build that reads as less built and less
+safe than it is. Three separate lanes have now found exactly that: a defect
+described as open that was closed, a count low by a factor of four, and a list of
+unbuilt rulings where four of six were built. **When you re-verify, re-verify the
+absences first**, and re-verify them against the code with two independent
+handles, never against this document and never against the report of the lane that
+last touched it.
+
 ---
 
 *Written 2026-09-02, revised 2026-09-03: the economy was exercised rather than
 read, and the facts were split into generated regions so they cannot drift again.
-Production figures read 2026-09-03. If a number here disagrees with
-`docs/TOKENS.md`, that file is generated and this one is only half generated.*
+Revised 2026-09-04 at `1861f7d` by a sweep whose whole job was to make every
+sentence true again: section 7 stopped planning a cancelled flip and gained the
+rule for lowering a token's scale, four fixed defects stopped being described as
+live, the exit path stopped saying no code converts or returns value, and the
+counts in sections 2, 8, 11, 12 and 16 were re-measured with their methods
+written beside them. Production figures still read 2026-09-03 and were NOT
+re-measured by that sweep. If a number here disagrees with `docs/TOKENS.md`, that
+file is generated and this one is only half generated.*
