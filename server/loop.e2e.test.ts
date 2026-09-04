@@ -4122,6 +4122,19 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // The public catalog shows all three; a donation below floor refuses.
     const catalog = (await api("GET", "/api/products")).json;
     expect(catalog.products.length).toBe(3);
+    /*
+     * A PACK'S GRANT SHIPS ITS SCALE, or /contribute cannot divide it.
+     *
+     * `payment_products.token_amount` is the ledger's MINOR units, and the
+     * payload carried the slug, the amount and the village's name for the
+     * token and no `decimals` at all. That is the one surface in the decimals
+     * sweep that could not be fixed at the render site: the page prints
+     * "Includes 10000 Cob Credit" and has nothing to divide by.
+     */
+    const packRow = catalog.products.find((p: any) => p.id === pack.json.id);
+    expect(packRow.grantsToken.amount, "minor units, as the row stores them").toBe(5);
+    expect(packRow.grantsToken.decimals, "the scale that turns them into what a member reads").toBe(0);
+    expect(typeof packRow.grantsToken.decimals).toBe("number");
     const donationId = donation.json.id;
     expect((await api("POST", `/api/products/${donationId}/checkout`, { amountMinor: 100 }, peerToken)).status).toBe(400);
 
