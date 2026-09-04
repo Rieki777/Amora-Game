@@ -2104,9 +2104,11 @@ more on Ash before the share cap refuses.
 
 If Wren had tapped a heart on a forum post instead, the same lock and the same
 guards would run through `sendGratitude`, the amount would be `feed.heart_amount`
-(1), the cap would be `feed.max_hearts_per_recipient_per_cycle` (5) taps, and the
-ledger key would be `gratitude_received:<entryId>`. Two doors, one lock, two key
-shapes: see section 5.
+(1), the cap would be `feed.max_hearts_per_recipient_per_cycle` (5) taps, the
+source would be `heart_received`, and the ledger key would be
+`gratitude.given:local:<noteId>`. Two doors, one lock, one key shape as of
+2026-09-04: see section 5 and 10.33 for the shape that used to sit here and what
+it cost.
 
 ### 15.4 Wren holds a seat through a settlement
 
