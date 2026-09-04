@@ -63,7 +63,7 @@ const LEGAL: SectionSpec = {
     {
       path: ["jurisdictionOverview", "heading"],
       label: "Heading over the legal and tax section",
-      help: "The big heading on your investor and resident pages. Nothing in this block appears at all until at least one point below has BOTH a title and a body.",
+      help: "The big heading on your investor and resident pages. Fill this in, or the sentence below it, and the block publishes even with no points added yet.",
       kind: "text",
     },
     {
@@ -122,7 +122,7 @@ const LEGAL: SectionSpec = {
     {
       path: ["jurisdictionOverview", "points"],
       label: "The points under that heading",
-      help: "Each one is a card on your investor and resident pages, two to a row. A card needs both a title and a body to appear at all. Icons cycle through a set of six, so a seventh card reuses the first icon.",
+      help: "Each one is a card on your investor and resident pages, two to a row. A card needs BOTH a title and a body to appear at all, so a half-filled one is silently skipped. Icons cycle through a set of six, so a seventh card reuses the first icon.",
       addLabel: "Add a point",
       titlePath: ["title"],
       fields: [

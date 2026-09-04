@@ -106,7 +106,7 @@ describe("the content editor never offers a failed read as content", () => {
     /*
      * The shape is load-bearing. The team card editor only renders when the
      * parsed document is an array, so handing it `{}` would drop a founder
-     * back to raw JSON on the one section that has a friendly editor. Before
+     * back to raw JSON on the section whose editor needs an array. Before
      * the fix this section held the error OBJECT, which is why a fresh
      * village never saw the card editor at all.
      */

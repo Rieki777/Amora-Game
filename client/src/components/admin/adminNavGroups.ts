@@ -43,6 +43,9 @@ import { CONTENT_SECTIONS } from "./contentSections";
  */
 export const MODULES_GROUP_TITLE = "What your village runs";
 
+/** The group that holds Integrations, named once, for the same reason. */
+export const CONNECTIONS_GROUP_TITLE = "Connections";
+
 export type NavItem = { key: string; label: string; icon: LucideIcon; badge?: TabBadge };
 export type NavGroup = { title: string; items: NavItem[] };
 
@@ -89,7 +92,7 @@ export function navGroups(setupComplete: boolean): NavGroup[] {
       // second row of a two-row group named after the other one. It leads
       // here, and email settings follow it, because a mail provider is one
       // connection among several rather than the category.
-      title: "Connections",
+      title: CONNECTIONS_GROUP_TITLE,
       items: [
         { key: "integrations", label: "Integrations", icon: KeyRound },
         { key: "email-settings", label: "Email Settings", icon: Mail },

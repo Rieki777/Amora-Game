@@ -596,8 +596,7 @@ export function EconomicsView({ headers }: { headers: (extra?: Record<string, st
           <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wide mb-1">Module health</h3>
           <p className="text-xs text-stone-400 mb-3">
             Turn modules on in{" "}
-            <Link href="/admin?tab=modules" className="text-teal-deep underline">Admin → Module Library</Link>
-            {" "}(top of The Game menu).
+            <Link href="/admin?tab=modules" className="text-teal-deep underline">Admin → Module Library</Link>.
           </p>
           <div className="space-y-1.5">
             {data.modules.map((m: any) => (

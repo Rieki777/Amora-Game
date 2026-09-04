@@ -321,7 +321,7 @@ import {
   spendSurfacesFor,
 } from "./lib/spending";
 import { seatChargeFor, seatEscrowDrift, seatPriceFor, settleFinishedSeats } from "./lib/eventSeats";
-import { allowanceFor, applyMintRuleChanges, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintRulesByIds, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, startEconomyEpoch, villageId, type StageMultiplierFor } from "./lib/economy";
+import { allowanceFor, applyMintRuleChanges, canConfirm, checkIn, cycleWindow, economyReady, fromLedgerUnits, give, HEARTS, mintForConfirmedClaim, mintRulesByIds, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, startEconomyEpoch, toLedgerUnits, villageId, type StageMultiplierFor } from "./lib/economy";
 import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -17401,7 +17401,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * The same guard covers both doors on purpose: two doors with one cap.
    */
   function mintCapGuard(slug: string, amt: number): TransferGuard {
-    const cap = numberVar("ledger.admin_mint_cycle_cap");
+    const cap = toLedgerUnits(slug, numberVar("ledger.admin_mint_cycle_cap")); // dial is WHOLE tokens
     const since = new Date(currentCycle().startsAt);
     return async (conn) => {
       // Re-read the cap inside the guard: an admin may have lowered it
@@ -17415,7 +17415,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       );
       const minted = Number(row?.minted ?? 0);
       if (minted + amt > cap) {
-        return `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`;
+        return `This would exceed the per-cycle mint cap: ${fromLedgerUnits(slug, minted)} of ${fromLedgerUnits(slug, cap)} ${slug} already minted this lunation`;
       }
       return null;
     };
@@ -17527,15 +17527,15 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const notForSale = purchaseProblem(slug);
     if (notForSale) return res.status(409).json({ error: notForSale });
     if (amt < 1) return res.status(400).json({ error: "A positive amount is required" });
-    const cap = numberVar("ledger.admin_mint_cycle_cap");
+    const cap = toLedgerUnits(slug, numberVar("ledger.admin_mint_cycle_cap")); // dial is WHOLE tokens
     if (cap <= 0) return res.status(403).json({ error: "Minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
     // A courteous pre-flight so the admin gets a 409 with numbers instead of
     // a bare refusal. It is NOT the enforcement — the guard below is.
     const minted = await mintedThisCycle(slug);
     if (minted + amt > cap) {
       return res.status(409).json({
-        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
-        minted, cap, remaining: Math.max(0, cap - minted),
+        error: `This would exceed the per-cycle mint cap: ${fromLedgerUnits(slug, minted)} of ${fromLedgerUnits(slug, cap)} ${slug} already minted this lunation`,
+        minted: fromLedgerUnits(slug, minted), cap: fromLedgerUnits(slug, cap), remaining: fromLedgerUnits(slug, Math.max(0, cap - minted)),
       });
     }
     const actor = (await authedUser(req))?.id ?? adminActor(req)?.id ?? null;
@@ -17759,7 +17759,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       });
     }
 
-    const cap = numberVar("ledger.admin_mint_cycle_cap");
+    const cap = toLedgerUnits(slug, numberVar("ledger.admin_mint_cycle_cap")); // dial is WHOLE tokens
     if (cap <= 0) return res.status(403).json({ error: "Manual minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
     // Pre-flight for a readable refusal; the guard on the post is the rule.
     // A grant already waiting for a second steward is spoken for and counts
@@ -17769,12 +17769,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const waiting = await pendingMints(slug);
     if (minted + waiting + amt > cap) {
       return res.status(409).json({
-        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation` +
-          (waiting > 0 ? `, and ${waiting} more is waiting for a second steward` : ""),
-        minted,
-        waiting,
-        cap,
-        remaining: Math.max(0, cap - minted - waiting),
+        error: `This would exceed the per-cycle mint cap: ${fromLedgerUnits(slug, minted)} of ${fromLedgerUnits(slug, cap)} ${slug} already minted this lunation` +
+          (waiting > 0 ? `, and ${fromLedgerUnits(slug, waiting)} more is waiting for a second steward` : ""),
+        minted: fromLedgerUnits(slug, minted), waiting: fromLedgerUnits(slug, waiting),
+        cap: fromLedgerUnits(slug, cap), remaining: fromLedgerUnits(slug, Math.max(0, cap - minted - waiting)),
       });
     }
 
@@ -17792,7 +17790,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
      * every one of them back from the row. An approval that does not pin the
      * amount is an approval of nothing.
      */
-    const threshold = cosignOver();
+    const threshold = toLedgerUnits(slug, cosignOver()); // dial is WHOLE tokens
     if (threshold > 0 && amt > threshold) {
       const requestId = `amr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       await getPool().query(
@@ -17935,7 +17933,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
         error: "This grant pays the steward who asked for it. It cannot be signed",
       });
     }
-    const cap = numberVar("ledger.admin_mint_cycle_cap");
+    const cap = toLedgerUnits(request.tokenSlug, numberVar("ledger.admin_mint_cycle_cap"));
     if (cap <= 0) return res.status(403).json({ error: "Manual minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
 
     /*

@@ -165,6 +165,18 @@ function decimalsOf(tokenSlug: string): number {
 }
 
 /** Human amount to ledger units. Rounds, because 0.1 * 1000 is not 100 in binary. */
+/**
+ * A number a human typed or set, into what the ledger stores.
+ *
+ * THE TWO HAND-MINT DIALS GO THROUGH HERE, and until 2026-09-04 they did not.
+ * `ledger.admin_mint_cycle_cap` and `ledger.admin_mint_cosign_over` were
+ * compared straight against a ledger amount. Every token in the registry but
+ * Village Voice carries 0 decimals, where a whole token and a ledger unit are
+ * the same number, so nothing looked wrong; Voice carries 3, so a cap of 10000
+ * was enforcing 10 Voice per lunar cycle while the dial's own description said
+ * "the most any admins can mint by hand". A founder reading the dial and a
+ * founder hitting its refusal were reading two different quantities.
+ */
 export function toLedgerUnits(tokenSlug: string, human: number): number {
   return Math.round(Number(human) * 10 ** decimalsOf(tokenSlug));
 }

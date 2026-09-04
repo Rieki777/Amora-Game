@@ -45,7 +45,7 @@ import InvoluntaryExitDialog from "@/components/admin/InvoluntaryExitDialog";
 import ContentEditorTab from "@/components/admin/ContentEditorTab";
 import WorkWithUsTab from "@/components/admin/WorkWithUsTab";
 import { StepListEditor, stalePolicyTerms } from "@/components/admin/exitPolicyEditing";
-import { MODULES_GROUP_TITLE, navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
+import { CONNECTIONS_GROUP_TITLE, MODULES_GROUP_TITLE, navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
 import { SETUP_STEPS, measureSetup, setupIsComplete } from "@/components/admin/setupProgress";
 import TokenNamingLink from "@/components/admin/TokenNamingLink";
 import TokensTab from "@/components/admin/TokensTab";
@@ -6327,8 +6327,8 @@ function ExchangeAdminTab({ password }: { password: string }) {
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Exchange</h2>
         <p className="text-sm text-gray-500">
-          The Exchange module is off. Turn it on in the Module Library (top of The Game
-          menu; it is funds-bearing, so the legal card applies), then list tokens and post prices here.
+          The Exchange module is off. Turn it on in the Module Library (top of the
+          {MODULES_GROUP_TITLE} group; it is funds-bearing, so the legal card applies), then list tokens and post prices here.
         </p>
       </div>
     );
@@ -9586,7 +9586,7 @@ export function SetupWizard({ password, onOpenTab }: { password: string; onOpenT
   --set "ADMIN_PASSWORD=<pick-a-strong-one>" \\
   --set "JOURNEY_PASSWORD=<pick-a-strong-one>" \\
   --set "FRONTEND_URL=https://your-domain"`}</pre>
-            <p className="text-gray-500 mt-1">The Resend email API key is set later inside admin, under Notifications.</p>
+            <p className="text-gray-500 mt-1">The Resend email API key is set later inside admin, under {CONNECTIONS_GROUP_TITLE}.</p>
           </li>
           <li>
             <p className="font-medium text-gray-900">4. Point your domain</p>

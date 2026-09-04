@@ -1,7 +1,8 @@
 # The admin guide: design, and the decisions it needs
 
-Status: **proposal, not built.** Written 2026-09-03 from a read of what already
-exists. Every claim below was checked against the code on `main`; the file
+Status: **decided, not built.** Written 2026-09-03 from a read of what already
+exists; all five decisions answered by Rye on 2026-09-04 and recorded in
+section 11. Every claim below was checked against the code on `main`; the file
 paths and line references are the evidence, not decoration.
 
 ## 0. What was asked, and what of it already exists
@@ -41,8 +42,10 @@ large content job attached (the form schemas), rather than a new AI feature.
 - **The Village Brain exists**: 14 sections, revisioned, each `blank`,
   `proposed` or `confirmed`, with confirming as a separate named act.
 
-**DECISION 1.** Extend the existing `/journey-to-launch` dock into Admin, or
-build a second one? Recommendation: **extend**. A second dock means two chat
+**DECISION 1. ANSWERED: extend it, and make it the SOLE source of truth for the
+assistant.** So this is not two docks converging later; the journey dock moves
+to the shell and the `/journey-to-launch` mount becomes one caller of it among
+several. Nothing else may grow its own assistant UI. Original reasoning: A second dock means two chat
 UIs, two histories and two places to fix a bug, and the existing one already
 handles modes, spend and refusals.
 
@@ -65,10 +68,11 @@ computed and nothing new is stored.
 does this tab do". `server/lib/knowledge.ts` loads organizing literature and
 per-module contracts, neither of which describes an admin screen.
 
-**DECISION 2.** Where does tab knowledge come from? Cheapest honest answer: one
-paragraph per tab, authored beside the nav registry, so a contributor adding a
-tab adds its sentence in the same edit. Anything richer is a documentation
-project.
+**DECISION 2. ANSWERED: do both.** One paragraph per tab beside the nav
+registry is the start, so a contributor adding a tab adds its sentence in the
+same edit and the guide is never mute about a screen. AND a real documentation
+project is commissioned as its own piece of work, sequenced after the current
+admin work. The paragraph is the floor, not the ceiling.
 
 ## 3. Filling forms: the boundary
 
@@ -98,11 +102,10 @@ someone writes its schema, and three tabs stay unfillable permanently:
 
 State it as an allowlist. A denylist is wrong the day somebody adds a tab.
 
-**DECISION 3.** Which tabs are in the first tranche? Recommendation:
-`variables` (122 described fields already), plus `legal` and `covenant`, which
-now have field specs of their own and are therefore free. `setup` and
-`work-with-us` are the first two that would need schemas written. Ship a
-handful that work rather than fifty that shrug.
+**DECISION 3. ANSWERED: start with those five.** `variables` (122 described
+fields already), `legal` and `covenant` (field specs landed with the content
+editors, so they are free), then `setup` and `work-with-us`, which need schemas
+written. Five that work rather than fifty that shrug.
 
 ## 4. The cost nobody should discover later
 
@@ -129,9 +132,22 @@ The plumbing already exists one level down, for **members**: `member_llm_keys`
 carries a provider, a base URL and a model, and there is a UI for it. So the
 work is to lift a shape that exists rather than to invent one.
 
-**DECISION 4.** Does a village get provider choice? If yes, this is its own
-piece of work and should be sequenced before the dock, because the dock's
-error states depend on what can go wrong with a provider.
+**DECISION 4. ANSWERED, and it is two rulings.**
+
+*The admin surface uses the VILLAGE key, never the founder's personal one.* A
+founder is also a member, and key resolution currently prefers the member key
+with the stated reason "It is their money and their provider". That is right
+for a member surface and wrong here: work done on behalf of the village is
+billed to the village. Admin modes must resolve the village key explicitly
+rather than falling through the member-first chain.
+
+*The village key must accept OpenRouter, not only Anthropic.* This was built in
+regen civics and should be operable here, so a village can reach other models.
+The shape already exists one level down for members (`member_llm_keys` carries
+a provider, a base URL and a model): lift it to the village key rather than
+inventing a second one. This is its own piece of work and is sequenced BEFORE
+the dock, because the dock's error states depend on what can go wrong with a
+provider.
 
 **A trap that must be settled either way.** Key resolution puts the **member**
 key first. A founder is also a member. A founder who set a personal key on
@@ -161,9 +177,11 @@ guide is used many times per session by definition, and three founders behind
 one office address share the bucket. The refusal reads "Slow down a moment,
 then keep going", which a founder will read as the guide being broken.
 
-**DECISION 5.** Raise the limit for admin modes, key it per user rather than
-per address, or leave it and rewrite the message. Leaving it unexamined is the
-one option that produces a support ticket.
+**DECISION 5. ANSWERED: key the limit per USER, not per address, and require a
+signed-in user.** Anonymous use of the admin guide is not a thing that should
+exist, and keying per user is what makes usage attributable: the point of the
+change is that spend and abuse can actually be monitored per person, which a
+shared office address makes impossible.
 
 ## 8. The blank-brain problem
 
@@ -191,7 +209,24 @@ tree, the same way `CLAUDE.md` says to read the bundle budget.
 
 ## 10. What this doc does not settle
 
-Five decisions above are Rye's, not the implementer's: extend or rebuild the
-dock, where tab knowledge comes from, the first tranche of fillable tabs,
-whether a village chooses its provider, and what happens to the rate limit.
-Everything else here follows from the answers.
+The five decisions above were open when this was written and are answered now.
+What remains for the implementer is ordinary sequencing, with one constraint
+from the answers: the village-key and OpenRouter work in DECISION 4 lands
+BEFORE the dock, because the dock has to render what a provider can do wrong.
+
+## 11. The decisions, as answered
+
+Answered by Rye, 2026-09-04:
+
+1. **Extend the existing dock**, and make it the sole source of truth for the
+   assistant. No second assistant UI.
+2. **A paragraph per tab AND a documentation project.** The paragraph ships
+   with the guide; the documentation project is commissioned separately and
+   sequenced after the current admin work.
+3. **First tranche of fillable tabs**: variables, legal, covenant, setup,
+   work-with-us.
+4. **Admin uses the village key**, never the founder's personal one, and the
+   village key accepts OpenRouter so a village is not locked to one model
+   vendor. Sequenced before the dock.
+5. **Rate limit per signed-in user**, not per IP address, so usage is
+   attributable and can be monitored.
