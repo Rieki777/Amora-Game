@@ -83,7 +83,17 @@ export function toMinorUnits(typed: string | number, decimals: number): number {
 /** The smallest amount a token can express, for an input's `min` and `step`. */
 export function smallestUnit(decimals: number): number {
   const d = Number(decimals) || 0;
-  return d <= 0 ? 1 : 10 ** -d;
+  // Divide by a whole power of ten. Never raise ten to a negative one.
+  //
+  // `10 ** -4` is 0.0001 on V8 25 and 0.00009999999999999999 on V8 22, because
+  // the language only requires exponentiation to be implementation-APPROXIMATED.
+  // IEEE 754 division IS correctly rounded, and `10 ** d` is an exact integer
+  // for every decimals a token can carry, so this form lands on the same double
+  // the literal 0.0001 parses to, on every engine.
+  //
+  // CI pins Node 22 and the dev boxes here run 25, so the broken form passes
+  // locally and fails only in CI. It did. Line 47 above already divides.
+  return d <= 0 ? 1 : 1 / 10 ** d;
 }
 
 export function decimalsOf(map: Record<string, number> | undefined | null, slug: string): number {
