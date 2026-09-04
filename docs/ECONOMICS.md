@@ -1141,6 +1141,160 @@ own segment`, `keeps two ids that differ only in case apart under a
 case-insensitive index` and `still recognises an already-posted legacy-shaped key
 as a duplicate`.
 
+### 10.17 Half a swap could still be reversed, through the plain poster. Fixed on `wt/econ`, measured.
+
+10.13 closed this in `reverse()`, and `reverse()` is not the only way into
+`token_ledger`. `postTransfer` wrote any row at all whose `source` was `reversal`
+so long as its key started with `reversal:`, and asked nothing else: no original
+had to exist, nothing checked whether it was already mirrored, and no pair check
+applied. A closing proof that wrote none of this code hand-posted the mirror of a
+swap's second leg through that door. Measured before the fix, at `c8041d2` on a
+local MariaDB: `NEW hand-posted single-leg mirror {"ok":true,"duplicate":false,
+"toBalance":80}`, the member who had paid 100 for the swap holding 0 and 0, and
+`checkLedgerInvariants` returning `[]` over it.
+
+The fix moves the rule into the ledger. `clawbackRefusal` runs on every leg whose
+source is `reversal`, inside the posting's own transaction and under the account
+locks `postTransferOn` already takes, and refuses a mirror whose original is one
+leg of a pair unless the other leg's mirror is written in the same transaction.
+`pairSiblingKey` moved to `server/lib/ledger.ts` with it, because a rule about a
+write cannot read its definition out of a module that imports the writer. Proven
+by `refuses a hand-posted mirror of one swap leg, which used to leave the payer
+holding nothing`, which goes red at `c8041d2` on the assertion that the door
+refuses.
+
+### 10.18 A clawback could still be reversed, through the plain poster. Fixed on `wt/econ`, measured.
+
+The same door, and 10.6's exact outcome. `reverse()` refuses to reverse a mirror,
+and a hand-posted row keyed `reversal:local:reversal:local:<K>` is not a call to
+`reverse()`. Measured before the fix at `c8041d2`: `NEW door2 hand-posted
+reversal-of-a-reversal {"ok":true,"duplicate":false,"toBalance":30} bal 30
+isReversed(K) true`, with the invariant report empty. The 30 credits a clawback
+had taken back were on the member again.
+
+The fix is decidable with no read at all, so it sits in `validateLeg` before any
+transaction opens: a mirror key names its original as everything after the second
+colon, and that original may not itself be in the `reversal:` namespace. Proven
+by `refuses a hand-posted mirror OF a mirror, which used to hand the clawed-back
+credits back`.
+
+### 10.19 A funded squat on the mirror key still made a real clawback a no-op. Fixed on `wt/econ`, measured.
+
+10.8 was reported closed and the harm was not. The mint-door squat is genuinely
+refused and `isReversed` genuinely reads a mirror rather than a key, and neither
+of those stops a posting that carries `source: "reversal"` and is FUNDED.
+Measured before the fix at `c8041d2`: `F3F funded squat ->
+{"ok":true,"duplicate":false,"toBalance":-249}`, then `F3F real clawback after a
+funded squat -> {"ok":true,"duplicate":true,...} victim balance 30`. The row
+occupying the mirror key was a one-unit posting to a third party, the village
+believed it had clawed the value back, and the member kept all 30.
+
+The fix is the third question the law asks: this leg must MIRROR the posting its
+key names, with the two accounts swapped, the same token and the same minor
+amount. A squatter can no longer occupy the key with anything, and a posting that
+satisfies the test IS the reversal, so a later `duplicate: true` is telling the
+truth. Proven by `refuses a FUNDED squat on the mirror key, so the real clawback
+still takes the value back`.
+
+### 10.20 Any module under `server/` could borrow a debt proof. Fixed on `wt/econ`, measured.
+
+10.10 replaced the boolean with a capability the ledger issues and checks by
+identity, which closed FORGERY completely: a literal, a spread, a
+`structuredClone`, an `Object.create`, a JSON round trip and a Proxy were all
+refused. It did not close BORROWING. The three proofs were `export const`, so the
+set of modules that could create member debt was every module willing to type an
+import. A closing proof imported all three into a module under `server/` and
+measured -990, -990 and -777 on one account, with `checkLedgerInvariants`
+reporting nothing in all three cases: an allow-negative debit raises the
+account's own lawful bound by exactly what it just took, so invariant 5 cannot
+see a debt created by the source it exempts.
+
+The proofs are module-private now. What leaves `server/lib/ledger.ts` instead is
+four narrow operations, each supplying its own proof internally and pinning the
+source that proof licenses: `postGraceNightBurn`, `postPaymentReversalLeg`,
+`postClawbackMirror` and `postClawbackMirrorPair`. The compiler enumerated every
+caller. `server/lib/stays.ts` and three call sites in `server/index.ts` moved to
+the first two; `reverse()` and `reversePair()` moved to the last two; three test
+files moved with them. What this does NOT close is said in the code: a module
+that imports `postPaymentReversalLeg` can still create `payment_reversal` debt of
+any size, because no row in this database is what a chargeback is derived from.
+For the clawback door the answer is different and complete, because holding it
+buys nothing: the law derives the mirror from the original. Proven by `the debt
+capability never leaves the ledger`, which asks the runtime module namespace for
+`_DEBT` names and walks every import clause under `server/`.
+
+### 10.21 A prototype swap widened the keystone set and then broke the boot check. Fixed on `wt/econ`, measured.
+
+10.12 made `ALLOW_NEGATIVE_SOURCES` a Proxy that refuses `add`, `delete`,
+`clear`, assignment, `defineProperty` and property deletion, in both the direct
+and the borrowed-method spelling. `setPrototypeOf` is its own internal method and
+none of those traps saw it. Measured before the fix at `c8041d2`:
+`Object.setPrototypeOf -> SUCCEEDED | has(spend) = true | Array.from = [] | size
+= undefined`. One line widened the allow-negative gate to every source there is,
+and emptied the list `checkLedgerInvariants` builds its `IN (...)` from, so
+invariant 5 threw a SQL syntax error on `IN ()` instead of reporting anything.
+
+Two locks. `frozenSet` traps `setPrototypeOf`, so the set cannot be emptied at
+runtime at all. And the query builds N placeholders for N sources and the literal
+`NULL` when there are none, which is valid SQL that matches nothing and reports
+every negative balance as unlawful: failing loud about every member beats failing
+silent about the check itself. Proven by `refuses a prototype swap that used to
+make has answer anything`, `keeps the two keystone sets intact through the
+attempt`, and `still reports a report after a prototype swap on the keystone set
+is refused`.
+
+### 10.22 The reversal note was clamped in the wrong unit, and cut a character in half. Fixed on `wt/econ`, measured.
+
+10.14 stopped a long note throwing `ER_DATA_TOO_LONG`, and clamped with
+`String.prototype.slice`, which counts UTF-16 CODE UNITS. MySQL counts a
+`varchar(500)` in CHARACTERS, which for utf8mb4 means code points, and the two
+disagree by a factor of two on every astral character. So a note of 400 emoji was
+clipped although it would have fitted whole, and when the boundary landed at an
+odd offset it cut a surrogate PAIR in half. Measured before the fix at `c8041d2`:
+`CLIP stored CHAR_LENGTH 258 contains EFBFBD (U+FFFD) true`, and again in this
+lane's own red run at 281 characters where 400 fitted. The stored note ended in a
+replacement character no member ever typed.
+
+`reversalDescription` counts code points now, which is the unit the column counts
+and is by definition never half a character. Proven by `keeps a 400-emoji note
+whole, with no replacement character in it` and `clips a genuinely oversized
+astral note on a character boundary`. Worth knowing for the second one: whether
+the old code split a pair depended on the PARITY of the room the key left, so the
+600-emoji case passed on the old code and the 400-emoji case did not.
+
+### 10.23 The pair heuristic has a false positive, kept on purpose
+
+Two genuinely single postings that share a prefix and a source under the two leg
+suffixes are read as a pair and refused. A closing proof built the shape by hand
+(`ord:xo-8:leg1` and `ord:xo-8:leg2` under one source) and confirmed it; no
+shipped path produces it. It could be narrowed by also requiring the two rows to
+share a `source_ref`, which `executeSwap` does set identically on both legs.
+
+It is not narrowed, and the reasoning is the whole entry. Every condition added
+to the derivation makes FEWER things count as a pair, which makes MORE single-leg
+reversals legal, which is the direction 10.13 and 10.17 lie in. The cost of the
+false positive is a refusal a person answers by posting the correction as its own
+occurrence. The cost of a false negative is a member who paid for a swap keeping
+nothing. It fails closed, and it is now held by a test instead of by a comment:
+`refuses a lone posting whose key collides with a pair shape, and fails closed on
+purpose`.
+
+### 10.24 Invariant 5's bound is cumulative and never decays. OPEN.
+
+The bound 10.9 introduced is the all-time SUM of an account's allow-negative
+debits, with no netting against repayment. So a member who was clawed back 25 and
+then repaid it in full carries a permanent 25 of overdraft that the check will
+never report, and the allowance grows with every further clawback. Measured at
+`c8041d2`: after two lawful clawbacks totalling 50 and a full repayment to a
+balance of 25, a debt of 50 driven by an ORDINARY source left the account at -25
+with the report empty, and the first line the check printed was at -51.
+
+This is real, it is much narrower than the unbounded exemption 10.9 closed, and
+it is a separate decision about what the invariant MEANS: netting repayment
+against the bound would make a member's lawful floor move as they trade, which is
+a different promise from the one the check makes today. Deliberately out of scope
+for the lane that closed 10.17 through 10.22, and untouched by it.
+
 **None of these had hurt anyone, because production has zero ledger rows. All
 of them would have landed on the first day more than one person used the thing.**
 
