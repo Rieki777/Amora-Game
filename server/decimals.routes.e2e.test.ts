@@ -75,8 +75,10 @@ let annaToken = "";
 let annaId = "";
 let benToken = "";
 let benId = "";
+let calToken = "";
 const annaEmail = () => `anna-${PORT}@example.test`;
 const benEmail = () => `ben-${PORT}@example.test`;
+const calEmail = () => `cal-${PORT}@example.test`;
 
 interface Answer { status: number; json: any }
 
@@ -222,6 +224,11 @@ beforeAll(async () => {
   annaToken = anna.token; annaId = anna.id;
   const ben = await register("Ben Orr", benEmail());
   benToken = ben.token; benId = ben.id;
+  // A SECOND STEWARD. A co-signed grant is refused to the steward who asked
+  // for it, so proving the third mint door needs somebody else at the desk.
+  const cal = await register("Cal Reed", calEmail());
+  calToken = cal.token;
+  expect((await call("PUT", `/api/admin/users/${cal.id}/role`, { body: { role: "admin" } })).status).toBe(200);
 });
 
 afterAll(async () => {
@@ -339,7 +346,7 @@ describe.skipIf(!DB_CONFIGURED)("four decimals, through the routes that post and
     // Door 3 signs: ten already minted plus twenty asked for is exactly
     // thirty, the cap, and a cap that refuses its own boundary is a cap of
     // twenty-nine.
-    const signed = await call("POST", `/api/admin/mint-requests/${requestId}/approve`, { body: {} });
+    const signed = await call("POST", `/api/admin/mint-requests/${requestId}/approve`, { body: {}, token: calToken });
     expect(signed.status, JSON.stringify(signed.json)).toBe(200);
     expect(await mintedMinor("cap-four")).toBe(30 * SCALE4);
 
@@ -383,6 +390,9 @@ describe.skipIf(!DB_CONFIGURED)("four decimals, through the routes that post and
      * `SwapCard.tsx` renders both, so at four decimals one card would have
      * shown the same holding two ways, ten thousand apart.
      */
+    // The case above left the cap at thirty, deliberately. Stocking a market
+    // is not what that boundary is about, so give this one room.
+    await setVar("ledger.admin_mint_cycle_cap", "100000");
     for (const slug of ["swap-x", "swap-y"]) {
       await makeToken(slug, `Swap ${slug.slice(-1).toUpperCase()}`);
       await setDecimals(slug, 4);
@@ -397,13 +407,15 @@ describe.skipIf(!DB_CONFIGURED)("four decimals, through the routes that post and
       body: { config: { tradingEnabled: true, legalAck: { cardVersion: "2026-07-27", acceptedBy: founderId, acceptedAt: new Date().toISOString() } } },
     })).status).toBe(200);
 
-    // Anna gets swap-x the way a member actually gets it: out of the stocked
-    // treasury through a settled purchase. A faucet mint would taint the
-    // token and it could never be swappable again.
+    // The holder gets swap-x the way a member actually gets it: out of the
+    // stocked treasury through a settled purchase. A faucet mint would taint
+    // the token and it could never be swappable again. The founder holds it
+    // because swapping opens at the member stage and this case is about the
+    // unit a payload reports, not about who may reach the door.
     await pool.query(
       "INSERT INTO exchange_orders (id, receipt_no, user_id, token_slug, quantity, price_minor_each, amount_minor, status) " +
         "VALUES ('xo-dec-seed', 951, ?, 'swap-x', 100, 500, 50000, 'pending')",
-      [annaId],
+      [founderId],
     );
     const { createHmac } = await import("crypto");
     const event = { id: "evt_dec_seed", type: "checkout.session.completed", data: { object: { id: "cs_dec_seed", payment_intent: "pi_dec_seed", metadata: { module: "exchange", orderId: "xo-dec-seed" } } } };
@@ -417,15 +429,15 @@ describe.skipIf(!DB_CONFIGURED)("four decimals, through the routes that post and
     expect(hook.status, "the settlement webhook must be accepted").toBeLessThan(300);
 
     // The ledger says a hundred whole tokens, in minor units.
-    expect(await minorBalance(annaId, "swap-x")).toBe(100 * SCALE4);
+    expect(await minorBalance(founderId, "swap-x")).toBe(100 * SCALE4);
 
-    const market = await call("GET", "/api/exchange", { token: annaToken });
+    const market = await call("GET", "/api/exchange");
     expect(market.status).toBe(200);
     const pair = (market.json?.swap?.myPairs ?? []).find((p: any) => p.payToken === "swap-x" && p.receiveToken === "swap-y");
-    expect(pair, "Anna holds swap-x and swap-y is stocked, so the pair is offered").toBeTruthy();
+    expect(pair, "the viewer holds swap-x and swap-y is stocked, so the pair is offered").toBeTruthy();
 
     const quote = await call("POST", "/api/exchange/swap/quote", {
-      token: annaToken, body: { payToken: "swap-x", receiveToken: "swap-y", receiveQuantity: 1 },
+      body: { payToken: "swap-x", receiveToken: "swap-y", receiveQuantity: 1 },
     });
     expect(quote.status, JSON.stringify(quote.json)).toBe(200);
 
@@ -456,10 +468,10 @@ describe.skipIf(!DB_CONFIGURED)("four decimals, through the routes that post and
 
     const shut = await call("GET", "/api/game/mechanics/standing", { token: annaToken });
     expect(shut.status).toBe(200);
-    expect(shut.json?.standing?.recognitionRequired).toBe(100);
+    expect(shut.json?.recognitionRequired).toBe(100);
     // ONE, not ten thousand. This is the whole case.
-    expect(shut.json?.standing?.recognitionHeld).toBe(1);
-    expect(shut.json?.standing?.qualified).toBe(false);
+    expect(shut.json?.recognitionHeld).toBe(1);
+    expect(shut.json?.qualified).toBe(false);
 
     // And the bar is a real bar rather than an unreachable one: cross it and
     // the number the gate reads crosses with it.
@@ -468,8 +480,46 @@ describe.skipIf(!DB_CONFIGURED)("four decimals, through the routes that post and
     });
     expect(more.status, JSON.stringify(more.json)).toBe(200);
     const open = await call("GET", "/api/game/mechanics/standing", { token: annaToken });
-    expect(open.json?.standing?.recognitionHeld).toBe(121);
-    expect(open.json?.standing?.recognitionHeld).toBeGreaterThanOrEqual(open.json?.standing?.recognitionRequired);
+    expect(open.json?.recognitionHeld).toBe(121);
+    expect(open.json?.recognitionHeld).toBeGreaterThanOrEqual(open.json?.recognitionRequired);
+    await conserves();
+  });
+
+  it("RELEASES a work-exchange stay reward in the token's own units, and says the human number", async () => {
+    /*
+     * `quests.stay_credit_reward` is whole credits typed on the quest form,
+     * and the release handed it to `mintStayCredits`, whose contract lane E
+     * declared MINOR. The notification stays human, so the member reads
+     * three and the ledger holds thirty thousand.
+     */
+    await call("PUT", "/api/admin/modules/stays/lifecycle", { body: { lifecycle: "public" } });
+    const quest = await call("POST", "/api/admin/quests", {
+      body: { title: `Rebuild the beds ${PORT}`, gratitude: "10", stayCreditReward: 3, tags: ["work-exchange"] },
+    });
+    expect(quest.status, JSON.stringify(quest.json)).toBe(200);
+    const questId = String(quest.json?.id ?? "");
+    const claim = await call("POST", `/api/game/quests/${questId}/claim`, { token: benToken, body: {} });
+    expect(claim.status, JSON.stringify(claim.json)).toBe(200);
+    await call("POST", `/api/game/quests/${questId}/submit`, { token: benToken, body: { note: "Beds rebuilt." } });
+
+    const before = await minorBalance(benId, STAY_CREDIT);
+    const gratBefore = await minorBalance(benId, GRATITUDE);
+    const consent = await call("POST", `/api/admin/quest-claims/${claim.json.id}/consent`, {
+      body: { approve: true, amount: 10 },
+    });
+    expect(consent.status, JSON.stringify(consent.json)).toBe(200);
+
+    // Three whole stay credits, at four decimals.
+    expect(await minorBalance(benId, STAY_CREDIT)).toBe(before + 3 * SCALE4);
+    // And the consent credit on the same act, in recognition's own units.
+    expect(await minorBalance(benId, GRATITUDE)).toBe(gratBefore + 10 * SCALE4);
+
+    // The member is told the human number, which is the whole point of
+    // converting at the boundary rather than inside the ledger.
+    const bell = await call("GET", "/api/notifications", { token: benToken });
+    const note = (bell.json?.notifications ?? []).find((n: any) => String(n.title ?? "").includes("stay credit"));
+    expect(note, "the release rings").toBeTruthy();
+    expect(String(note.title)).toContain("+3 stay credit(s)");
     await conserves();
   });
 
@@ -483,6 +533,10 @@ describe.skipIf(!DB_CONFIGURED)("four decimals, through the routes that post and
      * freshly computed one, so moving the column would put two numbers under
      * one field name in two units. The conversion is at the post.
      */
+    // The case ABOVE is what makes Ben an eligible sender: `eligibleSenderIds`
+    // admits a member with at least one consented claim, and the split follows
+    // that same Sybil filter. Without it the pool has a recipient and no
+    // eligible recognition, and every share floors to nothing.
     await makeToken("pool-three", "Pool Three");
     await setDecimals("pool-three", 3);
     await setVar("gratitude.pool_token", "pool-three");
@@ -538,44 +592,6 @@ describe.skipIf(!DB_CONFIGURED)("four decimals, through the routes that post and
     expect(keys).toEqual(["gratitude_allowance_given", "gratitude_allowance_total", "gratitude_allowance_unspent"]);
     const total = metrics.find((m: any) => String(m.metric_key) === "gratitude_allowance_total");
     expect(Number(total.value), "a real roster has a real allowance").toBeGreaterThan(0);
-    await conserves();
-  });
-
-  it("RELEASES a work-exchange stay reward in the token's own units, and says the human number", async () => {
-    /*
-     * `quests.stay_credit_reward` is whole credits typed on the quest form,
-     * and the release handed it to `mintStayCredits`, whose contract lane E
-     * declared MINOR. The notification stays human, so the member reads
-     * three and the ledger holds thirty thousand.
-     */
-    await call("PUT", "/api/admin/modules/stays/lifecycle", { body: { lifecycle: "public" } });
-    const quest = await call("POST", "/api/admin/quests", {
-      body: { title: `Rebuild the beds ${PORT}`, gratitude: "10", stayCreditReward: 3, tags: ["work-exchange"] },
-    });
-    expect(quest.status, JSON.stringify(quest.json)).toBe(200);
-    const questId = String(quest.json?.id ?? "");
-    const claim = await call("POST", `/api/game/quests/${questId}/claim`, { token: benToken, body: {} });
-    expect(claim.status, JSON.stringify(claim.json)).toBe(200);
-    await call("POST", `/api/game/quests/${questId}/submit`, { token: benToken, body: { note: "Beds rebuilt." } });
-
-    const before = await minorBalance(benId, STAY_CREDIT);
-    const gratBefore = await minorBalance(benId, GRATITUDE);
-    const consent = await call("POST", `/api/admin/quest-claims/${claim.json.id}/consent`, {
-      body: { approve: true, amount: 10 },
-    });
-    expect(consent.status, JSON.stringify(consent.json)).toBe(200);
-
-    // Three whole stay credits, at four decimals.
-    expect(await minorBalance(benId, STAY_CREDIT)).toBe(before + 3 * SCALE4);
-    // And the consent credit on the same act, in recognition's own units.
-    expect(await minorBalance(benId, GRATITUDE)).toBe(gratBefore + 10 * SCALE4);
-
-    // The member is told the human number, which is the whole point of
-    // converting at the boundary rather than inside the ledger.
-    const bell = await call("GET", "/api/notifications", { token: benToken });
-    const note = (bell.json?.notifications ?? []).find((n: any) => String(n.title ?? "").includes("stay credit"));
-    expect(note, "the release rings").toBeTruthy();
-    expect(String(note.title)).toContain("+3 stay credit(s)");
     await conserves();
   });
 
