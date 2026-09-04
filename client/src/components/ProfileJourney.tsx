@@ -10,6 +10,7 @@ import { capabilityLabel } from "@shared/capabilities";
 import { villageMoonLabel } from "@shared/villageMoon";
 import { claimMoment } from "@/lib/celebrated";
 import { playMoment } from "@/lib/sound";
+import { onProfileRefresh } from "@/lib/profileRefresh";
 
 /**
  * S4: the member's journey in numbers, over three live endpoints that had no
@@ -19,15 +20,44 @@ import { playMoment } from "@/lib/sound";
  * per-cycle settlements, and the ledger provenance of every point of value.
  */
 
-async function authedGet(path: string): Promise<any | null> {
-  const token = authToken();
-  if (!token) return null;
+/**
+ * One read, and WHICH OF THE THREE THINGS HAPPENED.
+ *
+ * `authedGet` below answered null for a signed-out reader, a 500 and a
+ * dropped connection alike, which is why this page could not tell a member
+ * with nothing yet from a member whose data did not arrive. `state` keeps
+ * them apart:
+ *
+ *   ok      the server answered, and `data` is what it said
+ *   none    there is no session, so there was nothing to ask for
+ *   failed  the ask was made and did not come back
+ */
+type Read = { state: "ok"; data: any } | { state: "none" } | { state: "failed" };
+
+async function authedRead(path: string): Promise<Read> {
+  // `authToken()` reads localStorage, which THROWS rather than returning null
+  // in a browser with site data blocked. That throw used to escape into the
+  // Promise.all below as a rejection, which is the fail-fast path that took
+  // all three sections down together.
+  let token: string | null = null;
+  try {
+    token = authToken();
+  } catch {
+    return { state: "failed" };
+  }
+  if (!token) return { state: "none" };
   try {
     const res = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
-    return res.ok ? await res.json() : null;
+    if (!res.ok) return { state: "failed" };
+    return { state: "ok", data: await res.json() };
   } catch {
-    return null;
+    return { state: "failed" };
   }
+}
+
+async function authedGet(path: string): Promise<any | null> {
+  const r = await authedRead(path);
+  return r.state === "ok" ? r.data : null;
 }
 
 function prettySource(s: string): string {
@@ -121,6 +151,13 @@ function FirstTimes({ firsts }: { firsts?: { vote?: string | null; objection?: s
   );
 }
 
+/** The three reads, in the order they are drawn. */
+const SECTIONS = [
+  { key: "prog", path: "/api/game/progression", label: "Your Progression" },
+  { key: "flows", path: "/api/game/gratitude/flows", label: "Recognition Flows" },
+  { key: "ledger", path: "/api/game/ledger", label: "Where It Came From" },
+] as const;
+
 export default function ProfileJourney() {
   const [prog, setProg] = useState<any | null>(null);
   const [flows, setFlows] = useState<any | null>(null);
@@ -128,15 +165,45 @@ export default function ProfileJourney() {
   const bloom = useGratitudeBloom();
   const blooming = useMomentWindow(bloom !== null);
   const [settled, setSettled] = useState(false);
+  /** Which of the three did not come back. Named, so the page can say so. */
+  const [failed, setFailed] = useState<string[]>([]);
   const tokenNameLower = useTokenNameLower();
 
+  /**
+   * THREE READS THAT NO LONGER SHARE A FATE.
+   *
+   * This was `Promise.all([...]).finally(...)` with no `.catch`, and
+   * `Promise.all` fails fast: one rejection abandoned the other two
+   * regardless of whether they had already answered, left all three states
+   * null, and the component returned null. A member lost stage history,
+   * recognition flows AND the ledger because one of the three was slow to
+   * fail. `allSettled` waits for all three and reports each one separately,
+   * so a section draws whenever its own read landed.
+   */
+  const load = (quiet = false) => {
+    // `quiet` re-reads without dropping back to the loader, which is what a
+    // refresh after a write on the same page wants.
+    if (!quiet) setSettled(false);
+    setFailed([]);
+    Promise.allSettled(SECTIONS.map((s) => authedRead(s.path))).then((results) => {
+      const read = (i: number): Read =>
+        results[i]?.status === "fulfilled"
+          ? (results[i] as PromiseFulfilledResult<Read>).value
+          : { state: "failed" };
+      const reads = SECTIONS.map((_, i) => read(i));
+      setProg(reads[0].state === "ok" ? reads[0].data : null);
+      setFlows(reads[1].state === "ok" ? reads[1].data : null);
+      setLedger(reads[2].state === "ok" ? reads[2].data : null);
+      setFailed(SECTIONS.filter((_, i) => reads[i].state === "failed").map((s) => s.label));
+      setSettled(true);
+    });
+  };
+
   useEffect(() => {
-    Promise.all([
-      authedGet("/api/game/progression").then(setProg),
-      authedGet("/api/game/gratitude/flows").then(setFlows),
-      authedGet("/api/game/ledger").then(setLedger),
-    ]).finally(() => setSettled(true));
+    load();
   }, []);
+  // A write elsewhere on the sheet changes the ledger and the flows.
+  useEffect(() => onProfileRefresh(() => load(true)), []);
 
   // Waiting, said as a breath. The page showed nothing at all until all three
   // reads landed, which on a slow connection is a profile that looks empty
@@ -150,10 +217,38 @@ export default function ProfileJourney() {
     );
   }
 
-  if (!prog && !flows && !ledger) return null;
+  // Nothing landed and nothing failed: a reader with no session. Silence is
+  // the right answer for that one, and only that one.
+  if (!prog && !flows && !ledger && failed.length === 0) return null;
 
   return (
     <div className="space-y-8">
+      {/*
+        WHAT DID NOT ARRIVE, SAID OUT LOUD, with the one control that can do
+        anything about it. Before this the sections simply were not drawn, so
+        a failed read and an empty account looked identical, and the page's
+        own promise ("every point of value, from the ledger itself") quietly
+        became false. `role="status"` announces it, which is item 9 for this
+        card. Semantic pair, not the stone/white pair the cards below use:
+        this banner sits on the page's own themed background.
+      */}
+      {failed.length > 0 && (
+        <div
+          role="status"
+          className="rounded-2xl border border-border bg-muted px-5 py-4 text-sm text-muted-foreground"
+        >
+          <p>
+            Could not load: {failed.join(", ")}. The rest of your journey is below.{" "}
+            <button
+              type="button"
+              onClick={() => load()}
+              className="min-h-11 font-medium text-foreground underline underline-offset-2"
+            >
+              Retry
+            </button>
+          </p>
+        </div>
+      )}
       {/* Progression: capabilities, roles, and the history of stage turns */}
       {prog && (
         <motion.div
