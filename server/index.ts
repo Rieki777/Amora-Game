@@ -1,3 +1,5 @@
+import { anonymizeMember } from "./lib/erasure";
+import { proposalsAboutMember } from "./lib/externalProposals";
 // Local dev reads .env (PORT=3001 so the API doesn't collide with Vite's 3000);
 // on Railway the real environment always wins over the file.
 import "dotenv/config";
@@ -2902,6 +2904,9 @@ function withRoleHolderLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** The five module-local singletons the erasure sweep cannot import. */
+const erasureDeps = { members, submissionsRepo, roleHoldersRepo, withRoleHolderLock, loadRoleHolders };
+
 /** Role ids a member holds. */
 function roleIdsFor(userId: string): string[] {
   return loadRoleHolders().filter((r) => r.userId === userId).map((r) => r.roleId);
@@ -4686,157 +4691,6 @@ async function runRetentionSweep(): Promise<string> {
  * able to veto a member's deletion here. What changes is what the member is
  * TOLD: an unconfirmed store is named, never counted as done.
  */
-async function anonymizeMember(target: any, actorId: string | null): Promise<ErasureOutcome> {
-  const pool = getPool();
-  // Defensive: every route into here refuses example identities, and if one
-  // ever slips through, the scrub would rename the author of every seeded
-  // thread and feed post to "A departed member" — irreversibly, since the
-  // rename is a write and the seed is only re-applied on a refresh.
-  if (isExampleUser(target)) return { asked: [], confirmed: [], unconfirmed: [] };
-  const anon = "A departed member";
-
-  // Ledger descriptions first, while gratitude_log still links names to refs.
-  await pool.query(
-    "UPDATE token_ledger SET description = 'Gratitude from a departed member' " +
-      "WHERE source IN ('gratitude_received','heart_received') " +
-      "AND source_ref IN (SELECT id FROM gratitude_log WHERE from_id = ?)",
-    [target.id],
-  );
-  await pool.query("UPDATE gratitude_log SET from_name = ? WHERE from_id = ?", [anon, target.id]);
-  await pool.query("UPDATE gratitude_log SET to_name = ? WHERE to_id = ?", [anon, target.id]);
-  await pool.query("UPDATE quest_claims SET user_name = ? WHERE user_id = ?", [anon, target.id]);
-  await pool.query("DELETE FROM notifications WHERE user_id = ?", [target.id]);
-  // De-attribution is not enough: the TEXT restates the person. A restorative
-  // intake notification carries "A private intake from <their full name>" in
-  // the title and up to 2000 characters of their message in the body, and
-  // nulling the actor id leaves every word of that in the steward's inbox.
-  await pool.query(
-    "UPDATE notifications SET actor_user_id = NULL, title = 'A message from a departed member', body = NULL WHERE actor_user_id = ?",
-    [target.id],
-  );
-  await pool.query("UPDATE tool_clicks SET user_id = NULL WHERE user_id = ?", [target.id]);
-  await pool.query("DELETE FROM health_events WHERE audience = 'public' AND actor_user_id = ?", [target.id]);
-
-  // Scrub PII keys inside submissions they authored; the proposal content
-  // itself stays part of the village record.
-  const submissions = submissionsRepo.all();
-  let scrubbed = false;
-  for (const s of submissions as any[]) {
-    if (s.userId !== target.id) continue;
-    s.userName = anon;
-    if (s.data && typeof s.data === "object") {
-      for (const k of ["name", "firstName", "lastName", "email", "phone", "whatsapp", "telegram"]) {
-        if (k in s.data) s.data[k] = "[removed at member's request]";
-      }
-    }
-    scrubbed = true;
-  }
-  if (scrubbed) await submissionsRepo.replaceAll(submissions);
-
-  await withRoleHolderLock(async () => {
-    const holders = loadRoleHolders().filter((h) => h.userId !== target.id);
-    await roleHoldersRepo.replaceAll(holders);
-  });
-
-  // The line above ends PERMISSION holdings. The org chart is the other plane
-  // called "role" (ARCHITECTURE §3.15) and shares nothing with it, so it went
-  // on holding a departed member's seat under their real user id while
-  // /api/org republished it to everyone with map.viewPeople.
-  await releaseSeatingsForUser(pool, target.id, "member left the village");
-
-  /*
-   * THE TRACES A TOMBSTONE DOES NOT COVER.
-   *
-   * Most identity here is a join: forum posts and quest claims carry only an
-   * `author_id`, so once the user row becomes a tombstone they read as "a
-   * departed member" for free. The rows below are the ones that do NOT work
-   * that way — they either restate the person independently of the users
-   * table, or they keep a live channel open to them after they have gone.
-   *
-   * Value rows stay, as always: the ledger, gratitude, claims, loans, orders
-   * and badge awards are the village's record of what happened and what is
-   * owed, and deleting those would break the conservation proof.
-   */
-  // Claims a person made ABOUT THEMSELVES, published in a searchable
-  // directory that joins straight back to users. Nothing else republishes
-  // them, so nothing else would ever remove them.
-  await pool.query("DELETE FROM skill_tags WHERE user_id = ?", [target.id]);
-  // A live push endpoint is a route to somebody's phone. Leaving it meant a
-  // "deleted" member could still be buzzed by the village they left.
-  await pool.query("DELETE FROM push_subscriptions WHERE user_id = ?", [target.id]);
-  // Same reasoning, quieter channel: an unmuted thread subscription keeps
-  // generating notifications for an account that no longer exists.
-  await pool.query("DELETE FROM forum_subscriptions WHERE user_id = ?", [target.id]);
-  // The proof-of-ownership challenge tying a wallet address to this person.
-  await pool.query("DELETE FROM wallet_challenges WHERE user_id = ?", [target.id]);
-  // Free text they wrote, in their own words. The row is kept — the funnel
-  // it belongs to is a real metric — but the sentence goes, and so does the
-  // attribution, because a question can identify its asker on its own.
-  await pool.query(
-    "UPDATE concierge_queries SET query = '[removed with the member]', user_id = NULL WHERE user_id = ?",
-    [target.id],
-  );
-  await pool.query(
-    "UPDATE contact_requests SET message = '[removed with the member]' WHERE from_user_id = ?",
-    [target.id],
-  );
-  // Intents are the same class of trace: their own words about what they
-  // sought and offered, plus every matcher sentence where they were a party.
-  await eraseIntentsForMember(pool, target.id);
-
-  await members.update(target.id, (u: any) => {
-    u.name = anon;
-    u.email = `deleted-${u.id}@anonymized.invalid`;
-    u.handle = `departed-${String(u.id).slice(-8)}`;
-    u.passwordHash = "";
-    u.tokenVersion = (u.tokenVersion ?? 0) + 1; // every session dies now
-    u.bio = "";
-    u.avatar = null;
-    u.paths = [];
-    u.journeys = {};
-    u.prefs = {};
-    u.contributions = [];
-    u.role = "member";
-    u.stageGranted = null;
-    u.membershipGranted = false;
-    u.walletAddress = null;
-    u.walletVerifiedAt = null;
-  });
-
-  await recordEvent(pool, {
-    kind: "audit",
-    text: "member:anonymized",
-    actorUserId: actorId,
-    entityType: "user",
-    entityRef: target.id,
-    audience: "admin",
-  });
-
-  // ── Lane C: the stores outside this village ────────────────────────────────
-  // Asked AFTER the local sweep, so a slow or refusing driver never delays the
-  // one deletion this deployment fully controls.
-  const external = await forgetMemberEverywhere(getPool(), target.id);
-  for (const miss of external.unconfirmed) {
-    // An erasure that did not complete is a fact about an OBLIGATION, so it
-    // gets an audit row of its own beside the integration_health failure the
-    // wrapper already wrote. A health row answers "is that integration well";
-    // this answers "does this village still owe this person something", and
-    // those are different questions that go stale at different rates.
-    await recordEvent(pool, {
-      kind: "audit",
-      text: `member:forget-unconfirmed:${miss.module}`,
-      actorUserId: actorId,
-      entityType: "user",
-      entityRef: target.id,
-      audience: "admin",
-    });
-    console.error(
-      `[erasure] "${miss.module}" did not confirm deletion for ${target.id}: ${miss.detail}. This village still owes that member a confirmation`,
-    );
-  }
-  return external;
-  // ── End Lane C zone ────────────────────────────────────────────────────────
-}
 
 async function nextActionFor(user: any): Promise<{ id: string; label: string; href: string }> {
   const claims = await claimsRepo.forUser(user.id);
@@ -15442,7 +15296,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       });
     }
     const { agreementRef } = req.body ?? {};
-    await anonymizeMember(target, adminActor(req)?.id ?? null);
+    await anonymizeMember(getPool(), target, adminActor(req)?.id ?? null, erasureDeps);
     await getPool().query(
       "UPDATE exits SET status = 'resolved', resolved_at = NOW(), agreement_ref = COALESCE(?, agreement_ref) WHERE id = ?",
       [agreementRef ? String(agreementRef).slice(0, 255) : null, exit.id],
@@ -27800,7 +27654,7 @@ ${inner}
     if (blocking.length) {
       return res.status(409).json({ error: "Open state must settle through its own domain first", blocking });
     }
-    const external = await anonymizeMember(target, adminActor(req)?.id ?? null);
+    const external = await anonymizeMember(getPool(), target, adminActor(req)?.id ?? null, erasureDeps);
     // Lane C: an admin sees the same shortfall the member is told about, named
     // per store, so the village knows what it is still chasing on their behalf.
     res.json({ success: true, removed: { id: target.id, email: target.email }, anonymized: true, external });
@@ -27822,7 +27676,7 @@ ${inner}
     if (blocking.length) {
       return res.status(409).json({ error: "Open state must settle through its own domain first", blocking });
     }
-    const external = await anonymizeMember(user, user.id);
+    const external = await anonymizeMember(getPool(), user, user.id, erasureDeps);
     // Lane C: a member is never told "deleted" about a store that did not
     // answer. The sentence says what happened here, and names the shortfall
     // plainly where there is one.
@@ -27869,6 +27723,12 @@ ${inner}
       submissions: submissionsRepo.all().filter((s: any) => s.userId === user.id),
       notifications: notifRows,
       preferences: resolveNotifyPrefs(user.prefs),
+      // What a MODULE wrote about this member. Absent until now, so a vendor
+      // record naming them and holding a verbatim quote about them was missing
+      // from the one document that promises everything the village holds. Found
+      // through the subject rows, so a record naming three people is found by
+      // all three rather than only the first.
+      moduleRecords: await proposalsAboutMember(pool, user.id),
       stays: await mine("SELECT * FROM stays WHERE user_id = ?"),
       stayPurchases: await mine("SELECT * FROM stay_purchases WHERE user_id = ?"),
       exchangeOrders: await mine("SELECT * FROM exchange_orders WHERE user_id = ?"),
