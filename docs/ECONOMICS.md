@@ -1517,12 +1517,55 @@ lunation's issuance came from doors no admin opened, names those doors from
 `token_ledger.source`, and says that the cap bounds every door that issues.
 The dial's description says the same thing before a village sets the number.
 
-**What is still true and unfixed.** The five faucet accounts named by hand in
-`server/lib/economy.ts` (`publicSupply` and the admin per-source breakdown)
-agree with `ledger_accounts.faucet = 1` today by coincidence, not by
-derivation. A sixth faucet account would silently drop out of both supply
-surfaces while `GET /api/admin/tokens` kept counting it. That file belongs to
-other lanes, so this is reported and not touched.
+**What this section reported and did not fix.** The five faucet accounts named
+by hand in `server/lib/economy.ts` agreed with `ledger_accounts.faucet = 1` by
+coincidence. That is 10.33 below, and it is now fixed.
+
+### 10.33 Two supply surfaces named the faucets by hand, and agreed by coincidence. Fixed on `wt/econ-small`, measured.
+
+`publicSupply` and the per-source breakdown inside `mintView`
+(`server/lib/economy.ts`) each spelled out five faucet account ids as a literal
+list, while `GET /api/admin/tokens` derived the same set from
+`ledger_accounts.faucet = 1`. **The three agreed and nothing made them agree.**
+Measured by reading every `INSERT` into `ledger_accounts` across `drizzle/`:
+exactly five rows carry the flag, seeded by four migrations
+(`sys:gratitude-pool` and `sys:cycle-pool` in 0009, `sys:mint` in 0011,
+`sys:library-mint` in 0024, `sys:voice-mint` in 0072), and every other system
+account carries 0. The only code path that creates an account outside a
+migration is `postTransfer`'s own lazy insert in `server/lib/ledger.ts`, which
+hardcodes `faucet` to 0, so the two lists could only ever come apart through a
+new migration.
+
+**What a sixth faucet would have done.** Dropped silently out of the public
+supply feed and out of the admin per-source breakdown, while the tokens route
+kept counting it. Two published supply figures would have stopped counting a
+real source, with no error anywhere: the boot invariants prove conservation per
+token over ALL accounts and say nothing about which accounts a report reads.
+
+**The fix.** One exported helper, `faucetAccounts(pool)`, selects the ids from
+`ledger_accounts` where the flag is set, and both surfaces call it. One helper
+and not the same `SELECT` written out twice, because spelling a derived read
+twice is how the hand-kept list happened in the first place: the sentence
+saying what a faucet is has one home, and the sixth faucet reaches both
+surfaces on the day it is seeded. The five constants stay where they were, used
+by `faucetFor`, which answers a different question (which faucet issues a given
+token) and is hand-written on purpose.
+
+**An empty result is a real answer here, and it is not a zero.** A database
+with no faucet row has not been migrated; it has not issued nothing. Both
+callers return an empty supply for it, which also keeps `IN ()` off the wire:
+MySQL refuses to parse that, so the public feed would have answered a SQL error
+to every reader the moment the derived list came back empty.
+
+**Measured.** `server/economyFaucetSet.test.ts`, over a scratch schema with no
+server booted, seeds a sixth faucet (`sys:probe-mint`), posts 700 of a probe
+token out of it, and asserts the issuance reaches both surfaces. Run against
+the hand-kept version of the file first, the public-feed case failed with "a
+sixth faucet's issuance must reach the public supply feed: expected undefined
+to be truthy"; against the fix, three cases pass. The tripwire that found this
+(`server/mintCap.e2e.test.ts`, "agrees with the hand-kept faucet list the
+supply surfaces use") is untouched and still true: the constants it compares
+still exist and still name the five seeded accounts.
 
 ### The governed numbers a member was told wrong (lane P1)
 

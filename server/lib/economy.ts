@@ -3063,6 +3063,43 @@ export async function publicRules(pool: Pool): Promise<Array<{ trigger: string; 
 }
 
 /**
+ * Every faucet account in this database, read from the flag that defines one.
+ *
+ * WHY THIS EXISTS. Two supply surfaces used to name five accounts by hand
+ * (`publicSupply` below and the per-source breakdown inside `mintView`) while
+ * `GET /api/admin/tokens` derived the same set from `ledger_accounts.faucet =
+ * 1`. The three agreed, and nothing made them agree: the five hand-written ids
+ * matched the five rows the migrations seed with the flag, so a sixth faucet
+ * would have dropped silently out of both supply figures while the tokens
+ * route kept counting it. Two published numbers would have stopped counting a
+ * real source and no error would have said so anywhere.
+ *
+ * ONE HELPER RATHER THAN THE SAME SELECT TWICE, because spelling a derived
+ * read twice is how the hand-kept list happened the first time: the sentence
+ * explaining what a faucet is has one home, and the sixth faucet reaches both
+ * surfaces on the day it is seeded rather than on the day somebody remembers
+ * two more edits.
+ *
+ * THE FLAG IS THE DEFINITION, and it already governs more than reporting:
+ * `postTransfer` reads it for the launch gate and for the issuance rules, and
+ * each faucet's negative balance IS that token's issued supply. So a supply
+ * figure derived from anything else is answering a different question from the
+ * one the ledger enforces.
+ *
+ * AN EMPTY RESULT IS A REAL ANSWER AND NOT AN ERROR, and callers must tell it
+ * from a zero. A database with no faucet row has not been migrated; it has not
+ * issued nothing. Both callers below return an empty supply rather than
+ * building `IN ()`, which is a MySQL syntax error and would take the public
+ * feed down with a message about SQL.
+ */
+export async function faucetAccounts(pool: Pool): Promise<string[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT `id` FROM `ledger_accounts` WHERE `faucet` = 1 ORDER BY `id`",
+  );
+  return rows.map((r) => String(r.id));
+}
+
+/**
  * How much of each token exists, and nothing finer.
  *
  * VILLAGE TOTALS ONLY, per token, per moon. The admin dashboard breaks supply
@@ -3094,12 +3131,16 @@ export async function publicSupply(pool: Pool): Promise<{
   tokens: Array<{ token: string; issued: number; waned: number; circulating: number; decimals: number }>;
 }> {
   const { key } = cycleWindow();
-  // `sys:cycle-pool` belongs here and was missing. It is the faucet every
-  // village credit has ever come out of, so leaving it off meant the public
+  // DERIVED, NEVER TYPED (see `faucetAccounts`). This list used to be five
+  // hand-written ids, and `sys:cycle-pool` had already been missing from it
+  // once: the faucet every village credit has ever come out of, so the public
   // supply feed reported four tokens and silently omitted the one members
-  // actually spend. That was already wrong for cycle-close distributions; a
-  // quest that pays credits would have made it wrong on a daily basis.
-  const faucets = [RECOGNITION_FAUCET, VOICE_MINT, MINT_FAUCET, LIBRARY_MINT, CYCLE_POOL_FAUCET];
+  // actually spend. The flag cannot forget a faucet the way a list can.
+  const faucets = await faucetAccounts(pool);
+  // No faucet row at all is an unmigrated database, not a village that has
+  // issued nothing, and the two must not render the same. Returning here also
+  // keeps `IN ()` off the wire, which MySQL refuses to parse.
+  if (faucets.length === 0) return { cycleKey: key, tokens: [] };
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT b.`token_type` AS slug, t.`name`, t.`decimals`, SUM(-b.`balance`) AS issued " +
       `FROM \`token_balances\` b JOIN \`tokens\` t ON t.\`slug\` = b.\`token_type\` ` +
@@ -3411,14 +3452,23 @@ export async function mintView(pool: Pool): Promise<MintView> {
   );
   // Per-source detail lives HERE and never on the public feed, because at small
   // N a public per-source series deanonymises individual holdings.
-  const [supply] = await pool.query<RowDataPacket[]>(
-    "SELECT `token_type` AS token, `source`, SUM(`amount`) AS issued FROM `token_ledger` " +
-      "WHERE `from_account` IN (?,?,?,?,?) GROUP BY `token_type`, `source` ORDER BY `token_type`, `source`",
-    // The cycle pool, for the same reason `publicSupply` now names it: without
-    // it the admin's own per-source breakdown could not see a single credit
-    // this village has ever issued.
-    [RECOGNITION_FAUCET, VOICE_MINT, MINT_FAUCET, LIBRARY_MINT, CYCLE_POOL_FAUCET],
-  );
+  //
+  // DERIVED, NEVER TYPED, from the same helper the public feed reads. The five
+  // ids used to be written out here as well, and the cycle pool had already
+  // been missing from both: without it the admin's own per-source breakdown
+  // could not see a single credit this village had ever issued.
+  const faucets = await faucetAccounts(pool);
+  const [supply] = faucets.length
+    ? await pool.query<RowDataPacket[]>(
+        "SELECT `token_type` AS token, `source`, SUM(`amount`) AS issued FROM `token_ledger` " +
+          `WHERE \`from_account\` IN (${faucets.map(() => "?").join(",")}) ` +
+          "GROUP BY `token_type`, `source` ORDER BY `token_type`, `source`",
+        faucets,
+      )
+    : // An unmigrated database, said as an empty breakdown rather than as a
+      // SQL parse error on `IN ()`. Nothing here can tell it from a village
+      // that has issued nothing, which is why `faucetAccounts` says so.
+      [[] as RowDataPacket[]];
 
   // The mint PREVIEW, and it must agree exactly with the settlement filter
   // above or the preview promises a payout the run will not make. Agents are
