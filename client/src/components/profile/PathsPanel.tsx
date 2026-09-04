@@ -1,19 +1,29 @@
 /**
- * PATHS: which parts of village life you are here for.
+ * PATHS: which parts of village life you are here for, and how far along each.
  *
- * Membership, and only membership. A path is a bare string on the member and
- * there is no per-path progress data anywhere in this product, so this renders
- * what is true (you walk it, or you do not) and nothing else.
+ * Membership first: a path is a bare string on the member, and this renders
+ * what is true (you walk it, or you do not). Under each claimed tile sits that
+ * path's own ladder, which arrives as a payload and is drawn by `PathLadder`.
  *
- * ── NO LADDER, AND THE ROOM LEFT FOR ONE ────────────────────────────────────
+ * ── FOUR LADDERS, FOUR SHAPES ───────────────────────────────────────────────
  *
- * Each path is meant to earn its own ladder from real deeds and commitments.
- * Two design questions are open and there is no per-path data model, so no bar
- * is built here. An earlier draft of the character sheet gave each path a
- * progress bar reading "2 of 3 seasons served, 62%" and every one of those
- * numbers was invented by the draft. The tile below is laid out with the
- * ladder's future home under the description, so adding one later is a block
- * inside this card and not a redesign of it.
+ * The room this file used to leave for a ladder is now filled, and it is filled
+ * four different ways. An investor's steps and a resident's steps are different
+ * acts with different counts, so there is no shared ladder here and no shared
+ * rung count: three rungs for a steward, three for a resident, four for an
+ * investor, two for a prosperity creator. `shared/pathLadders.ts` names them
+ * and `server/lib/pathLadders.ts` decides which are lit, from live rows, on
+ * every read.
+ *
+ * WHAT IS STILL REFUSED IS EVERY NUMBER THE OLD DRAFT INVENTED. That draft gave
+ * each path a progress bar reading "2 of 3 seasons served, 62%", and the draft
+ * made up all three figures. There is no bar, no fraction and no percentage
+ * anywhere below, because a rung is a fact that holds or does not and there is
+ * no denominator to divide by.
+ *
+ * A PATH THE MEMBER DOES NOT WALK SHOWS NO LADDER. The panel only looks up a
+ * ladder for a tile the member has claimed, and the server only serves ladders
+ * for the paths on the member's own record, so the two agree by construction.
  *
  * ── WHAT THIS CARD ABSORBED ─────────────────────────────────────────────────
  *
@@ -38,6 +48,8 @@
  */
 import { Link } from "wouter";
 import { ArrowRight, Check, Plus } from "lucide-react";
+import type { PathLadder as PathLadderPayload } from "@shared/pathLadders";
+import PathLadder from "./PathLadder";
 
 export interface PathTile {
   id: string;
@@ -56,6 +68,7 @@ export default function PathsPanel({
   saving,
   error,
   onToggle,
+  ladders,
 }: {
   tiles: PathTile[];
   claimedIds: string[];
@@ -64,6 +77,15 @@ export default function PathsPanel({
   saving: string | null;
   error: string;
   onToggle: (id: string) => void;
+  /**
+   * The member's own ladders, from `/api/paths/ladders`.
+   *
+   * NULL AND UNDEFINED BOTH MEAN UNKNOWN, and unknown draws nothing, the same
+   * contract `offerKnown` holds the retirement line to. An empty array means
+   * the server answered and this member has no ladder to show. Optional so a
+   * caller that has not fetched them renders exactly the panel it used to.
+   */
+  ladders?: PathLadderPayload[] | null;
 }) {
   const walked = tiles.filter((t) => claimedIds.includes(t.id)).length;
 
@@ -90,6 +112,11 @@ export default function PathsPanel({
         {tiles.map((tile) => {
           const claimed = claimedIds.includes(tile.id);
           const busy = saving === tile.id;
+          // Undefined here covers three different absences on purpose: the
+          // payload has not landed, the member does not walk this path, and
+          // this build has no columns for it. All three draw nothing, which is
+          // the only honest picture of each of them.
+          const ladder = claimed ? (ladders ?? []).find((l) => l.pathId === tile.id) : undefined;
           return (
             <div
               key={tile.id}
@@ -124,10 +151,16 @@ export default function PathsPanel({
                 <p className="mt-1 text-sm text-muted-foreground">No longer offered here.</p>
               ) : null}
 
-              {/* THE ROOM LEFT FOR A LADDER. A per-path rung bar belongs here,
-                  under the standing and above the controls, once there is a
-                  data model behind it and the two open design questions have
-                  an answer. Nothing is drawn until then. */}
+              {/* THIS PATH'S OWN LADDER, in the room that was left for one:
+                  under the standing and above the controls.
+
+                  Only for a tile the member has CLAIMED, because a ladder is a
+                  claim about somebody's journey and a path they do not walk has
+                  none. Only when a payload has arrived, because null means
+                  unknown and unknown says nothing. And only for a path this
+                  build has columns behind, so a fork's own fifth path draws no
+                  empty frame nobody could ever fill. */}
+              {ladder ? <PathLadder ladder={ladder} /> : null}
 
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button

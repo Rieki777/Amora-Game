@@ -206,7 +206,11 @@ describe("PathsPanel", () => {
     expect(screen.getAllByText("What this path asks")).toHaveLength(2);
   });
 
-  it("draws no ladder and no progress bar, because there is no per-path data", () => {
+  // Ladders now exist and arrive as their own payload; a caller that has not
+  // fetched one still gets exactly the panel it used to. The bar stays gone in
+  // every case, and `PathLadder.test.tsx` holds that line where a ladder IS
+  // drawn.
+  it("draws no ladder and no progress bar for a caller that fetched none", () => {
     const { container } = render(
       <PathsPanel tiles={tiles} claimedIds={["steward"]} offerKnown saving={null} error="" onToggle={() => {}} />,
     );
