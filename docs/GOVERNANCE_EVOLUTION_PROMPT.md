@@ -2308,6 +2308,85 @@ rather than a vesting table; dry-run warnings stay on the proposal for stewards 
 - **No vesting by default.** The founding allocation is entries in the contribution ledger, each
   with its share of the total, and nothing in governance holds tokens back over time.
 
+### 19J. Rulings of 2026-09-04: powers move between roles, priced by what they are
+
+The founder, on the standing requirement relayed through the Saberra session that any role-power
+must be movable to another role through a vote:
+
+> "Is there a smarter way to make it so that we can give and move powers amongst roles? As these
+> will constantly be evolving and shifting with any village? Not as constant as moving different
+> members into different roles with powers, but as we increase what powers are needed and what roles
+> hold them we'll need this to be flexible."
+
+And on the answer:
+
+> "Love all your upgrades! Let's do it! Yes to pricing by criticality! Great idea!"
+
+**What was measured before the design.** A role's powers are a JSON array on the `roles` row
+(migration `0002`). There are 29 capability keys. Unlike voting weight, which carries an append-only
+trail with a required reason (`governance_weight_changes`, migration `0089`), a power change leaves
+NO record: nothing can answer who granted a power, when, or under what decision. And 121 admin write
+routes are gated by `isAdmin` rather than by a capability, so those powers cannot move to any role at
+all, by construction.
+
+**The five moves, all approved.**
+
+1. **Powers become rows with provenance.** A join table replaces the JSON array: role, capability,
+   granted or revoked, the proposal that decided it, the actor, the instant, and a reason that
+   cannot be blank, exactly the shape `governance_weight_changes` already uses for weight. "Who can
+   do what, and who decided" becomes a query and a page. The JSON column is read through a
+   compatibility view until every reader moves, then dropped.
+2. **A move is priced by the POWER, not by the act.** Capabilities gain a criticality field, the
+   same three tiers settings carry. Moving the library keeper's power is routine; moving the
+   steward's veto is constitutional. This is what makes evolution possible in practice.
+3. **Villages reason in BUNDLES, not in keys.** Named power sets at village scale (tend the water,
+   keep the library, hold the purse); a role holds bundles, a bundle holds capability keys. Keys stay
+   the enforcement unit, bundles become the governance unit, so a proposal reads as a sentence a
+   member recognises rather than as `map.photograph`. A bundle's criticality is the highest among its
+   keys.
+4. **The governance object is the ROLE DEFINITION.** Moving a power is one proposal carrying two role
+   elements, because villages reorganise in seasons rather than one power at a time. The changeset
+   already carries multiple elements, so this is free.
+5. **Every new platform power declares a home.** A capability added by an upgrade names the bundle it
+   belongs to, so it lands where the village already governs rather than nowhere, and the new-moon
+   digest announces it. Without this an upgrade either needs a vote before anything works or ships a
+   power nobody can see.
+
+**The tier rule, settled.** Only the META-POWER, the power to change who holds powers, is
+constitutional and can never be moved more cheaply than itself. Everything else is priced at its own
+criticality. This supersedes the Saberra session's recommendation that ALL power moves be
+constitutional; their ratchet argument is preserved exactly where it bites (a village cannot use an
+ordinary vote to make future moves cheaper) while ordinary evolution stays cheap enough to happen,
+which is what the founder asked for.
+
+**Guards that travel with it, from the Saberra session and kept.**
+
+- `capabilities` joins `represents_circle` in `SEAT_FIELDS` (`server/lib/orgDrafts.ts`), so a MACHINE
+  can never author which powers a role holds across the bridge. Their agents write role definitions
+  from meeting transcripts, and "the stewards should be able to approve budgets" becomes a structured
+  field the moment one exists to receive it. Two lists, never conflated: excluded on the machine
+  path, writable on the village's own vote path.
+- **Structure yes, occupancy no**, enforced as a refusal: a change set carrying a role-capability
+  element may not also carry a seating element, refused at validation naming both, the same
+  construction as the not-vetoable mixing refusal. A power move and a seating are two decisions.
+- A documented (agent) holder has no `user_id`, so `roleCapabilitiesFor` cannot reach one. Pinned by
+  a test asserting an agent-held role grants nobody a capability, so this work cannot dissolve it.
+- **Any member may propose a move**, consistent with the observation board where anyone may elevate a
+  tension into a proposal, a quest or a role. Deciding is what is governed.
+- Deny by default: a capability in no bundle, or a bundle held by no role, grants nothing and is
+  visible as unheld rather than silently absent.
+
+**The ceiling, which is the founder's to size.** 121 admin write routes carry no capability key, so
+no mover reaches them. The cheap half ships with this lane: a gate that refuses any NEW admin write
+route without a capability key, so coverage stops getting worse. The expensive half is the backlog of
+121, which is a programme rather than a lane, and the honest options are to size it, to accept a
+documented list of permanent exceptions, or to apply the requirement to a named subset.
+
+**Lane: `role-powers`, Phase 2**, owning the join table and its migration, the criticality field on
+capabilities, the bundle registry, the changeset `role` executor, the proposal wizard's role card,
+the powers page (who holds what, and who decided), the `SEAT_FIELDS` exclusion, the mixing refusal,
+and the new-route gate. It lands after the changeset executor it depends on.
+
 ### The mandate that follows
 
 > "your role now is to respond to my ideas for improvement with a final execution plan. Then you're
