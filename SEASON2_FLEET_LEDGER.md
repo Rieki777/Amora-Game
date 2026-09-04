@@ -197,6 +197,42 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   under-reports, so run all three scans (the directory, `git ls-tree` over every remote AND
   local ref, and every `drizzle/*.sql` on disk across the worktrees), then
   `node scripts/check-migration-numbers.mjs --next` to confirm.
+- **profile-rebase integration, 2026-09-04: RENUMBERED to 0156, 0157, 0158, 0159.** The four
+  entries below (path-data's 0144/0145/0146, portraits' 0147, and the 0144-to-0151 move made
+  earlier the same day) are HISTORY now, not allocation. Main reached 0153 while the branch
+  was in review, so every one of them sat at or below a ceiling that had already passed them
+  and `check-migration-numbers.mjs` refused the branch. New numbers, same bodies:
+  `0156_an_investor_path_records_facts_not_money.sql`, `0157_a_member_opens_a_venture.sql`,
+  `0158_character_portraits.sql`, `0159_a_member_finds_their_own_reservation.sql`.
+  **Renaming is only safe because not one of these has ever been merged**, so no
+  `_migrations_applied` row anywhere holds an old name and nothing replays. Three of the four
+  are `CREATE TABLE IF NOT EXISTS` and would survive a replay regardless; 0159 is a bare
+  `CREATE INDEX`, which MySQL gives no `IF NOT EXISTS`, so that one would fail loud on a second
+  run. If any of these had shipped, the fix would have been a NEW file, never a rename.
+  Ceiling read at 2026-09-04T20:4xZ by two scans run SEPARATELY, never chained: every ref in
+  the shared object store reached 0155, and `drizzle/` on disk across 250 sibling worktrees
+  reached 0155 (`ECON-redeem`). Chaining the two produces a truncated first scan whose empty
+  output is indistinguishable from a clean one.
+- **path-data lane, 2026-09-03: claims 0144, 0145 and 0146** for
+  `drizzle/0151_a_member_finds_their_own_reservation.sql` (one non-unique index on
+  `housing_reservations`, no new table),
+  `drizzle/0145_an_investor_path_records_facts_not_money.sql` (new table
+  `investor_path_facts`) and `drizzle/0146_a_member_opens_a_venture.sql` (new table
+  `member_ventures`). Three numbers rather than one file so the integration coordinator can
+  land or hold each model separately. The cost is MEASURED and not estimated, and it MOVES:
+  two runs on this tree reported `261ms` and `188ms` per migration file, against the 1.25s per
+  file an older briefing carried. It is paid once per run into the template, not once per
+  suite (103 clones this run), so three files add well under a second. Read your own with
+  `pnpm measure:provisioning`; do not quote either figure. Holders found by a four-way sweep at 2026-09-03T17:09Z, and every one of them is
+  ABOVE what section 3 recorded before this line: 0131 (`wt/lane-housing`), 0132 to 0139
+  (the governance build: `wt/gb-clock`, `wt/gb-delegation`, `wt/gb-delegation-consent`,
+  `wt/gb-dispatcher`, `wt/gb-steward`, `wt/gb-steward-veto`, `wt/gb-thresholds-heads`,
+  `wt/governance-build`, all now REAL FILES on local and origin refs) and 0140 to 0143
+  (`wt/bridge-primitives`, local and origin). Highest holder anywhere: **0143**.
+- **`check-migration-numbers.mjs --next` answered 0132 on 2026-09-03 and 0132 is TAKEN.**
+  The script reads only the `drizzle/` directory of the worktree it runs in, so on any branch
+  that has not merged the governance or bridge lanes it reports a number another lane already
+  holds. Treat `--next` as a lower bound and the four-way sweep as the answer.
 - **housing lane, 2026-09-02: holds 0131** for `drizzle/0131_a_village_names_its_own_homes.sql`.
   Recorded here by the bridge lane rather than by its author, because it was created on a worktree
   and pushed hours after the surrounding numbers were measured, which is exactly the case this
@@ -236,6 +272,25 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   gates green, `check-migration-compat` applied all 113 previous-release migrations against a
   populated database, seeded rows in all three tables these files name, applied the four, and
   confirmed a second run applies zero.
+- **Migration numbers. This list holds HOLDERS, never a "next free" figure.** The two lines
+  that used to say "next free" were both stale within a day of being written (the entry below
+  said 0123 while 0146 was already on disk), and a stale next-free reads exactly like a fresh
+  one. Gaps at 0111 and 0115-0119 are BURNED, never reuse them (the applied-ledger keys on
+  filename and would replay).
+- **Claim a number here before creating the file.** Sweep FOUR ways first, because no single
+  one of them sees the others: `git ls-tree` over every ref from `git for-each-ref refs/heads
+  refs/remotes`; `ls drizzle/` in every path from `git worktree list --porcelain`; and `find`
+  for `0*.sql` under `*drizzle*` across Desktop\Amora and other sessions' temp scratchpads.
+  `check-migration-numbers.mjs --next` reads ONE worktree against origin/main and cannot see a
+  sibling branch, so its green is not evidence.
+- **portraits lane, 2026-09-03: claims 0147 for `drizzle/0147_character_portraits.sql`.** One
+  new table, `character_portraits`, one row per (village, member, class), plus one new
+  `portrait_grants` table holding the forge budget. Four-way sweep at claim time put the
+  ceiling at 0146 (`0146_a_member_opens_a_venture.sql`, path-data lane, on `wt/path-data-models`
+  and on disk in `wt-pathdata`); 0144 and 0145 belong to the same lane. Nothing anywhere held
+  0147 or above: refs, worktrees, Desktop\Amora and every temp scratchpad all agreed.
+  CREATE TABLE IF NOT EXISTS only, no ALTER on an existing table, so it adds and takes nothing
+  away.
 - **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
   new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
   makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the
@@ -330,6 +385,30 @@ observations tonight the flaky set is:
     loop.e2e  G1 the one apply         (control rep 2)
     governance.routes.e2e  advisory notification   (kit lane)
     governance.routes.e2e  closing changes nothing (control rep 2)
+    mapScene  settles a genuine race           (2026-09-04, profile integration)
+
+A FIFTH, and its mechanism is known rather than suspected. `server/lib/mapScene.test.ts
+> two admins, one map > settles a genuine race: exactly one of six concurrent publishes
+wins` fails with "Deadlock found when trying to get lock". It fires six concurrent
+publishes at the shared MySQL on :3307, so it is the suite's most lock-contended case and
+the first to lose when other lanes are running.
+
+Observed across three full runs of the SAME tree family on one night: green at 3c739ce
+(4353 of 4353), red at e30fa6e (4352 of 4353) with only this test failing. Two lanes had
+already reported it independently, each correctly diagnosing contention rather than their
+own diff, and it vanished on a quiet machine.
+
+**This one may be a real defect wearing a flake's clothes, and that is why it is recorded
+rather than dismissed.** A deadlock means MySQL rolled a transaction back. If the publish
+path is expected to survive six concurrent writers, it wants a retry and the test is
+telling the truth; if it is not, the test asserts more concurrency than the product
+promises. Deciding which is a product question nobody has answered, so do not "fix" it by
+loosening the assertion.
+
+Contrast with `powerRunway ... THE WHOLE CHAIN HAD NO ADMIN IN IT`, which looked identical
+and was NOT added here: its cause was an audit read racing a fire-and-forget write, the
+remedy already existed twenty lines away in a sibling file, and it was fixed in 48758d4.
+Reach for the ledger only when a clean fix genuinely is not available.
 
 **THE LANDING CRITERION IS THEREFORE A SET COMPARISON, NOT A COUNT.** An integration run that
 fails only tests already in that flaky set is NO WORSE THAN BASELINE. An integration run that

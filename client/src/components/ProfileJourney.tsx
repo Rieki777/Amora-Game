@@ -7,8 +7,10 @@ import Celebration from "@/components/natural/Celebration";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import { useMomentWindow } from "@/components/natural/moments";
 import { capabilityLabel } from "@shared/capabilities";
+import { villageMoonLabel } from "@shared/villageMoon";
 import { claimMoment } from "@/lib/celebrated";
 import { playMoment } from "@/lib/sound";
+import { onProfileRefresh } from "@/lib/profileRefresh";
 import { formatTokenAmount } from "@/lib/tokenAmount";
 
 /**
@@ -19,15 +21,44 @@ import { formatTokenAmount } from "@/lib/tokenAmount";
  * per-cycle settlements, and the ledger provenance of every point of value.
  */
 
-async function authedGet(path: string): Promise<any | null> {
-  const token = authToken();
-  if (!token) return null;
+/**
+ * One read, and WHICH OF THE THREE THINGS HAPPENED.
+ *
+ * `authedGet` below answered null for a signed-out reader, a 500 and a
+ * dropped connection alike, which is why this page could not tell a member
+ * with nothing yet from a member whose data did not arrive. `state` keeps
+ * them apart:
+ *
+ *   ok      the server answered, and `data` is what it said
+ *   none    there is no session, so there was nothing to ask for
+ *   failed  the ask was made and did not come back
+ */
+type Read = { state: "ok"; data: any } | { state: "none" } | { state: "failed" };
+
+async function authedRead(path: string): Promise<Read> {
+  // `authToken()` reads localStorage, which THROWS rather than returning null
+  // in a browser with site data blocked. That throw used to escape into the
+  // Promise.all below as a rejection, which is the fail-fast path that took
+  // all three sections down together.
+  let token: string | null = null;
+  try {
+    token = authToken();
+  } catch {
+    return { state: "failed" };
+  }
+  if (!token) return { state: "none" };
   try {
     const res = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
-    return res.ok ? await res.json() : null;
+    if (!res.ok) return { state: "failed" };
+    return { state: "ok", data: await res.json() };
   } catch {
-    return null;
+    return { state: "failed" };
   }
+}
+
+async function authedGet(path: string): Promise<any | null> {
+  const r = await authedRead(path);
+  return r.state === "ok" ? r.data : null;
 }
 
 function prettySource(s: string): string {
@@ -121,6 +152,13 @@ function FirstTimes({ firsts }: { firsts?: { vote?: string | null; objection?: s
   );
 }
 
+/** The three reads, in the order they are drawn. */
+const SECTIONS = [
+  { key: "prog", path: "/api/game/progression", label: "Your Progression" },
+  { key: "flows", path: "/api/game/gratitude/flows", label: "Recognition Flows" },
+  { key: "ledger", path: "/api/game/ledger", label: "Where It Came From" },
+] as const;
+
 export default function ProfileJourney() {
   const [prog, setProg] = useState<any | null>(null);
   const [flows, setFlows] = useState<any | null>(null);
@@ -128,15 +166,45 @@ export default function ProfileJourney() {
   const bloom = useGratitudeBloom();
   const blooming = useMomentWindow(bloom !== null);
   const [settled, setSettled] = useState(false);
+  /** Which of the three did not come back. Named, so the page can say so. */
+  const [failed, setFailed] = useState<string[]>([]);
   const tokenNameLower = useTokenNameLower();
 
+  /**
+   * THREE READS THAT NO LONGER SHARE A FATE.
+   *
+   * This was `Promise.all([...]).finally(...)` with no `.catch`, and
+   * `Promise.all` fails fast: one rejection abandoned the other two
+   * regardless of whether they had already answered, left all three states
+   * null, and the component returned null. A member lost stage history,
+   * recognition flows AND the ledger because one of the three was slow to
+   * fail. `allSettled` waits for all three and reports each one separately,
+   * so a section draws whenever its own read landed.
+   */
+  const load = (quiet = false) => {
+    // `quiet` re-reads without dropping back to the loader, which is what a
+    // refresh after a write on the same page wants.
+    if (!quiet) setSettled(false);
+    setFailed([]);
+    Promise.allSettled(SECTIONS.map((s) => authedRead(s.path))).then((results) => {
+      const read = (i: number): Read =>
+        results[i]?.status === "fulfilled"
+          ? (results[i] as PromiseFulfilledResult<Read>).value
+          : { state: "failed" };
+      const reads = SECTIONS.map((_, i) => read(i));
+      setProg(reads[0].state === "ok" ? reads[0].data : null);
+      setFlows(reads[1].state === "ok" ? reads[1].data : null);
+      setLedger(reads[2].state === "ok" ? reads[2].data : null);
+      setFailed(SECTIONS.filter((_, i) => reads[i].state === "failed").map((s) => s.label));
+      setSettled(true);
+    });
+  };
+
   useEffect(() => {
-    Promise.all([
-      authedGet("/api/game/progression").then(setProg),
-      authedGet("/api/game/gratitude/flows").then(setFlows),
-      authedGet("/api/game/ledger").then(setLedger),
-    ]).finally(() => setSettled(true));
+    load();
   }, []);
+  // A write elsewhere on the sheet changes the ledger and the flows.
+  useEffect(() => onProfileRefresh(() => load(true)), []);
 
   // Waiting, said as a breath. The page showed nothing at all until all three
   // reads landed, which on a slow connection is a profile that looks empty
@@ -150,10 +218,38 @@ export default function ProfileJourney() {
     );
   }
 
-  if (!prog && !flows && !ledger) return null;
+  // Nothing landed and nothing failed: a reader with no session. Silence is
+  // the right answer for that one, and only that one.
+  if (!prog && !flows && !ledger && failed.length === 0) return null;
 
   return (
     <div className="space-y-8">
+      {/*
+        WHAT DID NOT ARRIVE, SAID OUT LOUD, with the one control that can do
+        anything about it. Before this the sections simply were not drawn, so
+        a failed read and an empty account looked identical, and the page's
+        own promise ("every point of value, from the ledger itself") quietly
+        became false. `role="status"` announces it, which is item 9 for this
+        card. Semantic pair, not the stone/white pair the cards below use:
+        this banner sits on the page's own themed background.
+      */}
+      {failed.length > 0 && (
+        <div
+          role="status"
+          className="rounded-2xl border border-border bg-muted px-5 py-4 text-sm text-muted-foreground"
+        >
+          <p>
+            Could not load: {failed.join(", ")}. The rest of your journey is below.{" "}
+            <button
+              type="button"
+              onClick={() => load()}
+              className="min-h-11 font-medium text-foreground underline underline-offset-2"
+            >
+              Retry
+            </button>
+          </p>
+        </div>
+      )}
       {/* Progression: capabilities, roles, and the history of stage turns */}
       {prog && (
         <motion.div
@@ -168,9 +264,16 @@ export default function ProfileJourney() {
 
           {(prog.capabilities?.length > 0 || prog.roles?.length > 0) && (
             <div className="flex flex-wrap gap-2 mb-5">
-              {(prog.roles ?? []).map((r: string) => (
-                <span key={r} className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
-                  <Users className="w-3 h-3" /> {prettySource(r)}
+              {/* THE ROLE'S OWN NAME, which the seed has always carried.
+                  This ran `prettySource` over the ID and printed
+                  "Founders-Circle", because a prettifier can title-case an
+                  id and can never learn where the words break. The payload
+                  sends `{ id, name }` now, so the chip reads the name a
+                  founder typed and the id stays as the title for the one
+                  reader who wants it. */}
+              {(prog.roles ?? []).map((r: { id: string; name: string }) => (
+                <span key={r.id} title={r.id} className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
+                  <Users className="w-3 h-3" /> {r.name}
                 </span>
               ))}
               {/* WHAT A MEMBER CAN DO, IN WORDS. These rendered the raw keys,
@@ -269,11 +372,22 @@ export default function ProfileJourney() {
           </div>
           {(flows.byCycle ?? []).length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">By lunar cycle</p>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">By moon</p>
               <div className="space-y-1.5">
+                {/*
+                  The row is keyed by the stored cycle id and LABELLED by the
+                  village's own moon. A key is machinery and a label is a
+                  sentence to a member; this row used to print the key.
+                */}
                 {flows.byCycle.slice(0, 6).map((c: any) => (
-                  <div key={c.cycleId} className="flex items-center justify-between text-sm border border-gray-100 rounded-lg px-3 py-2">
-                    <span className="text-gray-500 font-mono text-xs">{c.cycleId}</span>
+                  <div key={c.cycleId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm border border-gray-100 rounded-lg px-3 py-2">
+                    {/*
+                      A row whose stored id this build cannot place gets no
+                      moon, and the honest thing to print there is that it has
+                      none. The old id in its place would be a leak, and a
+                      blank span would read as a rendering fault.
+                    */}
+                    <span className="text-gray-500 text-xs">{villageMoonLabel(c.moon) || "Moon not known"}</span>
                     <span className="text-gray-700">
                       {c.received} received · {c.distinctSenders} sender{c.distinctSenders === 1 ? "" : "s"}
                     </span>

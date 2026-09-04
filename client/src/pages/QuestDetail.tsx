@@ -98,7 +98,7 @@ export default function QuestDetail() {
   }, [quest?.requiresRole, quest?.roleRequired]);
 
   const claim = quest ? claims[quest.id] : undefined;
-  const questSigns = quest ? signs?.perQuest[quest.id] : undefined;
+  const questSigns = quest ? signs?.perQuest?.[quest.id] : undefined;
   const active = questSigns?.active ?? 0;
   const done = questSigns?.done ?? 0;
   const completions = useMemo(
@@ -411,7 +411,7 @@ export default function QuestDetail() {
                   key={q.id}
                   quest={q}
                   claim={claims[q.id]}
-                  signs={signs?.perQuest[q.id]}
+                  signs={signs?.perQuest?.[q.id]}
                   stages={stages}
                   currencyName={currencyName}
                 />

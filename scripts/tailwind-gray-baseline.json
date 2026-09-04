@@ -1,5 +1,5 @@
 {
-  "totalLiterals": 330,
+  "totalLiterals": 295,
   "files": {
     "client/src/components/EventsAdminPanel.tsx": 64,
     "client/src/components/IdentityPackPanel.tsx": 8,
@@ -7,7 +7,6 @@
     "client/src/components/MapSkinPanel.tsx": 16,
     "client/src/components/NotifyPrefsPanel.tsx": 8,
     "client/src/components/OnchainCard.tsx": 7,
-    "client/src/components/ProfileHero.tsx": 3,
     "client/src/components/ProfileJourney.tsx": 20,
     "client/src/components/ProfileSheet.tsx": 7,
     "client/src/components/SendTokensCard.tsx": 6,
@@ -21,7 +20,6 @@
     "client/src/pages/Library.tsx": 1,
     "client/src/pages/Login.tsx": 6,
     "client/src/pages/Mint.tsx": 35,
-    "client/src/pages/Profile.tsx": 32,
     "client/src/pages/PublicProfile.tsx": 6,
     "client/src/pages/Register.tsx": 14,
     "client/src/pages/VillageMap.tsx": 2

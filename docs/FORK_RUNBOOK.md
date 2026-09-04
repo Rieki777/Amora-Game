@@ -173,8 +173,23 @@ two from the admin panel and almost never touches the first.
   reach a running server. `GET /api/admin/brand/preview` reads the row
   directly and reports the disagreement, and `POST /api/admin/brand/resync`
   reloads the document without a deploy.
+- **What you call whoever runs the village** (`project.catalystName`,
+  2026-09-03): a brand-overlay field like the rest, default **Catalyst**, set in
+  Identity beside "what a member is called". Every member-facing sentence that
+  names one of those people reads your word instead: closing a vote, applying a
+  draft, turning a module on, asking for help at sign-in.
+
+  **It is a LABEL and it grants nothing.** There is no Catalyst role and no
+  Catalyst capability. `isAdmin` and the single capability gate in
+  `shared/capabilities.ts` are untouched, so the same accounts can do exactly
+  what they could before and renaming this changes no permission anywhere. The
+  ADMIN PANEL keeps its own name too, `/admin` included: a place is not a
+  person, so "the admin panel" stays what it is called and only the human takes
+  your word. Two words are derived and not typed: the article ("a" or "an") and
+  the plural, so a village that types Elder reads "an Elder" and "Elders".
 - **Wizard order:** Identity (project + village name, tagline, what a member
-  is called, main-site / events URLs, footer introduction) → Pictures (uploaded,
+  is called, what whoever runs the village is called, main-site / events URLs,
+  footer introduction) → Pictures (uploaded,
   sharp-compressed, never hotlinked — including the header logo, footer mark
   and browser tab icon, all live with no deploy) → Numbers (dues, budgets —
   these write game variables) → Content (page copy, FAQs) → Map & styling →
@@ -278,6 +293,22 @@ two from the admin panel and almost never touches the first.
   file already small, a browser whose canvas ignores the WebP mime and hands
   back PNG). That turns an 8 MB phone photo into a few hundred KB before it
   reaches the wire, which is minutes on the links this platform is built for.
+- **Character portraits also live in the volume** (0158). A member may keep one
+  picture per character class, from an upload or from a forge, stored as
+  `portrait-*.webp` by `server/lib/characterPortraits.ts` and served from
+  `/api/uploads/`. Every one is cropped to a fixed 3:4 at 900x1200 and
+  re-encoded before it is written, so the per-file cost is bounded and one
+  member can hold at most one file per class plus one undecided candidate.
+  **They are PRIVATE until the member publishes them**, which is a rule the
+  database enforces (`published_at IS NOT NULL` in the query a stranger's
+  request runs), and it is why this surface has no moderation queue: an
+  unpublished portrait has an audience of one. No env var, no seed and no
+  provisioning step; the volume and the backup token above already cover it.
+  Portrait FORGING needs an image provider and there is none in this build.
+  `server/lib/assistantProviders.ts` is text-only, so the forge answers a
+  readable refusal, hands back any grant it took, and the upload path works on
+  its own. A village that wants forging installs a provider through
+  `installPortraitForge`; nothing else has to change.
   The server still re-encodes what arrives, so the two are belt and braces.
 
 ## Token naming (Gate D)
@@ -1596,6 +1627,40 @@ setting the key keeps working on its existing plaintext values. The follow-up
 release stops accepting them, and any entry not converted by then reads as
 absent with the environment variable taking over. Set the key before that
 follow-up.
+## Your village's own moon count (no migration)
+
+Your moons are numbered from **your** first moon, so your village reads "Moon 7"
+where another village reading the same sky reads "Moon 41". The number is worked
+out every time a screen is drawn (`shared/villageMoon.ts` and
+`server/lib/villageMoon.ts`) and is never stored: the database still files every
+row under the absolute lunation id (`lunar-000336`), which is the one key
+settlement matches on and the one key support can trace.
+
+- **Moon 1 by default** is the moon your village launched under, taken from
+  `launchedAt` in the `launch-state` document (`server/lib/launch.ts`). Nothing
+  to set up.
+- **New game variable, no migration:** `village.first_moon_at` (default blank,
+  founder-held, category "Village"). A plain date such as `2026-03-19` moves
+  Moon 1 to the moon containing that date. Blank goes back to the launch moon.
+  It is deliberately outside the Village Calendar module's `variableKeys`,
+  because every village counts moons whether or not it runs a calendar.
+- **ONE MOON NUMBER, EVERYWHERE (2026-09-03).** Dating something takes one
+  number and never a pair: "Moon 47", never "year 2, moon 3". The calendar's
+  grid, week, year wheel, moon roll and .ics feed all print this count now,
+  where they used to print the moon's place in the lunar year and reset it
+  every year. `calendar.year_anchor` STAYS and still does its job: it decides
+  where a lunar year begins, whether it holds twelve moons or thirteen, and
+  which of the thirteen NAMES each moon carries. What it no longer supplies is
+  a number anybody reads. Admin, Events keeps the thirteen name slots and says
+  "of the year" on each so the two numbers cannot be confused.
+- **Before your first moon**, screens show a moon's dates with no number on
+  them. That covers a village that has not launched, rows older than the anchor,
+  and a first-moon date set in the future. No screen shows "Moon 0" and none
+  shows a negative moon.
+- **Moving the date renames, and moves nothing.** Moon numbers people saw last
+  week will read differently after the change; every settled total, credited
+  amount and stored cycle id is untouched, because the number was never in them.
+
 ## Writing your own migration (2026-08-30, safety lane)
 
 Your village may add SQL migrations of its own. Number them **9000 and above**.
@@ -1637,3 +1702,53 @@ do: adding a column is safe to roll back over, dropping one is not. The full
 rule, with the table of what is safe to land and what is not, is in `CLAUDE.md`
 under "Writing a migration", and `node scripts/check-migration-compat.mjs`
 enforces it.
+
+## Where a member stands on each path (0159, 0156, 0157)
+
+Your fork ships four member paths, declared in `shared/gameConfig.ts` under
+`paths`. A member's position on one of them is DERIVED from facts that are true
+right now, and no position is ever stored. That is what lets a position fall on
+its own when the fact behind it goes away, with nobody having to remember to
+write the change down.
+
+Nothing here needs an env var, a seed, or a provisioning step. Three migrations
+apply at boot like every other. A migration file costs a fraction of a second
+of the one-off schema build a test run pays once, and the figure moves with
+machine load: two runs on this tree measured 261ms and 188ms per file. So read
+your own with `pnpm measure:provisioning` rather than trusting either number
+here, the same way the dist budget is read and never quoted.
+
+| Path | Where its facts live | What makes a position fall |
+|---|---|---|
+| steward | `org_role_assignments` (0049) | a seating ends, or its season lapses |
+| resident | `housing_reservations` (0077, indexed for this in 0159) | the reservation status moves to `withdrawn` |
+| investor | `investor_path_facts` (0156) | a fact gets an `ended_at` |
+| prosperity creator | `member_ventures` (0157) | the venture gets a `closed_at`, or is unlisted |
+
+The server-side readers are `reservationsForMember` in `server/repos/housing.ts`,
+`server/repos/investorPath.ts` and `server/repos/ventures.ts`.
+
+**`investor_path_facts` holds no money, and that is not a style preference.**
+The table has no numeric column at all, so it cannot store an amount even by
+accident. Equity and voice are Hypha-governed tokens that live on Base and are
+mirrored into your village READ-ONLY; a writable capital figure sitting beside
+them would quietly become a second cap table, which is exactly what
+`server/lib/ledger.ts` refuses to let this platform become. If you want to know
+how much somebody holds, the ledger is the only thing that may answer, and it
+answers from the mirror. What this table records is what happened and when:
+they registered interest, the packet was released to them, they declared they
+qualify, an agreement was signed. Words and dates.
+
+The same rule applies to `member_ventures`: no revenue, no valuation. A
+member-editable number about what a venture is worth is a claim your village
+cannot stand behind, so the table does not offer one.
+
+A prosperity creator's venture is PLATFORM data owned by the core `profiles`
+module, and not a module of its own. That matters to you because a non-core
+module ships OFF: put one of the four paths behind one and a village that never
+turns it on shows three ladders and a hole. `profiles` is core and cannot be
+disabled, which is why it owns this.
+
+Both new tables carry `is_example`, the same standing-example flag
+`org_role_assignments` uses. An example row is display only and is never
+counted when a real member's position is worked out.

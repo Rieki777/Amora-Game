@@ -187,9 +187,9 @@ export default function VillageMap() {
   };
 
   const selectedSeat: PowerSeat | null =
-    selected?.kind === "role" ? (data?.roles.find((r) => r.id === selected.id) ?? null) : null;
+    selected?.kind === "role" ? (data?.roles?.find((r) => r.id === selected.id) ?? null) : null;
   const selectedCircle = selectedSeat?.circleId
-    ? (data?.circles.find((c) => c.id === selectedSeat.circleId) ?? null)
+    ? (data?.circles?.find((c) => c.id === selectedSeat.circleId) ?? null)
     : null;
 
   const mayDeclareVillage = !!data?.viewer.mayDeclare?.includes("village");
