@@ -2747,7 +2747,7 @@ shared file silently reverts whoever wrote last. So:
 If a claim conflicts on rebase, that is the system working: two lanes wanted the same thing and now
 you know before you have written code, rather than at the merge.
 
-### 27b — The four contended resources, and the check that actually sees other lanes
+### 27b — The contended resources, and the check that actually sees other lanes
 
 **The general rule, which matters more than the list: every gate we have compares YOUR TREE to
 `origin/main`, so every one of them is structurally blind to what another in-flight branch is
