@@ -64,7 +64,7 @@
  * boundary of the clock being LEFT, and the first cycle under the clock being
  * ENTERED runs from that instant to the incoming clock's own next boundary.
  * One short cycle at the seam, carrying the incoming clock's id, and
- * `rhythmSwitchProblem` refuses the landing until the outgoing clock has
+ * `cycleModeSwitchProblem` refuses the landing until the outgoing clock has
  * nothing unsettled behind it.
  *
  * Every cycle closed before a switch keeps the id and the bounds it closed
@@ -363,54 +363,7 @@ export function joiningCycle(from: CycleClock, to: CycleClock, landsAt: Date): C
   };
 }
 
-/*
- * RENAMED FROM `cycleModeSwitchProblem` / `CycleModeSwitchState`, 2026-09-04.
- * A STOPGAP, and the reason matters more than the rename.
- *
- * This file is vendored from the governance session's copy, byte-identical, so
- * a drift check could compare the two. It is no longer byte-identical, and this
- * note exists so nobody reads the difference as drift.
- *
- * WHAT HAPPENED. `server/lunarRhythm.test.ts` forbids `cycle_mode` or
- * `cycleMode` in live code under server, shared or client. It strips comments
- * before matching and carries its own control, so it is not a blind sweep. The
- * old function name tripped it, and CI was red on the economics branch across at
- * least two pushes because this file sits in no lane's touched-file set and
- * every lane runs only what it touched. Only reading CI found it.
- *
- * WHAT THE GUARD IS ACTUALLY ENFORCING, and this is the part I got wrong first
- * time. I assumed it was catching the calendar-month retirement being enforced
- * and not violated. It is not. `drizzle/0108_retire_cycle_mode.sql` retired the
- * dial because it was live in the admin panel and reported to every client while
- * exactly one line read it. **Rye then REOPENED that decision on 2026-09-02, in
- * his words: "Yes the cycle structure can be changed."** So the product offers a
- * village the switch again, the seam models two clocks on purpose, and the guard
- * encodes the world before that ruling.
- *
- * The defect 0108 deleted is already closed by something stronger than a string
- * scan: `cycleSettingsProblem` here is called at boot by
- * `assertCycleSettingsRead`, so a rhythm setting with no reader is a BOOT
- * FAILURE and not a panel that lies. That invariant holds at runtime, where a
- * name scan holds at grep time.
- *
- * WHY THIS RENAME IS A STOPGAP AND NOT THE FIX. Renaming makes a superseded
- * guard pass while the decision it flagged stays exactly where it is, which is a
- * green whose reason has rotted, in the guard layer. Rye ruled the rename to
- * unblock CI and he ruled it before that ruling of his own surfaced. The real
- * fix is the governance session's, in flight: replace this test with the rule
- * that is current, which is stronger. No consumer imports lunar arithmetic
- * directly, every reader goes through this file, a rhythm setting must have a
- * reader, and the legacy month ids from 0105 stay unremapped with a refusal.
- *
- * WHEN THAT LANDS, REVERT THIS RENAME AND RE-VENDOR. Byte-identity comes back
- * and this note goes with it. Do not leave the rename standing as though it
- * settled something.
- *
- * The interface was renamed with the function. It did not trip the guard, and
- * leaving it would have named the retired concept beside a function that no
- * longer does.
- */
-export interface RhythmSwitchState {
+export interface CycleModeSwitchState {
   /** The clock running now. */
   from: ClockMode;
   /** The clock the village voted for. */
@@ -432,7 +385,7 @@ export interface RhythmSwitchState {
  * sentences answer a member reading the proposal page and the job that would
  * otherwise apply it.
  */
-export function rhythmSwitchProblem(state: RhythmSwitchState): string | null {
+export function cycleModeSwitchProblem(state: CycleModeSwitchState): string | null {
   if (state.from === state.to) {
     return `This village already keeps time by the ${clockName(state.to)}. Nothing would change.`;
   }
