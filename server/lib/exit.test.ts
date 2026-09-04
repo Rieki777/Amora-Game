@@ -48,6 +48,7 @@ import { ensureVoiceToken, fromLedgerUnits, toLedgerUnits, VILLAGE_VOICE } from 
 import {
   balanceOf,
   checkLedgerInvariants,
+  GRACE_NIGHT_DEBT,
   loadTokenRegistry,
   memberAccount,
   MINT_FAUCET,
@@ -114,8 +115,8 @@ describe.skipIf(!configured)("what a departing member's balance is worth, and in
   };
 
   /**
-   * Drive a balance below zero the only lawful way: a source in
-   * `ALLOW_NEGATIVE_SOURCES` with `allowNegative` set. A debt has to be REAL
+   * Drive a balance below zero the only lawful way: a keystone source with
+   * the capability the ledger issues for it. A debt has to be REAL
    * for this file's negative cases to mean anything, and a hand-written
    * `token_balances` row would be a cache the ledger disagrees with, which the
    * boot invariant would then report as drift instead of as a debt.
@@ -127,7 +128,7 @@ describe.skipIf(!configured)("what a departing member's balance is worth, and in
       tokenType: token,
       amount: units,
       source: "stay_night",
-      allowNegative: true,
+      allowNegative: GRACE_NIGHT_DEBT,
       idempotencyKey: `exit-test-debt:${userId}:${token}:${++seq}`,
     });
     if (!r.ok) throw new Error(`could not seed a debt in ${token}: ${r.error}`);

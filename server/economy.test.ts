@@ -44,6 +44,7 @@ import {
   applyPendingRules,
   rulesFor,
   reverse,
+  reversePair,
   runSettlement,
   shareCapFor,
   VILLAGE_VOICE,
@@ -54,7 +55,7 @@ import {
   writeGratitudeRow,
   type MintRule,
 } from "./lib/economy";
-import { balanceOf, checkLedgerInvariants, CYCLE_POOL_FAUCET, loadTokenRegistry, memberAccount, postTransfer, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
+import { balanceOf, checkLedgerInvariants, CYCLE_POOL_FAUCET, loadTokenRegistry, memberAccount, MINT_FAUCET, postTransfer, postTransferPair, registerToken, RECOGNITION_FAUCET, TREASURY } from "./lib/ledger";
 import { createExit } from "./lib/exit";
 import { VOICE_SETTLED } from "./lib/voiceClaim";
 import { loadVariables, numberVar, setVariable } from "./lib/variables";
@@ -150,9 +151,9 @@ describe.skipIf(!configured)("the village economy engine", () => {
     // The bug this prevents: a key of `quest.completed:<quest>` pays a weekly
     // quest once for all time, and gives eight people on a build day one
     // shared payout between them.
-    const weekOne = keys.questCompleted("local", "q-swale", "claim-1", "u1");
-    const weekTwo = keys.questCompleted("local", "q-swale", "claim-2", "u1");
-    const otherHand = keys.questCompleted("local", "q-swale", "claim-3", "u2");
+    const weekOne = keys.questCompleted("local", "q-swale", "claim-1", "u1", CREDITS);
+    const weekTwo = keys.questCompleted("local", "q-swale", "claim-2", "u1", CREDITS);
+    const otherHand = keys.questCompleted("local", "q-swale", "claim-3", "u2", CREDITS);
     expect(weekOne).not.toBe(weekTwo);
     expect(weekOne).not.toBe(otherHand);
   });
@@ -160,8 +161,8 @@ describe.skipIf(!configured)("the village economy engine", () => {
   it("keeps the same key in two villages apart", () => {
     // Two villages running the same seeded quest must not collide on a UNIQUE
     // index, and without the scope segment they would.
-    expect(keys.questCompleted("alder", "q1", "c1", "u1")).not.toBe(
-      keys.questCompleted("birch", "q1", "c1", "u1"),
+    expect(keys.questCompleted("alder", "q1", "c1", "u1", CREDITS)).not.toBe(
+      keys.questCompleted("birch", "q1", "c1", "u1", CREDITS),
     );
   });
 
@@ -186,7 +187,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   it("mints once for the same occurrence key, twice over", async () => {
     const u = await makeMember("econ-mint-1");
-    const key = keys.questCompleted(villageId(), "q1", "c1", u);
+    const key = keys.questCompleted(villageId(), "q1", "c1", u, HEARTS);
     const first = await mint(pool, {
       toUserId: u, tokenSlug: HEARTS, amount: 10,
       from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -565,7 +566,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   it("writes one mirror however many times it is reversed", async () => {
     const u = await makeMember("econ-rev-1");
-    const key = keys.questCompleted(villageId(), "q-rev", "c-rev", u);
+    const key = keys.questCompleted(villageId(), "q-rev", "c-rev", u, HEARTS);
     await mint(pool, {
       toUserId: u, tokenSlug: HEARTS, amount: 7,
       from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -602,7 +603,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   it("mints cleanly as a new occurrence after a wrong reversal", async () => {
     const u = await makeMember("econ-redo");
-    const wrong = keys.questCompleted(villageId(), "q-redo", "claim-a", u);
+    const wrong = keys.questCompleted(villageId(), "q-redo", "claim-a", u, HEARTS);
     await mint(pool, {
       toUserId: u, tokenSlug: HEARTS, amount: 5,
       from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: wrong,
@@ -614,7 +615,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
     // The honest re-do is a NEW claim row, so it is a new occurrence and the
     // spent key does not stand in its way.
-    const redo = keys.questCompleted(villageId(), "q-redo", "claim-b", u);
+    const redo = keys.questCompleted(villageId(), "q-redo", "claim-b", u, HEARTS);
     const res = await mint(pool, {
       toUserId: u, tokenSlug: HEARTS, amount: 5,
       from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: redo,
@@ -663,7 +664,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
     // numbers still balances. The numbers come off the row now, and a caller
     // value that disagrees refuses the whole reversal before any write.
     const u = await makeMember("econ-rev-attack");
-    const key = keys.questCompleted(villageId(), "q-attack", "c-attack", u);
+    const key = keys.questCompleted(villageId(), "q-attack", "c-attack", u, CREDITS);
     await mint(pool, {
       toUserId: u, tokenSlug: CREDITS, amount: 25,
       from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -714,7 +715,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
 
   it("derives the mirror from the row when the caller says only a note", async () => {
     const u = await makeMember("econ-rev-derive");
-    const key = keys.questCompleted(villageId(), "q-derive", "c-derive", u);
+    const key = keys.questCompleted(villageId(), "q-derive", "c-derive", u, CREDITS);
     await mint(pool, {
       toUserId: u, tokenSlug: CREDITS, amount: 25,
       from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -746,7 +747,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
     // would leave the ledger insisting a withdrawn payment still stands.
     const spender = await makeMember("econ-rev-spent");
     const other = await makeMember("econ-rev-spent-to");
-    const key = keys.questCompleted(villageId(), "q-spent", "c-spent", spender);
+    const key = keys.questCompleted(villageId(), "q-spent", "c-spent", spender, CREDITS);
     await mint(pool, {
       toUserId: spender, tokenSlug: CREDITS, amount: 25,
       from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
@@ -820,7 +821,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
     const res = await mint(pool, {
       toUserId: u, tokenSlug: VILLAGE_VOICE, amount: 1,
       from: VOICE_MINT, source: "quest_consent",
-      idempotencyKey: keys.questCompleted(villageId(), "q-v", "c-v", u),
+      idempotencyKey: keys.questCompleted(villageId(), "q-v", "c-v", u, VILLAGE_VOICE),
     });
     // The `voice` row seeded in 0006 is governance:'hypha', which validateLeg
     // refuses to move and a boot invariant requires to hold zero rows. Voice
@@ -1452,6 +1453,419 @@ describe.skipIf(!configured)("the village economy engine", () => {
     );
     expect((await economyReady(pool)).ready).toBe(true);
   });
+  /*
+   * ── W3 adversary findings on the reversal law, closed here ────────────────
+   *
+   * Each case is a W3 lane's repro rewritten to read OUTCOMES: balances,
+   * ledger rows and the boot invariant report. The comment above each one
+   * quotes what the adversary observed, which is the thing the assertion
+   * says is no longer true.
+   *
+   * Every one of these ran green on conservation at the time it was an
+   * exploit, so none of them asserts conservation as the proof of anything.
+   * Double entry summing to zero is a tautology of `postTransfer`.
+   */
+
+  describe("W3 F2/F19: a reversal is decided by the row, not by the key's spelling", () => {
+    /** Rows straight out of the database, and only the columns that decide. */
+    const rowsOf = async (sql: string, params: unknown[] = []) => {
+      const [out] = await pool.query(sql, params);
+      return out as unknown as Array<Record<string, unknown>>;
+    };
+
+    it("refuses `REVERSAL:` as a way to reverse the clawback, which used to pay the quest twice", async () => {
+      // ADVERSARY G1, verbatim. Observed then:
+      //   G1 clawback {ok:true} A -25
+      //   G1 BYPASS of the clawback {"ok":true,"duplicate":false} A 0 B 25
+      //   G1 invariants after bypass {"ok":true,"problems":[]} conserved 0
+      // The village paid 25 twice for one quest: B kept what A sent them and
+      // A was restored to zero, with every invariant green.
+      const a = await makeMember("f2-spender");
+      const b = await makeMember("f2-receiver");
+      const key = keys.questCompleted(villageId(), "q-f2", "c-f2", a, CREDITS);
+      await mint(pool, {
+        toUserId: a, tokenSlug: CREDITS, amount: 25,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
+      });
+      await mint(pool, {
+        toUserId: b, tokenSlug: CREDITS, amount: 25,
+        from: memberAccount(a), source: "test_spend",
+        idempotencyKey: `test.spend:${villageId()}:f2`,
+      });
+      const clawback = await reverse(pool, key, { note: "withdrawn after the spend" });
+      expect(clawback.ok).toBe(true);
+      expect(await balanceOf(pool, memberAccount(a), CREDITS)).toBe(-25);
+      expect(await balanceOf(pool, memberAccount(b), CREDITS)).toBe(25);
+
+      // The bypass: the mirror's own key, spelled with a capital prefix, so
+      // the old byte-exact JS guard let it past and the case-insensitive row
+      // lookup found the mirror anyway.
+      const mirrorKey = keys.reversal(villageId(), key);
+      const bypass = await reverse(pool, `REVERSAL:${mirrorKey.slice("reversal:".length)}`, { note: "bypass" });
+      expect(bypass.ok).toBe(false);
+      expect(String(bypass.ok === false && bypass.error)).toMatch(/cannot itself be reversed/);
+      // The outcome the return value used to lie about: nothing moved.
+      expect(await balanceOf(pool, memberAccount(a), CREDITS)).toBe(-25);
+      expect(await balanceOf(pool, memberAccount(b), CREDITS)).toBe(25);
+      expect(await rowsOf(
+        "SELECT `id` FROM `token_ledger` WHERE `source` = 'reversal' AND `source_ref` = ?",
+        [key],
+      )).toHaveLength(1);
+    });
+
+    it("refuses a key that only COLLATES equal to a real posting", async () => {
+      // The same collation, pointed at an ordinary posting rather than at a
+      // mirror. `WHERE idempotency_key = ?` answers under a case-insensitive
+      // collation, so a caller who does not hold the exact key could still
+      // reverse the row. The stored key is read back and compared as bytes.
+      const u = await makeMember("f2-case");
+      const key = keys.questCompleted(villageId(), "q-case", "c-case", u, CREDITS);
+      await mint(pool, {
+        toUserId: u, tokenSlug: CREDITS, amount: 11,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
+      });
+      const shouted = await reverse(pool, key.toUpperCase(), { note: "not my key" });
+      // On a case-sensitive index this is "no such posting"; on this one it is
+      // the byte comparison. Either way the balance is the witness.
+      expect(shouted.ok).toBe(false);
+      expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(11);
+
+      const padded = await reverse(pool, `${key} `, { note: "not my key either" });
+      expect(padded.ok).toBe(false);
+      expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(11);
+
+      // And the honest one still works, so the narrowing did not break it.
+      const honest = await reverse(pool, key, { note: "withdrawn" });
+      expect(honest.ok).toBe(true);
+      expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(0);
+    });
+
+    it("refuses to reverse a clawback keyed OUTSIDE the reversal namespace", async () => {
+      // ADVERSARY A12. Every real clawback in this build is keyed
+      // `ord:<id>:reversal-leg1` or `pp:<id>:reversal:<period>`, outside the
+      // `reversal:` namespace the prefix guard watched. Observed then:
+      //   PROBE.A12 reverseOfAReversal {"ok":true,"duplicate":false,...}
+      //   mirror row [{"source":"reversal","amount":20,...}]
+      // which hands a member back money the bank has already taken.
+      const u = await makeMember("f19-member");
+      await mint(pool, {
+        toUserId: u, tokenSlug: CREDITS, amount: 20,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent",
+        idempotencyKey: keys.questCompleted(villageId(), "q-f19", "c-f19", u, CREDITS),
+      });
+      const clawback = await postTransfer(pool, {
+        from: memberAccount(u), to: CYCLE_POOL_FAUCET, tokenType: CREDITS, amount: 20,
+        source: "payment_reversal", sourceRef: "evt-1",
+        idempotencyKey: "payment_reversal:local:evt-1",
+      });
+      expect(clawback.ok).toBe(true);
+      expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(0);
+
+      const undoTheUndo = await reverse(pool, "payment_reversal:local:evt-1", { note: "undo the undo" });
+      expect(undoTheUndo.ok).toBe(false);
+      expect(String(undoTheUndo.ok === false && undoTheUndo.error)).toMatch(/itself a clawback/);
+      expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(0);
+      expect(await rowsOf(
+        "SELECT `id` FROM `token_ledger` WHERE `idempotency_key` = ?",
+        [keys.reversal(villageId(), "payment_reversal:local:evt-1")],
+      )).toHaveLength(0);
+    });
+
+    it("still reverses a grace-night burn, which is a charge and not a clawback", async () => {
+      // The bound on the rule above: `stay_night` is deliberately not a
+      // clawback source, so a village that burnt a night wrongly can give it
+      // back.
+      const u = await makeMember("f19-stay");
+      await mint(pool, {
+        toUserId: u, tokenSlug: CREDITS, amount: 6,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent",
+        idempotencyKey: keys.questCompleted(villageId(), "q-stay", "c-stay", u, CREDITS),
+      });
+      const burn = await postTransfer(pool, {
+        from: memberAccount(u), to: CYCLE_POOL_FAUCET, tokenType: CREDITS, amount: 6,
+        source: "stay_night", sourceRef: "stay-1", idempotencyKey: "stay:stay-1:night:2026-09-03",
+      });
+      expect(burn.ok).toBe(true);
+      const back = await reverse(pool, "stay:stay-1:night:2026-09-03", { note: "wrong night" });
+      expect(back.ok).toBe(true);
+      expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(6);
+    });
+  });
+
+  describe("W3 F3: isReversed reads a mirror, not a string", () => {
+    it("refuses the squat that made isReversed true and the real clawback a no-op", async () => {
+      // ADVERSARY A6. Observed then:
+      //   PROBE.A6 squatMint {"ok":true,"duplicate":false,"balance":1} isReversed true;
+      //   PROBE.A6 reverse {"ok":true,"duplicate":true,"balance":-52} victim 30 -> 30
+      // A one-unit mint to a third party under the mirror key made
+      // `isReversed` true with no reversal in existence, and the real
+      // clawback then reported SUCCESS AS A DUPLICATE while moving nothing.
+      const victim = await makeMember("f3-victim");
+      const squatter = await makeMember("f3-squatter");
+      const key = keys.questCompleted(villageId(), "q-f3", "c-f3", victim, CREDITS);
+      await mint(pool, {
+        toUserId: victim, tokenSlug: CREDITS, amount: 30,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
+      });
+
+      const squat = await mint(pool, {
+        toUserId: squatter, tokenSlug: CREDITS, amount: 1,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent",
+        idempotencyKey: keys.reversal(villageId(), key),
+      });
+      expect(squat.ok).toBe(false);
+      expect(squat.ok === false && squat.error).toMatch(/only reverse\(\) may write/);
+      expect(await isReversed(pool, key)).toBe(false);
+      expect(await balanceOf(pool, memberAccount(squatter), CREDITS)).toBe(0);
+
+      // And the clawback the squat used to swallow.
+      const clawback = await reverse(pool, key, { note: "clawback" });
+      expect(clawback.ok && clawback.duplicate).toBe(false);
+      expect(await balanceOf(pool, memberAccount(victim), CREDITS)).toBe(0);
+      expect(await isReversed(pool, key)).toBe(true);
+    });
+
+    it("says false for a mirror-keyed row that does not mirror the posting", async () => {
+      // The reader's half, proved independently of the writer's: even a row
+      // that got into the namespace some other way (a legacy row, a hand
+      // insert, a fork's migration) is not a reversal of THIS posting unless
+      // it is its exact mirror.
+      const u = await makeMember("f3-shape");
+      const key = keys.questCompleted(villageId(), "q-shape", "c-shape", u, CREDITS);
+      await mint(pool, {
+        toUserId: u, tokenSlug: CREDITS, amount: 40,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
+      });
+      await pool.query(
+        "INSERT INTO `token_ledger` (`id`, `from_account`, `to_account`, `token_type`, `amount`, `source`, `idempotency_key`) " +
+          "VALUES ('led-f3-shape', ?, ?, ?, 1, 'reversal', ?)",
+        [memberAccount(u), CYCLE_POOL_FAUCET, CREDITS, keys.reversal(villageId(), key)],
+      );
+      // Right key, right source, right direction, WRONG amount: 1 against 40.
+      expect(await isReversed(pool, key)).toBe(false);
+      await pool.query("DELETE FROM `token_ledger` WHERE `id` = 'led-f3-shape'");
+      expect(await isReversed(pool, key)).toBe(false);
+    });
+  });
+
+  describe("W3 F6: an atomic pair is reversed whole or not at all", () => {
+    const PAY = "rev-pair-pay";
+    const GET = "rev-pair-get";
+
+    it("refuses one leg by name, and reverses both together through reversePair", async () => {
+      // ADVERSARY G2. Observed then:
+      //   G2 pair member 40 treasury 100
+      //   G2 reverse leg2 only -> {"ok":true,"duplicate":false}
+      //   G2 member 0 treasury 100
+      //   G2 invariants {"ok":true,"problems":[]} conserved 0
+      // THE MEMBER PAID 100 AND KEPT NOTHING, with no case trick needed: the
+      // mirror posts as source `reversal`, which is inside the keystone set,
+      // although `exchange_swap` is deliberately outside it.
+      await registerToken(pool, { slug: PAY, name: "Pair Pay", kind: "credit", governance: "platform", transferable: false });
+      await registerToken(pool, { slug: GET, name: "Pair Get", kind: "credit", governance: "platform", transferable: false });
+      const u = await makeMember("f6-swapper");
+      await postTransfer(pool, { from: MINT_FAUCET, to: TREASURY, tokenType: GET, amount: 500, source: "exchange_stock", idempotencyKey: "f6-stock" });
+      await postTransfer(pool, { from: MINT_FAUCET, to: memberAccount(u), tokenType: PAY, amount: 100, source: "admin_mint", idempotencyKey: "f6-grant" });
+
+      const swap = await postTransferPair(pool, [
+        { from: memberAccount(u), to: TREASURY, tokenType: PAY, amount: 100, source: "exchange_swap", sourceRef: "ord-f6", idempotencyKey: "ord:ord-f6:leg1" },
+        { from: TREASURY, to: memberAccount(u), tokenType: GET, amount: 40, source: "exchange_swap", sourceRef: "ord-f6", idempotencyKey: "ord:ord-f6:leg2" },
+      ]);
+      expect(swap.ok).toBe(true);
+      expect(await balanceOf(pool, memberAccount(u), PAY)).toBe(0);
+      expect(await balanceOf(pool, memberAccount(u), GET)).toBe(40);
+
+      const halfASwap = await reverse(pool, "ord:ord-f6:leg2", { note: "half a swap" });
+      expect(halfASwap.ok).toBe(false);
+      expect(String(halfASwap.ok === false && halfASwap.error)).toContain("ord:ord-f6:leg1");
+      // The outcome: the member still holds what the swap gave them.
+      expect(await balanceOf(pool, memberAccount(u), PAY)).toBe(0);
+      expect(await balanceOf(pool, memberAccount(u), GET)).toBe(40);
+
+      // The other leg is refused the same way, naming its sibling.
+      const otherHalf = await reverse(pool, "ord:ord-f6:leg1", { note: "the other half" });
+      expect(otherHalf.ok).toBe(false);
+      expect(String(otherHalf.ok === false && otherHalf.error)).toContain("ord:ord-f6:leg2");
+
+      const both = await reversePair(pool, "ord:ord-f6:leg1", "ord:ord-f6:leg2", { note: "swap undone" });
+      expect(both.ok && both.duplicate).toBe(false);
+      expect(await balanceOf(pool, memberAccount(u), PAY)).toBe(100);
+      expect(await balanceOf(pool, memberAccount(u), GET)).toBe(0);
+      const report = await checkLedgerInvariants(pool);
+      expect(report.problems.filter((p) => p.includes(memberAccount(u)))).toEqual([]);
+
+      // Replaying is one duplicate for the pair, not a second refund.
+      const again = await reversePair(pool, "ord:ord-f6:leg1", "ord:ord-f6:leg2", { note: "swap undone" });
+      expect(again.ok && again.duplicate).toBe(true);
+      expect(await balanceOf(pool, memberAccount(u), PAY)).toBe(100);
+    });
+
+    it("refuses a pair reversal that would create debt, rather than creating it", async () => {
+      // What `reverse()` could not do and `postTransferPair` can: a member
+      // who has already spent what the swap gave them cannot have the swap
+      // undone behind their back. A single clawback's negative is truthful;
+      // half a swap's is not, so this refuses and a person settles it.
+      const u = await makeMember("f6-spent");
+      const sink = await makeMember("f6-sink");
+      await postTransfer(pool, { from: MINT_FAUCET, to: memberAccount(u), tokenType: PAY, amount: 60, source: "admin_mint", idempotencyKey: "f6-spent-grant" });
+      await postTransferPair(pool, [
+        { from: memberAccount(u), to: TREASURY, tokenType: PAY, amount: 60, source: "exchange_swap", sourceRef: "ord-f6b", idempotencyKey: "ord:ord-f6b:leg1" },
+        { from: TREASURY, to: memberAccount(u), tokenType: GET, amount: 20, source: "exchange_swap", sourceRef: "ord-f6b", idempotencyKey: "ord:ord-f6b:leg2" },
+      ]);
+      await postTransfer(pool, {
+        from: memberAccount(u), to: memberAccount(sink), tokenType: GET, amount: 20,
+        source: "member_send", idempotencyKey: "f6-spent-onward",
+      });
+      expect(await balanceOf(pool, memberAccount(u), GET)).toBe(0);
+
+      const refused = await reversePair(pool, "ord:ord-f6b:leg1", "ord:ord-f6b:leg2", { note: "too late" });
+      expect(refused.ok).toBe(false);
+      expect(String(refused.ok === false && refused.error)).toContain("cannot overdraft");
+      // Neither leg moved: the pair is still standing exactly as it was.
+      expect(await balanceOf(pool, memberAccount(u), PAY)).toBe(0);
+      expect(await balanceOf(pool, memberAccount(u), GET)).toBe(0);
+    });
+
+    it("leaves an ordinary posting that merely ends in :leg1 reversible", async () => {
+      // The bound on the pair rule. `ord:<orderId>:leg1` is ALSO the key of
+      // three single postings (a fiat exchange settlement, a stay purchase, a
+      // manual stay purchase), and none of them has a sibling row, so the
+      // suffix alone could never be the test.
+      const u = await makeMember("f6-single");
+      await postTransfer(pool, {
+        from: MINT_FAUCET, to: memberAccount(u), tokenType: PAY, amount: 15,
+        source: "exchange_purchase", sourceRef: "ord-single", idempotencyKey: "ord:ord-single:leg1",
+      });
+      const back = await reverse(pool, "ord:ord-single:leg1", { note: "order refunded" });
+      expect(back.ok).toBe(true);
+      expect(await balanceOf(pool, memberAccount(u), PAY)).toBe(0);
+    });
+
+    it("refuses two keys that were never one pair", async () => {
+      // Two real postings under different sources: they were never a pair,
+      // and the refusal says which two sources it read.
+      const crossSource = await reversePair(pool, "ord:ord-f6:leg1", "ord:ord-single:leg1", { note: "invented" });
+      expect(crossSource.ok).toBe(false);
+      expect(String(crossSource.ok === false && crossSource.error)).toContain("never one pair");
+
+      // And two legs of DIFFERENT pairs, which share a source and a suffix
+      // shape and are still not siblings: the prefix has to match.
+      const crossPair = await reversePair(pool, "ord:ord-f6:leg1", "ord:ord-f6b:leg2", { note: "invented" });
+      expect(crossPair.ok).toBe(false);
+      expect(String(crossPair.ok === false && crossPair.error)).toContain("not the two legs of one pair");
+    });
+  });
+
+  describe("W3 F11: a long reverse() note is clipped, never thrown", () => {
+    it("refuses nothing and strands nothing when the note runs past varchar(500)", async () => {
+      // ADVERSARY E3. Observed then:
+      //   E3 600-char note -> {"THREW":"ER_DATA_TOO_LONG"}
+      // balance unchanged at 25 and no mirror row: the reversal did not
+      // happen and the caller got an exception rather than a refusal. In
+      // `voiceClaim.settleClaim` the claim is compare-and-set to a TERMINAL
+      // state before this call, so the throw escapes past the repair branch
+      // and the member loses the voice AND the note that says so.
+      const u = await makeMember("f11-note");
+      const key = keys.questCompleted(villageId(), "q-f11", "c-f11", u, CREDITS);
+      await mint(pool, {
+        toUserId: u, tokenSlug: CREDITS, amount: 25,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
+      });
+      const out = await reverse(pool, key, { note: "n".repeat(600) });
+      expect(out.ok).toBe(true);
+      expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(0);
+
+      const [rows] = await pool.query(
+        "SELECT `description` FROM `token_ledger` WHERE `idempotency_key` = ?",
+        [keys.reversal(villageId(), key)],
+      );
+      const description = String((rows as unknown as Array<{ description: string }>)[0].description);
+      expect(description.length).toBeLessThanOrEqual(500);
+      // The KEY survives whole and the note gives way, in that order: the key
+      // is what an auditor uses to find the posting that was undone.
+      expect(description.endsWith(`(${key})`)).toBe(true);
+      expect(description).toContain("...");
+    });
+
+    it("keeps a short note exactly as written", async () => {
+      const u = await makeMember("f11-short");
+      const key = keys.questCompleted(villageId(), "q-f11b", "c-f11b", u, CREDITS);
+      await mint(pool, {
+        toUserId: u, tokenSlug: CREDITS, amount: 5,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: key,
+      });
+      await reverse(pool, key, { note: "withdrawn" });
+      const [rows] = await pool.query(
+        "SELECT `description` FROM `token_ledger` WHERE `idempotency_key` = ?",
+        [keys.reversal(villageId(), key)],
+      );
+      expect(String((rows as unknown as Array<{ description: string }>)[0].description)).toBe(`withdrawn (${key})`);
+    });
+  });
+
+  describe("W3 F17/F18: a key builder's segments cannot be moved or folded", () => {
+    it("keeps a colon in an id inside its own segment", () => {
+      // ADVERSARY A8. Observed then:
+      //   PROBE.A8 "quest.completed:local:q:1:c:u" "quest.completed:local:q:1:c:u" true
+      // Two distinct occurrences produced one byte-identical key, so the
+      // second read as a duplicate and that member was not paid.
+      expect(keys.questCompleted("local", "q:1", "c", "u", "credits")).not.toBe(
+        keys.questCompleted("local", "q", "1:c", "u", "credits"),
+      );
+      // And the token-suffix form, which used to be appended unescaped at the
+      // call site and is built here now.
+      expect(keys.questCompleted("local", "q", "c", "u", "cred:it")).not.toBe(
+        keys.questCompleted("local", "q", "c", "u:cred", "it"),
+      );
+      expect(keys.roleCycle("local", "lunar-1", "s:1", "u", "credits")).not.toBe(
+        keys.roleCycle("local", "lunar-1", "s", "1:u", "credits"),
+      );
+      // A percent has to be escaped too, or the escape is ambiguous with a
+      // literal one.
+      expect(keys.questCompleted("local", "%3a", "c", "u", "credits")).not.toBe(
+        keys.questCompleted("local", ":", "c", "u", "credits"),
+      );
+    });
+
+    it("keeps two ids that differ only in case apart under a case-insensitive index", () => {
+      // ADVERSARY A1. `usr-aB1` and `usr-Ab1` are ONE row to the UNIQUE index.
+      const one = keys.questCompleted("local", "q", "c", "usr-aB1", "credits");
+      const two = keys.questCompleted("local", "q", "c", "usr-Ab1", "credits");
+      expect(one).not.toBe(two);
+      // The test that matters: still different once the collation has folded
+      // them, which plain byte inequality does not prove.
+      expect(one.toLowerCase()).not.toBe(two.toLowerCase());
+      // The output carries no uppercase at all, so there is nothing left to fold.
+      expect(one).toBe(one.toLowerCase());
+    });
+
+    it("still recognises an already-posted legacy-shaped key as a duplicate", async () => {
+      // THE IDEMPOTENCY PROOF ACROSS THE CHANGE. Escaping only moves a key
+      // when a segment holds `:`, `%` or a capital, and every id generator in
+      // this build is lowercase and colon-free (`usr-<epoch>-<base36>`,
+      // `randomUUID`, slugs matched against `^[a-z0-9][a-z0-9-]{1,30}$`). So
+      // the bytes a builder produced before this change and the bytes it
+      // produces now are identical for every key the ledger actually holds,
+      // and a replay is still a replay rather than a second payment.
+      const u = await makeMember("legacy-dup");
+      const legacy = `quest.completed:${villageId()}:q-legacy:c-legacy:${u}:${CREDITS}`;
+      const first = await mint(pool, {
+        toUserId: u, tokenSlug: CREDITS, amount: 9,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: legacy,
+      });
+      expect(first.ok && first.duplicate).toBe(false);
+
+      const built = keys.questCompleted(villageId(), "q-legacy", "c-legacy", u, CREDITS);
+      expect(built).toBe(legacy);
+      const replay = await mint(pool, {
+        toUserId: u, tokenSlug: CREDITS, amount: 9,
+        from: CYCLE_POOL_FAUCET, source: "quest_consent", idempotencyKey: built,
+      });
+      expect(replay.ok && replay.duplicate).toBe(true);
+      expect(await balanceOf(pool, memberAccount(u), CREDITS)).toBe(9);
+    });
+  });
+
 
   // ── Voice that wanes (R3, R15) ───────────────────────────────────────────
 

@@ -102,17 +102,17 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 
 | Builder | What the builder returns |
 | --- | --- |
-| `keys.questCompleted` | `quest.completed:<v>:<questId>:<claimId>:<userId>` |
-| `keys.gratitudeGiven` | `gratitude.given:<v>:<noteId>` |
-| `keys.roleCycle` | `role.cycle:<v>:<cycleKey>:<seatId>:<userId>` |
-| `keys.journeyStage` | `journey.stage_reached:<v>:<journeyId>:<stage>:<userId>` |
-| `keys.welcomeAboard` | `welcome_aboard.quest:<v>:<questNo>:<userId>` |
-| `keys.voiceDecay` | `voice.decay:<v>:<cycleKey>:<userId>:<tokenSlug>` |
-| `keys.transfer` | `transfer:<v>:<transferRowId>` |
-| `keys.reversal` | `reversal:<v>:<eventKey>` |
-| `keys.voiceClaim` | `voice-claim:<v>:<claimRowId>` |
+| `keys.questCompleted` | `quest.completed:<esc(v)>:<esc(questId)>:<esc(claimId)>:<esc(userId)>:<esc(tokenSlug)>` |
+| `keys.gratitudeGiven` | `gratitude.given:<esc(v)>:<esc(noteId)>` |
+| `keys.roleCycle` | `role.cycle:<esc(v)>:<esc(cycleKey)>:<esc(seatId)>:<esc(userId)>:<esc(tokenSlug)>` |
+| `keys.journeyStage` | `journey.stage_reached:<esc(v)>:<esc(journeyId)>:<esc(stage)>:<esc(userId)>` |
+| `keys.welcomeAboard` | `welcome_aboard.quest:<esc(v)>:<esc(questNo)>:<esc(userId)>` |
+| `keys.voiceDecay` | `voice.decay:<esc(v)>:<esc(cycleKey)>:<esc(userId)>:<esc(tokenSlug)>` |
+| `keys.transfer` | `transfer:<esc(v)>:<esc(transferRowId)>` |
+| `keys.reversal` | `reversal:<esc(v)>:<eventKey>` |
+| `keys.voiceClaim` | `voice-claim:<esc(v)>:<esc(claimRowId)>` |
 
-**A builder's output is not always the key.** Both mint paths append the token slug to it at the call site, because one occurrence can pay two tokens and each is its own row; without that segment the second rule would collide with the first, read as a duplicate, and the member would be quietly paid in one token instead of two. Most of the economy does not use a builder at all. So the table below is read from the CALL SITES: every `idempotencyKey` written under `server/`, resolved through templates, builders, conditionals, local constants and local helpers into the string the ledger receives.
+**A builder's output is not always the key.** The token slug used to be appended to it at the two mint call sites rather than built in, which printed a shape here that the ledger never held; it is a builder parameter now, and both tables agree because of it. Most of the economy still does not use a builder at all. So the table below is read from the CALL SITES: every `idempotencyKey` written under `server/`, resolved through templates, builders, conditionals, local constants and local helpers into the string the ledger receives.
 
 | Key shape the ledger holds | Written in |
 | --- | --- |
@@ -124,7 +124,7 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `exit:<exitId>:sweep:<token>` | `server/lib/exit.ts` |
 | `gratitude_pool:<cycleNumber>:<userId>` | `server/index.ts` |
 | `gratitude_received:<id>` | `server/lib/gratitude.ts` |
-| `gratitude.given:<v>:<noteId>` | `server/lib/economy.ts` |
+| `gratitude.given:<esc(v)>:<esc(noteId)>` | `server/lib/economy.ts` |
 | `intake:<itemId>` | `server/lib/library.ts` |
 | `intake:li-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/lib/library.ts` |
 | `ladj-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/index.ts` |
@@ -147,10 +147,10 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `pp:<purchaseId>:reversal:pi_<payment_intent>` | `server/index.ts` |
 | `proposal_accepted:<id>` | `server/index.ts` |
 | `quest_consent:<id>` | `server/index.ts` |
-| `quest.completed:<v>:<questId>:<claimId>:<userId>:<tokenSlug>` | `server/lib/economy.ts` |
+| `quest.completed:<esc(v)>:<esc(questId)>:<esc(claimId)>:<esc(userId)>:<esc(tokenSlug)>` | `server/lib/economy.ts` |
 | `queststay:<id>` | `server/index.ts` |
-| `reversal:<v>:<eventKey>` | `server/lib/economy.ts` |
-| `role.cycle:<v>:<cycleKey>:<seatId>:<userId>:<tokenSlug>` | `server/lib/economy.ts` |
+| `reversal:<esc(v)>:<eventKey>` | `server/lib/economy.ts` |
+| `role.cycle:<esc(v)>:<esc(cycleKey)>:<esc(seatId)>:<esc(userId)>:<esc(tokenSlug)>` | `server/lib/economy.ts` |
 | `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:keep` | `server/lib/eventSeats.ts` |
 | `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:pay` | `server/lib/eventSeats.ts` |
 | `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:refund` | `server/lib/eventSeats.ts` |
@@ -158,11 +158,11 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `stay:<id>:night:<night>` | `server/lib/stays.ts` |
 | `voice-claim-debit:<villageId()>:<claimId>` | `server/lib/voiceClaim.ts` |
 | `voice-claim-settled:<villageId()>:<claimId>` | `server/lib/voiceClaim.ts` |
-| `voice.decay:<v>:<cycleKey>:<userId>:<tokenSlug>` | `server/lib/economy.ts` |
+| `voice.decay:<esc(v)>:<esc(cycleKey)>:<esc(userId)>:<esc(tokenSlug)>` | `server/lib/economy.ts` |
 | `xstock-<Date.now()>-<Math.random().toString(36).slice(2, 8)>` | `server/index.ts` |
 | `xstock:<slug>:<body>` | `server/index.ts` |
 
-45 distinct shapes across 47 posting site(s), plus 2 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
+45 distinct shapes across 49 posting site(s), plus 2 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
 <!-- generated:triggers end -->
 
 ---
@@ -677,7 +677,7 @@ member holding 0.01 clears a bar set to 100.
 | `ledger rows exist for unregistered token "<token_type>"` | `token_ledger`, `tokens` | **yes** |
 | `conservation broken for "<token_type>": balances sum to <s>, not 0` | `token_balances` | **yes** |
 | `cache drift <account_id>/<token_type>: cached=<cached> actual=<actual>` | `token_balances` | **yes** |
-| `non-faucet account <account_id> is negative: <balance> <token_type>` | `ledger_accounts`, `token_balances` | **yes** |
+| `non-faucet account <account_id> is negative: <balance> <token_type>, and only <lawfulFloor> of that is lawful (its allow-negative debits total <lawful>)` | `ledger_accounts`, `token_balances` | **yes** |
 | `<lostCount> gratitude note(s) charged <units> and delivered nothing (earliest <first_id>, latest <last_at>)` | `gratitude_log`, `token_ledger` | no, reported only |
 
 6 of these refuse boot and 1 does not. The difference is deliberate and is read out of the function's own `ok` expression rather than written here: a corruption means a village whose books do not add up must not serve, while a LOSS is real, worth a founder's attention, and no reason to take the village offline.
@@ -857,6 +857,237 @@ with a short jittered wait, and anything the engine did not decide is mapped to
 one written sentence with the driver's error kept in the log. A rolled-back
 transaction moved nothing, so the retry is safe. The one-in-three figure has
 not been re-measured on the merged tree; the closing-proof pass owes that number.
+
+### 10.6 A capital letter reversed the clawback and paid the quest twice. Fixed on `wt/econ`, measured.
+
+10.4 closed the amount and left the identity open. `reverse()` refused a reversal
+by testing `originalKey.startsWith("reversal:")` in JavaScript, byte for byte,
+while the row lookup one statement later ran `WHERE idempotency_key = ?` under a
+case-insensitive collation (`utf8mb4_uca1400_ai_ci` locally, `utf8mb4_0900_ai_ci`
+in CI). `REVERSAL:local:<key>` failed the guard and found the mirror row anyway.
+Measured by the W3 reverse lane: a member paid 25 who sent all 25 onward was
+clawed back to -25, and the bypass then restored them to 0 while the person they
+had paid kept the 25, so the village paid twice for one quest with
+`checkLedgerInvariants` reporting `{"ok":true,"problems":[]}` and conservation at
+0 through every step. It chained to depth four. Three changes close it, and the
+third is the one that matters: the prefix test is case-folded; the stored
+`idempotency_key` is read back and compared to the caller's key as bytes, so a
+collation match that is not an exact match is refused by name; and the row's own
+`source` decides, because a string is a claim about a row and the row is the
+fact. The column keeps its collation on purpose. A `_bin` column would also
+change what the UNIQUE index calls a duplicate, and that index is what defeats
+the sequential and padded double-reversal attacks that survived this pass.
+Proven by `refuses \`REVERSAL:\` as a way to reverse the clawback, which used to
+pay the quest twice` and `refuses a key that only COLLATES equal to a real
+posting`; both go red with the fold and the byte comparison removed.
+
+### 10.7 Every real clawback in this build was reversible. Fixed on `wt/econ`, measured.
+
+The rule "a reversal may not be reversed" was enforced only by the `reversal:`
+prefix on the key, and no clawback this platform actually posts is keyed there:
+the payment handlers write `ord:<orderId>:reversal-leg1` and
+`pp:<purchaseId>:reversal:<periodKey>` with source `payment_reversal`, and the
+stays refund route writes the first of those. Measured by the W3 keys lane: a
+`payment_reversal` posting of 20 was reversed cleanly, producing a mirror row of
+source `reversal` that handed the member back money the bank had already taken
+off the village. `reverse()` now refuses any row whose own `source` is a
+clawback, which is `reversal` or `payment_reversal`, and says which one it read.
+`stay_night` is deliberately not on that list: a grace-window burn is a charge,
+not an undo, and a village that burnt a night wrongly has to be able to give it
+back. Proven by `refuses to reverse a clawback keyed OUTSIDE the reversal
+namespace`, with `still reverses a grace-night burn, which is a charge and not a
+clawback` as the bound on it.
+
+### 10.8 A one-unit mint could make a clawback a no-op. Fixed on `wt/econ`, measured.
+
+`isReversed` asked one question, `SELECT 1 ... WHERE idempotency_key = ?` against
+the derived mirror key, and never read `source`, either account, or the amount.
+Anything written under that key answered yes. Measured by the W3 keys lane: a
+1-unit mint to a third party under `keys.reversal(village, K)` made
+`isReversed(K)` true with no reversal in existence, and `reverse(K)` then hit the
+UNIQUE index and reported `{"ok":true,"duplicate":true}` while the victim's
+balance stayed at 30. Success, as a duplicate, having moved nothing. Both halves
+are closed. The writer's half is a namespace reservation in `validateLeg`:
+a posting keyed in `reversal:` must carry source `reversal`, and source
+`reversal` must be keyed in `reversal:`, so the only way into the namespace is a
+mirror that `reverse()` derived from a row that exists. The reader's half is that
+a mirror is now compared to the posting it claims to mirror: exact key, source
+`reversal`, the two accounts swapped, same token, same minor units. Proven by
+`refuses the squat that made isReversed true and the real clawback a no-op` and
+`says false for a mirror-keyed row that does not mirror the posting`.
+
+### 10.9 One lawful clawback exempted a member from invariant 5 forever. Fixed on `wt/econ`, measured.
+
+Invariant 5 was an existence test: an account was outside it whenever a debit
+from an allow-negative source existed anywhere in its history for that token.
+Existence has no size, no window and no ordering. Measured by the W3
+allow-negative lane, twice. A member whose 25 was correctly clawed back, who then
+repaid to +75, then went to **-99925** through an ordinary `quest_consent`
+posting, was reported as no problem at all. And in the other direction, a
+standing -4900 boot failure was **silenced** by posting one lawful 1-unit
+reversal after the fact: `negatives: []` where a moment earlier it had named the
+account. The test is bounded now, and the bound is the arithmetic the exemption
+always meant: a member cannot owe more than the allow-negative legs took out of
+them, so the lawful floor is the negation of the sum of those debits for that
+account and that token, and the sentence names both numbers. A genuine -25 after
+a clawback of a spent 25 still passes, which is the shape the bound must not
+break. Proven by `reports a -99925 balance that one lawful 25 clawback used to
+excuse forever`, `cannot be laundered clean by a 1-unit clawback posted after the
+fact`, `still passes a genuine -25 after a clawback of a spent 25` and `does not
+let one token's clawback excuse another token's debt`.
+
+### 10.10 A boolean and a string were the whole debt gate. Fixed on `wt/econ`, measured.
+
+`negativeAllowed` was `!!input.allowNegative && ALLOW_NEGATIVE_SOURCES.has(input.source)`,
+which binds nothing to a real refund, a grace window, or `reverse()`. Measured by
+the W3 allow-negative lane: `postTransfer` with `source: "reversal"`,
+`allowNegative: true` and an amount of 1000 took an account holding 10 to **-990**
+through the ordinary public primitive, with no bypass anywhere, and the same held
+for all three keystone sources. `allowNegative` is a capability now. The ledger
+issues exactly three `DebtProof` values, `GRACE_NIGHT_DEBT`,
+`PAYMENT_REVERSAL_DEBT` and `CLAWBACK_DEBT`, each naming the one source it
+licenses; `validateLeg` checks them by IDENTITY before any transaction opens, so
+an object literal of the right shape is refused as firmly as `true` is, and a
+proof issued for a grace night cannot be spent on a clawback. The whole set of
+callers that can create debt is now `grep -rn "_DEBT" server/`: five call sites
+in four files, and the compiler enumerated every one of them when the type
+changed. Proven by `refuses \`allowNegative: true\`, which used to take an account
+holding 10 down to -990` and `refuses a forged proof, and a real proof spent on
+the wrong source`.
+
+### 10.11 The two gates on `source` used two different equalities. Fixed on `wt/econ`, measured.
+
+`postTransfer` compared `source` with `Set.has`, which is byte-exact; the boot
+check compared it with `source IN (...)` under a case-insensitive PAD SPACE
+collation, which is not. Measured by the W3 allow-negative lane: `"REVERSAL"` was
+postable with **no flag at all**, because the JavaScript gate never recognised it
+as a keystone source, and a 1-unit debit carrying it then exempted a -5000
+balance from invariant 5, because the SQL gate could not tell it from `reversal`.
+The variants that went unreported were `"reversal "`, `"REVERSAL"` and
+`"ReVeRsAl"`. Both halves now use one equality. `validateLeg` refuses any source
+that folds to a keystone source without being it byte for byte, naming the
+canonical spelling, because a near-miss can only be a bug or an attack and
+normalising it would write a value into a column an auditor reads that the caller
+never asked for. The boot check compares `CAST(source AS BINARY)`, so a legacy or
+hand-inserted row spelled any other way counts for nothing. Proven by `refuses
+every near-miss spelling of a keystone source, which used to tag an account for
+free` and `reads the SQL half of the gate byte-exactly, so a \`REVERSAL\` row buys
+no exemption`.
+
+### 10.12 The set that is "static ON PURPOSE" could be widened at runtime. Fixed on `wt/econ`, measured.
+
+`ALLOW_NEGATIVE_SOURCES` was declared `ReadonlySet<string>` over a live `Set`,
+and `ReadonlySet` is a type-level claim, not a property of the object. Measured
+by the W3 allow-negative lane: `(ALLOW_NEGATIVE_SOURCES as Set<string>).add("spend")`
+turned a refused post into a posted one and took an account to -490, and the boot
+check reported nothing while the set stayed widened. The comment above the
+declaration said the set is static so that it cannot race the boot invariant
+check, and the mutation is exactly that race: the same database is lawful or a
+refusal depending on when the check runs. It is built by `frozenSet` now, a Proxy
+whose `add`, `delete` and `clear` throw. A Proxy rather than a subclass because a
+subclass closes `set.add(x)` and leaves `Set.prototype.add.call(set, x)` working,
+which is one line further for anyone who reads the class and decides to go
+around it; a Proxy has no `[[SetData]]` internal slot, so the borrowed-method
+form throws before it can do anything. `Object.freeze` would have closed neither:
+`add` is a method on the prototype, not a property of the object. Proven by
+`throws on .add, .delete and .clear, and on the borrowed-method form`, with
+`still reads as a Set everywhere the ledger uses one` as the bound.
+
+### 10.13 Half a swap could be reversed. Fixed on `wt/econ`, measured.
+
+`postTransferPair` exists because a member must never be debited without being
+credited, and `reverse()` mirrors one row, which is the wrong unit for a pair.
+Measured by the W3 reverse lane: reversing leg 2 of a swap alone left the member
+having paid 100 into the treasury and holding nothing, with
+`{"ok":true,"problems":[]}` and conservation at 0. The mirror even posted with
+`allowNegative`, although `exchange_swap` is deliberately kept out of the
+keystone set and `repairTaintedListings` asserts that at boot, because the
+mirror's own source is `reversal`, which is in it. `reverse()` refuses a pair leg
+now and names its sibling in the refusal. A pair leg is derived rather than
+declared, because nothing on the row records the pairing and a `pair_key` column
+is a migration: a posting is a pair leg when its key ends in `:leg1` or `:leg2`
+and a posting exists whose key is the same prefix with the other suffix under the
+same `source`. The source is in the test because `ord:<orderId>:leg1` is also the
+key of three ordinary single postings, a fiat exchange settlement and two stay
+purchases, none of which has a sibling and all of which stay reversible.
+`reversePair(pool, keyLeg1, keyLeg2, opts)` undoes both legs through
+`postTransferPair` itself, which brings the both-or-neither promise with it and
+one more property a pair of `reverse()` calls could never have: the pair refuses
+`allowNegative` outright, so a member who has already spent what the swap gave
+them cannot have the swap undone behind their back. That refusal is the honest
+one here, unlike a single clawback, where the negative balance is the truth.
+Proven by `refuses one leg by name, and reverses both together through
+reversePair`, `refuses a pair reversal that would create debt, rather than
+creating it` and `leaves an ordinary posting that merely ends in :leg1
+reversible`.
+
+### 10.14 A long reversal note threw instead of refusing. Fixed on `wt/econ`, measured.
+
+`sourceRef` was clamped to `MAX_SOURCE_REF` and the line below it built
+`description` with no clamp at all, against a `varchar(500)` column and a
+database in strict mode. Measured by the W3 reverse lane: a 600-character note
+made `reverse()` throw `ER_DATA_TOO_LONG` out of a function typed
+`Promise<MintOutcome>`, leaving the balance unchanged and no mirror row. It
+matters most where it is worst to throw. `settleClaim` compare-and-sets the claim
+to a terminal state **before** it calls `reverse()`, so the exception escapes past
+the `if (!back.ok)` repair branch, the "refund failed, voice still held" note is
+never written, and the member loses the voice and the record that says so. The
+margin was thin rather than absent: the Hypha webhook clips its own note to 280
+against a `voice-claim:local:<claimRowId>` key, which leaves roughly 26
+characters of headroom. The description is clamped to the column width now, with
+the original key kept whole at the end and the note clipped and marked, in that
+order, because the key is what an auditor uses to find the posting that was
+undone and the note is commentary. Proven by `refuses nothing and strands nothing
+when the note runs past varchar(500)` and `keeps a short note exactly as
+written`.
+
+### 10.15 Two members could collapse into one payment, and the second was told they were paid. Fixed on `wt/econ`, measured.
+
+`token_ledger.idempotency_key` is UNIQUE under a case-insensitive PAD SPACE
+collation, so `quest.completed:local:q:c:usr-aB1` and the same key ending
+`usr-Ab1` are one row. Measured by the W3 keys lane: the first mint posted, the
+second returned `{"ok":true,"duplicate":true}`, a `SELECT` over both keys
+returned one row, and the balance stayed at 7. **The second member was silently
+not paid while `mint` reported success.** A duplicate key is not proof of a
+replay, so the duplicate branch of `postTransferOn` reads the stored key back and
+compares bytes: equal, and the money moved exactly once and the caller hears
+`duplicate: true`; different, and two distinct occurrences have collided on the
+index, which is a key-shape bug the caller has to hear about rather than a
+payment to skip. `postTransferPairOnce` does the same on both legs. This is the
+net under every hand-written key as well as the builders, which matters because
+the recurring-payment keys carry a Stripe invoice id and Stripe ids are mixed
+case, so a blanket refusal of uppercase keys was not available. Proven by
+`refuses a second occurrence whose key differs only by case` and `refuses a
+trailing-space variant, and still replays the exact key as a duplicate`, the
+second of which is written to pass on a NO PAD collation too, because CI pins
+mysql:8 and this machine runs MariaDB.
+
+### 10.16 A colon in an id moved the boundary between two key segments. Fixed on `wt/econ`, measured.
+
+Every builder in `keys` joined its segments on `:` and none of them escaped
+anything. Measured by the W3 keys lane: `keys.questCompleted(v, "q:1", "c", u)`
+and `keys.questCompleted(v, "q", "1:c", u)` produced the byte-identical key, so
+two distinct occurrences read as one and the second was not paid. The two
+highest-volume mint sites made it worse by appending `:${r.tokenSlug}` after the
+builder returned, unescaped, and `registerToken` does no slug validation of its
+own, so a seed or a fork migration can put a colon in a slug. Segments are
+percent-encoded now: `:`, `%` and every uppercase letter, with lowercase hex
+digits so the output carries no uppercase and the collation has nothing left to
+fold. Encoding case is a fork guard rather than a fix for today, because every id
+generator in this build is already lowercase; a fork whose ids are not is exactly
+who would hit 10.15 through the front door. The token slug moved inside the
+builder, which escapes it and also makes the generated key table in section 2
+print the shape the ledger actually holds rather than the shape without the
+suffix. `keys.reversal` does not escape its `eventKey`, and the code says why: it
+is a whole canonical key rather than a segment, its colons are its own structure,
+and escaping them would triple the length of every mirror key against a ceiling
+`keyTooLong` already finds tight. Nothing the ledger holds changes shape: escaping
+moves a key only when a segment holds `:`, `%` or a capital, and no id generator
+here produces any of those, so a key posted before this change still replays as a
+duplicate rather than paying twice. Proven by `keeps a colon in an id inside its
+own segment`, `keeps two ids that differ only in case apart under a
+case-insensitive index` and `still recognises an already-posted legacy-shaped key
+as a duplicate`.
 
 **None of these had hurt anyone, because production has zero ledger rows. All
 of them would have landed on the first day more than one person used the thing.**

@@ -239,12 +239,100 @@ export interface TransferInput {
   /** Unique. A repeat write with the same key is a no-op, not a second post. */
   idempotencyKey: string;
   /**
-   * Permit this post to drive a NON-FAUCET account below zero. Only honored
-   * when `source` is in ALLOW_NEGATIVE_SOURCES — a negative balance is the
-   * truthful state after a grace-night burn or a chargeback clawback, never
-   * a convenience for ordinary spending paths.
+   * Permit this post to drive a NON-FAUCET account below zero.
+   *
+   * THIS USED TO BE A BOOLEAN, AND A BOOLEAN PLUS A STRING WAS THE WHOLE
+   * GATE. `{ source: "reversal", allowNegative: true }` from any caller at
+   * all created member debt of any size, because `true` is a value anybody
+   * can write and `"reversal"` is a value anybody can spell. An adversary
+   * pass took an account holding 10 down to -990 through the ordinary public
+   * primitive with no bypass anywhere.
+   *
+   * So the flag is now a CAPABILITY the ledger issues, not a claim a caller
+   * makes: one of the three frozen `DebtProof` values below, checked by
+   * IDENTITY, which no object literal can forge. The proof also names the
+   * source it licenses and the two must agree, so a proof for a grace night
+   * cannot be spent on a clawback.
    */
-  allowNegative?: boolean;
+  allowNegative?: DebtProof;
+}
+
+/**
+ * Permission to leave a member owing the village, issued by this module.
+ *
+ * There are exactly three of these and they are exported by name, so the
+ * whole set of callers that may create debt is `grep -rn "_DEBT" server/`:
+ * five call sites in four files, each one a place where a debt is the
+ * truthful state rather than a convenience.
+ *
+ * The brand is a module-private symbol, so this interface cannot be
+ * satisfied by a caller writing `{ reason: "reversal" }`, and the runtime
+ * gate is identity against `ISSUED_DEBT_PROOFS` rather than shape, so a
+ * caller who defeats the type system still gets nothing.
+ */
+declare const DEBT_PROOF_BRAND: unique symbol;
+export interface DebtProof {
+  /** The one `source` this proof licenses. Must equal the leg's `source`. */
+  readonly reason: string;
+  readonly [DEBT_PROOF_BRAND]: true;
+}
+
+const issueDebtProof = (reason: string): DebtProof => Object.freeze({ reason }) as unknown as DebtProof;
+
+/** A stay night burnt inside the grace window (`server/lib/stays.ts`). */
+export const GRACE_NIGHT_DEBT: DebtProof = issueDebtProof("stay_night");
+/** The mechanical leg after a refund or a chargeback (the payment handlers). */
+export const PAYMENT_REVERSAL_DEBT: DebtProof = issueDebtProof("payment_reversal");
+/** The mirror `reverse()` posts against value a member already spent onward. */
+export const CLAWBACK_DEBT: DebtProof = issueDebtProof("reversal");
+
+const ISSUED_DEBT_PROOFS: readonly DebtProof[] = Object.freeze([
+  GRACE_NIGHT_DEBT,
+  PAYMENT_REVERSAL_DEBT,
+  CLAWBACK_DEBT,
+]);
+
+/** Identity, never shape: a forged literal is not one of these three objects. */
+function isDebtProof(v: unknown): v is DebtProof {
+  return ISSUED_DEBT_PROOFS.some((p) => p === v);
+}
+
+/**
+ * A `Set` that cannot be added to, deleted from or cleared, ever.
+ *
+ * A PROXY RATHER THAN A SUBCLASS, and the difference is the whole point. A
+ * subclass overriding `add` closes `set.add("spend")` and leaves
+ * `Set.prototype.add.call(set, "spend")` working, which is one line further
+ * for anyone who reads the class and decides to go around it. A Proxy has no
+ * `[[SetData]]` internal slot of its own, so the borrowed-method form throws
+ * `TypeError: Method Set.prototype.add called on incompatible receiver`
+ * before it can do anything. Both spellings of the mutation fail, and the
+ * comment above the keystone becomes a property of the program.
+ *
+ * Every other member goes through to the real Set, bound to it, because
+ * `has`, `size`, `forEach` and the iterator all need the receiver that owns
+ * the data: reading them off the proxy unbound is the same incompatible
+ * receiver in the other direction. So `has`, `size`, `Array.from` and
+ * `for...of` behave exactly as they did.
+ */
+export function frozenSet<T>(values: readonly T[]): ReadonlySet<T> {
+  const inner = new Set<T>(values);
+  const refuse = (verb: string) => () => {
+    throw new TypeError(
+      `this set is frozen: ${verb} is not available on it. Extending it is a reviewed edit to the ` +
+        "declaration, never a runtime registration that can race a boot check",
+    );
+  };
+  return new Proxy(inner, {
+    get(target, prop, _receiver) {
+      if (prop === "add" || prop === "delete" || prop === "clear") return refuse(String(prop));
+      const value = Reflect.get(target, prop, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+    set: refuse("assignment"),
+    defineProperty: refuse("defineProperty"),
+    deleteProperty: refuse("property deletion"),
+  }) as ReadonlySet<T>;
 }
 
 /**
@@ -262,8 +350,24 @@ export interface TransferInput {
  *
  * Static ON PURPOSE: extending it is a one-line reviewed change to the
  * keystone, not a runtime registration that can race the boot invariant check.
+ *
+ * IT USED TO BE AN ORDINARY `Set` BEHIND A `ReadonlySet` TYPE, WHICH IS A
+ * CLAIM AND NOT A PROPERTY. `(ALLOW_NEGATIVE_SOURCES as Set<string>)
+ * .add("spend")` widened the exemption at runtime and the boot check read the
+ * widened set, so the same database was lawful or a refusal depending on when
+ * the check ran: precisely the race the paragraph above says cannot happen.
+ * `frozenSet` makes the sentence true. `Object.freeze` would not have:
+ * `add` is a method on the prototype, not a property of the object, and a
+ * frozen `Set` still accepts `.add`.
+ *
+ * The membership test is BYTE-EXACT and so is the SQL half of the gate now
+ * (`CAST(source AS BINARY)` in `checkLedgerInvariants`). The two used to
+ * disagree: `Set.has` refused `"REVERSAL"` while `source IN (...)` under a
+ * case-insensitive PAD SPACE collation accepted it, so a variant spelling was
+ * postable without the flag and then exempted an account at boot. One
+ * equality now, and `validateLeg` refuses the near-miss spellings outright.
  */
-export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal", "reversal"]);
+export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = frozenSet(["stay_night", "payment_reversal", "reversal"]);
 
 export interface TransferResult {
   ok: boolean;
@@ -318,6 +422,92 @@ function validateLeg(input: TransferInput): { tokenType: string; amount: number 
   if (input.from === input.to) return { error: "an account cannot transfer to itself" };
   if (amount <= 0) return { error: "amount must be a positive integer" };
   if (!input.idempotencyKey) return { error: "idempotencyKey is required" };
+
+  /*
+   * ONE SPELLING PER KEYSTONE SOURCE, AND IT IS THE LOWERCASE ONE.
+   *
+   * `source` lands in a `varchar(64)` under a case-insensitive PAD SPACE
+   * collation, so `"REVERSAL"`, `"reversal "` and `"ReVeRsAl"` are all the
+   * same value to the SQL half of the allow-negative gate and none of them
+   * is the same value to the JS half. An adversary tagged an account with a
+   * one-unit `"REVERSAL"` debit — postable with no flag at all, because the
+   * JS gate never saw it — and the boot check then exempted a -5000 balance
+   * that had nothing to do with any reversal.
+   *
+   * A near-miss of a keystone source can only be a bug or an attack, so it
+   * is refused here rather than normalised: normalising would write a value
+   * the caller did not ask for into a column an auditor reads.
+   */
+  const folded = String(input.source ?? "").trim().toLowerCase();
+  const canonical = ALLOW_NEGATIVE_SOURCES.has(folded) ? folded : null;
+  if (canonical && input.source !== canonical) {
+    return {
+      error:
+        `source ${JSON.stringify(input.source)} differs only in case or whitespace from the ` +
+        `allow-negative source "${canonical}", and the ledger's collation cannot tell them apart. ` +
+        `Post "${canonical}" exactly, or pick a source that is not one of these`,
+    };
+  }
+
+  /*
+   * THE `reversal:` KEY NAMESPACE BELONGS TO `reverse()`, BOTH WAYS.
+   *
+   * Forwards: anything keyed there must carry source `reversal`. Without
+   * this, a mint under `keys.reversal(v, K)` made `isReversed(K)` true with
+   * no reversal in existence, and the real clawback then reported success as
+   * a duplicate while moving nothing.
+   *
+   * Backwards: source `reversal` must be keyed there. Without this, source
+   * `reversal` was a string any caller could spell to reach the allow-
+   * negative exemption from an ordinary posting. Binding the two means the
+   * only way to create clawback debt is to write a mirror key, and a mirror
+   * key is what `reverse()` derives from a row that exists.
+   *
+   * The prefix test is case- and whitespace-INSENSITIVE on purpose: the
+   * UNIQUE index is, so `REVERSAL:local:x` occupies the same row as
+   * `reversal:local:x` and must meet the same rule.
+   */
+  const key = input.idempotencyKey;
+  const inReversalNamespace = /^\s*reversal:/i.test(key);
+  if (inReversalNamespace && input.source !== "reversal") {
+    return {
+      error:
+        `idempotency key ${JSON.stringify(key.slice(0, 60))} is in the reversal: namespace, ` +
+        `which only reverse() may write: a posting there must carry source "reversal", not ` +
+        `${JSON.stringify(input.source)}`,
+    };
+  }
+  if (input.source === "reversal" && !inReversalNamespace) {
+    return {
+      error:
+        `source "reversal" is reserved for the mirror reverse() derives, and a mirror is keyed ` +
+        `"reversal:<village>:<original key>". This posting is keyed ` +
+        `${JSON.stringify(key.slice(0, 60))}`,
+    };
+  }
+
+  /*
+   * The debt capability. Refused BEFORE any transaction opens, which is the
+   * only refusal worth having: a caller who reaches this with `true`, with a
+   * hand-built object, or with the wrong proof for its source moves nothing
+   * and hears why.
+   */
+  if (input.allowNegative !== undefined) {
+    if (!isDebtProof(input.allowNegative)) {
+      return {
+        error:
+          "allowNegative is a capability the ledger issues, not a flag a caller sets: pass " +
+          "GRACE_NIGHT_DEBT, PAYMENT_REVERSAL_DEBT or CLAWBACK_DEBT from server/lib/ledger",
+      };
+    }
+    if (input.allowNegative.reason !== input.source) {
+      return {
+        error:
+          `this debt proof licenses source "${input.allowNegative.reason}" and the posting ` +
+          `carries source ${JSON.stringify(input.source)}`,
+      };
+    }
+  }
 
   const def = tokenDef(tokenType);
   if (!def) {
@@ -514,6 +704,38 @@ export async function postTransferOn(
        * hold: both accounts are exclusively locked above, and the recompute
        * below touches the same `token_balances` rows in the same order.
        */
+      /*
+       * A DUPLICATE KEY IS NOT PROOF OF A REPLAY. The UNIQUE index runs
+       * under a case-insensitive PAD SPACE collation, so
+       * `quest.completed:local:q:c:usr-aB1` and `...usr-Ab1` are ONE row,
+       * and so are a key and the same key with a trailing space. Reporting
+       * the second one as a duplicate is reporting "already paid" about a
+       * member who was never paid: `mint` returned ok, the balance did not
+       * move, and nothing anywhere said so.
+       *
+       * So read the stored key back and compare BYTES. Equal, and this is a
+       * genuine replay and the money already moved exactly once. Different,
+       * and two distinct occurrences have collided on the index, which is a
+       * key-shape bug the caller has to hear about rather than a payment to
+       * skip. `keys` percent-encodes case and colons for exactly this
+       * reason; this is the net under every hand-written key as well.
+       */
+      const [clash] = await conn.query<RowDataPacket[]>(
+        "SELECT idempotency_key FROM token_ledger WHERE idempotency_key = ? LIMIT 1",
+        [input.idempotencyKey],
+      );
+      const stored = clash[0] ? String(clash[0].idempotency_key) : null;
+      if (stored !== null && stored !== input.idempotencyKey) {
+        return {
+          ok: false,
+          duplicate: false,
+          toBalance: 0,
+          error:
+            `idempotency key ${JSON.stringify(input.idempotencyKey)} collides with the already-posted ` +
+            `key ${JSON.stringify(stored)}: the ledger's unique index cannot tell them apart. This is ` +
+            "a second occurrence, so it was refused here and nobody was silently left unpaid",
+        };
+      }
       const [b] = await conn.query<RowDataPacket[]>(
         "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ? FOR UPDATE",
         [input.to, tokenType],
@@ -529,7 +751,11 @@ export async function postTransferOn(
   for (const acct of ordered) balances.set(acct, await recomputeBalance(conn, acct, tokenType));
 
   const fromBalance = balances.get(input.from)!;
-  const negativeAllowed = !!input.allowNegative && ALLOW_NEGATIVE_SOURCES.has(input.source);
+  // `validateLeg` has already proved the capability and matched it to this
+  // source, and it is one of the three the keystone set names, so holding a
+  // proof at all IS the permission. The string is no longer consulted here:
+  // one gate, one equality, decided before the transaction opened.
+  const negativeAllowed = isDebtProof(input.allowNegative) && input.allowNegative.reason === input.source;
   if (!fromAcct.faucet && fromBalance < 0 && !negativeAllowed) {
     return {
       ok: false,
@@ -754,14 +980,28 @@ async function postTransferPairOnce(
       // different orders minted the same key — unreachable under a single
       // transaction, so it is a key-shape bug, and the honest response is to
       // refuse rather than guess which half is real.
-      const [existing] = await pool.query<RowDataPacket[]>(
+      const [found] = await pool.query<RowDataPacket[]>(
         "SELECT idempotency_key FROM token_ledger WHERE idempotency_key IN (?, ?)",
         [legs[0].idempotencyKey, legs[1].idempotencyKey],
       );
+      // BYTE-EXACT, for the reason the single-leg poster spells out: the
+      // index folds case and pads spaces, so a row it returned here may be a
+      // DIFFERENT key that merely collates equal, and counting it as one of
+      // ours would call a collision a clean replay.
+      const stored = found.map((r) => String(r.idempotency_key));
+      const existing = stored.filter((k) => k === legs[0].idempotencyKey || k === legs[1].idempotencyKey);
+      if (existing.length === 0 && stored.length > 0) {
+        throw new Error(
+          `idempotency keys ${JSON.stringify(legs[0].idempotencyKey)} / ` +
+            `${JSON.stringify(legs[1].idempotencyKey)} collide with already-posted ` +
+            `${JSON.stringify(stored)} under the unique index without matching them: ` +
+            "these are different occurrences, and neither leg was written",
+        );
+      }
       if (existing.length === 2) return { ok: true, duplicate: true, balances: {} };
       if (existing.length === 1) {
         throw new Error(
-          `partial idempotency collision on ${existing[0].idempotency_key}: keys from different orders have merged; refusing to complete`,
+          `partial idempotency collision on ${existing[0]}: keys from different orders have merged; refusing to complete`,
         );
       }
       throw e;
@@ -947,9 +1187,10 @@ export interface InvariantReport {
  *  3. Conservation: per token, SUM(cached balances) ≡ 0.
  *  4. The cache agrees with recomputation from transfers (drift = a posting
  *     path that skipped the discipline).
- *  5. No non-faucet account is ILLEGALLY negative — negative is legal only
- *     where the account has a debit from an ALLOW_NEGATIVE_SOURCES source
- *     (grace-night burn, payment reversal); anything else refuses boot.
+ *  5. No non-faucet account is ILLEGALLY negative — a member may be in debt
+ *     only as far as the ALLOW_NEGATIVE_SOURCES debits posted against them
+ *     (grace-night burn, payment reversal, clawback) actually took, and a
+ *     balance below the sum of those refuses boot however it got there.
  *  6. NO RECOGNITION, EQUITY OR VOICE TOKEN IS MARKED TRANSFERABLE. Only
  *     credit tokens are ever sent between members. This one is here because
  *     the wrong value shipped and sat unread: 0006 seeded `gratitude` with
@@ -1004,15 +1245,50 @@ export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport
   );
   for (const r of drift) problems.push(`cache drift ${r.account_id}/${r.token_type}: cached=${r.cached} actual=${r.actual}`);
 
+  /*
+   * INVARIANT 5, BOUNDED. It used to be an EXISTENCE test — `NOT EXISTS (...
+   * source IN (allow-negative))` — and existence has no size, no window and
+   * no ordering, so ONE one-unit clawback exempted an account from this
+   * check forever, retroactively, at any magnitude. Two measured shapes: a
+   * member whose 25 was reversed then went to -99925 through an ordinary
+   * source and the report was empty; and a standing -4900 boot failure was
+   * SILENCED by posting a single lawful 1-unit reversal after the fact.
+   *
+   * The bound is the arithmetic the exemption was always meant to express: a
+   * member cannot be more in debt than the allow-negative legs took out of
+   * them. Sum those debits for this account and this token, and a balance
+   * below their negation is illegal however it got there. A genuine -25
+   * after a reversal of a spent 25 still passes, because 25 is exactly what
+   * the clawback took.
+   *
+   * `CAST(t.source AS BINARY)` because the column's collation folds case and
+   * pads spaces: `IN ('reversal', ...)` matched a `"REVERSAL"` row that the
+   * JS gate would never have accepted, so a variant spelling bought an
+   * exemption the ledger never granted. Byte equality here is the same
+   * equality `allowsNegative` applies on the write side.
+   */
   const allowNeg = Array.from(ALLOW_NEGATIVE_SOURCES);
   const [negatives] = await pool.query<RowDataPacket[]>(
-    "SELECT tb.account_id, tb.token_type, tb.balance FROM token_balances tb " +
-      "JOIN ledger_accounts a ON a.id = tb.account_id WHERE a.faucet = 0 AND tb.balance < 0 " +
-      "AND NOT EXISTS (SELECT 1 FROM token_ledger t WHERE t.from_account = tb.account_id " +
-      "AND t.token_type = tb.token_type AND t.source IN (?))",
+    "SELECT tb.account_id, tb.token_type, tb.balance, COALESCE(d.lawful, 0) AS lawful FROM token_balances tb " +
+      "JOIN ledger_accounts a ON a.id = tb.account_id " +
+      "LEFT JOIN (SELECT from_account, token_type, SUM(amount) AS lawful FROM token_ledger " +
+      "WHERE CAST(source AS BINARY) IN (?) GROUP BY from_account, token_type) d " +
+      "ON d.from_account = tb.account_id AND d.token_type = tb.token_type " +
+      "WHERE a.faucet = 0 AND tb.balance < 0 AND tb.balance < -COALESCE(d.lawful, 0)",
     [allowNeg],
   );
-  for (const r of negatives) problems.push(`non-faucet account ${r.account_id} is negative: ${r.balance} ${r.token_type}`);
+  for (const r of negatives) {
+    // The bound, said in the sentence: how far this account was allowed to go
+    // and how far it went. ONE SHAPE rather than two branches, because an
+    // account with no allow-negative debit at all is the lawful floor of zero
+    // and reads correctly as one.
+    const lawful = Number(r.lawful);
+    const lawfulFloor = -lawful;
+    problems.push(
+      `non-faucet account ${r.account_id} is negative: ${r.balance} ${r.token_type}, and only ` +
+        `${lawfulFloor} of that is lawful (its allow-negative debits total ${lawful})`,
+    );
+  }
 
   /*
    * The one the panel could not see. A gratitude row's id is the ledger

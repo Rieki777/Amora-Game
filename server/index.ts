@@ -299,7 +299,7 @@ import {
   tokenNameClash, slugFreezeRefusal,
   RECOGNITION_FAUCET,
   balanceOf,
-  balancesFor, PLATFORM_TOKEN,
+  balancesFor, PLATFORM_TOKEN, PAYMENT_REVERSAL_DEBT,
   checkLedgerInvariants,
   CYCLE_POOL_FAUCET,
   entriesForMember,
@@ -6506,7 +6506,7 @@ async function startServer() {
           source: "payment_reversal", sourceRef: purchaseId,
           description: `Reversal: ${row.product_name} (${periodKey})`,
           idempotencyKey: `pp:${purchaseId}:reversal:${periodKey}`,
-          allowNegative: true,
+          allowNegative: PAYMENT_REVERSAL_DEBT,
         });
         // Checked, like stays and exchange do. Reporting a clawback that
         // never posted is worse than failing: the humans stand down.
@@ -6598,7 +6598,7 @@ async function startServer() {
         sourceRef: orderId,
         description: refund ? "Refund: credits reversed" : "Dispute: credits reversed",
         idempotencyKey: `ord:${orderId}:reversal-leg1`,
-        allowNegative: true,
+        allowNegative: PAYMENT_REVERSAL_DEBT,
       });
       if (!claw.ok) throw new Error(claw.error ?? "reversal leg failed");
       await pool.query("UPDATE stay_purchases SET status = ? WHERE id = ?", [refund ? "refunded" : "disputed", orderId]);
@@ -6662,7 +6662,7 @@ async function startServer() {
         sourceRef: orderId,
         description: refund ? "Refund: tokens returned to stock" : "Dispute: tokens returned to stock",
         idempotencyKey: `ord:${orderId}:reversal-leg1`,
-        allowNegative: true,
+        allowNegative: PAYMENT_REVERSAL_DEBT,
       });
       if (!claw.ok) throw new Error(claw.error ?? "reversal leg failed");
       await pool.query("UPDATE exchange_orders SET status = ? WHERE id = ? AND kind = 'fiat_purchase'", [refund ? "refunded" : "disputed", orderId]);
