@@ -532,7 +532,7 @@ The same facts, for anything that would rather parse than read. Regenerated with
       "default": "gratitude"
     },
     "ledger.admin_mint_cycle_cap": {
-      "label": "Admin mint cap per lunar cycle",
+      "label": "Issuance cap per lunar cycle",
       "default": "10000"
     },
     "economy.voice_claim_threshold": {

@@ -1315,6 +1315,59 @@ for the lane that closed 10.17 through 10.22, and untouched by it.
 **None of these had hurt anyone, because production has zero ledger rows. All
 of them would have landed on the first day more than one person used the thing.**
 
+### 10.25 The mint cap counted a spent credit as a second issue. Fixed on `wt/econ-mintcap`, measured.
+
+`mintCapGuard` enforced `ledger.admin_mint_cycle_cap` with a SUM of GROSS
+outflow from `sys:mint` since the cycle started, subtracting nothing, while the
+dial's own description said it bounded what admins could mint BY HAND and
+`GET /api/admin/tokens` beside it derived net outstanding supply from
+`-tb.balance WHERE a.faucet = 1`. Three copies of one idea, three quantities.
+The recirculation is the cause: `spendSinkFor("stay-credit")` IS the mint
+faucet, so a member paying for a night sends credits back to the faucet that
+issued them, the village issues them again, and the old SUM counted the second
+issue as a second creation. Measured over HTTP against the built server on a
+scratch schema, every figure read back from `token_ledger` and
+`token_balances`: after three issues of 100, one member spend of the whole 300
+through `POST /api/admin/stays/post-nights`, and one re-issue of 300, the guard
+read 600 and the admin panel read 300 at the same instant. The counter was also
+monotone inside a cycle, so a lawful reversal could not lower it and no lever
+cleared it.
+
+**Rye ruled that the cap bounds ALL ISSUANCE, not hand-mints alone.** Nine
+doors write that faucet and three of them meet the guard, including a Stripe
+stay-purchase settle, a member-triggered quest work-exchange release, three
+stays routes and any `mint_rules` rule on stay-credit. Under the ruling their
+issuance legitimately counts, so the fix subtracts returns and does not narrow
+the SUM. `server/lib/mintCap.ts` now holds the arithmetic and the ruling
+together: gross out of the faucet inside the cycle, minus gross back into it
+inside the same cycle.
+
+**The window, and the case the ledger cannot answer.** The subtraction runs
+over exactly the window the addition runs over, and the result is FLOORED AT
+ZERO in TypeScript where a reader meets it. A return whose issuance was in a
+previous cycle lands in a window that never held the issue it undoes;
+unclamped it would drive the figure negative and hand a founder headroom above
+the cap, so a village that issued 5000 last moon and saw it spent back this
+moon could mint 15000 against a cap of 10000. Matching each return to its
+issuing cycle is not possible here: a nightly charge, an adjustment and a
+payment reversal all post toward the faucet with `source_ref` naming the stay,
+the adjustment or the order, never the mint. The floor is the conservative
+reading of a fact the table does not record.
+
+**The consequence Rye accepted, and where it is said.** A busy stays month can
+now legitimately exhaust a founder's ability to hand-mint. It is not softened,
+and it does not arrive as a surprise: the refusal names how much of the
+lunation's issuance came from doors no admin opened, names those doors from
+`token_ledger.source`, and says that the cap bounds every door that issues.
+The dial's description says the same thing before a village sets the number.
+
+**What is still true and unfixed.** The five faucet accounts named by hand in
+`server/lib/economy.ts` (`publicSupply` and the admin per-source breakdown)
+agree with `ledger_accounts.faucet = 1` today by coincidence, not by
+derivation. A sixth faucet account would silently drop out of both supply
+surfaces while `GET /api/admin/tokens` kept counting it. That file belongs to
+other lanes, so this is reported and not touched.
+
 ### The governed numbers a member was told wrong (lane P1)
 
 **The needs floor is the village's, and it is now kept as well as stated.**

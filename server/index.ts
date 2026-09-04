@@ -314,7 +314,7 @@ import {
   tokenDef,
   TREASURY,
 } from "./lib/ledger";
-import type { TransferGuard } from "./lib/ledger";
+import { capRefusal, mintCapGuard, mintCycleStart, readCycleIssuance } from "./lib/mintCap";
 import {
   mayToggleTransferable,
   priceRefusal,
@@ -17303,53 +17303,20 @@ Send an empty drafts array when you are still listening. A role payload is {name
   });
 
   /**
-   * THE PER-CYCLE MINT CAP, ENFORCED WHERE IT CANNOT BE RACED.
+   * The cap's own arithmetic lives in `server/lib/mintCap.ts`, with the
+   * ruling it enforces written beside it: the cap bounds ALL ISSUANCE of a
+   * token in a cycle, by every door, NET of what came back to the faucet
+   * inside the same cycle. Nine doors write `sys:mint` and three of them meet
+   * `mintCapGuard`; the counter has always seen all nine, and what it grew
+   * was a subtraction, because `spendSinkFor("stay-credit")` is that same
+   * faucet and a spent credit was being counted as a second issue.
    *
-   * Two doors mint from `sys:mint` — stocking the treasury and hand-minting to
-   * a member — and both used to read the cycle's running total, compare it,
-   * and then post several awaits later. Two admins clicking at once both read
-   * the same stale total, both decide there is room, and both post: the cap is
-   * exceeded while every individual request looks lawful, and nothing
-   * downstream notices because conservation still holds.
-   *
-   * "Caps fail closed" is a platform invariant, so this runs as a ledger guard
-   * instead — inside the transaction, after `sys:mint` and the destination are
-   * locked FOR UPDATE. Any two mints of the same token contend on the same
-   * `sys:mint` row, so they serialise, and the second one counts the first
-   * one's committed row. Deciding and writing become one step.
-   *
-   * The same guard covers all three doors on purpose. UNITS: `units` is MINOR, the number the leg posts, because `minted` is a SUM over `token_ledger.amount`; the dial is human and is converted here, once.
+   * The pre-flights below are a courtesy: they turn a bare refusal into a 409
+   * carrying numbers. `mintCapGuard` inside the transfer's own lock is the
+   * enforcement, and both read the same figure through `readCycleIssuance`.
    */
-  function mintCapGuard(slug: string, units: number): TransferGuard {
-    const capHuman = numberVar("ledger.admin_mint_cycle_cap");
-    const since = new Date(currentCycle().startsAt);
-    return async (conn) => {
-      // Re-read the cap inside the guard: an admin may have lowered it
-      // between the request arriving and the lock being granted, and the
-      // lower number is the one the village decided on.
-      if (capHuman <= 0) return "Minting is disabled (ledger.admin_mint_cycle_cap is 0)";
-      const [[row]] = await conn.query<any[]>(
-        "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger " +
-          "WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
-        [slug, since],
-      );
-      const minted = Number(row?.minted ?? 0);
-      if (minted + units > toLedgerUnits(slug, capHuman)) {
-        return `This would exceed the per-cycle mint cap: ${fromLedgerUnits(slug, minted)} of ${capHuman} ${slug} already minted this lunation`;
-      }
-      return null;
-    };
-  }
-
-  /** What the cap has left, for the pre-flight refusals and the response. */
-  async function mintedThisCycle(slug: string): Promise<number> {
-    const [[row]] = await getPool().query<any[]>(
-      "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger " +
-        "WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
-      [slug, new Date(currentCycle().startsAt)],
-    );
-    return Number(row?.minted ?? 0);
-  }
+  const issuedThisCycle = async (slug: string) =>
+    readCycleIssuance(getPool(), slug, mintCycleStart());
 
   /**
    * 0106: what is already asked for and waiting for a second steward.
@@ -17451,10 +17418,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (cap <= 0) return res.status(403).json({ error: "Minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
     // A courteous pre-flight so the admin gets a 409 with numbers instead of
     // a bare refusal. It is NOT the enforcement — the guard below is.
-    const minted = fromLedgerUnits(slug, await mintedThisCycle(slug));
+    const issuance = await issuedThisCycle(slug);
+    const minted = fromLedgerUnits(slug, issuance.net);
     if (minted + amt > cap) {
       return res.status(409).json({
-        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
+        error: capRefusal(slug, cap, issuance),
         minted, cap, remaining: Math.max(0, cap - minted),
       });
     }
@@ -17685,11 +17653,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // A grant already waiting for a second steward is spoken for and counts
     // here, or a hundred requests just under the cap would hold a hundred
     // times it (`pendingMints`).
-    const minted = fromLedgerUnits(slug, await mintedThisCycle(slug));
+    const issuance = await issuedThisCycle(slug);
+    const minted = fromLedgerUnits(slug, issuance.net);
     const waiting = await pendingMints(slug);
     if (minted + waiting + amt > cap) {
       return res.status(409).json({
-        error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation` +
+        error: capRefusal(slug, cap, issuance) +
           (waiting > 0 ? `, and ${waiting} more is waiting for a second steward` : ""),
         minted,
         waiting,
