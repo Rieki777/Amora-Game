@@ -2748,6 +2748,14 @@ gate nobody had heard of. Any prompt or handoff in this repository that lists ga
 list that goes stale in silence. As of `20985d0` the script prints 35 entries, and the reason to run
 it rather than copy that number is exactly that the number moves.
 
+**But the script reads ONE FILE, and five workflows gate a pull request.** `.github/workflows/`
+holds `ci.yml`, `codeql.yml`, `module-intake.yml`, `module-review-agent.yml` and `release.yml` on
+`pull_request` triggers, plus `db-backup.yml` which is not. So `module-facts.mjs` is authoritative
+about `ci.yml`'s steps and structurally blind to the other four. **Enumerate the DIRECTORY, then run
+the script for `ci.yml`'s contents,** and when you quote a number, say which noun it counts. This
+correction is itself the worked example: the paragraph above was published as "run the script and
+you are current", which is the same stale-list defect it was written to prevent, one level up.
+
 - Lanes run **only their touched suites plus the guards**.
 - The merge agent runs the touched suites and the guards, pushes, and **READS THE RUN**.
 - **At most one full local suite per LANDING**, never per merge step.
@@ -2816,6 +2824,15 @@ Our setup instruction creates this trap in every worktree we stand up, so it is 
 rather than a rare one. Recovery, if it happens: `pnpm install --frozen-lockfile --force` in the
 damaged root, about three and a half minutes, then run a real suite to confirm rather than trusting
 the exit code.
+
+**The junction has a second, quieter failure: vite refuses to serve `dotenv/config` through a
+junction realpath, and the client tests SKIP rather than fail.** Two lanes were blocked by it while a
+third ran fine, and the third ran fine only because one of its lanes had happened to run a real
+`pnpm install` in a fresh worktree, which every later lane inherited. So the same shape has now
+produced one destructive incident and one silent skip, and no lane chose it either time. **A real
+`node_modules` costs an install and removes both failures.** Prefer it for any worktree that will run
+client tests or that you expect to delete later; keep the junction only for short-lived
+report-only trees.
 
 There are more than forty sibling worktrees under `C:\Users\taren\Desktop\Amora\`. Treat every one of
 them as live and owned by another lane: **never write into a worktree you did not create**, and never
