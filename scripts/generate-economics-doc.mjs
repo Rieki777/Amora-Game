@@ -1139,8 +1139,8 @@ export const REGIONS = {
       "A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is UNIQUE, so " +
         "the shape of the key is what decides whether a second attempt pays again.",
       "",
-      "`keys` in `server/lib/economy.ts` builds eight of them. The angle brackets are that " +
-        "builder's own parameter names.",
+      `\`keys\` in \`server/lib/economy.ts\` builds ${builderRows.length} of them. The angle ` +
+        "brackets are that builder's own parameter names.",
       "",
       table(["Builder", "What the builder returns"], builderRows),
       "",
