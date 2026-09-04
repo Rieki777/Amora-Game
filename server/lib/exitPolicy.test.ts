@@ -214,7 +214,7 @@ describe("the platform's own defaults describe a policy the engine can honour", 
 describe("what a leaver cannot keep, whatever the village types", () => {
   it("recognition: a share of a record is not a holding", () => {
     expect(exitLeverProblem(reading({ "exit.keep_pct.recognition": "40" }))).toBe(
-      "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep.",
+      "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep. Leave this share at zero.",
     );
   });
 
@@ -236,14 +236,20 @@ describe("burning back to a faucet that does not exist", () => {
   it("names the token that has nowhere to go", () => {
     expect(
       exitLeverProblem(reading({ "exit.remainder_account": "burn" }, [platformCredit, ownCredit])),
-    ).toBe("Harvest Credit has no faucet, so there is nowhere to burn it back to.");
+    ).toBe(
+      "Harvest Credit has no faucet, so there is nowhere to burn it back to. " +
+        "Send what a leaver does not keep to an account the village can hold it in.",
+    );
   });
 
   it("names every one of them, and reads as English when there are several", () => {
     const second: ExitLeverToken = { ...ownCredit, slug: "gift-credit", name: "Gift Credit" };
     expect(
       exitLeverProblem(reading({ "exit.remainder_account": "burn" }, [ownCredit, second, platformCredit])),
-    ).toBe("Harvest Credit and Gift Credit have no faucet, so there is nowhere to burn them back to.");
+    ).toBe(
+      "Harvest Credit and Gift Credit have no faucet, so there is nowhere to burn them back to. " +
+        "Send what a leaver does not keep to an account the village can hold it in.",
+    );
   });
 
   it("says nothing when every token the ledger moves has a faucet", () => {
