@@ -34,9 +34,10 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { DOC_PATH, ROOT, SOURCES, generateDetailed } from "./generate-governance-doc.mjs";
+import { DOC_PATH, LINEAGE_PATH, ROOT, SOURCES, generateDetailed } from "./generate-governance-doc.mjs";
 
 const REL = path.relative(ROOT, DOC_PATH).replace(/\\/g, "/");
+const LINEAGE_REL = path.relative(ROOT, LINEAGE_PATH).replace(/\\/g, "/");
 const REGENERATE = "node scripts/generate-governance-doc.mjs";
 
 const normalise = (s) => s.replace(/\r\n/g, "\n");
@@ -67,9 +68,10 @@ function main() {
   }
 
   let wanted;
+  let wantedLineage;
   let facts;
   try {
-    ({ text: wanted, facts } = generateDetailed());
+    ({ text: wanted, lineage: wantedLineage, facts } = generateDetailed());
   } catch (err) {
     report([
       `${REL} could not be generated, so it cannot be checked.`,
@@ -86,12 +88,41 @@ function main() {
     process.exit(1);
   }
 
+  /*
+   * THE SHELF IS CHECKED TOO.
+   *
+   * `docs/knowledge/governance-lineage.md` is generated from the same words as
+   * the document's "Where this comes from" section, and it is loaded into the
+   * assistant's prompt, where a stale sentence is invisible to everybody. A
+   * guard on one file and not the other would have left the copy nobody reads
+   * with their eyes as the one nobody checks.
+   */
+  if (!fs.existsSync(LINEAGE_PATH)) {
+    report([`${LINEAGE_REL} is missing. Run: ${REGENERATE}`]);
+    process.exit(1);
+  }
+  const foundLineage = fs.readFileSync(LINEAGE_PATH, "utf8");
+  const lineageDiff = firstDifference(normalise(wantedLineage), normalise(foundLineage));
+  if (lineageDiff) {
+    report([
+      `${LINEAGE_REL} and the code have come apart. ${lineageDiff.differing} line(s) differ.`,
+      "",
+      `  line ${lineageDiff.line}`,
+      `  the code says:  ${lineageDiff.wanted.slice(0, 200)}`,
+      `  the file says:  ${lineageDiff.found.slice(0, 200)}`,
+      "",
+      `It is generated beside ${REL} from the same words. Regenerate both:`,
+      `    ${REGENERATE}`,
+    ]);
+    process.exit(1);
+  }
+
   const found = fs.readFileSync(DOC_PATH, "utf8");
   const diff = firstDifference(normalise(wanted), normalise(found));
   if (!diff) {
     const staged = Object.entries(facts.staged).filter(([, still]) => still).length;
     report([
-      `Governance doc guard passed. ${REL} matches the code: ` +
+      `Governance doc guard passed. ${REL} and ${LINEAGE_REL} match the code: ` +
         `${facts.subjects.length} subject types with a floor of their own, ` +
         `${facts.dispatcher.all.length} that execute at close, ` +
         `${facts.dials.all.length} dials, ` +

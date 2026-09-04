@@ -43,7 +43,7 @@ import { provisionTestDb, testDbConfigured, type TestDb } from "./testDb";
 // The generator is plain ESM with no types. It is the subject of this file, so
 // it is imported for real rather than re-implemented here.
 // @ts-expect-error - scripts/ is untyped JavaScript, deliberately outside tsconfig
-import { collectFacts, generate } from "../../scripts/generate-governance-doc.mjs";
+import { collectFacts, generate, quorumSentence, renderLineage } from "../../scripts/generate-governance-doc.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -309,5 +309,77 @@ describe("the committed document", () => {
       expect(typeof r.door).toBe("string");
       expect(r.door.length).toBeGreaterThan(0);
     }
+  });
+
+  it("reads every route module on disk instead of a list of three", () => {
+    // The defect this pins: `routeFacts` walked a hardcoded three-file list, so
+    // `server/routes/delegation.ts`, `governanceVetoes.ts`, `governanceLanding.ts`
+    // and `governanceMode.ts` were invisible. The routes table lost their rows
+    // and, because the staged flags read the same walk, the document stated as
+    // a fact that delegation was ruled and not built while it was serving.
+    const facts = collectFacts(ROOT);
+    const modules = new Set<string>(
+      facts.routes.rows.map((r: { file: string }) => r.file).filter((f: string) => f.startsWith("server/routes/")),
+    );
+    const onDisk = fs
+      .readdirSync(path.join(ROOT, "server", "routes"))
+      .filter((n) => n.endsWith(".ts") && !/\.(test|spec)\.ts$/.test(n));
+    for (const name of onDisk) {
+      const rel = `server/routes/${name}`;
+      const registers = fs.readFileSync(path.join(ROOT, rel), "utf8");
+      const servesGovernance = /app\.(get|post|put|patch|delete)\(\s*"\/api\/(governance|game\/mechanics)/.test(registers);
+      if (!servesGovernance) continue;
+      expect(modules.has(rel), `${rel} registers a governance route the document never read`).toBe(true);
+    }
+    expect(facts.staged.delegation).toBe(false);
+  });
+
+  it("the lineage file on the assistant's shelf is what the generator writes today", () => {
+    const facts = collectFacts(ROOT);
+    const wanted = renderLineage(facts) as string;
+    const found = fs.readFileSync(path.join(ROOT, "docs", "knowledge", "governance-lineage.md"), "utf8");
+    expect(found.replace(/\r\n/g, "\n")).toBe(wanted.replace(/\r\n/g, "\n"));
+  });
+});
+
+/**
+ * WHAT QUORUM COUNTS, put to the real function.
+ *
+ * 19F: quorum is pure token weight, and the head-count quorum an earlier plan
+ * carried is withdrawn. The generator derives its sentence by parsing
+ * `quorumPctOf`, which is one reading of the code; this calls the function with
+ * a roll where the head count and the weight give different answers and checks
+ * that the engine follows the weight and that the document says so. The two
+ * halves fail independently, which is the point: a parse that went wrong and a
+ * formula that changed do not look alike.
+ */
+describe("the governance doc's quorum sentence is the engine's arithmetic", () => {
+  it("follows weight when heads and weight disagree, and the document says weight", () => {
+    // Three people on the roll, all three answered, so a head-count quorum
+    // would read 100%. They hold 10 of 100 weight between them.
+    const tallies = { yes: 2, no: 1, abstain: 0, yesW: 6, noW: 4, abstainW: 0 };
+    const byHeads = ((tallies.yes + tallies.no + tallies.abstain) / 3) * 100;
+    const byWeight = quorumPctOf(tallies, 100);
+
+    expect(byHeads).toBeCloseTo(100, 6);
+    expect(byWeight).toBeCloseTo(10, 6);
+    expect(byWeight).not.toBeCloseTo(byHeads, 1);
+
+    const facts = collectFacts(ROOT);
+    expect(facts.quorumFormula.weightOnly).toBe(true);
+    expect(facts.quorumFormula.headFields).toEqual([]);
+
+    const text = generate(ROOT) as string;
+    expect(text).toContain(quorumSentence(facts));
+    expect(text).toContain("Quorum is weight.");
+    expect(text).toContain("97 percent of the Voice carries a constitutional change alone");
+  });
+
+  it("the machine-readable block reports the same reading", () => {
+    const doc = published();
+    expect(doc.quorum.weightOnly).toBe(true);
+    expect(doc.quorum.countsHeadFields).toEqual([]);
+    expect(doc.quorum.countsWeightFields.sort()).toEqual(["abstainW", "noW", "yesW"]);
+    expect(doc.quorum.dividesByTotalWeight).toBe(true);
   });
 });

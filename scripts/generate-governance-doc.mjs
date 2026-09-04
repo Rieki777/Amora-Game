@@ -33,6 +33,16 @@
  * words and carries a guard so it cannot go on saying that after somebody
  * builds it.
  *
+ * NOTHING HERE IS A HAND-WRITTEN LIST OF FILES. Two readers used to hold one.
+ * `routeFacts` named three route modules; four more landed after it was
+ * written, so `server/routes/delegation.ts`, `governanceVetoes.ts`,
+ * `governanceLanding.ts` and `governanceMode.ts` were invisible, the routes
+ * table lost thirteen rows, and `stagedFlags()` reads that same walk, so the
+ * document stated as a fact that delegation was ruled and not built while seven
+ * delegation routes were answering members. Route modules and migrations are
+ * both walked as directories now, and a file a later lane adds is read the day
+ * it appears.
+ *
  * EVERY READER IS ANCHORED AND FAILS LOUD. Anchors are exported symbols and
  * syntax, never line numbers: `server/index.ts` lost about 2,500 lines to
  * route extractions in the hours while this document was being specified, and
@@ -63,6 +73,15 @@ export const ROOT = path.resolve(
 
 export const DOC_PATH = path.join(ROOT, "docs", "GOVERNANCE.md");
 
+/** The same lineage section, on the shelf the assistant reads. */
+export const LINEAGE_PATH = path.join(ROOT, "docs", "knowledge", "governance-lineage.md");
+
+/** Every route module lives here, and the route reader walks the whole directory. */
+export const ROUTE_DIR = "server/routes";
+
+/** Every migration lives here, and the schema reader walks the whole directory. */
+export const MIGRATION_DIR = "drizzle";
+
 /**
  * Every file this document is derived from. Existence is checked before
  * anything is parsed, so a rename fails with the path it wanted instead of
@@ -71,19 +90,35 @@ export const DOC_PATH = path.join(ROOT, "docs", "GOVERNANCE.md");
 export const SOURCES = [
   "shared/governanceEngine.ts",
   "shared/ballotSubjects.ts",
+  "shared/governanceKinds.ts",
+  "shared/cycleClock.ts",
   "shared/gameVariables.ts",
   "shared/capabilities.ts",
   "shared/modules.ts",
   "shared/lunar.ts",
   "server/index.ts",
   "server/lib/ballots.ts",
+  "server/lib/applyDue.ts",
+  "server/lib/changeset.ts",
+  "server/lib/stewardship.ts",
+  "server/lib/delegation.ts",
   "server/lib/governanceWeights.ts",
   "server/lib/gameStart.ts",
   "server/lib/mechanics.ts",
   "server/lib/proposalDrafts.ts",
   "server/lib/gratitude-cycles.ts",
+  "server/lib/governanceWindows.ts",
   "server/routes/governanceWizard.ts",
-  "server/routes/governanceWeights.ts",
+  // Every route module, walked as a directory rather than named one by one.
+  // The three-file list this replaced made `server/routes/delegation.ts`,
+  // `governanceVetoes.ts` and `governanceLanding.ts` invisible, and the
+  // document went on stating as fact that delegation was staged while its
+  // seven routes were serving.
+  ROUTE_DIR,
+  // The tables and columns the landing loop, the veto and the delegation
+  // acceptance live in. Walked as a directory for the same reason, and because
+  // a migration number is claimed at landing time and never written into prose.
+  MIGRATION_DIR,
   "client/src/components/governance/wizardConfig.ts",
 ];
 
@@ -776,6 +811,181 @@ export function clockFacts(root = ROOT) {
   };
 }
 
+
+/**
+ * WHAT QUORUM COUNTS, read out of the arithmetic itself.
+ *
+ * 19F rules that quorum is pure token weight with people counts shown beside
+ * it, and section 20.8's head-count quorum is withdrawn. A document that says
+ * so is making a claim about one function, so the claim is derived from that
+ * function instead of typed here: `quorumPctOf` is parsed, the weight fields it
+ * adds are collected, and any head field it reads is collected too. The
+ * document renders one sentence when the two agree with 19F and a loud one when
+ * they do not, and the self-test pins the pair together so neither can move
+ * alone.
+ */
+export function quorumFormulaFacts(root = ROOT) {
+  const rel = "shared/governanceEngine.ts";
+  const abs = absOf(root, rel);
+  const fn = functionAnywhere(abs, "quorumPctOf");
+  if (!fn) fail(`${rel} no longer declares quorumPctOf(); what quorum counts is read from its body`);
+  const body = fn.getText();
+  const weightFields = ["yesW", "noW", "abstainW"].filter((n) => body.includes(`t.${n}`));
+  if (weightFields.length < 3) {
+    fail(
+      `${rel}: quorumPctOf() no longer adds all three weights (${weightFields.join(", ") || "none"}). ` +
+        "This document states what quorum counts, and it reads that from this function.",
+    );
+  }
+  // A head field is `t.yes`, `t.no` or `t.abstain` with no trailing W. The
+  // negative lookahead is the whole point: `t.yesW` must not read as `t.yes`.
+  const headFields = ["yes", "no", "abstain"].filter((n) => new RegExp(`t\\.${n}(?![A-Za-z])`).test(body));
+  const dividesByTotalWeight = /totalWeight/.test(body);
+  if (!dividesByTotalWeight) {
+    fail(`${rel}: quorumPctOf() no longer divides by totalWeight; the quorum sentence is read from that division`);
+  }
+  return { weightFields, headFields, dividesByTotalWeight, weightOnly: headFields.length === 0 };
+}
+
+/**
+ * THE CLASSIFICATION TABLE: which decisions send tokens and which change the
+ * Game, and what that does to when they happen.
+ *
+ * The two kinds are the hinge of the whole veto model, so the document reads
+ * them out of the one table the engine reads rather than restating them. A
+ * subject or an item kind absent from the map is a Game change, which is the
+ * fail-safe direction, and this reader states that rather than listing the
+ * absences it cannot see.
+ */
+export function kindFacts(root = ROOT) {
+  const rel = "shared/governanceKinds.ts";
+  const abs = absOf(root, rel);
+  const kinds = listConst(root, rel, "GOVERNANCE_KINDS");
+  const timings = listConst(root, rel, "PROPOSAL_TIMINGS");
+  const forSubject = recordConst(root, rel, "KIND_FOR_SUBJECT");
+  const forItem = recordConst(root, rel, "KIND_FOR_ITEM_KIND");
+  const defaultTiming = constAnywhere(abs, "DEFAULT_TIMING");
+  if (!defaultTiming) fail(`${rel} no longer declares DEFAULT_TIMING; the timing default is read from it`);
+  const floor = constAnywhere(abs, "VETO_HOURS_FLOOR");
+  if (!floor) fail(`${rel} no longer declares VETO_HOURS_FLOOR; the window's floor is read from it`);
+
+  // `new Set([...])`, which is the shape the no-window list is written in.
+  const noWindow = constAnywhere(abs, "NO_WINDOW_SUBJECTS");
+  if (!noWindow) fail(`${rel} no longer declares NO_WINDOW_SUBJECTS; the not-vetoable list is read from it`);
+  let arr = noWindow;
+  if (ts.isAsExpression(arr)) arr = arr.expression;
+  if (ts.isNewExpression(arr)) arr = arr.arguments?.[0];
+  if (!arr || !ts.isArrayLiteralExpression(arr)) {
+    fail(`${rel}: NO_WINDOW_SUBJECTS is no longer a Set built from an array literal; this reader cannot follow it`);
+  }
+  const noWindowSubjects = arr.elements.map((e) => String(literalOf(e, abs)));
+  if (!noWindowSubjects.length) {
+    fail(`${rel}: NO_WINDOW_SUBJECTS is empty; the not-vetoable list is the one carve-out this document states`);
+  }
+
+  const fn = functionAnywhere(abs, "defaultTimingFor");
+  if (!fn) fail(`${rel} no longer declares defaultTimingFor(); the per-kind timing default is read from it`);
+  const body = fn.getText();
+  const defaults = {};
+  for (const kind of kinds) {
+    const m = new RegExp(`${kind}[^\\n]*?"(at_acceptance|next_moon)"`).exec(body);
+    defaults[kind] = m ? m[1] : String(literalOf(defaultTiming, abs));
+  }
+
+  return {
+    kinds,
+    timings,
+    defaultTiming: String(literalOf(defaultTiming, abs)),
+    defaultsByKind: defaults,
+    forSubject,
+    forItem,
+    noWindowSubjects,
+    vetoHoursFloor: literalOf(floor, abs),
+  };
+}
+
+/**
+ * THE TABLES AND COLUMNS THE VETO MODEL NEEDS, checked against the migrations.
+ *
+ * The document states, as fact, that a carried decision carries a landing
+ * instant, that a veto has a window with a closing instant, that every element
+ * of a change set leaves a ledger row, that one executor is elected, that a
+ * delegation is not live until the delegate accepts it, and that a term has a
+ * history of its own. Every one of those sentences is a claim about a column,
+ * and a document that keeps making them after the column is gone is exactly the
+ * failure this generator exists to prevent.
+ *
+ * So each one is anchored on the shape a migration writes, and the whole set is
+ * refused loudly when one is missing. NO MIGRATION NUMBER APPEARS HERE: numbers
+ * are claimed across worktrees and renumbered when a build lands, so the reader
+ * walks the directory and reads the text.
+ */
+const SCHEMA_SHAPES = [
+  { name: "ballots.lands_at", what: "the instant a carried decision lands", test: /`ballots`\s+ADD COLUMN `lands_at`/ },
+  { name: "ballots.veto_closes_at", what: "the instant the window shuts", test: /`ballots`\s+ADD COLUMN `veto_closes_at`/ },
+  { name: "ballots.timing", what: "the proposer's choice of when it happens", test: /`ballots`\s+ADD COLUMN `timing`/ },
+  { name: "ballots.vetoed_at", what: "the act of stopping it, on the ballot the veto answers", test: /`ballots`\s+ADD COLUMN `vetoed_at`/ },
+  { name: "ballots.vetoed_by", what: "who stopped it", test: /`ballots`\s+ADD COLUMN `vetoed_by`/ },
+  { name: "ballots.late_settled_at", what: "a window already over when the row reached passed", test: /`ballots`\s+ADD COLUMN `late_settled_at`/ },
+  { name: "the landing statuses", what: "applying and stalled beside applied and vetoed", test: /enum\([^)]*'applying'[^)]*'stalled'[^)]*\)/ },
+  { name: "the vetoed outcome", what: "a vetoed decision is not a failed one", test: /'vetoed'/ },
+  { name: "mechanics_proposals.lands_at", what: "the same instant on the proposal a village reads", test: /`mechanics_proposals`\s+ADD COLUMN `lands_at`/ },
+  { name: "mechanics_proposals.supersedes_relation", what: "renews, overrides or replaces, stated rather than guessed", test: /`mechanics_proposals`\s+ADD COLUMN `supersedes_relation`/ },
+  { name: "governance_element_ledger", what: "one row per element written, keyed on the ballot and the element's place in it", test: /CREATE TABLE[^;]*`governance_element_ledger`/ },
+  { name: "governance_executor_pending", what: "the failure a resumed attempt exists to record", test: /CREATE TABLE[^;]*`governance_executor_pending`/ },
+  { name: "delegations.accepted_at", what: "a delegation carries a choice only once the delegate accepts it", test: /`delegations`\s+ADD COLUMN `accepted_at`/ },
+  { name: "role_holder_terms", what: "a term survives an unrelated appointment", test: /CREATE TABLE[^;]*`role_holder_terms`/ },
+];
+
+export function schemaFacts(root = ROOT) {
+  const dir = absOf(root, MIGRATION_DIR);
+  if (!fs.existsSync(dir)) fail(`${MIGRATION_DIR} is gone; the tables this document describes are read from it`);
+  const files = fs.readdirSync(dir).filter((n) => n.endsWith(".sql")).sort();
+  if (!files.length) fail(`${MIGRATION_DIR} holds no migration; the tables this document describes are read from them`);
+  const sql = files.map((n) => fs.readFileSync(path.join(dir, n), "utf8")).join("\n");
+  for (const shape of SCHEMA_SHAPES) {
+    if (shape.test.test(sql)) continue;
+    fail(
+      `no migration under ${MIGRATION_DIR}/ writes ${shape.name} (${shape.what}). ` +
+        "This document states that as a fact about a fresh village, so it will not render without it. " +
+        "If the shape moved, fix the anchor in SCHEMA_SHAPES; if the feature went, the paragraph that " +
+        "describes it has to go with it.",
+    );
+  }
+  return { migrationCount: files.length, shapes: SCHEMA_SHAPES.map((s) => ({ name: s.name, what: s.what })) };
+}
+
+/**
+ * THE SETTINGS THIS DOCUMENT NAMES OUT LOUD, whatever category they sit in.
+ *
+ * `dialCoverageProblem` guards the Governance category in both directions.
+ * These are the keys the prose names in sentences, including one that lives in
+ * another category (`cycle.mode`), so a rename anywhere stops the build instead
+ * of leaving a paragraph about a setting nobody can find.
+ */
+const NAMED_DIALS = [
+  ["governance.veto_hours", "how long a steward has, never below the floor"],
+  ["governance.steward_council", "whether one steward stops a change or a majority of them"],
+  ["governance.highest_tier", "the tier a veto override has to reach"],
+  ["governance.steward_subjects", "which kinds of decision a steward may stop"],
+  ["governance.nonhuman_in_quorum", "whether a non-human seat's weight counts toward quorum"],
+  ["governance.absent_cycles", "how long a seat may go unvoted before its weight leaves the denominator"],
+  ["governance.window_grace_days", "how long anything coming back may open outside its window"],
+  ["cycle.mode", "which clock the village runs"],
+];
+
+export function namedDialProblem(allKeys, named = NAMED_DIALS) {
+  for (const [key, what] of named) {
+    if (allKeys.includes(key)) continue;
+    return (
+      `the setting "${key}" (${what}) is named in this document and shared/gameVariables.ts no longer holds it. ` +
+      "Fix the key, or delete the sentence that names it."
+    );
+  }
+  return null;
+}
+
+
 /**
  * WHAT A VILLAGE PUBLISHES, read from the route registrations themselves.
  *
@@ -790,16 +1000,36 @@ export function clockFacts(root = ROOT) {
  * itself refuses in: an administrator check outranks a capability check, and a
  * capability check outranks a sign-in check.
  */
+/**
+ * A capability key, whether it is written as a string or as a constant.
+ *
+ * `mayAct(req, "proposal.decide")` is the common shape and
+ * `mayAct(req, STEWARD_VETO)` is the shape the veto routes use. A pattern that
+ * matched only the literal read four gated routes as ungated, which is the one
+ * kind of mistake this classifier is not allowed to make.
+ */
+const CAP_CALL = /\b(?:mayAct|guardCapability)\s*\(\s*req\s*,\s*(?:"([\w.]+)"|([A-Z][A-Z0-9_]*))/;
+
 const AUTH_SHAPES = [
   { name: "administrator", test: (b) => /\bisAdmin\s*\(\s*req\b/.test(b) || /requireAdmin\b/.test(b) },
   {
     name: "capability",
-    test: (b) => /\bmayAct\s*\(\s*req\s*,\s*"([\w.]+)"/.test(b) || /\bguardCapability\s*\(\s*req\s*,\s*"([\w.]+)"/.test(b),
-    key: (b) => (/\bmayAct\s*\(\s*req\s*,\s*"([\w.]+)"/.exec(b) ?? /\bguardCapability\s*\(\s*req\s*,\s*"([\w.]+)"/.exec(b))[1],
+    test: (b) => CAP_CALL.test(b),
+    key: (b, _params, resolve) => {
+      const m = CAP_CALL.exec(b);
+      if (m[1]) return m[1];
+      const resolved = resolve ? resolve(m[2]) : null;
+      // A constant this reader could not follow is reported as the constant's
+      // own name, which is a true statement about the code and never a guess
+      // at a key that might not exist.
+      return resolved ?? m[2];
+    },
   },
   {
     name: "signed in",
-    test: (b) => /if\s*\(\s*!\s*(?:user|viewer|actor)\s*\)\s*\{?\s*return\s+res\s*\.\s*status\(401\)/.test(b),
+    test: (b) =>
+      /if\s*\(\s*!\s*(?:user|viewer|actor)\s*\)\s*\{?\s*return\s+res\s*\.\s*status\(401\)/.test(b) ||
+      /if\s*\(\s*!\s*(?:user|viewer|actor)\s*\)\s*\{[\s\S]{0,200}?res\s*\.\s*status\(401\)/.test(b),
   },
   { name: "anyone, including a stranger", test: (b) => /\bauthedUser\s*\(\s*req\b/.test(b) },
 ];
@@ -822,13 +1052,86 @@ const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete"]);
  * The door a handler keeps, from its own text. Pure, so the self-test can put
  * fixtures through the same function the document is rendered from.
  */
-export function classifyDoor(body, params = "req, res") {
+export function classifyDoor(body, params = "req, res", resolve = null) {
   for (const shape of AUTH_SHAPES) {
     if (!shape.test(body, params)) continue;
-    return { door: shape.name, capability: shape.key ? shape.key(body) : null };
+    return { door: shape.name, capability: shape.key ? shape.key(body, params, resolve) : null };
   }
   if (!AUTH_MENTION.test(body)) return { door: "anyone, including a stranger", capability: null };
   return { door: "could not derive", capability: null };
+}
+
+/**
+ * THE HANDLER, PLUS THE SAME-FILE HELPERS IT CALLS.
+ *
+ * A route module that extracts its door into one local `gate(req, res)` and
+ * calls it from every handler leaves each handler's own text mentioning nothing
+ * about who is asking. Classified from that text alone, four gated routes came
+ * out as "anyone, including a stranger", and the veto route (a session plus
+ * `steward.veto`) was published in this document as open to the internet. That
+ * is worse than no reader at all.
+ *
+ * So the text put to the classifier is the handler plus, ONE LEVEL DEEP, the
+ * body of every function it calls that is declared in the same file. That is
+ * the call graph and not a string search, which is the rule this repository
+ * paid for: an absent substring proves nothing, and a door factored into a
+ * well-named helper is what factoring is for.
+ */
+/**
+ * EVERY LOCAL FUNCTION IN A FILE, INDEXED ONCE.
+ *
+ * `functionAnywhere` and `constAnywhere` each walk the whole file. Calling them
+ * per identifier per handler over a 28,000-line file made the self-test take
+ * longer than the whole rest of the suite, so the declarations are indexed once
+ * per file and every handler reads the index.
+ */
+const localFnCache = new Map();
+
+function localFunctions(abs) {
+  if (localFnCache.has(abs)) return localFnCache.get(abs);
+  const index = new Map();
+  eachChild(sourceFile(abs), (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text && !index.has(node.name.text)) {
+      index.set(node.name.text, node.getText());
+      return;
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
+      !index.has(node.name.text)
+    ) {
+      index.set(node.name.text, node.initializer.getText());
+    }
+  });
+  localFnCache.set(abs, index);
+  return index;
+}
+
+function bodyWithHelpers(abs, handler) {
+  const index = localFunctions(abs);
+  const parts = [handler.getText()];
+  const called = new Set();
+  eachChild(handler, (n) => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) called.add(n.expression.text);
+  });
+  for (const name of called) {
+    const text = index.get(name);
+    if (text) parts.push(text);
+  }
+  return parts.join("\n");
+}
+
+/** A `SCREAMING_CASE` capability constant's value, followed into its import. */
+function capabilityConstant(abs, name) {
+  const here = constAnywhere(abs, name);
+  if (here && (ts.isStringLiteral(here) || ts.isNoSubstitutionTemplateLiteral(here))) return here.text;
+  const from = importSource(abs, name);
+  if (!from || !fs.existsSync(from.abs)) return null;
+  const there = constAnywhere(from.abs, from.exported);
+  if (there && (ts.isStringLiteral(there) || ts.isNoSubstitutionTemplateLiteral(there))) return there.text;
+  return null;
 }
 
 function routesIn(root, rel, prefixes) {
@@ -846,23 +1149,46 @@ function routesIn(root, rel, prefixes) {
     const routePath = first.text;
     if (!prefixes.some((p) => routePath === p || routePath.startsWith(`${p}/`))) return;
     const handler = node.arguments[node.arguments.length - 1];
-    const body = handler ? handler.getText() : "";
+    const body = handler ? bodyWithHelpers(abs, handler) : "";
     const params =
       handler && (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))
         ? handler.parameters.map((p) => p.name.getText()).join(", ")
         : "";
-    const { door, capability } = classifyDoor(body, params);
+    const { door, capability } = classifyDoor(body, params, (name) => capabilityConstant(abs, name));
     out.push({ method: method.toUpperCase(), path: routePath, file: rel, door, capability });
   });
   return out;
 }
 
+/**
+ * EVERY ROUTE MODULE, FOUND ON DISK RATHER THAN LISTED HERE.
+ *
+ * This used to be a hand-written list of three files, and it went wrong in the
+ * way a hand-written list of files always goes wrong: four route modules landed
+ * after it was written, so `server/routes/delegation.ts`,
+ * `server/routes/governanceVetoes.ts`, `server/routes/governanceLanding.ts` and
+ * `server/routes/governanceMode.ts` were invisible to this document. The routes
+ * table lost thirteen rows, and worse, `stagedFlags()` reads this same walk for
+ * evidence, so the document stated as a fact that delegation was staged and not
+ * built while seven delegation routes were answering members.
+ *
+ * A directory walk cannot go stale that way. A module a later lane adds is read
+ * the day it appears, and the guard goes red until the document is regenerated,
+ * which is the design.
+ */
+function routeModules(root) {
+  const dir = absOf(root, ROUTE_DIR);
+  if (!fs.existsSync(dir)) fail(`${ROUTE_DIR} is gone; every route module is read from it`);
+  const names = fs
+    .readdirSync(dir)
+    .filter((n) => n.endsWith(".ts") && !/\.(test|spec)\.ts$/.test(n))
+    .sort();
+  if (!names.length) fail(`${ROUTE_DIR} holds no route module; the route table is read from that directory`);
+  return names.map((n) => `${ROUTE_DIR}/${n}`);
+}
+
 export function routeFacts(root = ROOT) {
-  const files = [
-    "server/index.ts",
-    "server/routes/governanceWizard.ts",
-    "server/routes/governanceWeights.ts",
-  ];
+  const files = ["server/index.ts", ...routeModules(root)];
   const rows = [];
   for (const rel of files) rows.push(...routesIn(root, rel, ["/api/governance", "/api/game/mechanics"]));
   if (!rows.length) {
@@ -1150,6 +1476,214 @@ const PROSE = {
     "The commit named at the top is the last commit that changed any source in this list. A commit that changes a " +
     "source and regenerates this file at the same time writes the previous commit's id, because the new one does not " +
     "exist yet; regenerating once more after it lands settles it.",
+
+  // ── The veto model (19C to 19G, 20.11), added 2026-09-03 ──────────────────
+  twoKindsOfDecision:
+    "Every decision a village makes is one of two things, and the difference decides WHEN it happens. A **token " +
+    "send** moves balances: a payout, a distribution, a founding allocation. A **Game change** moves the rules " +
+    "everybody plays by: a setting, a threshold, a role, a seat, a module, the brand, the vote mode, the structure. " +
+    "Anything the table below does not name is a Game change, and that is the safe direction. A token send filed as " +
+    "a Game change waits three days. A Game change filed as a token send skips the window that exists to hold it, " +
+    "and only one of those is reversible.",
+  weightAllocationIsAGameChange:
+    "The allocation of voting weight is a **Game change**, and it is named here because both descriptions can claim " +
+    "it. It writes the custom allocation table, which is a number and never a token: no ledger row, no balance, " +
+    "nothing minted. What it changes is what every future vote weighs, which is as constitutional as a decision " +
+    "gets, so it waits inside a window like any other change to the rules.",
+  timingChoice:
+    "Every proposal carries a timing choice, and the proposer makes it: execute at acceptance, or start with the new " +
+    "moon. A token send defaults to acceptance, because a payout for finished work has no reason to wait a moon. A " +
+    "Game change defaults to the new moon, in the founder's words, to carry a pattern of new activities starting " +
+    "then.",
+  landingInstant:
+    "The landing instant is arithmetic over the ballot's own FROZEN closing instant, never over the moment a person " +
+    "pressed close. That matters: if the pass instant were a human press, the proposer would be choosing which three " +
+    "days the seat gets.",
+  bundleWaits:
+    "A bundle waits as a whole, under one landing instant and one window. A change set carrying any Game-change " +
+    "element is wholly a Game change, token sends included. Splitting it across two clocks would let the token half " +
+    "execute at the close and be beyond reach while a steward stopped the half that was meant to keep it honest.",
+  snapForward:
+    "A change set touching a setting the platform applies at a cycle close, a minting rule, or a per-stage " +
+    "multiplier snaps its landing forward to the next boundary on every path, acceptance timing included. A ceiling " +
+    "that moves under somebody already spending against it is a different village from the one they were playing in " +
+    "an hour ago.",
+  lateSettled:
+    "A row that reaches passed with its landing instant already gone is restamped to now plus the window, marked " +
+    "late-settled with the reason, and every steward is told. Without that, a scheduler outage or a late close would " +
+    "hand a steward a window that was over before they heard it had opened, and the record would report it as " +
+    "honoured.",
+  vetoWindowRule:
+    "**The window is at least 72 hours, and it stays open until the change lands.** The founder gave both halves of " +
+    "that sentence, and this is how they meet: the closing instant of the window IS the landing instant, and 72 " +
+    "hours is its floor. A vote that carries with a month left in the cycle gives its stewards the month. A vote " +
+    "that carries on the last day gives them three days, which run past the boundary. The window is capped at one " +
+    "cycle of the active clock, so a village cannot set a window longer than the rhythm it lands on.",
+  vetoAct:
+    "A veto is a first-class act. It carries the name of the steward who cast it, a reason that cannot be blank, and " +
+    "a place in the record. The reason is plain text, length-capped, escaped everywhere it renders, public and " +
+    "permanent, and redactable: the words blank and the act, the author and the time stay. The proposal goes back to " +
+    "its proposer with its backers intact, and a proposal returned to open and passed again lands.",
+  vetoOnTheBallot:
+    "The veto lives on the BALLOT, and a proposal's display of it derives from that proposal's current ballot. " +
+    "Stamping it on the proposal row instead is how a village that answers its steward's objection and passes the " +
+    "same proposal again gets skipped by the landing gate forever.",
+  stewardNo:
+    "**A seated steward's no.** On a token-send ballot only, a seated steward voting no fails it at the close. Never " +
+    "on a ballot the steward is the subject of. It needs a reason under the veto's own rule, and the row closes as " +
+    "vetoed with the steward named, so the override and the dashboard's blocked-payouts row both reach it. The " +
+    "steward's own weight counts in the tally like anybody's. A token send has no window after it closes, so the " +
+    "block has to happen while the ballot is open.",
+  notVetoable:
+    "**What no steward may stop.** Seating and unseating a role that carries the veto, and any edit to the settings " +
+    "that say what a steward may stop, keep their timing and their window like any Game change and sit outside every " +
+    "steward's reach. A seat that could veto its own removal is a seat nobody can remove. A change set mixing one of " +
+    "those elements with any other kind is refused when it is validated, naming both elements, so the carve-out " +
+    "cannot carry anything else through beside it.",
+  override:
+    "**The override.** A proposal that was stopped may be brought back. Passed again at the village's highest set " +
+    "tier, with the relation stated (`renews`, `overrides` or `replaces`) and the ballot actually PRICED at that " +
+    "tier, it lands whatever any steward says. The record links it to the decision that was stopped and the reason " +
+    "stays visible beside it. A renewal may not point at a decision that was stopped.",
+  stewardlessHealthy:
+    "**A village with no steward is healthy.** It is the state the training wheels come off into, and nothing here " +
+    "renders an empty seat as a warning or a queue. A carried decision lands whether or not anybody holds the seat. " +
+    "An empty seat is a village nobody can stop, and a village that chose that is playing the Game as designed.",
+
+  // ── What quorum counts (19F), added 2026-09-03 ────────────────────────────
+  quorumIsWeight:
+    "**Quorum and unity are token weight.** They are computed over the weight token, or over heads when the village " +
+    "runs one person one vote, where every seat weighs one. There is no head-count quorum. The sentence after this " +
+    "one is read out of the arithmetic itself, so it cannot go on saying so after somebody changes the formula.",
+  concentrationConsequence:
+    "**One holder of 97 percent of the Voice carries a constitutional change alone.** That follows from pure weight, " +
+    "and it is stated here because the founder accepted it as the design: concentration is allowed and " +
+    "invisibility is not. Every ballot, every tier control and every sentence this platform generates about a vote " +
+    "shows the people count beside the weight, and every player's share of the whole is visible to every other " +
+    "player. Transparency is the protection.",
+  accountsNotPeople:
+    "**This platform counts accounts.** It has no way to know that two accounts are one person, so a rule asking for " +
+    "three different parties is satisfied by three accounts one person made. A village's own membership practice is " +
+    "the only thing that makes a head count mean people, and no number on this page can do that work for it.",
+  nonHumanSeats:
+    "**A seat held for a being other than a person votes.** Its representative is a member or an agent built to " +
+    "hold that point of view, and the seat is filled and emptied by a vote like any other. Whether its weight counts " +
+    "toward quorum is a village setting, off by default: when it is out, its weight leaves both halves of the " +
+    "fraction and its cast vote still counts toward unity; when it is in, weight that provably cannot vote leaves " +
+    "the denominator, so a representative who drifts away cannot freeze the village. The excluded weight is shown " +
+    "beside the people count, always.",
+  noFallback:
+    "**Nothing falls back.** A tier that misses quorum three cycles running does not pass. The second miss warns " +
+    "that the next one ends it and names the tier as the obstacle; the third closes the question in a named terminal " +
+    "state with one door, which is to withdraw and rewrite, carrying the backers. The stalemate warning computes the " +
+    "most quorum a village could reach against the weight that can actually vote, so it fires on arithmetic and " +
+    "never on a static number.",
+
+  // ── Windows (19E), added 2026-09-03 ───────────────────────────────────────
+  windowsIntro:
+    "A village may say WHEN a kind of proposal can be opened. Per proposal kind it chooses always open, the last N " +
+    "days of every cycle of the active clock, the last N days of every season, or a window of its own. All of them " +
+    "ship always open, so a fresh village gates nothing.",
+  windowsRule:
+    "The window gates the OPENING and nothing else. It is evaluated per element and the strictest one applies; a " +
+    "window shape no longer than the voting window is refused, and so is an opening whose vote would close after the " +
+    "window shuts. Anything coming back opens outside its window for a stated grace, because the village has already " +
+    "been asked once and a resubmission, an override and a renewal are all openings. The refusal names the element " +
+    "that narrowed the window and when it next opens.",
+
+  // ── Delegation (section 4), added 2026-09-03 ──────────────────────────────
+  delegationRule:
+    "You hand your voice to somebody you choose. A delegated vote is a row for the DELEGATOR carrying the delegate's " +
+    "choice, stamped with whoever finally decided it, so the participation arithmetic stays honest and the frozen " +
+    "electorate keeps meaning what it says. Weight never moves. Chains are transitive and a cycle is refused the " +
+    "moment a delegation is given, never while a season's votes are being counted.",
+  delegationConsent:
+    "A delegation carries a choice only once the delegate has accepted it. Pointing it somewhere else clears the " +
+    "acceptance, so nobody inherits a live delegation they never agreed to. While choices are hidden the copied " +
+    "choice is hidden from the delegator too. Withdrawing a delegation or taking a vote back restores the not-cast " +
+    "state, which is a different thing from an abstention and decides quorum. On a subject asking 100 percent unity " +
+    "a delegated row never counts.",
+
+  // ── The landing loop (20.8, 20.11), added 2026-09-03 ──────────────────────
+  landingLoop:
+    "One routine decides what is due. It runs as its own five-minute job and the human cycle close calls the same " +
+    "routine, so whichever arrives first applies the row and the other finds nothing left. Exactly one executor runs " +
+    "a due row, elected by a guarded claim on the table that holds the landing instant. Every element is validated " +
+    "again at landing: a seat for a member who has left the village is refused by name.",
+  landingCounts:
+    "Every report the landing job returns says which of two quiet states it is in. Nothing due and did not run look " +
+    "identical from outside and mean opposite things, so they are logged apart. A row whose window elapsed while the " +
+    "brake was off is marked stalled, its window reopened, and the stewards told.",
+  atomicity:
+    "**Atomicity comes from pre-validation, and this document says so because a member reading the word applied " +
+    "deserves the same sentence a contributor reads.** A change set is validated in full with nothing written, and " +
+    "one failure refuses the whole set naming the element by its place and its own words. Only then does it apply, " +
+    "irreversible writes last, one ledger row per element written, and every written-through cache reloaded from the " +
+    "database afterwards. There is no rollback, because a rollback through these writers would leave the process " +
+    "serving values the tables deny until somebody restarted it.",
+  noCloser:
+    "A binding ballot cannot be opened on a subject type that has no closer. Advisory is the exception, and it is an " +
+    "exception on purpose: a practice vote is a real decision that moves nothing. The refusal names the subject and " +
+    "points at the practice-vote door.",
+  digest:
+    "At every cycle boundary the landing job composes one digest for the cycle that ended, after asserting that " +
+    "every row due inside it is applied, stopped or stalled. One digest per cycle, whatever runs it, and it posts " +
+    "one item to the feed. No digest composed and digest empty are two different sentences in the log.",
+  notices:
+    "Stewards are told three times: when a decision carries, at the half-way point of the window, and two hours " +
+    "before it lands. Each notice is its own kind of notification, pinned to immediate in the mail cadence, because " +
+    "every governance message used to resolve to a daily digest and the last warning before a change landed arrived " +
+    "after it had landed. The off preference is refused while a member holds a seat that carries the veto, and a " +
+    "notice whose moment has passed is suppressed instead of being sent late.",
+
+  // ── The two Voices (19B), added 2026-09-03 ────────────────────────────────
+  twoVoices:
+    "A village shows ONE Voice. On this platform it is the village's own Voice token. A village graduates to Hypha " +
+    "when it completes a crowdpool and wants a secure vehicle with liquidity, which is a real organisation on Base; " +
+    "from then the token there is the vote, the village Game mirrors it, and every month or season the village goes " +
+    "to Hypha and votes to sync the two. A village using both tools shows both Voices, and the sync keeps them in " +
+    "balance.",
+  voiceIsBuyable:
+    "Voice can be bought. Money in mints Voice by default, through a minting rule like any other contribution, and a " +
+    "village or a single proposal may change that. The guard that used to refuse a purchasable token as the weight " +
+    "token is relaxed on purpose, and the protection is the one the founder has named every time: every ballot and " +
+    "the Birthing document show each holder's share.",
+
+  // ── Limits of this version ────────────────────────────────────────────────
+  englishOnly:
+    "Governance copy is English, and only English, in version 1.0. Nothing on these surfaces is translated, and a " +
+    "village whose members read another language is reading these words as they are. It is a limit of this version " +
+    "and it is written down so a fork can plan around it.",
+
+  // ── The schema, and the lineage ───────────────────────────────────────────
+  schemaIntro:
+    "The tables and columns the rules above rest on. The generator checks every one against the migrations and " +
+    "refuses to render this document when one is missing, so a paragraph here cannot outlive the column it " +
+    "describes. No migration number appears: numbers are claimed across worktrees and renumbered when a build lands.",
+  lineageIntro:
+    "The engine's dials descend from three sources the founder gave, and they are named here so a person or a bot " +
+    "reading this document can go to the root of it.",
+  lineageDeck:
+    "The slide deck \"So you want to make a DHO?\" (Hypha and SEEDS): the three dials of voice variance, quorum and " +
+    "unity, with the named corners those dials describe.",
+  lineageTalk:
+    "The talk \"How to do a DHO/DAO\", a guide for groups building new-paradigm organisations, from SEEDS: " +
+    "Regenerative Renaissance.",
+  lineageHandbook:
+    "The Hypha Handbook V0.3. In the founder's words, out of date and written for a different kind of organisation " +
+    "than a village, and still the root of the self-organising and regenerative principles this Game runs on.",
+  lineageRecord:
+    "`docs/GOVERNANCE_EVOLUTION_PROMPT.md` is the record of the rulings themselves: every question put to the " +
+    "founder, his answer in his own words, the date, and what each answer changed. When this document and that one " +
+    "disagree about a rule, that one is the evidence and this one is the defect.",
+  lineageCopies:
+    "Three links are three closed doors for a fork whose members cannot open them. So the text of each source is " +
+    "checked in under `docs/sources/`, attributed, with the founder's permission recorded. The copies are for " +
+    "reading and the originals stay the source.",
+  withdrawnIntro:
+    "What this document used to say, and no longer does. Each line was true of an earlier ruling and was withdrawn " +
+    "by a later one, with the date. It is kept because a reader who learned the old rule needs to see it struck, " +
+    "and because a fork reading an older copy of this file should be able to tell which sentences went.",
 };
 
 /**
@@ -1602,15 +2136,15 @@ const RULINGS = [
     quotes: [
       "Sure and it's perfectly fine to have no stewards and for the game to have self/executing agreements - Stewards are like the 'training wheels' to the game to help them start - not a desirable endstate. Except one where we're all stewards in our own way.",
     ],
-    status: () => "**Staged.** Not built.",
+    status: (f) => (f.staged.steward ? "**Staged.** Not built." : "**Built.**"),
     note: () =>
       "An empty steward seat is never a warning, and nothing queues behind it. A village with nobody on the seat is a " +
-      "village nobody can veto: its carried decisions land at their landing time exactly as they would with the seat " +
+      "village nobody can veto: its carried decisions land at their landing instant exactly as they would with the seat " +
       "filled. The vacancy read says that in one sentence and never as a fault report.",
   },
   {
     id: 18,
-    title: "Voice for other beings, and clans, at 144 players",
+    title: "Clans, and Voice for other beings (the 144 gate was withdrawn a day later)",
     dates: ["2026-09-02"],
     quotes: [
       "part of step 2 is to encourage to name non-human governance roles in your Game (other beings who live on the land) to be part of governance. - For example giving voice to nature (a mountain your project is on a river it borders, the trees and fauna and flora that shares that piece of earth with us) - this creates another idea where a governance function of 'clans' (which groups can name whatever they like and change this name in admin) but groups within the village that anchor on living beings. The water group would tend to the waters the earth group to the land the air group to the air, etc the wolf group would tend to restoring this apex predator - which requires restoring the whole pyramid underneath the beaver clan, etc. etc all clans are namable in admin as well. But these other actors can be given voice - though this is considered a mature feature to build into the Game once you hit 144+ people.",
@@ -1619,36 +2153,37 @@ const RULINGS = [
     note: () =>
       "Clans are a governance object nothing in the code knows about yet: groups within a village, each anchored on a " +
       "living being or an element, each tending what it is named for, every name editable in the Game Mechanics section. " +
-      "Giving those actors Voice is a MATURE feature and unlocks at 144 or more players. The founding step should invite " +
-      "the catalysts to name non-human governance roles: a mountain, a river, the trees, the fauna and flora that share " +
-      "the land.",
+      "The founding step should invite the catalysts to name governance roles for beings other than people: a mountain, " +
+      "a river, the trees, the fauna and flora that share the land. The 144-player gate in this answer was WITHDRAWN on " +
+      "2026-09-03, one day later: such a seat may be declared from a village's first day, and 144 is guidance on the " +
+      "screen. Ruling 25 carries his words for that.",
   },
   {
     id: 19,
     title: "A passed change lands at the new moon itself",
     dates: ["2026-09-02"],
     quotes: ["I don't understand this fully."],
-    status: (f) => (f.cycleApplyKeys.length > 0 ? "**Half built.**" : "**Staged.** Not built."),
+    status: () => "**Half built, and half withdrawn on 2026-09-03.**",
     note: (f) =>
-      `Built: ${f.cycleApplyKeys.length} dials wait for the next cycle close instead of applying at the close of the vote, and a ` +
-      "minting rule stamped for a coming cycle is promoted on its own by the hourly job at the true boundary. Staged: a " +
-      "passed proposal carries no record of the cycle it lands in, the held state is a status plus a live check against a " +
-      "code list that can change between the vote and the close, and a member is never told which moon their proposal " +
-      "lands on. The ruling: the new moon itself. One routine applies everything due, both the hourly job and the human " +
-      "close call it, whichever runs first applies and the other finds nothing left to do, and the proposal says which " +
-      "cycle it lands in from the moment it passes.",
+      `Built: ${f.cycleApplyKeys.length} dials wait for the next cycle close instead of applying at the close of the vote, a ` +
+      "minting rule stamped for a coming cycle is promoted on its own by the hourly job at the true boundary, one routine " +
+      "applies everything due, and both its own job and the human close call it, so whichever runs first applies and the " +
+      "other finds nothing left. Withdrawn by his 2026-09-03 words: the part of this answer that stamped a proposal with a " +
+      "CYCLE NUMBER and showed a member \"lands at cycle 331\". A landing is a timestamp taken from the active clock, and " +
+      "the page reads the instant with the countdown beside it.",
   },
   {
     id: 20,
     title: "A late approval rolls to the following new moon",
     dates: ["2026-09-02"],
     quotes: ["explain?"],
-    status: () => "**Staged.** Not built.",
+    status: () => "**Withdrawn on 2026-09-03.**",
     note: () =>
-      "The case: a proposal passes on the 20th of the moon, the steward is away, and the approval lands after the new moon " +
-      "has come and gone. The ruling is that it waits for the NEXT new moon after the approval, so the promise that " +
-      "changes land at cycle starts holds and the page shows the new landing date. It does not take effect mid-moon on " +
-      "approval, and it does not expire because a steward missed a boundary.",
+      "The case this answered: a proposal passes on the 20th of the moon, the steward is away, and the approval lands after " +
+      "the new moon has come and gone. The situation cannot arise now, because no decision waits for a steward to act. A " +
+      "Game change lands at the later of the next boundary and the close of its window, and a steward who is away simply " +
+      "does not stop it. The answer is kept here for the reasoning it carries and because a reader who learned it needs to " +
+      "see it struck.",
   },
   {
     id: 21,
@@ -1695,6 +2230,295 @@ const RULINGS = [
       "account driven through every governance action on a running site, is what the rest of the work is measured by, and " +
       "it has not been done yet.",
   },
+  {
+    id: 24,
+    title: "Two Voices, one shown at a time, and the graduation to Hypha",
+    dates: ["2026-09-02"],
+    quotes: [
+      "Yes village-voice is the Voice",
+      "Village Voice is the voice unless they're running on Hypha then it changes, but only show one at the beginning, either they're using the platform or Hypha to vote. What we have is a sort of 'graduation' to Hypha when you complete a crowdpool and you want to accept all those contributions and have a secure vehicle with easy liquidity (an actual DAO on Base using Coinbase's liquidity) then you're using those actual tokens and mirroring your village game with Hypha updates (like every month or season) you would actually go to Hypha and vote to sync up the Games there. Then you would show both types of Voice if they're using both Tools but they should be in balance with every sync.",
+    ],
+    status: (f) => (String(f.dials.hubUrl.default) === "" ? "**Half built.**" : "**Staged.** Not built."),
+    note: (f) =>
+      "The two tokens exist and the platform's own Voice is the one a fresh village weighs a vote with. The hub address " +
+      `ships ${String(f.dials.hubUrl.default) === "" ? "blank, so a fresh village sends nowhere" : "with a default address"}, and nothing leaves without a shared secret beside it. What is not built is the ` +
+      "graduation itself: the moment a completed crowdpool moves the vote to Base, the mirroring, and the monthly or " +
+      "seasonal sync that keeps the two in balance. Until that exists a village shows one Voice, which is the shape this " +
+      "ruling asks for at the beginning anyway.",
+  },
+  {
+    id: 25,
+    title: "Voice for other beings, from the first day, with a representative",
+    dates: ["2026-09-02", "2026-09-03"],
+    quotes: [
+      "You expose catalysts at the beginning (even with 3 people) the concept of giving voice to nature and inviting them to consider it by either a human or AI agent taking the perspective - or even talking directly if they have the human ability to the nature beings)",
+      "2. yes voice for other beings at day 1",
+    ],
+    status: (f) => (f.staged.clans ? "**Staged.** Not built." : "**Built.**"),
+    note: () =>
+      "This replaces the 144-player unlock of the earlier answer, which becomes guidance on the screen. A village may " +
+      "declare a governance role for a being other than a person from its first day, with a representative who holds " +
+      "that point of view: a member, an agent built for it, or somebody who speaks with that being directly. Nothing in " +
+      "the code declares one yet.",
+  },
+  {
+    id: 26,
+    title: "Every setting shows its cost, and a threshold moves at its own bar",
+    dates: ["2026-09-02"],
+    quotes: [
+      "Yes every setting says what it costs and these are all editable from the start by catalysts to set the initial amounts. but they also can be changed by reaching the same amount they are set at can change their threshold again.",
+      "Q9 yes the highest floor among them which discourages people to adjust those settings knowing the storytelling required for higher changes.",
+    ],
+    status: (f) => (f.staged.criticality ? "**Staged.** Not built." : "**Half built.**"),
+    note: () =>
+      "Built: every setting carries a tier, the tier prices a change to it, a bundle takes the highest floor among its " +
+      "elements, and the tiers are settings a catalyst edits before the Birthing. Still staged: the rule that moving a " +
+      "threshold costs that threshold's own CURRENT bar in both directions, so a dial at 97 and 97 needs 97 and 97 to " +
+      "move either way.",
+  },
+  {
+    id: 27,
+    title: "The steward holds a veto window, and nothing waits for a steward",
+    dates: ["2026-09-03"],
+    quotes: [
+      "Yes whenever a decision is approved it passes and executes (if it's sending tokens) if it's changing the Game then it starts at the next new moon or automatically if a steward doesn't block it, a steward is given 3 days minimum (so if the vote only gets enough quorum and total votes by the very last day of the lunar cycle then a steward will get 3 days to veto, if it's past longer than 3 days out of the end of the cycle then a steward has until the cycle ends to veto otherwise it goes into effect.",
+    ],
+    status: (f) => (f.staged.steward || f.staged.landing ? "**Staged.** Not built." : "**Built.**"),
+    note: (f) =>
+      "This is the ruling the whole model turns on, and it withdraws the approval gate of the two rounds before it. A " +
+      "token send executes at the close of its ballot. A Game change never executes at the close: it is stamped with a " +
+      "landing instant and lands there by itself unless a seated steward stops it inside the window. There is no " +
+      "approval, no hold, and no queue when the seat is empty. The window is at least " +
+      `${f.kinds.vetoHoursFloor} hours and stays open until the change lands, and \`${f.dials.vetoHours.key}\` carries the ` +
+      `village's own number with that floor. \`${f.dials.stewardSubjects.key}\` says which kinds of decision the seat may stop.`,
+  },
+  {
+    id: 28,
+    title: "A steward's no fails a token payment, and a veto can be overridden",
+    dates: ["2026-09-03"],
+    quotes: [
+      "However if a steward votes down on a token payment proposal than it fails automatically.",
+      "Yes stewards can also block payouts, and yes to the veto override",
+    ],
+    status: (f) => (f.staged.steward ? "**Staged.** Not built." : "**Built.**"),
+    note: () =>
+      "A seated steward voting no on a token-send ballot fails it at the close, with the steward named and the reason on " +
+      "the record, and the row closes as vetoed so the override and the dashboard both reach it. Two narrowings are the " +
+      "build's own reading and are recorded as such: it applies to token sends and never to every ballot, and a steward " +
+      "cannot fail a ballot they are the subject of. Because a token send has no window after it closes, the block " +
+      "happens while the ballot is open.",
+  },
+  {
+    id: 29,
+    title: "The override tier, the governance windows, the notices and the countdown",
+    dates: ["2026-09-03"],
+    quotes: [
+      "We can have a veto override if it goes up to the highest tier they have set as a village (this is also a setting that can change at the highest tier set)",
+      "Yes stewards are sent emails and given notifications in the app. But we can also block all proposals from not happening within defined governance windows. Some can be 'always open' but some can have set windows (like the last week of every month or last 2 weeks of every season or whatever) but those two are the default choices we offer to guide.",
+      "Steward accountability on dashboard is excellent!",
+      "72 hours from close and a countdown on it.",
+    ],
+    status: (f) => (f.staged.governanceWeek ? "**Staged.** Not built." : "**Built.**"),
+    note: (f) =>
+      `The override lands at \`${f.dials.highestTier.key}\`, which is itself priced at the highest tier. The windows are ` +
+      `${f.windows.length} settings, one per proposal kind, and each holds one shape: always open, the last N days of every ` +
+      "cycle of the active clock, the last N days of every season, or a shape the village writes. All of them ship always " +
+      "open. This supersedes the 2026-08-31 line that proposals are never gated by the calendar: a village may gate them " +
+      "now, and always open stays a choice. The countdown reads one instant through one helper, so no surface can show a " +
+      "deadline the engine does not enforce.",
+  },
+  {
+    id: 30,
+    title: "Lunar months, quorum by weight, the bundle waits, and timing per proposal",
+    dates: ["2026-09-03"],
+    quotes: [
+      "governance 'Months' are lunar months starting and ending with the moon as the default",
+      "Quorum SHOULD be pure token weight (not counting people, unless it's 1-person-1-vote but we STILL SHOW PEOPLE counts, even though the quorum is calculated by village-voice token weight)",
+      "1. who bundle waits! (along with this proposals can each carry - execute at accept or start with the new moon and to default to starting with the new moon to carry a pattern of new activities starting then).",
+      "2. no any single steward has the ability to veto though we could add a 'Steward Council' option that makes it a majority of them",
+      "3. No if there is 3 cycles without quorum it just doesn't pass.",
+      "make sure you add the context and links to those context documents (on governance I gave you at the first) to the governance docs that humans and bots will read to get an understanding of this game.",
+    ],
+    status: (f) => (f.quorumFormula.weightOnly ? "**Built.**" : "**Staged, and the code currently says the opposite.**"),
+    note: (f) =>
+      `A governance month is a lunar month. Quorum and unity read weight and nothing else, which the arithmetic itself ` +
+      `confirms: \`quorumPctOf\` adds ${f.quorumFormula.weightFields.join(", ")} and divides by the frozen total weight, and ` +
+      `it reads ${f.quorumFormula.headFields.length === 0 ? "no head count at all" : `the head counts ${f.quorumFormula.headFields.join(", ")}, which this ruling withdrew`}. ` +
+      "The head-count quorum an earlier plan carried is withdrawn, and so is the automatic drop to a lower tier after " +
+      "three cycles without quorum. People counts are shown beside the weight everywhere. A bundle waits as a whole under " +
+      `one landing instant. Any single steward may stop a change, and \`${f.dials.stewardCouncil.key}\` makes it a majority ` +
+      "of the seated stewards. The three sources this document descends from are named in Where this comes from, with a " +
+      "copy of each under `docs/sources/`.",
+  },
+  {
+    id: 31,
+    title: "A non-human seat votes, and whether its weight counts toward quorum is a setting",
+    dates: ["2026-09-03"],
+    quotes: [
+      "1. default 2. default 3. default 4. default 5. a non-human seat should be voting! Either it is held by an actual human or a bot that is meant to vote to represent that PoV. However, it can also be excluded from quorum (make this a setting too whether to include or exclude from quorum with the default excluded) 6. default 7. default 8. default",
+    ],
+    status: (f) => (f.staged.clans ? "**Half built.**" : "**Built.**"),
+    note: (f) =>
+      `\`${f.dials.nonhumanInQuorum.key}\` decides whether such a seat's weight counts toward quorum and ships ` +
+      `\`${String(f.dials.nonhumanInQuorum.default)}\`, and \`${f.dials.absentCycles.key}\` says how many cycles a seat may go ` +
+      "unvoted before weight that cannot vote leaves the denominator. The arithmetic is built and the seat is not: nothing " +
+      "declares a being other than a person yet, and a representative who is an agent needs an account a ballot can point " +
+      "at. The eight defaults this answer accepted are the veto window, a steward's no on payments only, payouts at " +
+      "acceptance and Game changes at the moon, no trial of a pricing dial, a window that gates the opening only, " +
+      "members-only names and amounts, and erasure winning over the freeze.",
+  },
+  {
+    id: 32,
+    title: "Voice is buyable, and it decays one percent a cycle",
+    dates: ["2026-09-03"],
+    quotes: [
+      "Yes, Voice is buyable and decays 1% per cycle by default.",
+      "Yes an investment of money is a contribution and does (by default) issue voice. though this can be changed of course by each village and each proposal being 100% editable.",
+      "Yes decay is uniform.",
+    ],
+    status: () => "**Staged.** Not built.",
+    note: () =>
+      "This deliberately relaxes a guard the platform shipped: a token money can buy was refused as the weight token, and " +
+      "the refusal becomes a warning on the control. Money in mints Voice by default through a minting rule like any " +
+      "other contribution, a village or a single proposal may change that, and every ballot and the Birthing document show " +
+      "each holder's share, which is the protection. Decay is uniform across bought and earned Voice, posted to a sink at " +
+      "the cycle close, and never a rewrite of a balance, so the weights a ballot freezes read the balance the ledger " +
+      "holds at that instant with no change to the engine. None of it is in the code today.",
+  },
+  {
+    id: 33,
+    title: "Stalemate protection, with a guard against the losing side asking again",
+    dates: ["2026-09-02"],
+    quotes: [
+      "I think so on the stalemate protections but we have to do this in a way where they can't be abused by people who don't like the outcome of a vote.",
+      "Yes absolutely first governance as quests that describes how this is how we empower ourselves, evolve the game, make sure we're always making it better, more fun, more empowering, more capable, as we co-create new realities and civilizations together and take this task seriously.",
+    ],
+    status: () => "**Staged.** Not built.",
+    note: () =>
+      "A ballot may be re-run with a fresh roll only when a frozen seat has provably left the village, recorded in the " +
+      "ledger and never self-declared, and only while the ballot is still open and can no longer reach its quorum. A " +
+      "closed ballot is never re-run, so nobody who dislikes an outcome gets a second vote out of this. The re-run " +
+      "links to the ballot it replaces so the record says why. The same door opens for a bloc of weight that cannot " +
+      "vote, which is arithmetic telling the truth and not the tier fallback that was withdrawn. The second quote is " +
+      "the framing the first governance quests carry.",
+  },
+];
+
+/**
+ * WHAT THIS DOCUMENT USED TO SAY, and the date each sentence was struck.
+ *
+ * A generated document has one bad habit available to it: when a rule changes,
+ * the paragraph describing the old rule simply stops rendering and nobody who
+ * read it ever learns it went. So the withdrawn sentences are kept, struck,
+ * with the ruling that withdrew them and the date. A fork holding an older copy
+ * of this file can then tell which of its sentences are history.
+ *
+ * `what` is quoted as closely as the old text allows. `by` names the layer of
+ * `docs/GOVERNANCE_EVOLUTION_PROMPT.md` that withdrew it.
+ */
+const WITHDRAWN = [
+  {
+    what: "A steward approves a passed proposal before it takes effect.",
+    on: "2026-09-03",
+    by: "19C",
+    now: "The steward holds a window and never a gate. A carried decision lands on its own, and the seat's one power is to stop it before it does.",
+  },
+  {
+    what: "A passed proposal QUEUES while the steward seat is empty, and executes when a steward is next voted in.",
+    on: "2026-09-03",
+    by: "19C",
+    now: "Nothing queues. A village with no steward is a village nobody can stop, and that is the healthy end state.",
+  },
+  {
+    what: "A member sees \"lands at cycle 331\" on the proposal from the moment it passes.",
+    on: "2026-09-03",
+    by: "19C and 20.11",
+    now: "A landing is a timestamp taken from the active clock. The page shows the instant with the countdown beside it, and no cycle number appears on the vote path.",
+  },
+  {
+    what: "Voice for other beings, and clans, unlock at 144 players.",
+    on: "2026-09-03",
+    by: "19B and 19C",
+    now: "A village may declare a seat for a being other than a person on its first day. The 144 line is guidance on the screen.",
+  },
+  {
+    what: "Some settings can never be changed by a vote.",
+    on: "2026-09-02",
+    by: "19 Q11",
+    now: "Nothing is un-votable. Criticality raises the bar instead, and the recommended ceiling is 97 percent of quorum and 97 percent of unity.",
+  },
+  {
+    what: "Proposals are never gated by the calendar, and a governance window must not become a permission check.",
+    on: "2026-09-03",
+    by: "19E",
+    now: "A village may block a kind of proposal from being OPENED outside a window it sets. Always open stays a choice and ships as the default.",
+  },
+  {
+    what: "A ballot's full detail, with each voter's name, their choice and their frozen weight, is public.",
+    on: "2026-09-02",
+    by: "19 Q12",
+    now: "Who has voted is visible once half the required votes are in; how they voted is hidden unless a village turns public voting on. Counts and shares of weight stay visible under every setting.",
+  },
+  {
+    what: "A tier percentage counts weight AND heads, so a quorum needs a minimum number of people as well as a share of the weight.",
+    on: "2026-09-03",
+    by: "19F",
+    now: "Quorum and unity are pure token weight. People counts are shown beside the weight everywhere, and the concentration that allows is stated in this document as the founder's own decision.",
+  },
+  {
+    what: "A tier that misses quorum three cycles running drops automatically to the tier below it.",
+    on: "2026-09-03",
+    by: "19F",
+    now: "It simply does not pass. The second miss warns that the next ends it; the third closes the question with one door, which is to withdraw and rewrite.",
+  },
+  {
+    what: "A vetoed proposal is overridden by passing again at the NEXT criticality tier above the one it carried at.",
+    on: "2026-09-03",
+    by: "19E",
+    now: "It is overridden by passing again at the village's highest set tier, which is itself a setting priced at that tier.",
+  },
+  {
+    what: "A steward's approval executes the proposal at once.",
+    on: "2026-09-03",
+    by: "19C",
+    now: "There is no approval to execute at. His words that night stay in the record as ruling 27's history.",
+  },
+  {
+    what: "A late approval rolls the proposal to the following new moon.",
+    on: "2026-09-03",
+    by: "19C",
+    now: "The situation cannot arise, because nothing waits for a steward.",
+  },
+];
+
+/**
+ * THE THREE SOURCES, and the copy of each a fork can open.
+ *
+ * The founder gave three links. A link is a closed door to anybody outside the
+ * document that shared it, so the text of each one is checked in beside this
+ * document and the link stays as the origin. Rendered into both
+ * `docs/GOVERNANCE.md` and `docs/knowledge/governance-lineage.md` from here, so
+ * the assistant's shelf and the document cannot come apart.
+ */
+const LINEAGE_SOURCES = [
+  {
+    title: "So you want to make a DHO?",
+    url: "https://docs.google.com/presentation/d/1hjjo_p5VqaOkaUml9nR3s8ZGUt1AzCidCSw6VngJ3dc/edit?usp=drivesdk",
+    prose: "lineageDeck",
+    copy: "docs/sources/hypha-dho-deck.md",
+  },
+  {
+    title: "How to do a DHO/DAO",
+    url: "https://youtu.be/_TpyEO6NRnY",
+    prose: "lineageTalk",
+    copy: "docs/sources/how-to-do-a-dho-talk-summary.md",
+  },
+  {
+    title: "Hypha Handbook V0.3",
+    url: "https://docs.google.com/document/d/1hFJPe1N0yyntJ9g-iQFvhtf9j2pDsxmmG-ufxqnAt5g/edit?usp=drivesdk",
+    prose: "lineageHandbook",
+    copy: "docs/sources/hypha-handbook-v0.3-summary.md",
+  },
 ];
 
 // ── Facts ───────────────────────────────────────────────────────────────────
@@ -1714,15 +2538,28 @@ const RULINGS = [
  */
 function stagedFlags(dialKeys, governanceKeys, caps, dispatcher, routes, launchSubject) {
   const anyKey = (re) => governanceKeys.some((k) => re.test(k));
+  const anyRoute = (re) => routes.rows.some((r) => re.test(r.path));
   const launchBody = dispatcher.bodies[launchSubject] ?? "";
   return {
+    /*
+     * EVERY FLAG THAT COULD READ A ROUTE NOW READS ONE.
+     *
+     * These flags decide whether a ruling renders as built or as staged, and
+     * the walk they read used to see three files. Four route modules landed
+     * outside those three, so `delegation` stayed true and the document told
+     * every reader that delegation was ruled, described and absent while seven
+     * delegation routes were answering members. `routeFacts` walks the whole
+     * directory now, and the flags that have route evidence use it.
+     */
     steward:
       !caps.some((c) => /steward/i.test(c)) &&
       !anyKey(/steward/i) &&
+      !anyRoute(/veto|stewardship/i) &&
       !dispatcher.all.some((k) => /steward|approval/i.test(k)),
     launchSeatsSteward: !/steward/i.test(launchBody),
     governanceWeek: !anyKey(/week/i) && !anyKey(/^governance\.window_/i),
-    delegation: !anyKey(/delegat/i) && !routes.rows.some((r) => /delegat/i.test(r.path)),
+    delegation: !anyKey(/delegat/i) && !anyRoute(/delegat/i),
+    landing: !anyRoute(/landing/i) && !anyKey(/veto_hours/i),
     cycleSetting: !dialKeys.some((k) => /^cycle\./i.test(k) || /(cycle_mode|cycle_kind|rhythm)/i.test(k)),
     clans: !dialKeys.some((k) => /\bclan/i.test(k)),
     // The tiers landed as `governance.tier_<tier>_<dial>_pct` settings, and the
@@ -1778,6 +2615,9 @@ export function collectFacts(root = ROOT) {
   const launch = launchFacts(root);
   const clock = clockFacts(root);
   const routes = routeFacts(root);
+  const kinds = kindFacts(root);
+  const schema = schemaFacts(root);
+  const quorumFormula = quorumFormulaFacts(root);
   const commit = sourceCommit(root);
 
   const byKey = Object.fromEntries(dialFacts.governance.map((d) => [d.key, d]));
@@ -1800,6 +2640,8 @@ export function collectFacts(root = ROOT) {
   if (missingSubject) fail(missingSubject.replace(/^governance-doc: /, ""));
   const missingDial = dialCoverageProblem(governanceKeys);
   if (missingDial) fail(missingDial.replace(/^governance-doc: /, ""));
+  const missingNamed = namedDialProblem(dialFacts.allKeys);
+  if (missingNamed) fail(missingNamed);
   const staged = stagedFlags(dialFacts.allKeys, governanceKeys, caps.all, dispatcher, routes, launchSubject.subject);
   const stale = stalenessProblem(staged);
   if (stale) fail(stale);
@@ -1827,7 +2669,15 @@ export function collectFacts(root = ROOT) {
       hubUrl: need("governance.hub_url"),
       supportThreshold: need("governance.proposal_support_threshold"),
       perCycleCap: need("governance.proposals_per_member_per_cycle"),
+      vetoHours: need("governance.veto_hours"),
+      stewardCouncil: need("governance.steward_council"),
+      highestTier: need("governance.highest_tier"),
+      stewardSubjects: need("governance.steward_subjects"),
+      nonhumanInQuorum: need("governance.nonhuman_in_quorum"),
+      absentCycles: need("governance.absent_cycles"),
+      windowGraceDays: need("governance.window_grace_days"),
     },
+    windows: dialFacts.governance.filter((d) => /^governance\.window_(?!grace)/.test(d.key)),
     cycleApplyKeys: dialFacts.cycleApplyKeys,
     stageMultipliersAreCycleTimed: dialFacts.stageMultipliersAreCycleTimed,
     capabilities: caps,
@@ -1838,6 +2688,9 @@ export function collectFacts(root = ROOT) {
     launch,
     clock,
     routes,
+    kinds,
+    schema,
+    quorumFormula,
     staged,
   };
 }
@@ -1852,6 +2705,56 @@ function table(headers, rows) {
 
 const code = (s) => `\`${s}\``;
 const list = (xs) => xs.map(code).join(", ");
+/** "a" or "an", so a ring name read out of the code never renders as `a open`-ring. */
+const an = (word) => (/^[aeiou]/i.test(String(word)) ? "an" : "a");
+
+/**
+ * WHAT QUORUM COUNTS, in one sentence, derived from the arithmetic.
+ *
+ * 19F rules quorum is pure token weight. This sentence is computed from
+ * `quorumPctOf` itself, so the day somebody puts a head count back into that
+ * function the document says so instead of going on repeating the ruling. The
+ * self-test pins the two together in both directions.
+ */
+export function quorumSentence(f) {
+  const q = f.quorumFormula;
+  if (q.weightOnly && q.dividesByTotalWeight) {
+    return (
+      `Read out of the arithmetic: \`quorumPctOf\` adds ${list(q.weightFields)} and divides by the frozen weight of the ` +
+      "whole roll. It reads no head count at all. Quorum is weight."
+    );
+  }
+  return (
+    "**The engine and this document disagree about quorum.** `quorumPctOf` reads the head counts " +
+    `${list(q.headFields)} beside the weights ${list(q.weightFields)}, and the ruling of 2026-09-03 is that quorum is ` +
+    "weight alone. One of the two is wrong, and it is not this sentence."
+  );
+}
+
+/**
+ * WHERE THIS COMES FROM, rendered into both generated files from one place.
+ *
+ * `docs/GOVERNANCE.md` carries it so a reader of the rules can reach their
+ * root, and `docs/knowledge/governance-lineage.md` carries it so the
+ * assistant's shelf can answer the same question. Two copies of a section is
+ * two sections that drift, so there is one.
+ */
+function lineage(p, say, sayUnder) {
+  p("## Where this comes from");
+  p();
+  say("lineageIntro");
+  p();
+  for (const source of LINEAGE_SOURCES) {
+    p(`- [${source.title}](${source.url})`);
+    sayUnder(source.prose);
+    p(`  A copy a fork can open: \`${source.copy}\`.`);
+  }
+  p();
+  say("lineageCopies");
+  p();
+  say("lineageRecord");
+  p();
+}
 
 export function render(f) {
   const L = [];
@@ -1862,6 +2765,13 @@ export function render(f) {
     if (!text) fail(`render() asked for the prose entry "${key}", which PROSE does not hold`);
     p(`<!-- written by a person: ${key} -->`);
     p(text);
+  };
+  /** The same, indented so it continues the list item above it. */
+  const sayUnder = (key) => {
+    const text = PROSE[key];
+    if (!text) fail(`render() asked for the prose entry "${key}", which PROSE does not hold`);
+    p(`  <!-- written by a person: ${key} -->`);
+    p(`  ${text}`);
   };
   const quote = (text) => {
     p("<!-- the founder's own words -->");
@@ -1929,6 +2839,18 @@ export function render(f) {
   p();
   say("criticalityToday");
   p();
+  say("quorumIsWeight");
+  p();
+  p(quorumSentence(f));
+  p();
+  say("concentrationConsequence");
+  p();
+  say("accountsNotPeople");
+  p();
+  say("stewardlessHealthy");
+  p();
+  say("englishOnly");
+  p();
   say("publishModule");
   p();
   p(
@@ -1984,6 +2906,16 @@ export function render(f) {
   );
   p();
   say("peopleAndWeight");
+  p();
+  say("nonHumanSeats");
+  p();
+  p(
+    `\`${f.dials.nonhumanInQuorum.key}\` ships \`${String(f.dials.nonhumanInQuorum.default)}\` and ` +
+      `\`${f.dials.absentCycles.key}\` ships \`${String(f.dials.absentCycles.default)}\`, so on a fresh village a seat ` +
+      "held for a being other than a person is outside the quorum arithmetic and its vote still counts toward unity.",
+  );
+  p();
+  say("noFallback");
   p();
 
   p("## The dials a village holds");
@@ -2093,6 +3025,153 @@ export function render(f) {
   );
   p();
 
+  p("## Two kinds of decision, and when each one happens");
+  p();
+  say("twoKindsOfDecision");
+  p();
+  p(
+    table(
+      ["Subject type", "Kind"],
+      Object.entries(f.kinds.forSubject).map(([k, v]) => [code(k), code(v)]),
+    ),
+  );
+  p();
+  p(
+    `Every other subject type is a ${code("game_change")}, including every one in the closing table above that this ` +
+      "table does not name.",
+  );
+  p();
+  p(
+    table(
+      ["Change-set element", "Kind"],
+      Object.entries(f.kinds.forItem).map(([k, v]) => [code(k), code(v)]),
+    ),
+  );
+  p();
+  say("weightAllocationIsAGameChange");
+  p();
+  say("timingChoice");
+  p();
+  p(
+    table(
+      ["Kind", "Timing it defaults to", "What that means"],
+      f.kinds.kinds.map((k) => [
+        code(k),
+        code(f.kinds.defaultsByKind[k]),
+        f.kinds.defaultsByKind[k] === "at_acceptance"
+          ? "it happens when the ballot closes"
+          : "it happens at the next boundary of the active clock, and never before its window shuts",
+      ]),
+    ),
+  );
+  p();
+  p(
+    `A proposal carries one timing out of ${f.kinds.timings.length} (${list(f.kinds.timings)}), and the platform ` +
+      `default is ${code(f.kinds.defaultTiming)}. ` +
+      "A Game change chosen at acceptance still cannot land before its window closes, so it lands at the close of the " +
+      "window. Anything chosen for the new moon lands at the later of the next boundary and the close of the window.",
+  );
+  p();
+  say("landingInstant");
+  p();
+  say("bundleWaits");
+  p();
+  say("snapForward");
+  p();
+  say("lateSettled");
+  p();
+
+  p("## The veto window");
+  p();
+  say("vetoWindowRule");
+  p();
+  p(
+    `The floor is ${f.kinds.vetoHoursFloor} hours, held in code. The village's own number is ` +
+      `\`${f.dials.vetoHours.key}\`, ${an(f.dials.vetoHours.ring)} ${code(f.dials.vetoHours.ring)}-ring setting ` +
+      "defaulting to " +
+      `${code(String(f.dials.vetoHours.default))}${f.dials.vetoHours.unit ? ` ${f.dials.vetoHours.unit}` : ""}. ` +
+      `\`${f.dials.stewardSubjects.key}\` says which kinds of decision the seat may stop and ships ` +
+      `${code(String(f.dials.stewardSubjects.default))}. \`${f.dials.stewardCouncil.key}\` ships ` +
+      `${code(String(f.dials.stewardCouncil.default))}: while it is off, any one seated steward stops a change; while it ` +
+      "is on, a majority of the seated stewards has to.",
+  );
+  p();
+  say("vetoAct");
+  p();
+  say("vetoOnTheBallot");
+  p();
+  say("stewardNo");
+  p();
+  say("notVetoable");
+  p();
+  p(
+    `Read from the code: ${list(f.kinds.noWindowSubjects)} execute the moment they carry, with no window at all. ` +
+      "The ruling of 2026-09-03 asks for something narrower for the two seat acts, which is that they keep their " +
+      "timing and their window like any Game change and that no steward may stop them. The code gives them no window " +
+      "at all, which arrives at the same place by a shorter road, and the difference is written down here because the " +
+      "two are not the same sentence. The Birthing is on that list for a reason of its own: before it carries nobody " +
+      "holds a seat, so a window on it would be hours nobody could use, and it already asks every seat to vote and " +
+      "every seat to say yes.",
+  );
+  p();
+  say("override");
+  p();
+  p(
+    `The tier the override has to reach is \`${f.dials.highestTier.key}\`, ${an(f.dials.highestTier.ring)} ` +
+      `${code(f.dials.highestTier.ring)}-ring ` +
+      `setting defaulting to ${code(String(f.dials.highestTier.default))}. Changing it is priced at itself.`,
+  );
+  p();
+  say("notices");
+  p();
+
+  p("## When a proposal may be opened");
+  p();
+  say("windowsIntro");
+  p();
+  p(
+    table(
+      ["Setting", "The kind it gates", "Ships as"],
+      f.windows.map((d) => [code(d.key), d.label, code(String(d.default))]),
+    ),
+  );
+  p();
+  p(
+    `\`${f.dials.windowGraceDays.key}\` ships ${code(String(f.dials.windowGraceDays.default))}` +
+      `${f.dials.windowGraceDays.unit ? ` ${f.dials.windowGraceDays.unit}` : ""}: how long anything coming back may open ` +
+      "outside its window.",
+  );
+  p();
+  say("windowsRule");
+  p();
+
+  p("## Delegation");
+  p();
+  say("delegationRule");
+  p();
+  say("delegationConsent");
+  p();
+  p(
+    f.routes.rows.some((r) => /delegat/.test(r.path))
+      ? `${f.routes.rows.filter((r) => /delegat|concentration/.test(r.path)).length} routes serve it, and they are in the ` +
+        "table of what a village publishes below. What a member sees of it is a surface, and the surface is not built yet."
+      : "**No route serves delegation today**, so nothing above is reachable by a member.",
+  );
+  p();
+
+  p("## What happens when a decision lands");
+  p();
+  say("landingLoop");
+  p();
+  say("landingCounts");
+  p();
+  say("atomicity");
+  p();
+  say("noCloser");
+  p();
+  say("digest");
+  p();
+
   p("## Starting the Game: the Birthing");
   p();
   say("launchIntro");
@@ -2129,6 +3208,10 @@ export function render(f) {
   say("weightToken");
   p();
   say("weightTrail");
+  p();
+  say("twoVoices");
+  p();
+  say("voiceIsBuyable");
   p();
 
   p("## Who may do what");
@@ -2223,12 +3306,22 @@ export function render(f) {
   p();
   say("brokenIntro");
   p();
-  p(
-    "- **A close and its executor still decide separately from the steward.** The seat, its capability, its record and " +
-      "its two settings all exist, and the close dispatcher has no step that reads any of them, so a passed ballot runs " +
-      "its executor at the close and an approval or a refusal changes no outcome today. Nothing seats a catalyst as a " +
-      "steward yet either, so no village has one.",
-  );
+  /*
+   * REWRITTEN 2026-09-03. This bullet used to read "a close and its executor
+   * still decide separately from the steward", which stopped being true when
+   * the landing lane landed: the close route reads a seated steward's no
+   * before it routes an outcome, and a carried Game change is parked with a
+   * landing instant instead of applying. What is still missing is upstream of
+   * all of it, so the bullet now reports that and reports it from the code.
+   */
+  if (f.staged.launchSeatsSteward) {
+    p(
+      "- **Nothing seats a catalyst as a steward.** The seat, the power, the record, the settings, the window and the " +
+        "landing loop that reads them are all built. The closer that runs when the Birthing carries writes the launch " +
+        "facts and nothing else: no role, no seat, no grant. So a fresh village has a veto window that nobody can use " +
+        "until a steward is seated, which today is an act somebody performs by hand.",
+    );
+  }
   p(
     "- **A close and its executor are not one transaction.** The ballot is closed by one guarded update and the executor " +
       "runs after it. An executor that throws leaves a ballot closed and passed with nothing applied, and only the " +
@@ -2298,6 +3391,18 @@ export function render(f) {
     p(r.note(f));
     p();
   }
+
+  p("## What was withdrawn");
+  p();
+  say("withdrawnIntro");
+  p();
+  for (const w of WITHDRAWN) {
+    p(`- ~~${w.what}~~`);
+    p(`  Withdrawn ${w.on} by ${w.by}. ${w.now}`);
+  }
+  p();
+
+  lineage(p, say, sayUnder);
 
   p("## Machine-readable");
   p();
@@ -2388,6 +3493,29 @@ export function render(f) {
           idFormat: `${f.clock.idPrefix}${"N".repeat(f.clock.idDigits)}`,
         },
         launch: { configKey: f.launch.configKey, issuanceRefusedUntilStarted: true },
+        kinds: {
+          values: f.kinds.kinds,
+          timings: f.kinds.timings,
+          defaultTiming: f.kinds.defaultTiming,
+          defaultTimingByKind: f.kinds.defaultsByKind,
+          bySubjectType: f.kinds.forSubject,
+          byChangeSetItem: f.kinds.forItem,
+          // Anything absent from either map. Written out so a parser does not
+          // have to infer it from two lists that do not cover the space.
+          absentMeans: "game_change",
+          executesAtPassWithNoWindow: f.kinds.noWindowSubjects,
+          vetoHoursFloor: f.kinds.vetoHoursFloor,
+        },
+        quorum: {
+          countsWeightFields: f.quorumFormula.weightFields,
+          countsHeadFields: f.quorumFormula.headFields,
+          dividesByTotalWeight: f.quorumFormula.dividesByTotalWeight,
+          weightOnly: f.quorumFormula.weightOnly,
+        },
+        windows: f.windows.map((d) => ({ key: d.key, label: d.label, default: d.default ?? null })),
+        schema: f.schema.shapes,
+        withdrawn: WITHDRAWN.map((w) => ({ what: w.what, withdrawnOn: w.on, withdrawnBy: w.by, now: w.now })),
+        sources: LINEAGE_SOURCES.map((sr) => ({ title: sr.title, url: sr.url, localCopy: sr.copy })),
         rulings: RULINGS.map((r) => ({
           id: r.id,
           title: r.title,
@@ -2401,6 +3529,23 @@ export function render(f) {
     ),
   );
   p("```");
+  p();
+
+  p("## The tables this rests on");
+  p();
+  say("schemaIntro");
+  p();
+  p(
+    table(
+      ["Table or column", "What it holds"],
+      // Most names are a table or a column and render as code. Two of them
+      // name a set of enum values, and wrapping an English phrase in backticks
+      // reads as an identifier a reader would then go looking for.
+      f.schema.shapes.map((sh) => [/^[a-z_]+(\.[a-z_]+)?$/.test(sh.name) ? code(sh.name) : sh.name, sh.what]),
+    ),
+  );
+  p();
+  p(`Checked against the ${f.schema.migrationCount} migration files in \`${MIGRATION_DIR}/\`.`);
   p();
 
   p("## What this file is made from");
@@ -2422,6 +3567,56 @@ export function render(f) {
   return text;
 }
 
+/**
+ * MAIA'S SHELF GETS THE SAME SECTION.
+ *
+ * 19F asks that the assistant be able to answer "where does this come from",
+ * so `docs/knowledge/governance-lineage.md` carries the lineage the document
+ * carries. It is rendered from the same `lineage()` and the same PROSE entries,
+ * because two hand-kept copies of one section are two sections that drift, and
+ * this one is loaded into a prompt where nobody would notice the drift.
+ *
+ * The shelf indexes SECTIONS split on `##`, so the headings here are what a
+ * question about the sources actually matches on.
+ */
+export function renderLineage(f) {
+  const L = [];
+  const p = (s = "") => L.push(s);
+  const say = (key) => {
+    const text = PROSE[key];
+    if (!text) fail(`renderLineage() asked for the prose entry "${key}", which PROSE does not hold`);
+    p(`<!-- written by a person: ${key} -->`);
+    p(text);
+  };
+  const sayUnder = (key) => {
+    const text = PROSE[key];
+    if (!text) fail(`renderLineage() asked for the prose entry "${key}", which PROSE does not hold`);
+    p(`  <!-- written by a person: ${key} -->`);
+    p(`  ${text}`);
+  };
+
+  p("# Where this village's governance comes from");
+  p();
+  p(
+    "This is the lineage of the rules in `docs/GOVERNANCE.md`: the three sources the Game's dials descend from, and " +
+      "the record of the rulings that shaped them. It is generated by `scripts/generate-governance-doc.mjs` beside that " +
+      "document, from the same words, so the shelf and the document cannot come apart. Editing it by hand does not hold.",
+  );
+  p();
+  p(`It describes the code at commit \`${f.commit}\`.`);
+  p();
+  lineage(p, say, sayUnder);
+  p("## What the rules themselves say");
+  p();
+  p(
+    "`docs/GOVERNANCE.md` is the generated description of how a village decides: what a decision is, how a vote is " +
+      "counted, what each kind of decision asks, what happens when one carries, and which of the rulings behind all of " +
+      "that are built today. Read it first and read this for where it came from.",
+  );
+  p();
+  return L.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+
 export function generate(root = ROOT) {
   return render(collectFacts(root));
 }
@@ -2429,10 +3624,10 @@ export function generate(root = ROOT) {
 /** The document and the facts behind it, for callers that report on both. */
 export function generateDetailed(root = ROOT) {
   const facts = collectFacts(root);
-  return { text: render(facts), facts };
+  return { text: render(facts), lineage: renderLineage(facts), facts };
 }
 
-export { PROSE, RULINGS, SUBJECT_WORDS, KNOWN_DIALS };
+export { PROSE, RULINGS, SUBJECT_WORDS, KNOWN_DIALS, WITHDRAWN, LINEAGE_SOURCES, SCHEMA_SHAPES };
 
 const invokedDirectly =
   process.argv[1] &&
@@ -2440,13 +3635,18 @@ const invokedDirectly =
 
 if (invokedDirectly) {
   try {
-    const text = generate();
+    const { text, lineage: shelf } = generateDetailed();
     if (process.argv.includes("--stdout")) {
       process.stdout.write(text);
     } else {
       fs.mkdirSync(path.dirname(DOC_PATH), { recursive: true });
       fs.writeFileSync(DOC_PATH, text, "utf8");
-      process.stdout.write(`wrote docs/GOVERNANCE.md (${text.split("\n").length} lines)\n`);
+      fs.mkdirSync(path.dirname(LINEAGE_PATH), { recursive: true });
+      fs.writeFileSync(LINEAGE_PATH, shelf, "utf8");
+      process.stdout.write(
+        `wrote docs/GOVERNANCE.md (${text.split("\n").length} lines) and ` +
+          `docs/knowledge/governance-lineage.md (${shelf.split("\n").length} lines)\n`,
+      );
     }
   } catch (err) {
     process.stderr.write(`\n${err instanceof ReadError ? err.message : err?.stack ?? String(err)}\n\n`);
