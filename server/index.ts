@@ -4926,7 +4926,7 @@ async function applyAcceptReward(
     const credit = await postTransfer(getPool(), {
       from: RECOGNITION_FAUCET,
       to: memberAccount(match.id),
-      amount,
+      amount: toLedgerUnits(PLATFORM_TOKEN, amount),
       source: "proposal_accepted",
       sourceRef: entry.id,
       description: "Work With Us proposal accepted",
@@ -6408,7 +6408,7 @@ async function startServer() {
     } else if (row.token_slug && row.token_amount && row.user_id) {
       const r = await postTransfer(pool, {
         from: TREASURY, to: memberAccount(String(row.user_id)),
-        tokenType: String(row.token_slug), amount: Number(row.token_amount),
+        tokenType: String(row.token_slug), amount: toLedgerUnits(String(row.token_slug), Number(row.token_amount)),
         source: "product_grant", sourceRef: purchaseId,
         description: `${row.product_name}, receipt #${row.receipt_no}`,
         idempotencyKey: `pp:${purchaseId}:grant:${periodKey}`,
@@ -6501,7 +6501,7 @@ async function startServer() {
       if (wasDelivered && row.token_slug && row.token_amount && row.user_id) {
         const claw = await postTransfer(pool, {
           from: memberAccount(String(row.user_id)), to: TREASURY,
-          tokenType: String(row.token_slug), amount: Number(row.token_amount),
+          tokenType: String(row.token_slug), amount: toLedgerUnits(String(row.token_slug), Number(row.token_amount)),
           source: "payment_reversal", sourceRef: purchaseId,
           description: `Reversal: ${row.product_name} (${periodKey})`,
           idempotencyKey: `pp:${purchaseId}:reversal:${periodKey}`,
@@ -6656,7 +6656,7 @@ async function startServer() {
         from: memberAccount(String(order.user_id)),
         to: TREASURY,
         tokenType: String(order.token_slug),
-        amount: Number(order.quantity),
+        amount: toLedgerUnits(String(order.token_slug), Number(order.quantity)),
         source: "payment_reversal",
         sourceRef: orderId,
         description: refund ? "Refund: tokens returned to stock" : "Dispute: tokens returned to stock",
@@ -16264,8 +16264,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const refusal = sendRefusal(slug);
     if (refusal) return res.status(400).json({ error: refusal });
 
-    const n = Math.trunc(Number(amount) || 0);
-    if (n <= 0) return res.status(400).json({ error: "How much are you sending?" });
+    const n = Number(amount) || 0; // human, fractional where the token has decimals; `toLedgerUnits` rounds it to the token's own resolution
+    if (!(n > 0) || toLedgerUnits(slug, n) <= 0) return res.status(400).json({ error: "How much are you sending?" });
 
     /*
      * WHO IT IS FOR: an email the sender typed, or an id an API caller holds.
@@ -16317,7 +16317,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: memberAccount(user.id),
       to: memberAccount(recipient.id),
       tokenType: slug,
-      amount: n,
+      amount: toLedgerUnits(slug, n),
       source: "member_send",
       // The counterpart, so each side's ledger line can name the other person.
       sourceRef: recipient.id,
@@ -16358,7 +16358,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       sent: n,
       tokenName: tokenDef(slug)?.name ?? slug,
       to: recipient.name ?? null,
-      balance: await balanceOf(getPool(), memberAccount(user.id), slug),
+      balance: await balanceOf(getPool(), memberAccount(user.id), slug), balanceDecimals: tokenDef(slug)?.decimals ?? 0, // minor units + scale
     });
   });
 
@@ -16692,7 +16692,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: amount > 0 ? LIBRARY_MINT : memberAccount(String(userId)),
       to: amount > 0 ? memberAccount(String(userId)) : LIBRARY_SINK,
       tokenType: LIBRARY_CREDIT,
-      amount: Math.abs(amount),
+      amount: toLedgerUnits(LIBRARY_CREDIT, Math.abs(amount)),
       source: amount > 0 ? "library_manual" : "library_burn",
       sourceRef: id,
       description: String(note ?? "Manual adjustment").slice(0, 255),
@@ -20617,7 +20617,7 @@ ${inner}
         const credit = await postTransfer(getPool(), {
           from: RECOGNITION_FAUCET,
           to: memberAccount(consented.userId),
-          amount: payout,
+          amount: toLedgerUnits(PLATFORM_TOKEN, payout),
           source: "quest_consent",
           sourceRef: consented.id,
           description:
@@ -20667,7 +20667,7 @@ ${inner}
       if (stayReward > 0) {
         const stayCredit = await mintStayCredits(getPool(), {
           userId: consented.userId,
-          amount: stayReward,
+          amount: toLedgerUnits(STAY_CREDIT, stayReward),
           source: "quest_stay_reward",
           sourceRef: consented.id,
           description: `Work exchange: ${consented.questTitle}`,
@@ -21446,7 +21446,7 @@ ${inner}
             from: CYCLE_POOL_FAUCET,
             to: memberAccount(d.userId),
             tokenType: (d as any).poolToken ?? poolToken,
-            amount: share,
+            amount: toLedgerUnits((d as any).poolToken ?? poolToken, share),
             source: "gratitude_pool",
             sourceRef: cycle.id,
             description: `Cycle pool share: ${d.received} recognition from ${d.distinctSenders} ${d.distinctSenders === 1 ? "person" : "people"}`,
