@@ -54,7 +54,7 @@ if (!DB_CONFIGURED) {
 const DIST = path.resolve(process.cwd(), "dist/index.js");
 
 /** This suite's window, in the band above every other suite. `check-e2e-ports.mjs` is the survey. */
-const PORT = 30002 + (process.pid % 400);
+const PORT = 30402 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "steward-seat-admin";
 const PASSWORD = "StewardSeatTest123!";

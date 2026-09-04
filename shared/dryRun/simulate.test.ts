@@ -497,7 +497,7 @@ describe("launch, quests and the token registry", () => {
         snapshot: snapshot({
           tokens: [
             { slug: "voice", kind: "voice", decimals: 0, faucet: "sys:faucet", sinks: [], governance: "platform", active: true },
-            { slug: "amora", kind: "equity", decimals: 4, faucet: null, sinks: [], governance: "hypha", active: false },
+            { slug: "equity", kind: "equity", decimals: 4, faucet: null, sinks: [], governance: "hypha", active: false },
           ],
         }),
         changes: [],

@@ -258,6 +258,11 @@ export default function VariablesTab({ password }: { password: string }) {
         {search && !loading && (
           <p className="text-xs text-gray-500 mt-1.5" role="status">
             {filtered.length === 0
+              // village-ok: "gratitude" and "quest" are variable KEY prefixes here
+              // (gratitude.pool_per_cycle, quest.consent_cap_mode), not the name a
+              // village gives its recognition token. A village that renames the token
+              // keeps its keys, so useTokenName() would print a word that matches
+              // nothing in this search box.
               ? `Nothing matches "${search}". Try one word, or part of a key like "gratitude" or "quest".`
               : `${filtered.length} of ${vars.length} dial${filtered.length === 1 ? "" : "s"} match`}
           </p>
