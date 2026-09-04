@@ -535,9 +535,23 @@ jobs:
           # these from the same plan object it writes MANIFEST.txt from, so
           # they cannot disagree; carrying both means the drill can catch an
           # archive substituted for another village's.
+          #
+          # Fold the header NAME only, never the value. Field names are
+          # case-insensitive and the drill greps them with a case-SENSITIVE
+          # '^x-uploads-...:', so the name has to be lowered here. The values
+          # are case-sensitive data: takenAt is an ISO-8601 instant whose 'T'
+          # and 'Z' are literal characters, and canary is a filename.
+          #
+          # Run 33923245260 lowered the whole LINE. tr is a stream editor with
+          # no idea where the name stops, so the drill compared a value it had
+          # corrupted itself against the untouched copy in MANIFEST.txt and
+          # called a healthy archive unfaithful. That was this job's first
+          # execution against a real village: the uploads backup had been off
+          # since the job was written, so the fold shipped and sat unrun.
           tr -d '\r' < raw-headers.txt \
             | grep -iE '^x-uploads-(taken-at|files|bytes|canary|canary-sha256):' \
-            | tr 'A-Z' 'a-z' > uploads-headers.txt || true
+            | awk '{ i = index($0, ":"); if (i) print tolower(substr($0, 1, i - 1)) substr($0, i) }' \
+            > uploads-headers.txt || true
           rm -f raw-headers.txt
           if [ ! -s uploads-headers.txt ]; then
             echo "The export answered 200 but carried none of the x-uploads-* manifest" >&2
