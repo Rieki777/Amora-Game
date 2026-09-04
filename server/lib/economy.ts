@@ -787,9 +787,20 @@ export async function isReversed(pool: Pool, originalKey: string): Promise<boole
 
 // ── Gratitude, and the allowance that is never stored ───────────────────────
 
+/**
+ * HUMAN UNITS, all three numbers, the way a member reads them on the dial.
+ *
+ * `gratitude.base_budget` is declared in Gratitude (shared/gameVariables.ts),
+ * `gratitude_log.amount` is an `int` holding what a member typed, and the
+ * refusals in `checkGive` print these figures back to a person. Nothing here
+ * is a ledger number: `give` converts once, at its posting, and nowhere else.
+ */
 export interface Allowance {
+  /** The dial times the giver's stage multiplier. */
   total: number;
+  /** This cycle's gifts, less this cycle's reversals of them. */
   spent: number;
+  /** `total - spent`, floored at zero. */
   remaining: number;
   cycleKey: string;
 }
@@ -848,13 +859,32 @@ export async function allowanceFor(
 
   // Reversals of THIS cycle's gifts hand the allowance back. Keyed on the
   // gratitude keys so a reversal of some other posting cannot inflate it.
+  //
+  // KEYED ON THE NOTE AND NOT ON THE GIVER, which is a separate defect and is
+  // recorded here rather than fixed. `keys.gratitudeGiven` is
+  // `gratitude.given:<village>:<noteId>` and carries no member, so this SUM
+  // counts every reversed gift in the village and hands a slice of each one
+  // back to everybody. Nothing in this build reverses such a key (it has one
+  // writer, in `give` below, and no reader outside this query), so the leak is
+  // reachable only by a future caller. It is the same size at 0 decimals as at
+  // 4, so the conversion below neither creates it nor widens it. Closing it
+  // means matching the note ids THIS giver wrote, which changes what the
+  // allowance means and wants its own decision.
   const [reversed] = await conn.query<RowDataPacket[]>(
     "SELECT COALESCE(SUM(t.`amount`), 0) AS back FROM `token_ledger` t " +
       "WHERE t.`source` = 'reversal' AND t.`at` >= ? AND t.`at` < ? " +
       "AND t.`source_ref` LIKE ?",
     [startsAt, endsAt, `gratitude.given:${villageId()}:%`],
   );
-  const back = Number(reversed[0]?.back ?? 0);
+  // MINOR OUT OF THE LEDGER, HUMAN INTO THE SUBTRACTION (sweep lane F).
+  // `given` sums `gratitude_log.amount`, which this file keeps in the units a
+  // member typed; `back` sums `token_ledger.amount`, which is minor. At
+  // decimals 0 the two are the same number and this call is the identity; at 4
+  // they are ten thousand apart, and one reversed gift of 5 would take 50000
+  // off a `given` of 5, clamp `spent` to zero on the next line, and refund the
+  // giver their whole moon. This division and the `toLedgerUnits` in `give`
+  // are ONE change: either half shipped alone is a defect.
+  const back = fromLedgerUnits(HEARTS, Number(reversed[0]?.back ?? 0));
 
   const spent = Math.max(0, given - back);
   return { total, spent, remaining: Math.max(0, total - spent), cycleKey: key };
@@ -863,6 +893,12 @@ export async function allowanceFor(
 export interface GiveInput {
   fromUserId: string;
   toUserId: string;
+  /**
+   * HUMAN units, and a whole number: what the member tapped. It is weighed
+   * against the allowance in this unit, written to `gratitude_log.amount` in
+   * this unit, and converted to the token's minor units exactly once, at the
+   * ledger posting inside `give`.
+   */
   amount: number;
   note?: string;
   tag?: string;
@@ -891,6 +927,13 @@ export interface GiveInput {
  * there (server/lib/dryRun.ts among them) had to change. Two channels, one
  * ceiling, computed in one place so they cannot drift apart the way the caps
  * they replaced did.
+ *
+ * HUMAN UNITS IN AND OUT. `allowanceTotal` is `Allowance.total`, and
+ * `gratitude.max_share_per_recipient` is a percentage of it, so what this
+ * returns is compared against a `gratitude_log` sum and printed to a member in
+ * the unit they typed. The floor of 1 is ONE GRATITUDE and not one minor unit,
+ * which is the distinction any mirror of this function has to keep: floored in
+ * minor units it would be 0.0001 at four decimals and would bound nothing.
  */
 export function shareCapFor(allowanceTotal: number): number {
   if (allowanceTotal <= 0) return 0;
@@ -910,7 +953,15 @@ export function checkGive(
   alreadyToThisPerson: number,
 ): { ok: true } | { ok: false; error: string } {
   const amount = Number(input.amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
+  // WHOLE, WHICH THIS MESSAGE HAS ALWAYS SAID AND NOTHING HAS EVER CHECKED.
+  // `gratitude_log.amount` is an `int` (drizzle/0001_init.sql:85), so a
+  // fractional tap is not carried: the column takes a rounded number while the
+  // ledger posts the exact fraction in minor units, and the note the allowance
+  // is summed from stops agreeing with the credit that was delivered. At 0
+  // decimals both ends round together and the split is invisible; at 4 a give
+  // of 5.5 posts 55000 and logs 6. A refusal in a sentence beats a silent
+  // truncation of somebody's gift.
+  if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(amount)) {
     return { ok: false, error: `Give ${recognitionName()} in whole positive hearts` };
   }
   // Self-gratitude is blocked, and it is blocked HERE rather than at the route,
@@ -945,6 +996,13 @@ export function checkGive(
 export interface GratitudeRowInput {
   fromUserId: string;
   toUserId: string;
+  /**
+   * HUMAN units. This is written verbatim into `gratitude_log.amount`, an
+   * `int` column, and that column is what both allowance readers sum. The
+   * ledger posting carries the CALLER's unit and is the caller's business:
+   * `give` converts with `toLedgerUnits` inside the `post` it hands in, and
+   * `sendGratitude` converts at its own posting after this returns.
+   */
   amount: number;
   /** 'gratitude' (default: a budgeted acknowledgment) or 'heart' (D5: a tap
    *  on content). Anything else is carried as given; only these two are read
@@ -1339,7 +1397,14 @@ export async function give(
         from: RECOGNITION_FAUCET,
         to: memberAccount(input.toUserId),
         tokenType: HEARTS,
-        amount,
+        // THE ONE CONVERSION ON THIS PATH (sweep lane F). `amount` is human
+        // everywhere above: weighed against the allowance by `checkGive`,
+        // written to `gratitude_log.amount` by the row this post rides with,
+        // and printed back to the member in every refusal. `postTransferOn`
+        // takes MINOR units. Converting at the top of `give` instead would
+        // corrupt all three of those readers at once; converting at the
+        // boundary is what `mintForConfirmedClaim` already does.
+        amount: toLedgerUnits(HEARTS, amount),
         source: "gratitude_received",
         sourceRef: noteId,
         description: input.note,
