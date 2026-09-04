@@ -190,6 +190,22 @@ export interface DryRunOptions {
   moons: number;
   /** The instant the first simulated moon contains. Injected for the suite. */
   from?: Date;
+  /**
+   * Who is reading. Defaults to "admin", which is exactly what every caller
+   * got before this option existed, so an omitted value changes nothing.
+   *
+   * "member" narrows the SNAPSHOT before the first turn is walked, and it
+   * drops two things: a rule that is switched off, and a queued change on a
+   * rule that is still on. Neither is what the village does today. A switched
+   * off rule pays nobody, and a `pending_*` change is a decision an admin has
+   * stamped for a future moon and not yet announced. R12 opened this run to
+   * every member (`server/routes/dryRun.ts`), and the narrowing is what makes
+   * that safe to do without asking the founding team to publish their drafts.
+   *
+   * The report a member gets is otherwise identical: same dials, same enabled
+   * rules, same allowance table, same jobs, same refusals.
+   */
+  audience?: "admin" | "member";
 }
 
 const DAY_MS = 86_400_000;
@@ -516,13 +532,34 @@ function promotionFindings(
 }
 
 /**
+ * The same village, described by what it does today.
+ *
+ * Two lines, and both of them are subtractions. A rule that is switched off
+ * leaves; a queued change leaves the rule it was queued against. Nothing else
+ * is touched, so every sentence the run produces afterwards is produced by the
+ * same code that produced the admin's.
+ *
+ * The three emptinesses in `settlementFindings` survive this, which is the
+ * property to keep: a village whose every rule is off reads as "No mint rule
+ * is switched on for this village" to a member, the same sentence an admin
+ * gets, because `everyRule` is now empty for the same reason it was before.
+ */
+function narrowForMember(snapshot: DryRunSnapshot): DryRunSnapshot {
+  return {
+    ...snapshot,
+    rules: snapshot.rules.filter((r) => r.enabled).map((r) => ({ ...r, pending: null })),
+  };
+}
+
+/**
  * The whole run.
  *
  * Takes a snapshot and returns a report. No pool, no connection, no write. A
  * reader who wants to be sure of that can check the imports at the top of this
  * file: none of them can reach a database.
  */
-export function dryRun(snapshot: DryRunSnapshot, options: DryRunOptions): DryRunReport {
+export function dryRun(input: DryRunSnapshot, options: DryRunOptions): DryRunReport {
+  const snapshot = options.audience === "member" ? narrowForMember(input) : input;
   const from = options.from ?? new Date();
   // NaN survives Math.min and Math.max, and a NaN moon count runs zero turns
   // while the report still says how many moons it covered. The route validates
