@@ -56,14 +56,19 @@ function makeRes() {
 }
 
 /**
- * One enabled seat rule, one rule switched off, and a queued change on the
- * enabled one, as `mint_rules` rows.
+ * Two `mint_rules` rows, chosen so that BOTH halves of the narrowing are
+ * visible in a sentence.
  *
- * Every one of the three is what a member must not be shown or must be shown,
- * and each is a different column: `enabled`, and the four `pending_*` that
- * `queueRuleChange` fills.
+ * The Gratitude rule is on and carries a queued amount change. The Credits
+ * rule is switched OFF and carries a queued change that switches it on. That
+ * second row is the one that took a rewrite to get right: a rule that is
+ * merely disabled is invisible to an admin's report as well, because
+ * `rulesInForce` filters on `enabled` for everybody, so a fixture without the
+ * pending switch-on would have asserted a difference that does not exist and
+ * gone green for the wrong reason. With the switch-on, the admin watches
+ * Credits come on and start paying, and the member's report never mentions it.
  *
- * BUILT AT MOUNT TIME, never at import. The queued change is stamped for the
+ * BUILT AT MOUNT TIME, never at import. The queued changes are stamped for the
  * moon after the one the run starts in, and a constant computed when this file
  * loaded would name the wrong moon for any run that crossed a lunation between
  * import and call. Reading the clock beside the handler removes the window.
@@ -90,10 +95,10 @@ const ruleRows = (pendingFrom: number) => [
     ceiling: 100,
     enabled: 0,
     effective_from_cycle: 0,
-    pending_amount: null,
-    pending_ceiling: null,
-    pending_enabled: null,
-    pending_from_cycle: null,
+    pending_amount: 25,
+    pending_ceiling: 100,
+    pending_enabled: 1,
+    pending_from_cycle: pendingFrom,
   },
 ];
 
@@ -237,41 +242,54 @@ describe("one door, and it is not an admin one", () => {
 });
 
 describe("what a member's report leaves out", () => {
-  const enabledSentences = (body: any) =>
-    JSON.stringify([...body.runFindings, ...body.turns.flatMap((t: any) => t.findings)]);
+  /**
+   * Settlement sentences only, and that narrowness is load-bearing.
+   *
+   * The first draft searched the WHOLE report for "Village Credits" and went
+   * red on a sentence that has nothing to do with rules: `gratitude.pool_token`
+   * defaults to credits, so every report says what a cycle close would share.
+   * A member is entitled to that. What they must not read is a payment from a
+   * rule this village has switched off.
+   */
+  const settlementsIn = (body: any) =>
+    JSON.stringify(body.turns.flatMap((t: any) => t.findings).filter((f: any) => f.area === "settlement"));
 
   it("drops the rule that is switched off, and the queued change on the one that is not", async () => {
     const { run } = mount({ user: { id: "wren" }, admin: false });
     const out = await run({ moons: 6 });
     expect(out.status).toBe(200);
-    const said = enabledSentences(out.body);
-    // The disabled Village Credits rule never reaches a sentence.
-    expect(said).not.toContain("Village Credits");
-    // Neither does the queued change on the Gratitude rule, in any moon.
+    // The Credits rule is off. Its queued switch-on lands inside this run and
+    // the member never reads a Credits payment because of it.
+    expect(settlementsIn(out.body)).not.toContain("Village Credits");
+    // No queued change is announced, in any moon.
     expect(out.body.turns.some((t: any) => t.findings.some((f: any) => f.area === "rules"))).toBe(false);
-    expect(said).not.toContain("20 becomes 45");
-    // And the settlement still pays the rule as it stands today, every moon,
-    // instead of promoting the queued 45 partway through.
+    expect(JSON.stringify(out.body)).not.toContain("20 becomes 45");
+    // And the settlement pays the rule as it stands today, every moon, instead
+    // of promoting the queued 45 partway through.
     for (const t of out.body.turns) {
       const paid = t.findings.find((f: any) => f.area === "settlement" && f.outcome === "issued");
       expect(paid?.sentence, `moon ${t.cycleNumber} settles at the live amount`).toContain("20 Gratitude");
     }
   });
 
-  it("gives an admin the queued change and the moon it lands in", async () => {
+  it("gives an admin the queued changes and the moon they land in", async () => {
     const { run } = mount({ user: { id: "founder" }, admin: true });
     const out = await run({ moons: 6 });
     expect(out.status).toBe(200);
     const landings = out.body.turns.filter((t: any) => t.findings.some((f: any) => f.area === "rules"));
-    expect(landings, "the queued change lands in exactly one moon").toHaveLength(1);
-    expect(JSON.stringify(landings[0].findings)).toContain("20 becomes 45");
-    // And from that moon the seat settles at the new amount.
-    const amountIn = (i: number) =>
+    expect(landings, "both queued changes land in the same one moon").toHaveLength(1);
+    const said = JSON.stringify(landings[0].findings);
+    expect(said).toContain("20 becomes 45");
+    expect(said, "a rule switching on is announced as that").toContain("it switches on");
+    // From that moon the seat settles at the new amount, and Credits pays.
+    const amountIn = (i: number, token: string) =>
       out.body.turns[i].findings.find(
-        (f: any) => f.area === "settlement" && f.outcome === "issued" && String(f.sentence).includes("Gratitude"),
+        (f: any) => f.area === "settlement" && f.outcome === "issued" && String(f.sentence).includes(token),
       )?.sentence ?? "";
-    expect(amountIn(0)).toContain("20 Gratitude");
-    expect(amountIn(1)).toContain("45 Gratitude");
+    expect(amountIn(0, "Gratitude")).toContain("20 Gratitude");
+    expect(amountIn(1, "Gratitude")).toContain("45 Gratitude");
+    expect(amountIn(0, "Village Credits"), "off in the first moon").toBe("");
+    expect(amountIn(1, "Village Credits"), "on from the moon its change landed").toContain("25 Village Credits");
   });
 
   /*
@@ -281,9 +299,8 @@ describe("what a member's report leaves out", () => {
    * is what a narrowing that only filtered would have produced.
    */
   it("says the same true thing to both when every rule is off", async () => {
-    const allOff = RULE_ROWS.map((r) => ({ ...r, enabled: 0 }));
-    const member = await mount({ user: { id: "wren" }, admin: false, rules: allOff }).run({ moons: 2 });
-    const admin = await mount({ user: { id: "founder" }, admin: true, rules: allOff }).run({ moons: 2 });
+    const member = await mount({ user: { id: "wren" }, admin: false, allOff: true }).run({ moons: 2 });
+    const admin = await mount({ user: { id: "founder" }, admin: true, allOff: true }).run({ moons: 2 });
     const sentence = "No mint rule is switched on for this village, so a moon settlement would pay nobody.";
     expect(JSON.stringify(member.body.turns[0].findings)).toContain(sentence);
     expect(JSON.stringify(admin.body.turns[0].findings)).toContain(sentence);
@@ -333,9 +350,3 @@ describe("the per-person budget", () => {
     expect((await run({ moons: 1 })).status).toBe(200);
   });
 });
-
-/* A fixed instant is not needed for any assertion above; the rules are stamped
- * against the live cycle number so the queued change lands one moon into every
- * run, whenever this file is run. FROM is kept for a reader comparing this file
- * with server/dryRun.test.ts, which pins its own clock. */
-void FROM;
