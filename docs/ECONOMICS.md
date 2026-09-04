@@ -1699,8 +1699,8 @@ at exactly two places in the tree, both inside `server/lib/ledger.ts`. So the
 set of postings is closed by the call sites of the six exported doors:
 `postTransfer`, `postTransferPair`, and the four narrow wrappers around them,
 `postGraceNightBurn`, `postPaymentReversalLeg`, `postClawbackMirror` and
-`postClawbackMirrorPair`. Walk every `.ts` file under `server/` that is not a
-`.test.ts`, take each call to one of those six, and read its `from`. A
+`postClawbackMirrorPair`. Walk every TypeScript file under `server/` that is
+not a test, take each call to one of those six, and read its `from`. A
 member is debited whenever that `from` is `memberAccount(...)`, a variable
 bound to one, or an account id read back off the `token_ledger` row being
 mirrored. That is seventeen call sites, measured on `wt/econ-small`.
