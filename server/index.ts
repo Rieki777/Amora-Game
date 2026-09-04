@@ -208,6 +208,7 @@ import {
   updateIntent,
   type IntentsDeps,
 } from "./lib/intents";
+import { forgetMemberNeeds } from "./lib/needs";
 import { ensureSky, mirrorCalendarSources } from "./lib/calendarProviders";
 import { listMonthNames, lunarSummaryFor, namesForHemisphere, setMonthName } from "./lib/lunarTable";
 import { buildIcs, feedTokenStatus, looksLikeFeedToken, mintFeedToken, resolveFeedToken, revokeFeedTokens } from "./lib/icsFeed";
@@ -4765,7 +4766,7 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<Era
   );
   // Intents are the same class of trace: their own words about what they
   // sought and offered, plus every matcher sentence where they were a party.
-  await eraseIntentsForMember(pool, target.id);
+  await eraseIntentsForMember(pool, target.id); await forgetMemberNeeds(pool, target.id); // member_needs (0150) says "Only you can read this", so it goes too. One line because the ratchet had one to spend.
 
   await members.update(target.id, (u: any) => {
     u.name = anon;
