@@ -1074,13 +1074,28 @@ describe("economics model, flags", () => {
     expect(codes).toContain("econ_rule_contradicts_ceiling");
   });
 
-  it("falls back to the rounded ceiling when a snapshot carries no text", () => {
-    // A reader that filled no `ceilingRaw` gets the old reading, which is the
-    // safest answer available with no text: a cap that rounded to nothing is
-    // treated as a cap of nothing, which stops a payout rather than letting
-    // one through.
+  it("survives a malformed spec that pairs a real cap of zero with no text", () => {
+    /*
+     * DELIBERATELY MALFORMED, AND NO CONFORMING READER EMITS IT.
+     *
+     * `types.ts` pairs an empty `ceilingRaw` with `ceiling: null`, and the two
+     * together mean NO CAP. `ceiling: BigInt(0)` is a different fact: a real
+     * cap of nothing. So this fixture asserts both at once, which no snapshot
+     * reader can do, because the economy reader keys both fields off one null
+     * check and emits them as a pair.
+     *
+     * It is here anyway, and that is the point. `writtenCeiling` carries a
+     * fallback for a spec arriving with no text, and a fallback nothing
+     * exercises is a fallback nobody can trust. The safe answer with no text to
+     * read is the old one: a cap that rounded to nothing is treated as a cap of
+     * nothing, which stops a payout rather than letting one through. This test
+     * pins that, and it is the ONLY place in this file that builds a spec the
+     * contract does not describe.
+     */
     const snap = snapshot("lunar");
     snap.mintRules = snap.mintRules.map((r) =>
+      // Malformed on purpose: a real cap of zero beside the empty text that
+      // means no cap. See the block above.
       r.id === "rule-quest.completed-credits" ? { ...r, ceiling: BigInt(0), ceilingRaw: "" } : r,
     );
     const model = economicsModel(ONE_QUEST);

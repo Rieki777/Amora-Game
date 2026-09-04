@@ -219,10 +219,16 @@ export function ceilingOutcome(rule: CeilingRuleLike, posted: number, tokenName?
  * THE CEILING AS THE VILLAGE WROTE IT, with the rounded number as a fallback.
  *
  * `ceilingRaw` is the `decimal(18,4)` column's own text and the only unrounded
- * copy of the cap in the simulation. A snapshot reader that left it empty gets
- * the old reading off `ceiling`, which is the safest answer available with no
- * text to read: a cap that rounded to nothing is then treated as a cap of
- * nothing, which stops a payout rather than letting one through.
+ * copy of the cap in the simulation. It is what the refusal is decided on.
+ *
+ * THE FALLBACK IS FOR A MALFORMED SPEC AND NOTHING ELSE. A conforming reader
+ * pairs an empty `ceilingRaw` with `ceiling: null`, and the two together mean
+ * no cap, which the caller handles before ever reaching here. The economy
+ * snapshot reader keys both fields off one null check, so it cannot emit a real
+ * cap beside empty text at all. If one arrives anyway, the old reading off
+ * `ceiling` is the safest answer available with no text: a cap that rounded to
+ * nothing is treated as a cap of nothing, which stops a payout rather than
+ * letting one through.
  */
 export function writtenCeiling(rule: MintRuleSpec, decimals: number): WrittenAmount {
   const fromText = writtenAmount(rule.ceilingRaw, decimals);
