@@ -1185,6 +1185,155 @@ export interface Allowance {
 }
 
 /**
+ * ONE GIVER'S GRATITUDE SPENDING FOR ONE CYCLE, GIFT BY GIFT.
+ *
+ * Both halves of the allowance come from here and both are keyed on the member
+ * who gave: the notes THIS giver wrote inside the window, and the reversals of
+ * THOSE notes.
+ *
+ * ── D30, WHICH THIS EXISTS TO CLOSE ────────────────────────────────────────
+ *
+ * The refund half used to be one SUM over `token_ledger` selected by
+ * `source_ref LIKE 'gratitude.given:<village>:%'`. That predicate names the
+ * GIFT and never the GIVER, so it summed every reversed gift in the village
+ * and handed the whole of it back to everybody's allowance at once. It was
+ * measured, not theorised: the gratitude units lane failed two cases at both
+ * scales by exactly the five units a DIFFERENT member had reversed, and had to
+ * run its reversal case last in each describe block to keep the rest green.
+ *
+ * ── HOW THE GIVER IS RECOVERED WITHOUT A COLUMN ────────────────────────────
+ *
+ * A reversal moves value between two accounts that name people, and neither of
+ * them is the giver: the mirror debits the RECIPIENT and credits the faucet the
+ * gift was minted from. What carries the giver is the NOTE. The mirror's
+ * `source_ref` is the gift's own occurrence key, that key is built from the
+ * note id, and `gratitude_log` holds `from_id` on the same row. So this builds
+ * the keys THIS member's notes were posted under, with the same builder `give`
+ * posts them under, and keeps only the mirrors that match one. Nothing is added
+ * to any table and no migration is involved.
+ *
+ * ── WHY THE MATCH IS MADE HERE AND NOT IN THE PREDICATE ────────────────────
+ *
+ * `keys.gratitudeGiven` percent-escapes every segment (the keystone lane's
+ * change), so the note id inside a key is not always the note id in the column,
+ * and rebuilding that escape in SQL would be a second copy of it to keep in
+ * step. The `LIKE` below is now only a NARROWING of the scan, and the exact map
+ * is what decides; a village id that widened the pattern could no longer widen
+ * the answer. The notes read is bounded by one member's own giving and the
+ * mirror read by the village's reversals, which are an administrative act, so
+ * neither side grows with the roster.
+ */
+interface CycleGiving {
+  /** HUMAN units, the way `gratitude_log.amount` holds them: what was given. */
+  given: number;
+  /** HUMAN units: the part of `given` that has since been reversed. */
+  back: number;
+  /** The same two figures per recipient, which is what the share cap weighs. */
+  byRecipient: Map<string, { given: number; back: number }>;
+}
+
+async function gratitudeGivenInCycle(
+  conn: Pool | PoolConnection,
+  userId: string,
+  startsAt: Date,
+  endsAt: Date,
+): Promise<CycleGiving> {
+  const v = villageId();
+  const [notes] = await conn.query<RowDataPacket[]>(
+    "SELECT `id`, `to_id`, `amount` FROM `gratitude_log` " +
+      "WHERE `village_id` = ? AND `from_id` = ? AND `at` >= ? AND `at` < ?",
+    [v, userId, startsAt, endsAt],
+  );
+  const out: CycleGiving = { given: 0, back: 0, byRecipient: new Map() };
+  // AN EMPTY WINDOW AND A FULLY REVERSED ONE ARE DIFFERENT FACTS, and both
+  // report a spend of zero. Leaving early here is about the second query
+  // having nothing to match, never about the answer: a member who gave nothing
+  // has no keys, so no mirror in the village can be theirs.
+  if (!notes.length) return out;
+
+  // The occurrence key each note was posted under, cut the way `reverse` cuts
+  // it into `source_ref` (varchar(120), MAX_SOURCE_REF) so the two strings are
+  // the same string, and lower-cased because that column answers under a
+  // case-insensitive collation and `esc` already emits nothing but lower case.
+  const mine = new Map<string, { toId: string; amount: number }>();
+  for (const n of notes) {
+    const toId = String(n.to_id);
+    const amount = Number(n.amount);
+    out.given += amount;
+    const seat = out.byRecipient.get(toId) ?? { given: 0, back: 0 };
+    seat.given += amount;
+    out.byRecipient.set(toId, seat);
+    mine.set(keys.gratitudeGiven(v, String(n.id)).slice(0, MAX_SOURCE_REF).toLowerCase(), { toId, amount });
+  }
+
+  const [mirrors] = await conn.query<RowDataPacket[]>(
+    "SELECT t.`source_ref` AS ref, COALESCE(SUM(t.`amount`), 0) AS back FROM `token_ledger` t " +
+      "WHERE t.`source` = 'reversal' AND t.`at` >= ? AND t.`at` < ? " +
+      "AND t.`source_ref` LIKE ? GROUP BY t.`source_ref`",
+    // Built by the key builder, so the village segment is escaped here exactly
+    // as it is escaped in the keys stored. Spelling the prefix by hand put a
+    // RAW village id in front of an ESCAPED one and matched nothing at all for
+    // any village whose id carried a colon or a capital.
+    [startsAt, endsAt, `${keys.gratitudeGiven(v, "")}%`],
+  );
+  for (const m of mirrors) {
+    const note = mine.get(String(m.ref).toLowerCase());
+    // Somebody else's reversed gift. It is in this result set and it is not in
+    // this member's allowance, and that sentence is the whole of D30.
+    if (!note) continue;
+    // MINOR OUT OF THE LEDGER, HUMAN INTO THE SUBTRACTION (sweep lane F).
+    // `given` above is `gratitude_log.amount`, the unit a member typed;
+    // `token_ledger.amount` is minor. At decimals 0 the two coincide and this
+    // call is the identity; at 4 they are ten thousand apart, and subtracting
+    // raw would floor the spend at zero and refund the giver their whole moon.
+    //
+    // Converted PER NOTE and not once over the total, because the per-recipient
+    // figure below is made of the same numbers: one conversion for two readers
+    // is one place for them to disagree.
+    out.back += fromLedgerUnits(HEARTS, Number(m.back));
+    const seat = out.byRecipient.get(note.toId);
+    if (seat) seat.back += fromLedgerUnits(HEARTS, Number(m.back));
+  }
+  return out;
+}
+
+/** The dial times the stage, which is the whole of `Allowance.total`. */
+function allowanceTotalFor(stageMultiplier: number): number {
+  // ONE ALLOWANCE (R73). This read the engine's own flat
+  // `economy.giving_allowance_per_moon` (30) while the acknowledgement flow
+  // read `gratitude.base_budget` times the giver's stage multiplier (100 and
+  // up). Both sum their spending out of the same `gratitude_log` rows, so the
+  // two totals were two answers to one question and the stricter one silently
+  // won for anyone who used that door.
+  //
+  // The multiplier is a NUMBER the caller has already resolved, never a
+  // resolver this function calls: `give` reads it before it opens its
+  // transaction, so nothing here reaches for a second pooled connection while
+  // holding a lock on the first.
+  return Math.round(numberVar("gratitude.base_budget") * stageMultiplier);
+}
+
+/** The three numbers a member reads, assembled from one read of their giving. */
+function allowanceFrom(total: number, cycleKey: string, giving: CycleGiving): Allowance {
+  const spent = Math.max(0, giving.given - giving.back);
+  return { total, spent, remaining: Math.max(0, total - spent), cycleKey };
+}
+
+/**
+ * What one member has already put on ONE other member this cycle, NET.
+ *
+ * The share cap is weighed against this, and a reversal has to unwind it for
+ * the same reason it unwinds the allowance: the value came back, so the
+ * concentration it created is not there any more. Before this, reversing a gift
+ * to somebody returned budget the giver then could not spend on the person they
+ * had just taken it back from.
+ */
+function alreadyGivenTo(giving: CycleGiving, toUserId: string): number {
+  const seat = giving.byRecipient.get(toUserId);
+  return seat ? Math.max(0, seat.given - seat.back) : 0;
+}
+
+/**
  * How much a member's stage multiplies the base allowance.
  *
  * Injected, and REQUIRED, because the stage rules live in the host: they read
@@ -1200,10 +1349,15 @@ export type StageMultiplierFor = (userId: string) => Promise<number>;
  *
  * A stored counter is the bug. It drifts, it survives a reversal that should
  * have refunded it, and two concurrent gives both read the same stale number
- * and both pass. The sum of this cycle's gifts, minus this cycle's reversals of
- * those gifts, is the only figure that is true by construction: reversing a
- * gift refunds the allowance because the subtraction stops counting it, with
- * nothing to remember to do.
+ * and both pass. The sum of THIS MEMBER's gifts this cycle, less the reversals
+ * of THOSE SAME GIFTS, is the only figure that is true by construction:
+ * reversing a gift refunds the giver's allowance because the subtraction stops
+ * counting it, with nothing to remember to do.
+ *
+ * Both halves are read by `gratitudeGivenInCycle`, which is where the giver is
+ * recovered from the note behind each reversal. Read its header before changing
+ * either query: the refund used to be keyed on the gift alone (D30) and paid
+ * every member in the village for one member's undo.
  *
  * `conn` is not optional in the write path. Read this OUTSIDE the mint's
  * transaction and five simultaneous gives all read the same remaining balance
@@ -1216,57 +1370,8 @@ export async function allowanceFor(
   at: Date = new Date(),
 ): Promise<Allowance> {
   const { startsAt, endsAt, key } = cycleWindow(at);
-  // ONE ALLOWANCE (R73). This read the engine's own flat
-  // `economy.giving_allowance_per_moon` (30) while the acknowledgement flow
-  // read `gratitude.base_budget` times the giver's stage multiplier (100 and
-  // up). Both sum their spending out of the same `gratitude_log` rows, so the
-  // two totals were two answers to one question and the stricter one silently
-  // won for anyone who used that door.
-  //
-  // The multiplier is a NUMBER the caller has already resolved, never a
-  // resolver this function calls: `give` reads it before it opens its
-  // SERIALIZABLE transaction, so nothing here reaches for a second pooled
-  // connection while holding a lock on the first.
-  const total = Math.round(numberVar("gratitude.base_budget") * stageMultiplier);
-
-  const [rows] = await conn.query<RowDataPacket[]>(
-    "SELECT COALESCE(SUM(`amount`), 0) AS given FROM `gratitude_log` " +
-      "WHERE `village_id` = ? AND `from_id` = ? AND `at` >= ? AND `at` < ?",
-    [villageId(), userId, startsAt, endsAt],
-  );
-  const given = Number(rows[0]?.given ?? 0);
-
-  // Reversals of THIS cycle's gifts hand the allowance back. Keyed on the
-  // gratitude keys so a reversal of some other posting cannot inflate it.
-  //
-  // KEYED ON THE NOTE AND NOT ON THE GIVER, which is a separate defect and is
-  // recorded here rather than fixed. `keys.gratitudeGiven` is
-  // `gratitude.given:<village>:<noteId>` and carries no member, so this SUM
-  // counts every reversed gift in the village and hands a slice of each one
-  // back to everybody. Nothing in this build reverses such a key (it has one
-  // writer, in `give` below, and no reader outside this query), so the leak is
-  // reachable only by a future caller. It is the same size at 0 decimals as at
-  // 4, so the conversion below neither creates it nor widens it. Closing it
-  // means matching the note ids THIS giver wrote, which changes what the
-  // allowance means and wants its own decision.
-  const [reversed] = await conn.query<RowDataPacket[]>(
-    "SELECT COALESCE(SUM(t.`amount`), 0) AS back FROM `token_ledger` t " +
-      "WHERE t.`source` = 'reversal' AND t.`at` >= ? AND t.`at` < ? " +
-      "AND t.`source_ref` LIKE ?",
-    [startsAt, endsAt, `gratitude.given:${villageId()}:%`],
-  );
-  // MINOR OUT OF THE LEDGER, HUMAN INTO THE SUBTRACTION (sweep lane F).
-  // `given` sums `gratitude_log.amount`, which this file keeps in the units a
-  // member typed; `back` sums `token_ledger.amount`, which is minor. At
-  // decimals 0 the two are the same number and this call is the identity; at 4
-  // they are ten thousand apart, and one reversed gift of 5 would take 50000
-  // off a `given` of 5, clamp `spent` to zero on the next line, and refund the
-  // giver their whole moon. This division and the `toLedgerUnits` in `give`
-  // are ONE change: either half shipped alone is a defect.
-  const back = fromLedgerUnits(HEARTS, Number(reversed[0]?.back ?? 0));
-
-  const spent = Math.max(0, given - back);
-  return { total, spent, remaining: Math.max(0, total - spent), cycleKey: key };
+  const giving = await gratitudeGivenInCycle(conn, userId, startsAt, endsAt);
+  return allowanceFrom(allowanceTotalFor(stageMultiplier), key, giving);
 }
 
 export interface GiveInput {
@@ -1564,14 +1669,27 @@ async function writeGratitudeRowOnce(
       return { ok: false, error: "no such member" };
     }
 
-    const allowance = await allowanceFor(conn, input.fromUserId, stageMultiplier);
+    /*
+     * ONE READ OF THIS GIVER'S CYCLE, TWO LIMITS WEIGHED OFF IT.
+     *
+     * The allowance and the per-recipient share used to be three statements:
+     * `allowanceFor` ran its own two, and a third summed the pair. They read
+     * the same rows and they read them through two windows, because
+     * `allowanceFor` called `cycleWindow()` for itself and the pair sum called
+     * it again, so a give landing on a cycle boundary could be charged against
+     * one cycle and capped against the other. One read now answers both, under
+     * one window and one lock.
+     *
+     * THE SHARE IS NET OF REVERSALS TOO, which it was not before. It summed
+     * `gratitude_log` for the pair and subtracted nothing, so a member whose
+     * gift to somebody was reversed got their allowance back and could not
+     * spend it on the person it came back from. The refund follows the GIVER
+     * and it has to follow them all the way down.
+     */
     const { startsAt, endsAt, key } = cycleWindow();
-    const [pair] = await conn.query<RowDataPacket[]>(
-      "SELECT COALESCE(SUM(`amount`), 0) AS n FROM `gratitude_log` " +
-        "WHERE `village_id` = ? AND `from_id` = ? AND `to_id` = ? AND `at` >= ? AND `at` < ?",
-      [villageId(), input.fromUserId, input.toUserId, startsAt, endsAt],
-    );
-    const alreadyToThisPerson = Number(pair[0]?.n ?? 0);
+    const giving = await gratitudeGivenInCycle(conn, input.fromUserId, startsAt, endsAt);
+    const allowance = allowanceFrom(allowanceTotalFor(stageMultiplier), key, giving);
+    const alreadyToThisPerson = alreadyGivenTo(giving, input.toUserId);
 
     const verdict = await guard(conn, allowance, alreadyToThisPerson);
     if (!verdict.ok) {

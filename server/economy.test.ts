@@ -2470,6 +2470,29 @@ function gratitudeAtScale(decimals: number): void {
       return Number(rows[0].n);
     };
 
+    /**
+     * The clawback row `reverse` wrote against one gift, found the way the
+     * allowance finds it: by the `source_ref` the mirror carries, which is the
+     * gift's own occurrence key. Read as a ROW so a case can say what the
+     * mirror does and does not name.
+     */
+    const mirrorOf = async (giftKey: string) => {
+      const [rows] = await fpool.query<any[]>(
+        "SELECT `from_account`, `to_account`, `amount`, `source_ref` FROM `token_ledger` " +
+          "WHERE `source` = 'reversal' AND `source_ref` = ?",
+        [giftKey],
+      );
+      return rows[0] ?? null;
+    };
+
+    const mirrorCount = async (giftKey: string) => {
+      const [rows] = await fpool.query<any[]>(
+        "SELECT COUNT(*) AS n FROM `token_ledger` WHERE `source` = 'reversal' AND `source_ref` = ?",
+        [giftKey],
+      );
+      return Number(rows[0].n);
+    };
+
     /** The users repo the acknowledgement door needs, over the scratch pool. */
     const usersOver = (p: mysql.Pool): UsersRepo => {
       const load = async (where: string, v: string) => {
@@ -2638,15 +2661,21 @@ function gratitudeAtScale(decimals: number): void {
     });
 
     /*
-     * LAST IN THIS DESCRIBE, ON PURPOSE, and the reason is a defect rather than
-     * a preference. `allowanceFor`'s reversal SUM is keyed on the note id and
-     * carries no giver (see the comment at that query in
-     * server/lib/economy.ts), so the reversal below is visible to EVERY
-     * allowance in this schema for the rest of the cycle. Run earlier, it took
-     * 5 off two later cases and made them fail by exactly that: the share-cap
-     * case read a spend of 20 after giving 25, and the concurrency case fitted
-     * a twenty-first give into an allowance of 100. Both at decimals 0 and at
-     * 4, which is how it is legible as a leak and not as a scale error.
+     * IT USED TO HAVE TO RUN LAST IN THIS DESCRIBE, AND D30 IS WHY.
+     *
+     * `allowanceFor`'s reversal SUM was keyed on the note id and carried no
+     * giver, so the reversal below was visible to EVERY allowance in this
+     * schema for the rest of the cycle. Run earlier, it took 5 off two later
+     * cases and made them fail by exactly that: the share-cap case read a spend
+     * of 20 after giving 25, and the concurrency case fitted a twenty-first
+     * give into an allowance of 100. Both at decimals 0 and at 4, which is how
+     * it was legible as a leak and not as a scale error.
+     *
+     * Lane AF closed it (`gratitudeGivenInCycle` in server/lib/economy.ts), so
+     * the ordering constraint is gone and the cases that prove it are below.
+     * The position is left alone because moving a green test proves nothing;
+     * what proves it is `isolates the refund to the member who gave`, which
+     * fails on the old code wherever it is placed.
      */
     it("refunds five of the allowance when that gift is reversed, never fifty thousand", async () => {
       const from = await member(`f-rev-from-${tag}`);
@@ -2684,32 +2713,188 @@ function gratitudeAtScale(decimals: number): void {
     });
 
     /*
-     * THE LEAK ITSELF, MEASURED. This asserts what the engine DOES today, and
-     * the right answer is the one in the comment, not the one in the
-     * expectation: this member gave 8 and has spent 8. They read 3 because
-     * somebody else's 5 was reversed in the same cycle.
+     * ── D30, THE REFUND THAT PAID THE WHOLE VILLAGE (lane AF) ───────────────
      *
-     * It is written down rather than fixed because closing it changes what an
-     * allowance MEANS (it needs the note ids this giver wrote, which is a
-     * different query and a decision somebody has to make), and because it is
-     * the same size at 0 decimals as at 4 and so is not what this sweep is
-     * about. WHOEVER FIXES IT DELETES THIS TEST and says so in the commit.
+     * The four cases below replace the one this file used to carry, which
+     * asserted the leak instead of the answer and said in its own words that
+     * whoever closed it should delete it. Deleted here, and the reading it was
+     * holding a place for is now the assertion: reversing MY gift returns MY
+     * allowance and nobody else's.
+     *
+     * EVERY NUMBER IS READ BACK OUT OF THE DATABASE. `allowanceFor` is itself a
+     * pair of queries over `gratitude_log` and `token_ledger`, and each case
+     * also reads the rows underneath it, because a figure that agrees with a
+     * return value and not with a row is the shape this defect had.
      */
-    it("hands one member's reversal back to every other member, which is a defect", async () => {
-      const from = await member(`f-leak-from-${tag}`);
-      const to = await member(`f-leak-to-${tag}`);
-      const clean = await allowanceFor(fpool, from, 1);
-      expect(clean.spent).toBe(0);
+    it("isolates the refund to the member who gave", async () => {
+      const mine = await member(`f-iso-mine-${tag}`);
+      const theirs = await member(`f-iso-theirs-${tag}`);
+      const to = await member(`f-iso-to-${tag}`);
 
-      const res = await give(fpool, { fromUserId: from, toUserId: to, amount: 8 }, AT_GUEST);
-      expect(res.ok, res.ok === false ? res.error : "").toBe(true);
-      // This member's own gifts, summed from `gratitude_log`, come to 8.
-      expect(await notedAmount(String(res.noteId))).toBe(8);
+      const a = await give(fpool, { fromUserId: mine, toUserId: to, amount: 5 }, AT_GUEST);
+      const b = await give(fpool, { fromUserId: theirs, toUserId: to, amount: 5 }, AT_GUEST);
+      expect(a.ok, a.ok === false ? a.error : "").toBe(true);
+      expect(b.ok, b.ok === false ? b.error : "").toBe(true);
+      // The two charges, read off the log the allowance is summed from.
+      expect(await notedAmount(String(a.noteId))).toBe(5);
+      expect(await notedAmount(String(b.noteId))).toBe(5);
+      const mineBefore = await allowanceFor(fpool, mine, 1);
+      const theirsBefore = await allowanceFor(fpool, theirs, 1);
+      expect(mineBefore.spent).toBe(5);
+      expect(theirsBefore.spent).toBe(5);
 
+      // ONE member undoes ONE gift.
+      const undone = await reverse(fpool, keys.gratitudeGiven(villageId(), String(a.noteId)), {
+        from: memberAccount(to),
+        to: RECOGNITION_FAUCET,
+        tokenSlug: HEARTS,
+        amount: 5 * ONE,
+      });
+      expect(undone.ok, undone.ok === false ? undone.error : "").toBe(true);
+      // The mirror exists and it names the gift, which is the only thread back
+      // to the giver: it debits the RECIPIENT and credits the faucet, so
+      // neither account on it is the member whose allowance comes back.
+      const mirror = await mirrorOf(keys.gratitudeGiven(villageId(), String(a.noteId)));
+      expect(mirror).not.toBeNull();
+      expect(String(mirror.from_account)).toBe(memberAccount(to));
+      expect(Number(mirror.amount)).toBe(5 * ONE);
+
+      const mineAfter = await allowanceFor(fpool, mine, 1);
+      const theirsAfter = await allowanceFor(fpool, theirs, 1);
+      // The reverser gets exactly their 5 back.
+      expect(mineAfter.spent).toBe(0);
+      expect(mineAfter.remaining).toBe(mineAfter.total);
+      // And the other giver is unchanged TO THE UNIT. This is the assertion the
+      // old code failed by exactly 5, at both scales.
+      expect(theirsAfter.spent).toBe(5);
+      expect(theirsAfter.remaining).toBe(theirsBefore.remaining);
+      // Their note is still on the log, so the 5 they still owe the cycle is a
+      // real charge and not an empty window.
+      expect(await noteCount(theirs)).toBe(1);
+    });
+
+    it("leaves a member who gave nothing where they were", async () => {
+      const bystander = await member(`f-iso-none-${tag}`);
+      const giver = await member(`f-iso-giver-${tag}`);
+      const to = await member(`f-iso-recip-${tag}`);
+
+      const before = await allowanceFor(fpool, bystander, 1);
+      expect(before.spent).toBe(0);
+      // AN EMPTY WINDOW, said as a row count and not as a zero. A member who
+      // gave nothing and a member whose gifts were all reversed both read a
+      // spend of zero, and they are different facts.
+      expect(await noteCount(bystander)).toBe(0);
+
+      const gift = await give(fpool, { fromUserId: giver, toUserId: to, amount: 6 }, AT_GUEST);
+      expect(gift.ok, gift.ok === false ? gift.error : "").toBe(true);
+      const undone = await reverse(fpool, keys.gratitudeGiven(villageId(), String(gift.noteId)), {
+        from: memberAccount(to),
+        to: RECOGNITION_FAUCET,
+        tokenSlug: HEARTS,
+        amount: 6 * ONE,
+      });
+      expect(undone.ok, undone.ok === false ? undone.error : "").toBe(true);
+
+      const after = await allowanceFor(fpool, bystander, 1);
+      expect(after.spent).toBe(0);
+      expect(after.remaining).toBe(before.total);
+      expect(await noteCount(bystander)).toBe(0);
+      // The other member IS refunded, so the reversal really happened and this
+      // case is measuring isolation and not a reversal that did nothing.
+      const giverAfter = await allowanceFor(fpool, giver, 1);
+      expect(giverAfter.spent).toBe(0);
+      expect(await noteCount(giver)).toBe(1);
+
+      /*
+       * THE TWO LINES ABOVE ARE GREEN ON THE BROKEN ENGINE, AND THAT IS THE
+       * POINT OF THE TWO BELOW. `spent` is floored at zero, so a bystander
+       * holding a leaked credit and a bystander holding nothing print the same
+       * number: the old code computed max(0, 0 - 6) and read 0, the same 0 this
+       * case wanted. The leak only becomes visible once they have something for
+       * it to be subtracted from, so they give 2 and it has to cost 2.
+       */
+      const own = await give(fpool, { fromUserId: bystander, toUserId: to, amount: 2 }, AT_GUEST);
+      expect(own.ok, own.ok === false ? own.error : "").toBe(true);
+      expect(await notedAmount(String(own.noteId))).toBe(2);
+      const spending = await allowanceFor(fpool, bystander, 1);
+      expect(spending.spent).toBe(2);
+      expect(spending.remaining).toBe(before.total - 2);
+    });
+
+    it("refunds a gift once however many times it is reversed", async () => {
+      const from = await member(`f-idem-from-${tag}`);
+      const to = await member(`f-idem-to-${tag}`);
+
+      const kept = await give(fpool, { fromUserId: from, toUserId: to, amount: 4 }, AT_GUEST);
+      const gone = await give(fpool, { fromUserId: from, toUserId: to, amount: 7 }, AT_GUEST);
+      expect(kept.ok).toBe(true);
+      expect(gone.ok).toBe(true);
+      expect((await allowanceFor(fpool, from, 1)).spent).toBe(11);
+
+      const key = keys.gratitudeGiven(villageId(), String(gone.noteId));
+      const claim = { from: memberAccount(to), to: RECOGNITION_FAUCET, tokenSlug: HEARTS, amount: 7 * ONE };
+      const first = await reverse(fpool, key, claim);
+      expect(first.ok, first.ok === false ? first.error : "").toBe(true);
+      const second = await reverse(fpool, key, claim);
+      expect(second.ok, second.ok === false ? second.error : "").toBe(true);
+      expect(second.ok && second.duplicate).toBe(true);
+
+      // ONE mirror row on the ledger, which is what makes the second call a
+      // duplicate and not a second refund.
+      expect(await mirrorCount(key)).toBe(1);
       const after = await allowanceFor(fpool, from, 1);
-      // 8 given, less the 5 the case above reversed for a DIFFERENT giver.
-      expect(after.spent).toBe(8 - 5);
-      expect(after.remaining).toBe(after.total - (8 - 5));
+      expect(after.spent).toBe(4);
+      expect(after.remaining).toBe(after.total - 4);
+      // The recipient keeps the gift that stands, in minor units.
+      expect(await balanceOf(fpool, memberAccount(to), HEARTS)).toBe(4 * ONE);
+    });
+
+    /*
+     * THE SHARE CAP, WHICH IS THE OTHER FIGURE A REVERSAL HAS TO UNWIND.
+     *
+     * `gratitude.max_share_per_recipient` is weighed against what this giver
+     * has put on THIS recipient, and that sum was never village-wide, so D30
+     * did not reach it: it was already keyed on `from_id` AND `to_id`. What it
+     * did not do was subtract reversals at all, so a member got their allowance
+     * back and could not spend it on the person it came back from. This pins
+     * both halves: the headroom returns for the giver, and it returns for
+     * nobody else.
+     */
+    it("returns the giver's headroom on that recipient and nobody else's", async () => {
+      const mine = await member(`f-cap-iso-mine-${tag}`);
+      const theirs = await member(`f-cap-iso-theirs-${tag}`);
+      const to = await member(`f-cap-iso-to-${tag}`);
+      const cap = shareCapFor((await allowanceFor(fpool, mine, 1)).total);
+      expect(cap).toBeGreaterThan(1);
+
+      // Both members fill their share on the SAME recipient.
+      const a = await give(fpool, { fromUserId: mine, toUserId: to, amount: cap }, AT_GUEST);
+      const b = await give(fpool, { fromUserId: theirs, toUserId: to, amount: cap }, AT_GUEST);
+      expect(a.ok, a.ok === false ? a.error : "").toBe(true);
+      expect(b.ok, b.ok === false ? b.error : "").toBe(true);
+      const full = await give(fpool, { fromUserId: mine, toUserId: to, amount: 1 }, AT_GUEST);
+      expect(full.ok).toBe(false);
+      expect(full.ok === false && full.error).toContain(`${cap} is the most`);
+
+      const undone = await reverse(fpool, keys.gratitudeGiven(villageId(), String(a.noteId)), {
+        from: memberAccount(to),
+        to: RECOGNITION_FAUCET,
+        tokenSlug: HEARTS,
+        amount: cap * ONE,
+      });
+      expect(undone.ok, undone.ok === false ? undone.error : "").toBe(true);
+
+      // The reverser can put the whole share on that person again.
+      const again = await give(fpool, { fromUserId: mine, toUserId: to, amount: cap }, AT_GUEST);
+      expect(again.ok, again.ok === false ? again.error : "").toBe(true);
+      // And the other member's headroom on the same recipient did not move.
+      const other = await give(fpool, { fromUserId: theirs, toUserId: to, amount: 1 }, AT_GUEST);
+      expect(other.ok).toBe(false);
+      expect(other.ok === false && other.error).toContain(`you have given them ${cap}`);
+      // Read off the log: three notes stand for this pair and one is reversed.
+      expect(await noteCount(mine)).toBe(2);
+      expect((await allowanceFor(fpool, mine, 1)).spent).toBe(cap);
+      expect((await allowanceFor(fpool, theirs, 1)).spent).toBe(cap);
     });
   });
 }
