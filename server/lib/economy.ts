@@ -59,6 +59,7 @@ import { numberVar } from "./variables";
 import {
   memberAccount,
   postTransfer,
+  postTransferOn,
   registerToken,
   tokenDef,
   CYCLE_POOL_FAUCET,
@@ -506,11 +507,33 @@ export function clampToCeiling(posted: number, rule: MintRule): number {
  *
  * Refunds are always reversals. Never a fresh mint: a mint would inherit none
  * of these guards and would be a way to make the token it claims to return.
+ *
+ * ── THE MIRROR IS READ OFF THE ORIGINAL ROW, NEVER TAKEN FROM THE CALLER ───
+ *
+ * This used to take `from`, `to`, `tokenSlug` and `amount` from its caller and
+ * check only that SOME row carried the original key. So it would reverse a
+ * 25-credit posting as a 1,000,000-credit payment to the same member, in a
+ * different token, in either direction, and nothing would notice: conservation
+ * still balances, because a mirror is two legs, and the audit reads "reversal
+ * of <key>" and believes it. An audit did exactly that and every invariant
+ * stayed green.
+ *
+ * Money that can be created has to be correctable. But a correction that can
+ * invent its own amount is not a correction, it is a mint with a nicer name.
+ * So the four numbers are DERIVED from the row the key names — amount, token,
+ * and both accounts, swapped — and a caller value that disagrees is refused
+ * rather than quietly overridden. Refused, because a caller passing a
+ * different amount believes something false about what it is undoing, and
+ * correcting it silently would leave that belief in place.
+ *
+ * The caller's fields are therefore OPTIONAL and are only ever an assertion.
+ * Callers that pass them get them checked; callers that pass nothing get the
+ * true mirror.
  */
 export async function reverse(
   pool: Pool,
   originalKey: string,
-  opts: { from: string; to: string; tokenSlug: string; amount: number; note?: string },
+  opts: { from?: string; to?: string; tokenSlug?: string; amount?: number; note?: string } = {},
 ): Promise<MintOutcome> {
   if (originalKey.startsWith("reversal:")) {
     return { ok: false, error: "a reversal cannot itself be reversed" };
@@ -519,21 +542,54 @@ export async function reverse(
   const tooLong = keyTooLong(mirrorKey);
   if (tooLong) return { ok: false, error: tooLong };
 
+  // The row, not its existence. Everything the mirror posts comes from here.
   const [orig] = await pool.query<RowDataPacket[]>(
-    "SELECT 1 FROM `token_ledger` WHERE `idempotency_key` = ? LIMIT 1",
+    "SELECT `from_account`, `to_account`, `token_type`, `amount` FROM `token_ledger` " +
+      "WHERE `idempotency_key` = ? LIMIT 1",
     [originalKey],
   );
   if (!orig.length) {
     return { ok: false, error: "there is no such posting to reverse" };
   }
-
   // The mirror runs the opposite way: what the original credited, this debits.
+  const from = String(orig[0].to_account);
+  const to = String(orig[0].from_account);
+  const tokenSlug = String(orig[0].token_type);
+  const amount = Number(orig[0].amount);
+
+  const disagreement =
+    opts.amount !== undefined && Number(opts.amount) !== amount
+      ? `this posting moved ${amount} and a reversal of ${Number(opts.amount)} was asked for`
+      : opts.tokenSlug !== undefined && opts.tokenSlug !== tokenSlug
+        ? `this posting moved ${tokenSlug} and a reversal in ${opts.tokenSlug} was asked for`
+        : opts.from !== undefined && opts.from !== from
+          ? `this posting credited ${from} and a reversal out of ${opts.from} was asked for`
+          : opts.to !== undefined && opts.to !== to
+            ? `this posting was sent by ${to} and a reversal back to ${opts.to} was asked for`
+            : null;
+  if (disagreement) {
+    return { ok: false, error: `a reversal undoes exactly what was posted: ${disagreement}` };
+  }
+
   const res = await postTransfer(pool, {
-    from: opts.from,
-    to: opts.to,
-    tokenType: opts.tokenSlug,
-    amount: opts.amount,
+    from,
+    to,
+    tokenType: tokenSlug,
+    amount,
     source: "reversal",
+    /*
+     * A CLAWBACK OF ALREADY-SPENT VALUE MUST BE ABLE TO COMPLETE.
+     *
+     * The account this debits may have spent what it was wrongly given. Without
+     * this the overdraft check refuses the whole correction, the mistaken credit
+     * stands, and the only remaining repair is a hand-written ledger row. With
+     * it, the correction lands and the member's balance goes negative by
+     * whatever they had already spent — which is the true statement of what
+     * they hold, is carried in the balance every surface reads rather than in
+     * a suspense account beside it, and clears itself as they earn. `reversal`
+     * is in ALLOW_NEGATIVE_SOURCES for exactly this; see the note on that set.
+     */
+    allowNegative: true,
     // Prefix, because source_ref is varchar(120) and a quest occurrence key can
     // run past it. A prefix is enough for the allowance query, which matches on
     // `gratitude.given:<village>:%`, and the whole key rides in the note so a
@@ -744,8 +800,29 @@ export type GratitudeRowGuard = (
   alreadyToThisPerson: number,
 ) => Promise<{ ok: true } | { ok: false; error: string; status?: number }>;
 
+/**
+ * THE LEDGER CREDIT, WRITTEN INSIDE THE NOTE'S OWN TRANSACTION.
+ *
+ * The note row IS the allowance charge: the allowance is computed by summing
+ * `gratitude_log`, so the moment the note commits the member has been charged.
+ * Posting the credit afterwards, on its own connection, therefore has a window
+ * in which the charge is real and the delivery is not — and `postTransfer`
+ * RETHROWS on any database error (a lock wait, a dropped connection), so the
+ * window is reachable by ordinary bad luck and not only by a crash.
+ *
+ * Both doors used to sit in that window. `give()` below read the refusal and
+ * returned it, leaving the note and the charge behind; `sendGratitude()` in
+ * server/lib/gratitude.ts did the same and did not even wrap the throw. Now
+ * the credit runs here, on the connection the note was written on, before the
+ * commit: the two land together or neither lands, and a ledger refusal takes
+ * the note back so the member keeps their allowance and their words.
+ *
+ * Returns the ledger's own result. `ok: false` rolls the whole thing back.
+ */
+export type GratitudeRowPost = (conn: PoolConnection, noteId: string) => Promise<TransferResult>;
+
 export type GratitudeRowResult =
-  | { ok: true; noteId: string; allowance: Allowance }
+  | { ok: true; noteId: string; allowance: Allowance; credit?: TransferResult }
   | { ok: false; error: string; duplicate?: boolean; allowance?: Allowance; status?: number };
 
 /**
@@ -777,6 +854,7 @@ export async function writeGratitudeRow(
   input: GratitudeRowInput,
   stageMultiplier: number,
   guard: GratitudeRowGuard,
+  post?: GratitudeRowPost,
 ): Promise<GratitudeRowResult> {
   const conn = await pool.getConnection();
   try {
@@ -848,8 +926,30 @@ export async function writeGratitudeRow(
       throw err;
     }
 
+    /*
+     * THE CREDIT, BEFORE THE COMMIT. See `GratitudeRowPost` above for why.
+     *
+     * A refusal rolls the note back with it, so the member keeps the allowance
+     * this row would have charged. A THROW is not handled here on purpose: the
+     * outer catch already rolls back, which is exactly the right answer, and
+     * that is the failure both doors used to leak.
+     */
+    let credit: TransferResult | undefined;
+    if (post) {
+      credit = await post(conn, noteId);
+      if (!credit.ok) {
+        await conn.rollback();
+        return {
+          ok: false,
+          error: credit.error ?? "the ledger refused the credit",
+          allowance,
+          status: 500,
+        };
+      }
+    }
+
     await conn.commit();
-    return { ok: true, noteId, allowance };
+    return { ok: true, noteId, allowance, credit };
   } catch (err: any) {
     try {
       await conn.rollback();
@@ -879,11 +979,18 @@ export async function writeGratitudeRow(
  * context is ever carried. `sendGratitude` (server/lib/gratitude.ts) is the
  * other caller.
  *
- * The ledger post happens AFTER the commit, on purpose, and the order is the
- * conservative one. The note row consumes the allowance, so a crash between
- * the two leaves an allowance spent and no hearts minted, which is visible and
- * keyed. The other order would mint hearts that no allowance had paid for,
- * which is the failure that costs something.
+ * ── THE LEDGER POST NOW RIDES THE NOTE'S OWN TRANSACTION ─────────────────
+ *
+ * It used to happen AFTER the commit, and this header used to argue that the
+ * order was the conservative one: the note row consumes the allowance, so a
+ * failure between the two leaves an allowance spent and no Gratitude minted,
+ * which is at least visible, where the other order would mint Gratitude no
+ * allowance had paid for.
+ *
+ * Both of those are losses, and neither is necessary. The credit is now posted
+ * on the SAME connection, inside the SAME transaction, before the commit (see
+ * `GratitudeRowPost`). The note and the money land together or neither lands,
+ * so there is no order to be conservative about and no window to argue over.
  *
  * ── A RETRY DOES NOT HEAL IT, AND THIS COMMENT USED TO SAY IT DID ───────────
  *
@@ -892,7 +999,9 @@ export async function writeGratitudeRow(
  * sentence: a retry runs this function again and mints a NEW note id, so it is
  * a new key, a new row and a second charge against the allowance. Nothing in
  * this product ever re-posts an existing note (`keys.gratitudeGiven` has one
- * call site, below), so the orphaned row stays orphaned.
+ * call site, below), so the orphaned row stays orphaned. That is why the two
+ * writes had to become one transaction rather than one transaction and a
+ * retry.
  *
  * ── WHICH TURNED A CRASH WINDOW INTO AN EVERY-TIME BUG ──────────────────────
  *
@@ -908,10 +1017,12 @@ export async function writeGratitudeRow(
  * note is something somebody wrote and losing their words to a ledger refusal
  * is its own kind of wrong. Found by Lane TESTRUN, round 7.
  *
- * WHAT THIS DOES NOT CLOSE, said plainly: the crash window above is still
- * there, and so is any other reason the ledger might refuse. This closes the
- * one refusal that is knowable in advance and was firing on every give in
- * every un-launched village.
+ * It is still asked early, and the early ask is still the better refusal: a
+ * member hears the gate's sentence instead of watching their words vanish
+ * into a rollback. What has changed is what happens to the refusals that
+ * CANNOT be known in advance — a lock wait, a dropped connection, an
+ * overdraft — which used to leave the note and the charge standing and now
+ * take the note with them.
  */
 export async function give(
   pool: Pool,
@@ -951,6 +1062,19 @@ export async function give(
     // amount/self-gratitude/allowance/share checks it has always run, just
     // run under the shared lock instead of this function's own copy of it.
     async (_conn, allowance, alreadyToThisPerson) => checkGive(input, allowance, alreadyToThisPerson),
+    // The credit, on the note's own connection and inside its transaction, so
+    // the two land together. Keyed on the note, so nothing double-credits.
+    async (conn, noteId) =>
+      postTransferOn(conn, {
+        from: RECOGNITION_FAUCET,
+        to: memberAccount(input.toUserId),
+        tokenType: HEARTS,
+        amount,
+        source: "gratitude_received",
+        sourceRef: noteId,
+        description: input.note,
+        idempotencyKey: keys.gratitudeGiven(villageId(), noteId),
+      }),
   );
 
   if (!result.ok) {
@@ -958,23 +1082,13 @@ export async function give(
     if (result.duplicate) return { ok: false, error: "That thanks is already sent" };
     return { ok: false, error: result.error };
   }
-  const noteId = result.noteId;
-
-  // Outside the lock: keyed on the note, so a retry credits once.
-  const res = await postTransfer(pool, {
-    from: RECOGNITION_FAUCET,
-    to: memberAccount(input.toUserId),
-    tokenType: HEARTS,
-    amount,
-    source: "gratitude_received",
-    sourceRef: noteId,
-    description: input.note,
-    idempotencyKey: keys.gratitudeGiven(villageId(), noteId),
-  });
-  if (!res.ok && !res.duplicate) {
-    return { ok: false, error: res.error ?? "the ledger refused the credit" };
-  }
-  return { ok: true, duplicate: res.duplicate, balance: res.toBalance, noteId };
+  const credit = result.credit;
+  return {
+    ok: true,
+    duplicate: credit?.duplicate ?? false,
+    balance: credit?.toBalance ?? 0,
+    noteId: result.noteId,
+  };
 }
 
 // ── Sources: what a confirmed claim mints ───────────────────────────────────
@@ -1100,7 +1214,16 @@ export async function mintForConfirmedClaim(
   pool: Pool,
   claim: { id: string; questId: string; userId: string; confirmedAt?: Date | string | null },
 ): Promise<{
-  minted: Array<{ token: string; amount: number }>;
+  /**
+   * What was posted, in the token's own MINOR UNITS — the number that went
+   * into the ledger row, not the human figure the rule was read as. Voice
+   * rides in thousandths, so a rule of 0.1 posts 100 and this says 100. It
+   * used to say 0.1 while the ledger said 100, which made the log and the
+   * ledger two different accounts of the same payment and left nothing to
+   * reconcile them against. `runSettlement` already reports units; this is the
+   * same field, spelled the same way, so the two mint paths agree.
+   */
+  minted: Array<{ token: string; units: number }>;
   skipped?: string;
   /**
    * Rules that were enabled, in force, and could not pay. An empty array is
@@ -1129,7 +1252,7 @@ export async function mintForConfirmedClaim(
   }
 
   const rules = await rulesFor(pool, "quest.completed");
-  const minted: Array<{ token: string; amount: number }> = [];
+  const minted: Array<{ token: string; units: number }> = [];
   const unpayable: Array<{ token: string; reason: string }> = [];
   for (const r of rules) {
     // Recognition is the consent route's job. See above.
@@ -1189,7 +1312,8 @@ export async function mintForConfirmedClaim(
       // quietly paid in one token instead of two.
       idempotencyKey: `${keys.questCompleted(villageId(), claim.questId, claim.id, claim.userId)}:${r.tokenSlug}`,
     });
-    if (res.ok && !res.duplicate) minted.push({ token: r.tokenSlug, amount: human });
+    // UNITS, which is what `mint` was handed and what the ledger row holds.
+    if (res.ok && !res.duplicate) minted.push({ token: r.tokenSlug, units: amount });
     // A refusal from the ledger itself is the same class of news as a rule the
     // engine cannot honour, and it was equally silent before: the ledger's own
     // sentence went into a variable nobody read.
@@ -1561,6 +1685,44 @@ export async function queueRuleChange(
     const ceiling = change.ceiling ?? Number(rule.ceiling ?? 0);
     if (ceiling > 0 && change.amount > ceiling) {
       return { ok: false, error: `${change.amount} is above this rule's ceiling of ${ceiling}` };
+    }
+    /*
+     * ── AN AMOUNT THAT ROUNDS AWAY IS REFUSED AT SAVE TIME ────────────────
+     *
+     * `mint_rules.amount` is decimal(18,4) and most tokens here have decimals
+     * 0, so a founder could save 0.4 Village Credits, watch the form accept
+     * it, watch the Mint panel publish the rule as live, and have it pay
+     * nothing for the rest of the village's life. Both mint paths already
+     * report it — `mintForConfirmedClaim` and `runSettlement` name it as
+     * unpayable — but only once somebody has already been promised it and
+     * gone unpaid, in a log the founder is not reading.
+     *
+     * The column can hold it, the token cannot, and the honest place to say so
+     * is the moment it is typed. The refusal names the smallest amount this
+     * token CAN hold so the founder knows what to type instead.
+     */
+    const slug = String(rule.token_slug);
+    const decimals = tokenDef(slug)?.decimals ?? 0;
+    const step = 1 / 10 ** decimals;
+    // Scaled and compared with a tolerance, because 0.3 * 1000 is 300.00000000000006
+    // in binary and an exact test would refuse an amount that is perfectly whole.
+    const scaled = Number(change.amount) * 10 ** decimals;
+    const drift = Math.abs(scaled - Math.round(scaled));
+    if (drift > 1e-6 * Math.max(1, Math.abs(scaled))) {
+      return {
+        ok: false,
+        error:
+          `${change.amount} is not a whole number of this token's smallest unit. ` +
+          `${slug} is held in steps of ${step}, so round to the nearest one.`,
+      };
+    }
+    if (toLedgerUnits(slug, change.amount) <= 0) {
+      return {
+        ok: false,
+        error:
+          `${change.amount} is smaller than the smallest amount ${slug} can hold, ` +
+          `which is ${step}. A rule saved at this amount would pay nobody.`,
+      };
     }
   }
 

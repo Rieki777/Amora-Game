@@ -241,20 +241,43 @@ export interface TransferInput {
   /**
    * Permit this post to drive a NON-FAUCET account below zero. Only honored
    * when `source` is in ALLOW_NEGATIVE_SOURCES — a negative balance is the
-   * truthful state after a grace-night burn or a chargeback clawback, never
-   * a convenience for ordinary spending paths.
+   * truthful state after a grace-night burn, a chargeback clawback or a
+   * correction of value already spent, never a convenience for ordinary
+   * spending paths.
    */
   allowNegative?: boolean;
 }
 
 /**
  * The only sources that may legally drive a non-faucet account negative
- * (with allowNegative set): stay-night burns inside the grace window, and
- * mechanical reversal legs after a refund/dispute. Static ON PURPOSE —
- * extending it is a one-line reviewed change to the keystone, not a runtime
- * registration that can race the boot invariant check.
+ * (with allowNegative set): stay-night burns inside the grace window,
+ * mechanical reversal legs after a refund/dispute, and `reversal`, the source
+ * `reverse()` in server/lib/economy.ts stamps on every correction it writes.
+ * Static ON PURPOSE — extending it is a one-line reviewed change to the
+ * keystone, not a runtime registration that can race the boot invariant check.
+ *
+ * ── WHY A CORRECTION MAY TAKE SOMEBODY BELOW ZERO ────────────────────────
+ *
+ * A reversal claws back value that was posted in error, and the member may
+ * already have spent it. Without this the clawback is simply REFUSED: the
+ * mistaken credit stands, the ledger keeps reporting value the village never
+ * meant to issue, and the only remaining fix is a hand-written row. With it,
+ * the clawback completes and the member's balance goes negative by whatever
+ * they had already spent.
+ *
+ * A negative balance is not a debt the platform collects. It is the honest
+ * statement that this member holds less than nothing until new earnings bring
+ * them back to zero, and the overdraft check below already refuses any further
+ * spend that would take an account under water, so a member at -5 simply
+ * cannot spend until they are back above it. It sits in the balance every
+ * surface already reads rather than in a suspense account beside it, which is
+ * the point: somebody has to be able to see it and ask.
  */
-export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal"]);
+export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set([
+  "stay_night",
+  "payment_reversal",
+  "reversal",
+]);
 
 export interface TransferResult {
   ok: boolean;
@@ -283,19 +306,6 @@ async function recomputeBalance(conn: PoolConnection, accountId: string, tokenTy
   return Number(rows[0]?.balance ?? 0);
 }
 
-/**
- * Post one transfer, transactionally and idempotently.
- *
- * Inside the transaction: the transfer row is inserted (the UNIQUE
- * idempotency key rejects replays), both touched balances are RECOMPUTED from
- * the transfer table, and the sending account is checked for overdraft —
- * non-faucet accounts must never go negative; if this post would take one
- * below zero the whole transaction rolls back and nothing moved.
- *
- * Member accounts (mem:*) are created on first touch; system accounts must
- * already exist — a typo'd system id is a bug to hear about, not an account
- * to invent.
- */
 /**
  * Everything true of a leg BEFORE any transaction opens. Extracted so the
  * single-leg and paired posters cannot drift apart: one validator, two
@@ -365,8 +375,26 @@ export async function ledgerEntryExists(pool: Pool, idempotencyKey: string): Pro
  */
 export type TransferGuard = (conn: PoolConnection) => Promise<string | null>;
 
-export async function postTransfer(
-  pool: Pool,
+/**
+ * ONE LEG, ON A CONNECTION THE CALLER ALREADY OWNS, INSIDE A TRANSACTION THE
+ * CALLER ALREADY OPENED.
+ *
+ * `postTransfer` below is exactly this function plus a transaction, and the
+ * split is the whole point: a caller whose OWN write has to stand or fall with
+ * the money can now put both in one transaction instead of committing the
+ * first and hoping for the second. `writeGratitudeRow` in
+ * server/lib/economy.ts is the caller that needed it. The gratitude note IS
+ * the allowance charge, so a note that commits while its credit throws spends
+ * a member's allowance and delivers nothing, and no amount of catching
+ * afterwards closes the window between the two commits.
+ *
+ * It never commits and never rolls back. A refusal comes back as `ok: false`
+ * with the transaction still open and nothing written that the owner's
+ * rollback will not take back; a database error still throws, and unwinding is
+ * the transaction owner's job.
+ */
+export async function postTransferOn(
+  conn: PoolConnection,
   input: TransferInput,
   guard?: TransferGuard,
 ): Promise<TransferResult> {
@@ -374,110 +402,136 @@ export async function postTransfer(
   if ("error" in checked) return { ok: false, duplicate: false, toBalance: 0, error: checked.error };
   const { tokenType, amount } = checked;
 
+  // Accounts: members materialize on first touch, system ids must exist.
+  for (const acct of [input.from, input.to]) {
+    if (acct.startsWith("mem:")) {
+      await conn.query(
+        "INSERT IGNORE INTO ledger_accounts (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
+        [acct, "member", acct.slice(4), acct.slice(4)],
+      );
+    }
+  }
+  const [acctRows] = await conn.query<RowDataPacket[]>(
+    "SELECT id, faucet FROM ledger_accounts WHERE id IN (?, ?) FOR UPDATE",
+    [input.from, input.to],
+  );
+  const accounts = new Map(acctRows.map((r) => [String(r.id), { faucet: !!r.faucet }]));
+  const fromAcct = accounts.get(input.from);
+  if (!fromAcct || !accounts.get(input.to)) {
+    const missing = !fromAcct ? input.from : input.to;
+    return { ok: false, duplicate: false, toBalance: 0, error: `account "${missing}" does not exist` };
+  }
+
+  /*
+   * ISSUANCE WAITS FOR THE VILLAGE (R67, lane GAMESTART).
+   *
+   * A posting out of a faucet creates tokens; every other posting moves
+   * tokens that already exist. That distinction is this table's `faucet`
+   * column, read one statement above for the overdraft rule, so the gate
+   * costs nothing extra and sees every faucet there is instead of the one
+   * the admin mint cap knows about.
+   *
+   * Before the launch ballot carries, a village may build its whole Game and
+   * issue nothing. Spending, swapping and member-to-member sending are
+   * untouched here on purpose: a village that has not started has nothing to
+   * spend, so this takes nothing away from anybody.
+   */
+  if (fromAcct.faucet) {
+    const closed = await issuanceRefusal(conn);
+    if (closed) return { ok: false, duplicate: false, toBalance: 0, error: closed };
+  }
+
+  // The veto, under the lock the accounts are already holding.
+  if (guard) {
+    const refusal = await guard(conn);
+    if (refusal) return { ok: false, duplicate: false, toBalance: 0, error: refusal };
+  }
+
+  try {
+    await conn.query(
+      "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, source_ref, description, idempotency_key) " +
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+      [
+        `led-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        input.from,
+        input.to,
+        tokenType,
+        amount,
+        input.source,
+        input.sourceRef ?? null,
+        input.description ?? null,
+        input.idempotencyKey,
+      ],
+    );
+  } catch (e: any) {
+    if (e?.code === "ER_DUP_ENTRY") {
+      // Replay: the money already moved exactly once. Report the current state.
+      // Read on this connection rather than the pool: MySQL does not abandon a
+      // transaction over one failed statement, so nothing has to be rolled
+      // back first, and the row this reads was committed by the original post.
+      const [b] = await conn.query<RowDataPacket[]>(
+        "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ?",
+        [input.to, tokenType],
+      );
+      return { ok: true, duplicate: true, toBalance: Number(b[0]?.balance ?? 0) };
+    }
+    throw e;
+  }
+
+  // Recompute both caches in a stable order (avoids lock-order deadlocks).
+  const ordered = [input.from, input.to].sort();
+  const balances = new Map<string, number>();
+  for (const acct of ordered) balances.set(acct, await recomputeBalance(conn, acct, tokenType));
+
+  const fromBalance = balances.get(input.from)!;
+  const negativeAllowed = !!input.allowNegative && ALLOW_NEGATIVE_SOURCES.has(input.source);
+  if (!fromAcct.faucet && fromBalance < 0 && !negativeAllowed) {
+    return {
+      ok: false,
+      duplicate: false,
+      toBalance: 0,
+      error: `insufficient ${tokenType}: "${input.from}" holds ${fromBalance + amount} and cannot overdraft`,
+    };
+  }
+
+  return { ok: true, duplicate: false, toBalance: balances.get(input.to)! };
+}
+
+/**
+ * Post one transfer, transactionally and idempotently.
+ *
+ * Inside the transaction: the transfer row is inserted (the UNIQUE
+ * idempotency key rejects replays), both touched balances are RECOMPUTED from
+ * the transfer table, and the sending account is checked for overdraft —
+ * non-faucet accounts must never go negative; if this post would take one
+ * below zero the whole transaction rolls back and nothing moved.
+ *
+ * Member accounts (mem:*) are created on first touch; system accounts must
+ * already exist — a typo'd system id is a bug to hear about, not an account
+ * to invent.
+ *
+ * The work is `postTransferOn` above; this owns the transaction around it. The
+ * comment describing the work used to sit two functions further up, over
+ * `validateLeg`, where it had drifted and where nobody reading `postTransfer`
+ * would find it.
+ */
+export async function postTransfer(
+  pool: Pool,
+  input: TransferInput,
+  guard?: TransferGuard,
+): Promise<TransferResult> {
+  // Answered before a pooled connection is taken, because a leg that cannot be
+  // posted at all should not queue behind traffic to find that out.
+  const checked = validateLeg(input);
+  if ("error" in checked) return { ok: false, duplicate: false, toBalance: 0, error: checked.error };
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-
-    // Accounts: members materialize on first touch, system ids must exist.
-    for (const acct of [input.from, input.to]) {
-      if (acct.startsWith("mem:")) {
-        await conn.query(
-          "INSERT IGNORE INTO ledger_accounts (id, kind, user_id, label, faucet) VALUES (?,?,?,?,0)",
-          [acct, "member", acct.slice(4), acct.slice(4)],
-        );
-      }
-    }
-    const [acctRows] = await conn.query<RowDataPacket[]>(
-      "SELECT id, faucet FROM ledger_accounts WHERE id IN (?, ?) FOR UPDATE",
-      [input.from, input.to],
-    );
-    const accounts = new Map(acctRows.map((r) => [String(r.id), { faucet: !!r.faucet }]));
-    const fromAcct = accounts.get(input.from);
-    if (!fromAcct || !accounts.get(input.to)) {
-      await conn.rollback();
-      const missing = !fromAcct ? input.from : input.to;
-      return { ok: false, duplicate: false, toBalance: 0, error: `account "${missing}" does not exist` };
-    }
-
-    /*
-     * ISSUANCE WAITS FOR THE VILLAGE (R67, lane GAMESTART).
-     *
-     * A posting out of a faucet creates tokens; every other posting moves
-     * tokens that already exist. That distinction is this table's `faucet`
-     * column, read one statement above for the overdraft rule, so the gate
-     * costs nothing extra and sees every faucet there is instead of the one
-     * the admin mint cap knows about.
-     *
-     * Before the launch ballot carries, a village may build its whole Game and
-     * issue nothing. Spending, swapping and member-to-member sending are
-     * untouched here on purpose: a village that has not started has nothing to
-     * spend, so this takes nothing away from anybody.
-     */
-    if (fromAcct.faucet) {
-      const closed = await issuanceRefusal(conn);
-      if (closed) {
-        await conn.rollback();
-        return { ok: false, duplicate: false, toBalance: 0, error: closed };
-      }
-    }
-
-    // The veto, under the lock the accounts are already holding.
-    if (guard) {
-      const refusal = await guard(conn);
-      if (refusal) {
-        await conn.rollback();
-        return { ok: false, duplicate: false, toBalance: 0, error: refusal };
-      }
-    }
-
-    try {
-      await conn.query(
-        "INSERT INTO token_ledger (id, from_account, to_account, token_type, amount, source, source_ref, description, idempotency_key) " +
-          "VALUES (?,?,?,?,?,?,?,?,?)",
-        [
-          `led-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          input.from,
-          input.to,
-          tokenType,
-          amount,
-          input.source,
-          input.sourceRef ?? null,
-          input.description ?? null,
-          input.idempotencyKey,
-        ],
-      );
-    } catch (e: any) {
-      await conn.rollback();
-      if (e?.code === "ER_DUP_ENTRY") {
-        // Replay: the money already moved exactly once. Report the current state.
-        const [b] = await pool.query<RowDataPacket[]>(
-          "SELECT balance FROM token_balances WHERE account_id = ? AND token_type = ?",
-          [input.to, tokenType],
-        );
-        return { ok: true, duplicate: true, toBalance: Number(b[0]?.balance ?? 0) };
-      }
-      throw e;
-    }
-
-    // Recompute both caches in a stable order (avoids lock-order deadlocks).
-    const ordered = [input.from, input.to].sort();
-    const balances = new Map<string, number>();
-    for (const acct of ordered) balances.set(acct, await recomputeBalance(conn, acct, tokenType));
-
-    const fromBalance = balances.get(input.from)!;
-    const negativeAllowed = !!input.allowNegative && ALLOW_NEGATIVE_SOURCES.has(input.source);
-    if (!fromAcct.faucet && fromBalance < 0 && !negativeAllowed) {
-      await conn.rollback();
-      return {
-        ok: false,
-        duplicate: false,
-        toBalance: 0,
-        error: `insufficient ${tokenType}: "${input.from}" holds ${fromBalance + amount} and cannot overdraft`,
-      };
-    }
-
-    await conn.commit();
-    return { ok: true, duplicate: false, toBalance: balances.get(input.to)! };
+    const res = await postTransferOn(conn, input, guard);
+    if (res.ok) await conn.commit();
+    else await conn.rollback();
+    return res;
   } catch (e) {
     try { await conn.rollback(); } catch { /* already rolled back */ }
     throw e;
@@ -825,7 +879,8 @@ export interface InvariantReport {
  *     path that skipped the discipline).
  *  5. No non-faucet account is ILLEGALLY negative — negative is legal only
  *     where the account has a debit from an ALLOW_NEGATIVE_SOURCES source
- *     (grace-night burn, payment reversal); anything else refuses boot.
+ *     (grace-night burn, payment reversal, a `reverse()` correction clawing
+ *     back value the member had already spent); anything else refuses boot.
  *  6. NO RECOGNITION, EQUITY OR VOICE TOKEN IS MARKED TRANSFERABLE. Only
  *     credit tokens are ever sent between members. This one is here because
  *     the wrong value shipped and sat unread: 0006 seeded `gratitude` with
