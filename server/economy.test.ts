@@ -3463,7 +3463,14 @@ function gratitudeAtScale(decimals: number): void {
 
       // MINOR to the ledger, and on the token this door now NAMES rather than
       // inheriting from two separate fallbacks in two files.
-      const leg = await legFor(`gratitude_received:${out.entry.id}`);
+      //
+      // THE KEY IS THE BUILDER'S, and this line used to spell it by hand as
+      // `gratitude_received:<entry id>`, which is what the door wrote and
+      // what the allowance's refund arm could never find. The assertion below
+      // is about units and the token; asserting them through the old spelling
+      // made this case a statement that the mismatch was the specification.
+      // server/gratitudeKeys.test.ts holds the cases about the key itself.
+      const leg = await legFor(keys.gratitudeGiven(villageId(), out.entry.id));
       expect(leg).not.toBeNull();
       expect(String(leg.token_type)).toBe(HEARTS);
       expect(Number(leg.amount)).toBe(7 * ONE);

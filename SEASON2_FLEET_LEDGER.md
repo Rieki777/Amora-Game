@@ -236,6 +236,22 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   gates green, `check-migration-compat` applied all 113 previous-release migrations against a
   populated database, seeded rows in all three tables these files name, applied the four, and
   confirmed a second run applies zero.
+- **economics keys lane, 2026-09-04: claims 0154 for `drizzle/0154_one_gift_one_key.sql`.** One
+  UPDATE, no DDL: it rewrites `token_ledger.idempotency_key` for the gratitude legs the
+  acknowledgement door wrote under `gratitude_received:<noteId>` so both gratitude doors answer to
+  `keys.gratitudeGiven`. It moves no value and repairs only rows it can attribute; everything else
+  keeps its old key and is findable by one query (docs/ECONOMICS.md 10.33).
+  **Measured all three ways at 12:20 on 2026-09-04, immediately before creating the file, and the
+  reading was already four numbers past the disk.** `ls drizzle/` said 0150. Every REMOTE ref after
+  a fresh fetch reached 0151 (`origin/wt/profile-rebase`). Every LOCAL ref across the worktrees
+  reached 0152 (`wt/plural-subject-refs` and `wt/draft-deadlock`, both holding
+  `0152_a_vendor_record_names_more_than_one_person.sql`). UNTRACKED on disk reached **0153, held
+  TWICE**: `ECON-redeem/drizzle/0153_a_member_redeems_what_they_hold.sql` and
+  `wt-holders/drizzle/0153_subject_refs.sql`. Two lanes are on one number right now and neither
+  gate can see it; whichever lands second has to renumber before landing. 0154 was free in all
+  three scans. **`git log --all --diff-filter=A` is NOT a fourth way and it under-reports**: it
+  missed 0151 entirely, because that file reached its number by a rename and rename detection
+  reports an R and not an A. Sweep the ref TREES.
 - **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
   new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
   makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the

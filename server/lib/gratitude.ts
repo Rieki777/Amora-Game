@@ -16,7 +16,7 @@ import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { isExampleUser } from "./examples";
 import { issuanceRefusal } from "./gameStart";
 import { PLATFORM_TOKEN, memberAccount, postTransfer, RECOGNITION_FAUCET } from "./ledger";
-import { writeGratitudeRow, shareCapFor, recognitionName, toLedgerUnits } from "./economy";
+import { writeGratitudeRow, shareCapFor, recognitionName, toLedgerUnits, keys, villageId } from "./economy";
 import type { GratitudeLogRepo, GratitudeEntry } from "../repos/gratitude";
 import type { UsersRepo } from "../repos/users";
 
@@ -306,7 +306,38 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     source: kind === "heart" ? "heart_received" : "gratitude_received",
     sourceRef: entry.id,
     description: `${recognitionName()} from ${String(user.name ?? "").split(" ")[0]}`,
-    idempotencyKey: `gratitude_received:${entry.id}`,
+    /*
+     * THE SAME BUILDER `give()` POSTS UNDER, AND THE VILLAGE IS IN IT.
+     *
+     * This door used to write `gratitude_received:<entry id>` by hand. Two
+     * things were wrong with that string and they are one defect.
+     *
+     * The allowance's refund arm (`gratitudeGivenInCycle` in
+     * server/lib/economy.ts) recovers the giver by rebuilding the keys THIS
+     * member's notes were posted under, with `keys.gratitudeGiven`, and
+     * keeping only the reversal mirrors whose `source_ref` matches one. A
+     * note written through this door carried a key that builder can never
+     * produce, so its mirror matched nothing: reversing an acknowledgement
+     * refunded the giver nothing and the member was out that amount for the
+     * rest of the cycle, with no surface anywhere reporting it. Both doors
+     * write one `gratitude_log` row apiece and both spend one allowance, so
+     * one allowance may not be able to read only half of them.
+     *
+     * The second half is the village. Every other occurrence key in this
+     * economy carries it, because two villages running one image must not
+     * collide on a UNIQUE index and because the allowance and the health
+     * snapshot both narrow their scan by it. This key carried no scope at
+     * all.
+     *
+     * `server/lib/health.ts` reads the same prefix for the
+     * `gratitude_allowance_given` snapshot, so the village's own reading of
+     * how much it gave was short by every reversed acknowledgement too.
+     *
+     * Rows written under the old spelling are repaired by
+     * drizzle/0154_one_gift_one_key.sql, which rewrites the key and moves no
+     * value.
+     */
+    idempotencyKey: keys.gratitudeGiven(villageId(), entry.id),
   });
   if (!credit.ok) {
     return { ok: false, status: 500, error: credit.error ?? "ledger refused the credit" };
