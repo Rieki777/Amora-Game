@@ -617,6 +617,44 @@ column UP to meet the ledger, so the boot invariant still compares integers, and
 the flip reconciles after it with the column untouched, which
 `server/lib/library.test.ts` carries across the flip and proves.
 
+### Units in the gratitude path (sweep lane F)
+
+`give()` was the plainest of the 29 and is the first sentence of this section;
+it converts now, at its `postTransferOn` and nowhere else. **The decision the
+rest of the path hangs on: `gratitude_log.amount` is HUMAN and does not move
+when the registry flips.** The allowance is a SUM over that column weighed
+against `gratitude.base_budget`, a dial declared in Gratitude; the share cap is
+a percentage of that total with a floor of one Gratitude, not one minor unit;
+and four refusal sentences print those figures to a member. Moving the column
+would mean reinterpreting the dial, rescaling the cap's floor and backfilling
+every historical row with an UPDATE the previous release would then read as a
+10,000x spend, refusing every give in the village on a rollback. **So the flip
+migration backfills nothing in the gratitude path**, and `allowanceFor` divides
+the other way instead: `given` is human out of `gratitude_log` and `back` was a
+raw minor SUM out of `token_ledger`, subtracted from each other, which is
+harmless at 0 decimals and a whole-allowance refund at 4. Those two edits ship
+together or not at all. `checkGive` also refuses a fractional tap now, which its
+own message has promised since it was written and nothing checked: the column is
+an `int`, so 5.5 was stored rounded while the ledger posted the exact fraction,
+and the note the allowance is summed from stopped agreeing with the credit that
+was delivered. That one is live at 0 decimals, not only after the flip.
+`sendGratitude` names `tokenType` rather than inheriting it, because the slug
+used for the conversion and the slug used for the post were two separate
+fallbacks in two files answering one question. The three wrappers on this path
+(`mint`, `mintForConfirmedClaim`, `runSettlement`) needed no behaviour change
+and now say so: `mint` is minor-only pass-through, and its two rule callers
+convert one frame up. `server/economy.test.ts` runs the whole path at 0 and at 4
+against a scratch schema each, and each case reads the ledger AND the allowance
+in one test, because a case reading only one of them is satisfiable by a fix
+that is wrong by ten thousand on the other. **Two things this lane found and did
+not fix**: `allowanceFor`'s reversal SUM is keyed on the note id and carries no
+giver, so one member's reversed gift refunds a slice of everybody's allowance
+(the same size at 0 decimals as at 4, and reachable only by a future caller,
+since nothing in this build reverses such a key); and `users.recognitionBalance`
+is a MINOR cache that `server/index.ts` weighs against
+`governance.hypha_threshold`, a dial declared in Gratitude, so after the flip a
+member holding 0.01 clears a bar set to 100.
+
 ---
 
 ## 8. What is enforced, and what is only convention
