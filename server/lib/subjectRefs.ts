@@ -160,3 +160,102 @@ export async function userIdForSubjectRef(pool: Pool, ref: string): Promise<stri
 export async function dropSubjectRef(pool: Pool, userId: string): Promise<void> {
   await pool.query("DELETE FROM `subject_refs` WHERE `user_id` = ?", [userId]); // module-review-ok: subject_refs has no repo cache above it and this file is the table's one enumerable home (the externalProposals.ts pattern)
 }
+
+/* ── HALF-ERASED MEMBERS (0156) ──────────────────────────────────────────
+ *
+ * When an erasure cannot confirm every store, the mapping is kept so the
+ * village can ask again. Kept state with nobody watching it is how "we still
+ * owe you a confirmation" becomes "kept forever" the first time a vendor goes
+ * dark, so the keeping is recorded rather than merely allowed.
+ *
+ * The record carries WHICH STORE and not only WHEN. A date alone gives a
+ * steward the scale and nobody to press.
+ */
+
+/** One store that has not confirmed, as the outcome already described it. */
+export interface UnconfirmedStore {
+  module: string;
+  detail: string;
+}
+
+export interface HalfErased {
+  count: number;
+  /** ISO instant of the OLDEST outstanding obligation, or null when there are none. */
+  oldestSince: string | null;
+  /** Module id to how many members are still waiting on it. */
+  waitingOn: Record<string, number>;
+}
+
+function parseUnconfirmed(v: unknown): UnconfirmedStore[] {
+  if (!v) return [];
+  const raw = typeof v === "string" ? safeParse(v) : v;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((r) => r && typeof r === "object")
+    .map((r: any) => ({ module: String(r.module ?? ""), detail: String(r.detail ?? "") }))
+    .filter((r) => r.module !== "");
+}
+
+function safeParse(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record that this member's erasure is unfinished, and who it is waiting on.
+ *
+ * `erasure_pending_since` uses COALESCE so a retry that also fails does NOT
+ * move the date forward. The age is the age of the OBLIGATION and not of the
+ * last attempt, because a number that resets every time somebody tries is a
+ * number that never grows old enough for anyone to act on.
+ */
+export async function markErasurePending(
+  pool: Pool,
+  userId: string,
+  unconfirmed: readonly UnconfirmedStore[],
+): Promise<void> {
+  await pool.query( // module-review-ok: subject_refs has no repo cache above it and this file is the table's one enumerable home (the externalProposals.ts pattern)
+    "UPDATE `subject_refs` SET `erasure_pending_since` = COALESCE(`erasure_pending_since`, NOW()), " +
+      "`erasure_unconfirmed` = ? WHERE `user_id` = ?",
+    [JSON.stringify(unconfirmed.map((u) => ({ module: u.module, detail: u.detail.slice(0, 300) }))), userId],
+  );
+}
+
+/** The sentence a steward reads: how many, waiting on whom, and how long. */
+export async function halfErasedMembers(pool: Pool): Promise<HalfErased> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT `erasure_pending_since`, `erasure_unconfirmed` FROM `subject_refs` " +
+      "WHERE `erasure_pending_since` IS NOT NULL ORDER BY `erasure_pending_since` ASC",
+  );
+  const waitingOn: Record<string, number> = {};
+  for (const r of rows) {
+    for (const u of parseUnconfirmed(r.erasure_unconfirmed)) {
+      waitingOn[u.module] = (waitingOn[u.module] ?? 0) + 1;
+    }
+  }
+  const oldest = rows[0]?.erasure_pending_since;
+  return {
+    count: rows.length,
+    oldestSince: oldest ? new Date(String(oldest)).toISOString() : null,
+    waitingOn,
+  };
+}
+
+/**
+ * The members a retry would re-ask about, oldest obligation first.
+ *
+ * A count with no way to act on it is a dashboard rather than a fix: nothing
+ * will erase these members a second time, because they are already gone. This
+ * is what the retry iterates.
+ */
+export async function pendingErasureUserIds(pool: Pool, limit = 200): Promise<string[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT `user_id` FROM `subject_refs` WHERE `erasure_pending_since` IS NOT NULL " +
+      "ORDER BY `erasure_pending_since` ASC LIMIT ?",
+    [Math.max(1, Math.min(1000, limit))],
+  );
+  return rows.map((r) => String(r.user_id));
+}
