@@ -321,7 +321,7 @@ import {
   spendSurfacesFor,
 } from "./lib/spending";
 import { seatChargeFor, seatEscrowDrift, seatPriceFor, settleFinishedSeats } from "./lib/eventSeats";
-import { allowanceFor, applyMintRuleChanges, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintRulesByIds, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, startEconomyEpoch, villageId, type StageMultiplierFor } from "./lib/economy";
+import { allowanceFor, applyMintRuleChanges, canConfirm, checkIn, cycleWindow, economyReady, fromLedgerUnits, give, HEARTS, mintForConfirmedClaim, mintRulesByIds, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, startEconomyEpoch, toLedgerUnits, villageId, type StageMultiplierFor } from "./lib/economy";
 import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -17389,24 +17389,24 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * `sys:mint` row, so they serialise, and the second one counts the first
    * one's committed row. Deciding and writing become one step.
    *
-   * The same guard covers both doors on purpose: two doors with one cap.
+   * The same guard covers all three doors on purpose. UNITS: `units` is MINOR, the number the leg posts, because `minted` is a SUM over `token_ledger.amount`; the dial is human and is converted here, once.
    */
-  function mintCapGuard(slug: string, amt: number): TransferGuard {
-    const cap = numberVar("ledger.admin_mint_cycle_cap");
+  function mintCapGuard(slug: string, units: number): TransferGuard {
+    const capHuman = numberVar("ledger.admin_mint_cycle_cap");
     const since = new Date(currentCycle().startsAt);
     return async (conn) => {
       // Re-read the cap inside the guard: an admin may have lowered it
       // between the request arriving and the lock being granted, and the
       // lower number is the one the village decided on.
-      if (cap <= 0) return "Minting is disabled (ledger.admin_mint_cycle_cap is 0)";
+      if (capHuman <= 0) return "Minting is disabled (ledger.admin_mint_cycle_cap is 0)";
       const [[row]] = await conn.query<any[]>(
         "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger " +
           "WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
         [slug, since],
       );
       const minted = Number(row?.minted ?? 0);
-      if (minted + amt > cap) {
-        return `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`;
+      if (minted + units > toLedgerUnits(slug, capHuman)) {
+        return `This would exceed the per-cycle mint cap: ${fromLedgerUnits(slug, minted)} of ${capHuman} ${slug} already minted this lunation`;
       }
       return null;
     };
@@ -17522,7 +17522,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (cap <= 0) return res.status(403).json({ error: "Minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
     // A courteous pre-flight so the admin gets a 409 with numbers instead of
     // a bare refusal. It is NOT the enforcement — the guard below is.
-    const minted = await mintedThisCycle(slug);
+    const minted = fromLedgerUnits(slug, await mintedThisCycle(slug));
     if (minted + amt > cap) {
       return res.status(409).json({
         error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
@@ -17534,7 +17534,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: MINT_FAUCET,
       to: TREASURY,
       tokenType: slug,
-      amount: amt,
+      amount: toLedgerUnits(slug, amt),
       source: "exchange_stock",
       sourceRef: actor ?? undefined,
       description: `Treasury stocked for the exchange`,
@@ -17543,13 +17543,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
       idempotencyKey: String(req.body?.requestId ?? "").trim()
         ? `xstock:${slug}:${String(req.body.requestId).trim().slice(0, 60)}`
         : `xstock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    }, mintCapGuard(slug, amt));
+    }, mintCapGuard(slug, toLedgerUnits(slug, amt)));
     if (!r.ok) return res.status(r.error?.includes("mint cap") ? 409 : 400).json({ error: r.error });
     void recordEvent(getPool(), {
       kind: "audit", text: `exchange:stock:${amt}:${slug}`,
       actorUserId: actor, entityType: "token", entityRef: slug, audience: "admin",
     });
-    res.json({ success: true, treasuryBalance: r.toBalance, remaining: cap - minted - amt });
+    res.json({ success: true, treasuryBalance: fromLedgerUnits(slug, r.toBalance), remaining: cap - minted - amt });
   });
 
   // â”€â”€ S9: the token registry and ledger as admin surfaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
@@ -17756,7 +17756,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // A grant already waiting for a second steward is spoken for and counts
     // here, or a hundred requests just under the cap would hold a hundred
     // times it (`pendingMints`).
-    const minted = await mintedThisCycle(slug);
+    const minted = fromLedgerUnits(slug, await mintedThisCycle(slug));
     const waiting = await pendingMints(slug);
     if (minted + waiting + amt > cap) {
       return res.status(409).json({
@@ -17814,14 +17814,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: "sys:mint",
       to: memberAccount(target.id),
       tokenType: slug,
-      amount: amt,
+      amount: toLedgerUnits(slug, amt),
       source: "admin_mint",
       sourceRef: adminActor(req)?.id,
       description: String(reason).trim().slice(0, 500),
       idempotencyKey: String(req.body?.requestId ?? "").trim()
         ? `admin_mint:${slug}:${String(req.body.requestId).trim().slice(0, 60)}`
         : `admin_mint:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    }, mintCapGuard(slug, amt));
+    }, mintCapGuard(slug, toLedgerUnits(slug, amt)));
     if (!r.ok) return res.status(r.error?.includes("mint cap") ? 409 : 400).json({ error: r.error });
     // Recognition minted by hand still updates the profile's cached balance.
     if (slug === "gratitude") {
@@ -17952,12 +17952,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: "sys:mint",
       to: memberAccount(target.id),
       tokenType: request.tokenSlug,
-      amount: request.amount,
+      amount: toLedgerUnits(request.tokenSlug, request.amount),
       source: "admin_mint",
       sourceRef: request.id,
       description: request.reason.slice(0, 500),
       idempotencyKey: `admin_mint:req:${request.id}`,
-    }, mintCapGuard(request.tokenSlug, request.amount));
+    }, mintCapGuard(request.tokenSlug, toLedgerUnits(request.tokenSlug, request.amount)));
     if (!r.ok) {
       await getPool().query(
         "UPDATE admin_mint_requests SET status = 'pending', decided_by = NULL, decided_at = NULL WHERE id = ?",
