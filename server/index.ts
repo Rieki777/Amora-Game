@@ -20475,7 +20475,30 @@ ${inner}
     const claimant = await members.byId(claim.userId);
     const stageBefore = claimant ? await stageOf(claimant) : null;
 
+    /*
+     * THE FLIP IS A COMPARE-AND-SWAP, AND THE LOCK THAT MAKES IT ONE ALREADY
+     * EXISTED (lane SM; ECONOMICS.md 10.34 carries the measurement).
+     *
+     * The status test three blocks up reads the claim this request loaded, and
+     * nothing holds that reading. Six consents fired together answered 200
+     * twice. The MONEY was right, because both value legs are keyed on the
+     * claim; nothing else was. `c.amount` becomes whichever request committed
+     * LAST while the ledger paid whichever posted FIRST, so two stewards at
+     * different points of an advertised range leave the claim saying 100 over a
+     * member holding 50; and `addActivity` below carries no dedupe key, so the
+     * village reads the quest completed twice.
+     *
+     * `claimsRepo.update` re-reads the row `FOR UPDATE` inside a transaction,
+     * so this callback sees the row as it is NOW: the test HERE is the atomic
+     * one the test above cannot be. It does not weaken the claim-keyed
+     * idempotency, which still guarantees the money and is untouched.
+     */
+    let alreadyConsented = false;
     const consented = await claimsRepo.update(claim.id, (c) => {
+      if (c.status === "consented") {
+        alreadyConsented = true;
+        return;
+      }
       c.status = "consented";
       c.amount = granted;
       c.resolvedAt = new Date().toISOString();
@@ -20485,6 +20508,12 @@ ${inner}
       // once the request is over.
       c.consentedBy = actor.userId ?? null;
     });
+    if (alreadyConsented) {
+      return res.status(409).json({
+        error: "This claim was already consented, so it was not consented again. The member was paid once.",
+        status: "consented",
+      });
+    }
     // Credit the player's balance
     if (claimant && consented) {
       // Through the ledger, not `+=`. The idempotency key is the claim, so a

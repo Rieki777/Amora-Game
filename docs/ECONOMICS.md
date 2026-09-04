@@ -1567,6 +1567,105 @@ to be truthy"; against the fix, three cases pass. The tripwire that found this
 supply surfaces use") is untouched and still true: the constants it compares
 still exist and still name the five seeded accounts.
 
+### 10.34 One quest consent could answer 200 twice. Fixed on `wt/econ-small`, measured.
+
+Six consents fired together on one claim returned **two** 200 responses.
+Measured over HTTP against the built server by the mint-cap lane, which
+reported it and did not take it, because the consent route is the quests
+surface.
+
+**The money was never wrong and still is not.** The ledger held exactly two
+rows, both value legs keyed on the claim (`quest_consent:<claimId>` and
+`queststay:<claimId>`), and the member was paid once. The claim-keyed
+idempotency is what does that work, and it is untouched here.
+
+**What was wrong is everything a caller and a village can see.** The route did a
+check-then-act on the claim's own status: it tested the row THIS request had
+loaded, then flipped it with nothing holding that reading in between. Three
+consequences, and the first is the one that should decide the question:
+
+1. **The claim and the ledger can disagree about the amount.** `c.amount` is
+   whichever request committed LAST while the ledger paid whichever posted
+   FIRST. A quest advertising a range and two stewards choosing different points
+   of it leaves the claim saying 90 over a member holding 10, with no error
+   anywhere. Telling a member a number their balance does not match is the
+   fastest way to lose their trust in the ledger, and this route already says so
+   in its own comments about the badge multiplier.
+2. **The village pulse doubles.** `addActivity` carries no dedupe key, so
+   `health_events` gets two "completed the quest" rows for one act, and the
+   whole village reads it. The member's NOTIFICATION is deduped, which is why
+   this was invisible from the member's own screen.
+3. **Two callers are both told the release landed**, which is what an integrator
+   would have had to be warned about.
+
+**The fix, and why it needed nothing new.** `claimsRepo.update` already opens a
+transaction and re-reads the row `FOR UPDATE` before handing it to its mutator,
+so the mutator has always run under a row lock and has always received the row
+as it is NOW. Moving the status test INTO that callback makes it the atomic one:
+the first writer sees `submitted` and flips it, the second blocks, then sees
+`consented` and touches nothing. The route answers that caller 409. No new lock,
+no new column, no change to the ledger.
+
+**What it costs, said plainly.** A village that has turned
+`quest.require_submission_before_consent` off could previously consent an
+already-consented claim a second time. That path now refuses. It was not a
+repair path worth keeping: the second consent posted nothing, because the key is
+the claim, while rewriting `amount` to a number no ledger row held. A credit
+that failed after the flip is repaired by posting under the claim's own key,
+which is what the route's own 500 says.
+
+**Measured, in both directions.** `server/questConsentRace.e2e.test.ts` drives
+the built server on a scratch schema, on the shipped defaults except where a
+case says otherwise.
+
+The first case needs no race at all. With the submission guard off, consent 10
+and then consent 90 on one claim. Against a `dist/index.js` built from the
+parent commit the second call answered **200** with the claim body reading
+`"status":"consented","amount":90` while the ledger held the 10 the first call
+posted. Against the fix it answers 409 and the two numbers agree.
+
+The second case is the original six-at-once measurement. Against the parent
+commit this machine returned **six** 200s out of six, not the two the mint-cap
+lane saw, which is the same defect reading worse on a faster loop: all six
+requests load the claim before any of them commits, so all six pass the
+submission guard, all six flip the row and all six write the pulse. Against the
+fix it is one 200, five 409s and one pulse row. The count is a property the fix
+guarantees and one the old code violated only sometimes, so a green there is not
+by itself evidence; the two-ledger-rows assertion beside it is what proves the
+claim-keyed idempotency survived the change.
+
+**One thing that case cost, worth keeping as a rule.** The second case first ran
+with the submission guard still off, because the first case restores it on its
+last line and a failing assertion returns before that line. It read six 200s
+from a configuration no village runs. The dial is now set at the head of each
+case: a case that inherits a dial another case left behind is measuring the
+order the file happened to run in.
+
+### 10.35 The economics doc guard's self-test was reported as never run. Re-measured, it runs. NOT a defect.
+
+Reported to this lane as a self-test that exists and that nothing invokes.
+**Re-measured on `wt/econ-small` and the premise is stale.**
+`scripts/run-self-tests.mjs` finds self-tests by GLOB over `scripts/*.test.mjs`
+and does not name them one at a time, `scripts/check-economics-doc.test.mjs`
+matches that glob, and `.github/workflows/ci.yml` runs `node
+scripts/run-self-tests.mjs` in the step "Guard self-tests, all of them". A full
+run reports `17 guard self-test(s) run, 0 failed` and lists this file among
+them. Nothing was wired, because nothing was unwired.
+
+**What was worth doing was the other half: proving it can go red.** A self-test
+that runs and cannot fail reports confidence it has not earned. Two deliberate
+breaks in `scripts/check-economics-doc.mjs`, each reverted immediately:
+
+| Break | The self-test's answer |
+|---|---|
+| `EXIT_DRIFT` 1 to 0, so a drifted region reports clean | red: "FIXTURE: a DRIFTED region exits 1 and prints BOTH sides", `actual: 0, expected: 1`. The runner printed `FAIL check-economics-doc.test.mjs` among sixteen `ok` lines |
+| `EXIT_CANNOT_RUN` 2 to 1, so "I could not look" reads as "I looked and it was bad" | red: "a missing marker must be 2 (could not look), not 1 (looked and it was bad). Got 1", `actual: 1, expected: 2` |
+
+Restored, the file is green again at `40 check(s) passed`. The second break is
+the one worth having proven: half that file exists to hold the third exit code
+apart from the second, and an assertion of "non-zero" would have let 2 rot into
+1 without a word.
+
 ### The governed numbers a member was told wrong (lane P1)
 
 **The needs floor is the village's, and it is now kept as well as stated.**
