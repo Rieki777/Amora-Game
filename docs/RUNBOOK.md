@@ -388,11 +388,30 @@ the daily backup run stays red and says so.
 
 You need Railway access and GitHub repository settings access.
 
-1. **Make a token.** Any random 64 hex characters. On a Mac or Linux machine:
+1. **Make a token.** Any random 64 hex characters.
+
+   Mac, Linux, or Windows **Git Bash**, which ships `openssl` at
+   `/mingw64/bin/openssl`:
 
    ```bash
    openssl rand -hex 32
    ```
+
+   Windows **PowerShell** has no `openssl`, so use this instead:
+
+   ```powershell
+   $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider; $b = New-Object byte[] 32; $rng.GetBytes($b); ($b | ForEach-Object { $_.ToString('x2') }) -join ''
+   ```
+
+   Do NOT reach for the shorter `[RandomNumberGenerator]::Fill($b)` you will
+   find in most examples. It does not exist in Windows PowerShell 5.1, and it
+   does not fail loudly: the byte array stays as it was created, all zeros, and
+   you get sixty-four `0` characters that look exactly like a token. Measured on
+   this machine while writing this section. `RNGCryptoServiceProvider` above is
+   the version that works there.
+
+   Whichever you use, check what you got before pasting it: sixty-four
+   characters, hex only, and obviously not all the same character.
 
    Keep the output somewhere you can paste it twice.
 
