@@ -2799,6 +2799,41 @@ alongside another `server/index.ts` change, and rebase it last. This was already
 **4. `.github/workflows/ci.yml`,** owned by the safety lane. Other lanes' CI steps queue behind it.
 Ask on the claim board rather than editing it.
 
+**5. The shared integration worktrees, `ECON` above all.** A worktree every session can reach is a
+contended resource with no lock on it, and until 2026-09-04 the only thing protecting `ECON` was
+that nobody had a reason to walk in. That is not protection. On that day it was found holding **121
+files staged, 4736 insertions against 13665 deletions**, matching no commit and no branch, including
+a revert of the `vitest.config.ts` junction fix at `48be4a6` that every lane's client tests depend
+on. Nobody's history was lost, because nothing had been committed. **Claim an integration worktree
+here before you work in it, and never write into one you did not create.** If you find an unclaimed
+tree dirty: ask on the wire, give a deadline, and clean it with
+`git stash push --include-untracked -m "unclaimed <date>"` rather than `reset --hard` or
+`checkout --`. The stash reaches the same clean tree and is recoverable; the other two destroy work
+that may belong to a session that is mid-edit right now. That is what was done, and the tree is
+clean with the work preserved. **Recover a rescue stash with `git stash apply` by SHA, never `pop`,**
+so a second lane reading the same stash cannot consume it out from under the first.
+
+**`git log --author` DOES NOT identify which session did something, and it fails in the worst
+possible direction.** Every lane on this machine commits under the same git identity, so an
+authorship search returns the newest commits in the REPOSITORY, not the ones touching the tree you
+are asking about. **It therefore points at the most recently active lane, and the harder a session
+has been working the more it looks like the culprit.** Verified while writing this: the last forty
+commits on main carry two author identities for eight or more live sessions, and an author query run
+right now returns this lane's own merge at the top, then the merge before it. Whoever last landed
+work is always the top hit, about a tree they may never have opened.
+
+Authorship tells you the human. **The discriminator is `git worktree list`,** which says which tree
+each session actually holds, and it is how two lanes ruled themselves out of the ECON question in
+one command each. Say "not mine" with that output, never with an author search.
+
+**A large deletion-heavy diff is usually a STALE BASE, not a change.** 4736 insertions against
+13665 deletions, including a revert of a fix nobody would deliberately revert, is what a tree looks
+like when its base predates several merges: re-staging everything presents the OLD state as a
+deliberate act. The instinct on seeing thirteen thousand deletions is that somebody did something
+drastic, and the likelier reading is that somebody is simply behind. Same disease as 27h one layer
+up: there, `node_modules` disagreed with the lockfile; here, a working tree disagrees with main.
+Both look like intentional work and neither is.
+
 ### 27c — Claim board (APPEND ONLY — one row per claim, one row per release)
 
 | Date | Lane / session | Resource claimed | Branch | State |
@@ -2954,3 +2989,43 @@ invisible to that gate, because half of them are not.
 
 **Run `tsconfig.tests.json` COLD.** The incremental cache lies, so a warm run can be green about
 work it never re-checked.
+
+### 27h — Your `node_modules` can be a major version behind, and NOTHING here tells you
+
+**Live right now for any worktree that has not reinstalled since `d2a6d5b`.** Express 5 landed on
+main that night. A tree still holding express 4 runs it against express-5 route patterns, and the
+failure wears the costume of a routing bug in whatever branch you happen to be on. Measured in one
+lane: express `4.22.2` installed against `pnpm-lock.yaml` on `5.2.1`, so `{*splat}` meant nothing to
+express 4's path-to-regexp, a request fell through to the SPA fallback, and `GET /org/roles/nope`
+answered `text/html` where the test wanted a non-HTML 404. `server/loop.e2e.test.ts` went 69/70.
+After `pnpm install --frozen-lockfile` and a rebuild: 70/70, **with no code change at all**.
+
+**Why no guard sees it.** `server/db/distFreshness.ts` compares SOURCES to the BUNDLE. It has no
+opinion about whether `node_modules` matches the lockfile, so it correctly reports a current tree
+while the runtime underneath is a major version behind. A real guard doing its real job, and this is
+simply outside what it can see. A partially restored store after the junction incident in 27f
+arrives at the same place and presents identically.
+
+```
+node -e 'console.log(require("express/package.json").version)'
+git diff HEAD@{1} --name-only | grep pnpm-lock.yaml
+```
+
+**The rule that generalises past express: after pulling main, if the pull touched
+`pnpm-lock.yaml`, reinstall before you trust a local RED.** This matters MORE under the
+push-and-read-CI process in 27d, not less. CI installs from the lockfile on a clean machine, so when
+CI is green and local is red, **CI is right and your tree is wrong**, and a lane that trusts the
+local red will chase a defect that does not exist. One lane had already written "environmental" into
+a pull request body as a conclusion while it was still a guess.
+
+**The experiment that isolates it in one move, and it is the transferable part.** Run the failing
+suite on `origin/main` IN YOUR OWN TREE. One lane ran main in another lane's tree and got green;
+running main in its own tree reproduced the red. That single step ruled out both the diff and the
+machine and left only tree state. Worth remembering because the instinct is to audit your own diff,
+and the diff is the LEAST likely explanation once CI is green on it.
+
+**One refinement to the per-file ratchet item in 27b, from a lane that hit both halves.** Look for
+the destination directory's CONVENTION first and match it; waive only where the code genuinely must
+do the thing the gate forbids. A `check-tailwind-gray` hit could be fixed by matching the
+convention, while a `validate-module` case could only be waived, and reaching for the waiver first
+turns a fixable violation into a permanent exception.
