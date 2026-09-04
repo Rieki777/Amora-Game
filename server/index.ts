@@ -18037,7 +18037,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
      * check the library runs over its own escrow.
      */
     const drift = await seatEscrowDrift(getPool());
-    const invariants = { ok: core.ok && drift.length === 0, problems: [...core.problems, ...drift] };
+    // `uncredited` is carried and deliberately NOT folded into `problems`: an
+    // undelivered gratitude credit is a finding, not a corruption, so `ok` stays
+    // true. This route used to rebuild the object as { ok, problems } and drop
+    // it, which is why the founder could not see it.
+    const invariants = { ok: core.ok && drift.length === 0, problems: [...core.problems, ...drift], uncredited: core.uncredited };
     const [systems] = await getPool().query<any[]>(
       "SELECT a.id, a.label, a.faucet, tb.token_type, tb.balance FROM ledger_accounts a " +
         "LEFT JOIN token_balances tb ON tb.account_id = a.id WHERE a.kind = 'system' ORDER BY a.id, tb.token_type",
