@@ -158,7 +158,7 @@ export default function Profile() {
   if (loading) {
     return (
       <Layout>
-        <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="sheet-night flex min-h-screen items-center justify-center bg-background">
           <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity }}>
             <Heart className="h-12 w-12 text-teal-deep" />
           </motion.div>
@@ -202,7 +202,18 @@ export default function Profile() {
 
   return (
     <Layout>
-      <div className="min-h-screen bg-background py-12">
+      {/*
+        `sheet-night` is the whole theme change. It redeclares the semantic
+        colour tokens and the display face on THIS element, so every descendant
+        that already reads `bg-card`, `text-muted-foreground`, `border-border`
+        and the rest resolves them against the night world instead of the app's
+        light or dark one. No component under here needed an edit; the block
+        and the reasoning live in client/src/index.css.
+
+        It is the same class on the loading branch above, so the page does not
+        flash a daylight ground before the member lands.
+      */}
+      <div className="sheet-night min-h-screen bg-background py-12">
         <div className="container">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             {/*
@@ -312,11 +323,24 @@ export default function Profile() {
                     )}
                     <div className="mt-3 flex items-center gap-3">
                       {/* This Save is the whole point: the editor used to
-                          discard every word on close, silently. */}
+                          discard every word on close, silently.
+
+                          `border border-border` is the one thing `sheet-night`
+                          could not fix from the token layer. The fill is
+                          `--tone-brand`, which is the VILLAGE's colour and is
+                          derived to clear AA against WHITE, so it is dark by
+                          construction: measured on the night panel it is
+                          1.58:1 as a shape, against a 3:1 floor, for the
+                          platform default and for any seed a village picks.
+                          Retinting it would overwrite the brand, so the button
+                          takes an edge instead. `--border` on `--card`
+                          measures 3.94:1, the label stays white on the
+                          village's own colour at 10.37:1, and the boundary is
+                          now seed-independent. */}
                       <button
                         onClick={saveBio}
                         disabled={savingBio}
-                        className="min-h-11 rounded-lg bg-teal-deep px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                        className="min-h-11 rounded-lg border border-border bg-teal-deep px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                       >
                         {savingBio ? "Saving" : "Save"}
                       </button>
