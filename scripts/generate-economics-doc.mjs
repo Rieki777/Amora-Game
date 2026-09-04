@@ -928,6 +928,72 @@ function table(headers, rows) {
 const cell = (v) => String(v).replace(/\|/g, "\\|");
 
 /**
+ * Every system account the migrations seed, with the faucet flag they seed it
+ * with.
+ *
+ * WHY THIS IS DERIVED AND WAS NOT. The vault half of the faucets region named
+ * four accounts, one at a time, inside this file. The migrations seed eleven
+ * non-faucet ones. So a table inside a region marked GENERATED, which a reader
+ * therefore trusts more than prose, was telling somebody asking where value
+ * sits about four of the eleven places it can sit, and the doc guard could not
+ * see it: a hand-kept list inside a generator is byte-identical on both sides
+ * of the comparison however incomplete it is. `sys:voice-decay` had been
+ * missing since 0148 and `sys:redemption-hold` and `sys:redeemed` arrived in
+ * 0155 without reaching it.
+ *
+ * This is the same reasoning that made `faucetAccounts(pool)` derive the faucet
+ * set in `server/lib/economy.ts` (ECONOMICS.md 10.33): the sentence saying what
+ * a system account is has ONE home, and a new one reaches every reader on the
+ * day it is seeded.
+ *
+ * Read from the seed tuples rather than from a schema: the runner applies these
+ * files at boot, so an account exists exactly when a migration says it does.
+ */
+export function seededSystemAccounts(root) {
+  const dir = path.join(root, "drizzle");
+  const found = new Map();
+  for (const name of fs.readdirSync(dir).filter((n) => n.endsWith(".sql")).sort()) {
+    const sql = fs.readFileSync(path.join(dir, name), "utf8");
+    // Comment lines first: the runner strips them, and a `--` line quoting an
+    // account id would otherwise seed a row that does not exist.
+    const body = sql.replace(/^\s*--.*$/gm, "");
+    for (const m of body.matchAll(
+      /\(\s*'(sys:[a-z0-9-]+)'\s*,\s*'[a-z]+'\s*,\s*[^,]+,\s*'([^']*)'\s*,\s*([01])\s*\)/gi,
+    )) {
+      // First seed wins. `INSERT IGNORE` means a later file re-stating a row
+      // changes nothing, so the earliest one is the row the database holds.
+      if (!found.has(m[1])) found.set(m[1], { id: m[1], label: m[2], faucet: m[3] === "1", from: name });
+    }
+  }
+  if (!found.size) {
+    fail("economics-doc: no `sys:` account seeds found under drizzle/; the reader is looking for the wrong shape");
+  }
+  return Array.from(found.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * The richer sentence for a vault this document has already explained.
+ *
+ * Anything absent here falls back to the LABEL its migration seeded, which is
+ * what lets a new vault reach the table on the day it is seeded instead of on
+ * the day somebody remembers this map. The LIST is derived; only the wording
+ * is kept.
+ */
+const VAULT_SENTENCES = {
+  "sys:treasury": "where a spent credit lands, unless the token names its own sink",
+  "sys:exit-settlement": "a departing member's swept balance",
+  "sys:voice-bridge": "voice debited by a claim, waiting on Hypha",
+  "sys:voice-settled": "voice whose claim Hypha confirmed",
+  "sys:voice-decay": "all the voice that has waned in this village, and it only ever receives",
+  "sys:event-escrow": "a seat fee, until the gathering is held or cancelled",
+  "sys:library-escrow": "a loan deposit, until the loan settles",
+  "sys:library-pool": "the usage fee a settled loan released",
+  "sys:library-sink": "library credit an admin burned",
+  "sys:redemption-hold": "tokens held against a redemption somebody has open",
+  "sys:redeemed": "tokens a confirmed redemption retired, and it only ever receives",
+};
+
+/**
  * The regions, by name. Each renders to a string WITHOUT its markers; the
  * splice and the check both add those.
  *
@@ -962,22 +1028,25 @@ export const REGIONS = {
   },
 
   /** Which account issues which token, and the system accounts that are not faucets. */
-  faucets(f) {
+  faucets(f, root) {
     const rows = Object.entries(f.faucets)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([slug, account]) => [cell(`\`${account}\``), cell(`\`${slug}\``)]);
-    const holding = [
-      [`\`${f.spendSinks.fallback}\``, "where a spent credit lands, unless the token names its own sink"],
-      [`\`${f.accounts.exitSettlement}\``, "a departing member's swept balance"],
-      [`\`${f.accounts.voiceBridge}\``, "voice debited by a claim, waiting on Hypha"],
-      [`\`${f.accounts.voiceSettled}\``, "voice whose claim Hypha confirmed"],
-    ];
+    const vaults = seededSystemAccounts(root).filter((a) => !a.faucet);
+    const holding = vaults.map((a) => [
+      cell(`\`${a.id}\``),
+      cell(VAULT_SENTENCES[a.id] ?? `${a.label.charAt(0).toLowerCase()}${a.label.slice(1)}`),
+    ]);
     return [
       table(["Faucet account", "Issues"], rows),
       "",
       "A faucet's NEGATIVE balance is the issued supply of its token. These system accounts are not faucets and never go below zero:",
       "",
-      table(["Vault account", "Holds"], holding.map((r) => r.map(cell))),
+      table(["Vault account", "Holds"], holding),
+      "",
+      `${vaults.length} of them, read from every \`INSERT\` into \`ledger_accounts\` under \`drizzle/\` ` +
+        "and never from a list kept here: this table named four for as long as the migrations seeded more, " +
+        "and a reader asking where value sits was told about less of it than exists.",
       "",
       "Sources that may drive a NON-faucet account below zero, and only with `allowNegative` set: " +
         f.allowNegative.map((s) => `\`${s}\``).join(", ") +
@@ -1139,8 +1208,8 @@ export const REGIONS = {
       "A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is UNIQUE, so " +
         "the shape of the key is what decides whether a second attempt pays again.",
       "",
-      "`keys` in `server/lib/economy.ts` builds eight of them. The angle brackets are that " +
-        "builder's own parameter names.",
+      `\`keys\` in \`server/lib/economy.ts\` builds ${builderRows.length} of them. The angle ` +
+        "brackets are that builder's own parameter names.",
       "",
       table(["Builder", "What the builder returns"], builderRows),
       "",

@@ -42,6 +42,7 @@ import {
   postingKeys,
   refusalsFrom,
   renderAll,
+  seededSystemAccounts,
   startMarker,
 } from "./generate-economics-doc.mjs";
 
@@ -663,6 +664,71 @@ check("FIXTURE: CRLF line endings compare equal to LF", () => {
   const crlf = goodDoc.replace(/\n/g, "\r\n");
   const { code, out } = runGuard(["--doc", docAt("crlf", crlf)]);
   assert.strictEqual(code, 0, `a Windows checkout must read the same as a Linux one:\n${out}`);
+});
+
+check("READER: the vault list is DERIVED from the migrations, not kept in the generator", () => {
+  // THE SECOND FORM OF THE SAME BLIND SPOT. The faucets region named four vault
+  // accounts one at a time inside the generator while `drizzle/` seeded eleven,
+  // so a table a reader trusts BECAUSE it is generated described four of the
+  // eleven places value can sit. `sys:voice-decay` had been missing since 0148;
+  // `sys:redemption-hold` and `sys:redeemed` arrived in 0155 and did not reach
+  // it either. A hand-kept list inside a generator is identical on both sides of
+  // the guard's comparison however incomplete it is.
+  //
+  // The positive control is the point: this asserts the reader still FINDS the
+  // accounts, by name and by flag, so a reader that silently returned nothing
+  // would fail here instead of quietly emptying the table.
+  const accounts = seededSystemAccounts(ROOT);
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  for (const id of ["sys:gratitude-pool", "sys:cycle-pool", "sys:mint", "sys:library-mint", "sys:voice-mint"]) {
+    assert.strictEqual(byId.get(id)?.faucet, true, `${id} must read as a faucet`);
+  }
+  for (const id of ["sys:treasury", "sys:exit-settlement", "sys:voice-decay", "sys:event-escrow"]) {
+    assert.strictEqual(byId.get(id)?.faucet, false, `${id} must read as a vault and never as a faucet`);
+  }
+  // Every non-faucet seed reaches the rendered table. This is the assertion the
+  // old hand-kept list could not have made about itself.
+  const body = rendered.faucets;
+  for (const a of accounts.filter((x) => !x.faucet)) {
+    assert.ok(body.includes(`\`${a.id}\``), `${a.id} is seeded by ${a.from} and is missing from the vault table`);
+  }
+  // And nothing that IS a faucet is listed as one that never goes below zero,
+  // which would be the same defect pointing the other way and is the dangerous
+  // direction: a faucet's negative balance is its issued supply.
+  const vaultBlock = body.slice(body.indexOf("never go below zero"));
+  for (const a of accounts.filter((x) => x.faucet)) {
+    assert.ok(!vaultBlock.includes(`\`${a.id}\``), `${a.id} is a faucet and must not be in the vault table`);
+  }
+});
+
+check("PROSE: every count a region states equals the table it prints", () => {
+  // THE ONE FAILURE THIS GUARD IS STRUCTURALLY BLIND TO, and it shipped.
+  //
+  // The guard compares a GENERATED region to a COMMITTED one, so a sentence
+  // hardcoded inside the generator is identical on both sides and passes
+  // forever however wrong it is. The triggers region said `keys` "builds eight
+  // of them" over a table it derives, and that table has printed NINE rows
+  // since `voiceClaim` was added: the count was a string literal beside a
+  // derived list. Nothing above could see it. The reader check for the same
+  // region asserts `keys.length >= 8`, which is a lower bound and so cannot
+  // notice the sentence and the table disagreeing either.
+  //
+  // The rule this pins is general and cheap: a region that STATES a number
+  // must state the number of the rows it went on to print.
+  const body = rendered.triggers;
+  const stated = body.match(/builds (\d+) of them/);
+  assert.ok(stated, `the triggers region must state its builder count as a NUMERAL it derived, not a word:\n${body.slice(0, 400)}`);
+  // The builder table is the first one in the region: header, separator, rows.
+  const lines = body.split("\n");
+  const head = lines.findIndex((l) => l.startsWith("| Builder |"));
+  assert.ok(head > 0, "the builder table is gone from the triggers region");
+  let rows = 0;
+  for (let i = head + 2; i < lines.length && lines[i].startsWith("|"); i++) rows++;
+  assert.strictEqual(
+    Number(stated[1]),
+    rows,
+    `the triggers region says it builds ${stated[1]} keys and prints ${rows} rows`,
+  );
 });
 
 check("FIXTURE: the real committed document matches the real code", () => {

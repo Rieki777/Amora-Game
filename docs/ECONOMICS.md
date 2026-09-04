@@ -18,7 +18,7 @@ a `<!-- generated:name start -->` and its `end` marker is written by
 apart. Do not hand-edit inside the markers: the next generator run overwrites it.
 Everything outside them is prose, and `scripts/check-economics-narrative.mjs` is
 the guard on that half: it fails when the economy's code moved and this document
-did not. Section 17 describes both.
+did not. Section 18 describes both.
 
 **Dates on figures are not decoration.** Every measured number below carries the
 day it was measured. A number in a doc is a claim about a moment.
@@ -28,14 +28,21 @@ day it was measured. A number in a doc is a claim about a moment.
 | | |
 |---|---|
 | 1 to 4 | the engine, the live village, the tokens, where tokens come from |
-| 5 to 7 | gratitude, Village Voice, units and decimals |
+| 5 to 6 | gratitude, Village Voice and the one-way bridge |
+| 7 | **units and decimals**, and the rule before changing a token's scale in either direction |
 | 8 to 9 | what is enforced, and what has actually been proven |
-| 10 to 11 | known defects, open decisions |
+| 10 to 11 | **39 known defects** with their measurements, and four open decisions |
 | 12 to 13 | **the spend side**, and what a member is told when they are refused |
-| 14 | **the exit path** |
+| 14 | **the exit path**, its ten levers and what is still undecided |
 | 15 | **worked examples with real numbers**, posting by posting |
 | 16 | **the 2026-09-03 rulings**, and which four of the six are built |
-| 17 | how this document is kept true |
+| 17 | **crowdpooling**, and where the boundary between this economy and the hub's falls |
+| 18 | how this document is kept true |
+
+**Reading it for one question.** Is something safe to change? Section 7 if it
+touches a token's scale, section 12 if it touches a member's balance, section 8
+for what a gate holds and what only a convention does. Is a defect still real?
+Section 10, and every entry there says whether it is fixed and where.
 
 ---
 
@@ -98,7 +105,7 @@ subtlety in this system; see section 7.
 <!-- generated:triggers start -->
 A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is UNIQUE, so the shape of the key is what decides whether a second attempt pays again.
 
-`keys` in `server/lib/economy.ts` builds eight of them. The angle brackets are that builder's own parameter names.
+`keys` in `server/lib/economy.ts` builds 11 of them. The angle brackets are that builder's own parameter names.
 
 | Builder | What the builder returns |
 | --- | --- |
@@ -178,6 +185,19 @@ re-derived from the code**, so it is the fastest-rotting section in the file. A
 lane re-measures it; if a number here disagrees with the database, the database
 is right.
 
+**Not re-measured on 2026-09-04, and that is a limit worth stating rather than
+papering over.** This lane was a documentation lane with no reason to open a
+connection to the live Amora instance, so every row below still carries the day it
+was read and nothing has confirmed it since. Three claims elsewhere in this file
+lean on the first row of it (`token_ledger` at 0 entries): section 7 says the
+decimals change is safe here by accident, section 10.36 says the gratitude key
+class is empty, and section 9 says nothing has been proven in production. **All
+three are as old as that reading.** Re-run the counts before acting on any of
+them, and know the difference the whole file turns on: **an empty table and a real
+zero are different facts.** A `token_ledger` with no rows because nobody has spent
+anything is the finding here; a `token_ledger` with no rows because the query hit
+the wrong schema is a lane about to describe a full ledger as empty.
+
 | | | measured |
 |---|---|---|
 | `token_ledger` | **0 entries** | 2026-09-03 |
@@ -193,9 +213,14 @@ Two of those are worth separating from the rest, because they are the two most
 likely to be misread:
 
 - **`migrations applied` is a count from the live database, not a count of files
-  in this repository.** At `45869ad` the tree holds 118 `drizzle/*.sql` files and
-  creates 155 distinct tables. Those two numbers move on every merge and the live
-  one moves only on a deploy, so they are never expected to match.
+  in this repository.** At `08bc494` the tree holds **123** `drizzle/*.sql` files
+  and names **162** distinct tables in a `CREATE TABLE`, up from 118 and 155 at
+  `45869ad` a day earlier and from 122 and 161 four commits ago. Method, so it can
+  be redone: `ls drizzle/*.sql | wc -l`,
+  and for the tables `grep -rhoiE "create table( if not exists)? +\`?[a-z_0-9]+\`?"
+  drizzle/*.sql`, taking the last word of each hit, lowercased, unique. Those two
+  numbers move on every merge and the live one moves only on a deploy, so they are
+  never expected to match.
 - **`rows in tokens` is 9 on the live instance and 7 in a fresh village.** The
   example tokens are created at runtime by the example seeder, not by a
   migration: `drizzle/0047_example_market.sql` adds the `is_example` column and
@@ -272,10 +297,19 @@ A faucet's NEGATIVE balance is the issued supply of its token. These system acco
 
 | Vault account | Holds |
 | --- | --- |
-| `sys:treasury` | where a spent credit lands, unless the token names its own sink |
+| `sys:event-escrow` | a seat fee, until the gathering is held or cancelled |
 | `sys:exit-settlement` | a departing member's swept balance |
+| `sys:library-escrow` | a loan deposit, until the loan settles |
+| `sys:library-pool` | the usage fee a settled loan released |
+| `sys:library-sink` | library credit an admin burned |
+| `sys:redeemed` | tokens a confirmed redemption retired, and it only ever receives |
+| `sys:redemption-hold` | tokens held against a redemption somebody has open |
+| `sys:treasury` | where a spent credit lands, unless the token names its own sink |
 | `sys:voice-bridge` | voice debited by a claim, waiting on Hypha |
+| `sys:voice-decay` | all the voice that has waned in this village, and it only ever receives |
 | `sys:voice-settled` | voice whose claim Hypha confirmed |
+
+11 of them, read from every `INSERT` into `ledger_accounts` under `drizzle/` and never from a list kept here: this table named four for as long as the migrations seeded more, and a reader asking where value sits was told about less of it than exists.
 
 Sources that may drive a NON-faucet account below zero, and only with `allowNegative` set: `stay_night`, `payment_reversal`, `reversal`.
 <!-- generated:faucets end -->
@@ -352,12 +386,17 @@ allowance. At an allowance of 100 that cap is 25. `shareCapFor` floors it at 1,
 because 1 percent of 50 rounds to zero and a zero there would refuse every send
 in the village while both dials still read as sane numbers.
 
-**The refund arm of that calculation has no caller today.** Only
-`server/lib/voiceClaim.ts` calls `reverse()`, in two places, both for voice, so
-no gratitude posting is ever reversed in this build and that subtraction has
-never returned anything but zero in production. It is correct code with no
-caller, which is different from correct code that works. Re-measured on
-2026-09-04 and still two callers, both passing `claim.debit_key`.
+**The refund arm of that calculation has no caller today.** `reverse()` has
+**three** non-test callers and none of them reverses a gratitude posting, so that
+subtraction has never returned anything but zero in production. It is correct code
+with no caller, which is different from correct code that works. **Re-measured
+2026-09-04 at `08bc494`, and the count moved under this sentence the same day:**
+`server/lib/voiceClaim.ts` twice, both passing `claim.debit_key`, and
+`server/lib/redemptionStore.ts` once, in `releaseHold`, passing a redemption's
+stored `hold_key`. The redemption release is a genuine third caller and it changes
+nothing about the conclusion, because it reverses a redemption hold. The evidence
+had to move even though the finding did not, which is why the count is written
+here instead of the phrase "only voiceClaim".
 
 **The two doors write ONE key shape now, and they did not.** `give()` has always
 posted under `keys.gratitudeGiven`, which is
@@ -369,7 +408,7 @@ and no surface would have said so. The missing village was the second half of
 the same defect: every other occurrence key in this economy carries the scope,
 and `server/lib/health.ts` narrows the `gratitude_allowance_given` snapshot on
 the same prefix, so the village's own reading of how much it gave was short by
-the same rows. Both doors call the builder as of 2026-09-04, and section 10.33
+the same rows. Both doors call the builder as of 2026-09-04, and section 10.36
 carries what happened to the rows already written under the old spelling.
 
 ### Whose allowance a reversal returns (D30, lane AF)
@@ -502,25 +541,91 @@ convert.
 
 Today six of the seven tokens have `decimals = 0` and Village Voice has 3.
 
-**Setting every token to 4 decimals is not a migration. It is a sweep of the code
-that posts to the ledger.** This is the least obvious thing in this document and
-the most expensive to get wrong.
+**THE FOUR-DECIMALS FLIP IS CANCELLED, AND THE SURVIVING QUESTION POINTS THE
+OTHER WAY.** Rye settled it on 2026-09-04, in his words [Whole numbers, keep code
+safe], with the 3 on Village Voice described as future potential for micro
+transactions. So no token is going UP. What is left is Village Voice coming DOWN
+from 3 to 0, and a reader who carries the cancelled plan's instincts into that
+change will do the one thing that cannot be undone. Everything in this section
+below that names "the flip migration" was written for a change that will not
+happen; the UNIT DECISIONS it records are what survives, because they say which
+stored columns mean minor units and which mean what a person typed, and that is
+true at any scale.
 
-Measured at `45869ad` by `grep -rn "postTransfer(" server/ --include=*.ts`,
-excluding tests and the definition itself: **33 call sites** (32 `postTransfer`,
-1 `postTransferPair` carrying two legs). They divide four ways.
+**LOWERING A TOKEN'S DECIMALS IS A SCALE CHANGE, DOWNWARD, AND THE STORED ROWS DO
+NOT MOVE WITH IT.** `token_ledger.amount` holds minor units and `tokens.decimals`
+is the only thing that says how many. Take Voice from 3 to 0 and a stored 100 that
+meant 0.100 becomes 100 whole units the instant the column changes: every holder
+in the village inflates by a thousand, no invariant fires, because conservation
+holds at any scale and the cache still agrees with the ledger it caches. Nothing
+in this build refuses it.
 
-| How many | What they hand the ledger | Where |
-|---|---|---|
-| 1 | a value converted at the call site with `toLedgerUnits` | `voiceClaim.ts` settle |
-| 1 | `mint()`, whose two rule callers convert one frame up | `economy.ts` |
-| 2 | a value read back off the ledger, ALREADY in minor units | `exit.ts` sweep, `voiceClaim.ts` debit |
-| 29 | a human number, straight through | everywhere else |
+**It is safe on this village only by the accident of an empty ledger** (section 2:
+`token_ledger` at 0 entries, measured 2026-09-03), which is not safety by
+construction. Thirteen founder instances run this image and a fork that has been
+issuing Voice for a month is where this becomes a thousandfold gift nobody voted
+for. So the rule, and it is the rule for any decimals change in either direction:
 
-Those 29 are not wrong today, because at `decimals = 0` a human number and a
-minor unit are the same number. `give()` is the plainest case: it posts `amount`
-straight through. Set Gratitude to 4 decimals without touching that line and every
-give posts **0.0020**.
+1. **Assert the token's ISSUED SUPPLY IS ZERO before changing its decimals.** A
+   faucet's negative balance is the issued supply (section 4), so the question is
+   answerable in one read and needs no new column. If it is not zero, either
+   rescale `token_ledger.amount` for that token in the SAME transaction as the
+   registry change, or stop and name the village.
+2. **If the registry and the stored column cannot move in one transaction, the
+   REGISTRY MOVES LAST.** A stale registry over rescaled data reads too SMALL; a
+   fresh registry over unscaled data reads too LARGE. Both are wrong and only one
+   of them is acted on: a member who sees their balance jump a thousandfold spends
+   it, claims it, or sells it, and the correction afterwards is a clawback against
+   somebody who did nothing wrong. Too small is a complaint. Too large is a loss.
+
+**OPEN, and named here because this lane could not close it without touching
+production code.** Nine comments in nine files still describe the flip as a
+coming event, and one of them states the reversed ruling as standing. Measured
+2026-09-04 at `1861f7d`, dropping tests:
+`client/src/lib/tokenAmount.ts:13` opens "Rye has ruled that every token moves to
+4 decimals"; `client/src/components/SendTokensCard.tsx:41`,
+`client/src/pages/Library.tsx:97`, `client/src/pages/Stay.tsx:141` and
+`client/src/pages/Wallet.tsx:155` each reason from the day the tokens all move;
+`server/index.ts:16149`, `server/lib/exit.ts:576`, `server/lib/library.ts:36` and
+`server/lib/voiceClaim.ts:331` do the same beside the postings they annotate.
+Every one of them is the JUSTIFICATION for code that is correct and should stay,
+so this is a comment sweep and never a behaviour change: whoever takes it
+replaces the coming-flip reason with the standing one, which is that a
+scale-aware payload and one conversion helper are what stop a display and an
+input disagreeing at ANY scale, and that Village Voice is the token whose scale
+still moves, downward. The comments about what happens AT four decimals as an
+illustration of scale are fine and are not in this count.
+
+Measured at `08bc494`, `grep -rn "postTransferOn(\|postTransfer(\|postTransferPair(\|postGraceNightBurn(\|postPaymentReversalLeg(\|postClawbackMirror(\|postClawbackMirrorPair(" server/ --include=*.ts`,
+dropping tests, comment lines and `server/lib/ledger.ts` itself: **38 posting call
+sites** across seven exported doors. That figure was **33** when this section was
+written, against a grep for `postTransfer(` alone, which could not see the four
+narrow debt wrappers or `postTransferOn`, and it was 36 six hours ago before
+redemption landed its two. Reading each site's `amount` expression inside its own
+call, they divide two ways now:
+
+| How many | What they hand the ledger |
+|---|---|
+| 21 | a human number converted at the call site with `toLedgerUnits` |
+| 17 | a value that is ALREADY minor, by a stated contract |
+
+**The second column used to hold 29 of them and the sweeps closed that.** Those
+29 were "a human number, straight through", correct only because a human number
+and a minor unit are the same number at `decimals = 0`. `give()` was the plainest
+case and posts `toLedgerUnits(HEARTS, amount)` now. The seventeen that convert
+nothing are each a deliberate contract, named below and marked in the code, and
+they add up: **three** balance readers (`sweepBalances`'s remainder and its Voice
+conversion leg, the voice-claim debit), **two** mirror derivations (`reverse` and
+`reversePair`, which read the amount off the row they mirror), **two** minor-only
+pass-throughs (`mint()` and `mintStayCredits`, whose callers convert one frame
+up), **three** seat legs off one converted `seatPriceFor`, **one** grace-night
+burn off a converted stored price, **one** `decayVoice` computing minor units
+directly, **two** `stay_purchases.credits_granted` legs, **one**
+`POST /api/wallet/send`, whose client converts before the request is sent, and
+**two** redemption legs, whose amount arrives minor from the route boundary and
+is stored minor in `redemptions.amount`. Redemption's hold comment names the
+other two balance readers by file, which is the discipline this list exists to
+keep: a fourth site of that shape should name the three before it.
 
 The obvious repair is also wrong. Converting inside `postTransfer` would break
 `sweepBalances` and the voice claim debit, which read balances that are ALREADY
@@ -585,18 +690,22 @@ has to widen and backfill `accommodation_prices.amount_minor`,
 `stays.rate_snapshot_credits` and `stay_purchases.credits_granted`, all three
 still `int` from `0021`.
 
-**One token is already inconsistent with itself, at zero decimals, today.** Village
-Voice has 3 decimals now, and the two ways it can be issued disagree:
+**One token used to be inconsistent with itself, and the two doors agree now.
+Fixed on `wt/econ`, re-measured 2026-09-04 at `1861f7d`.** Village Voice has 3
+decimals, and the two ways it can be issued once disagreed:
 
 - a `quest.completed` rule of 10 goes through `mintForConfirmedClaim`, which calls
   `toLedgerUnits`, and posts **10000** minor units, which is 10 voice;
-- the admin hand-mint route posts `amount: amt` with no conversion, so a steward
-  granting 10 posts **10** minor units, which is 0.010 voice.
+- the admin hand-mint route posted `amount: amt` with no conversion, so a steward
+  granting 10 posted **10** minor units, which is 0.010 voice.
 
-Same token, same number typed by two people, a thousandfold apart. This is not a
-consequence of the 4-decimals decision; it is live now, on the one token that
-already has decimals. It has never hurt anyone for the reason everything else here
-has never hurt anyone: the ledger is empty.
+Same token, same number typed by two people, a thousandfold apart. Both doors
+convert now: `server/index.ts` posts `amount: toLedgerUnits(slug, amt)` at the
+hand-mint route and again at its co-signed approval, so a steward granting 10
+Voice posts 10000. The route's contract is WHOLE TOKENS, which is what the rest of
+this section's sweep-lane-A paragraph records, and `admin_mint_requests.amount`
+stays whole for the co-sign threshold to compare against. It never hurt anyone for
+the reason everything else here never hurt anyone: the ledger is empty.
 
 `mint_rules.amount` is `decimal(18,4)` while most of the tokens it pays are
 `decimals 0`, so a founder can save a rule for an amount the registry then rounds
@@ -633,19 +742,38 @@ ledger figure back to a person. It follows the rule the library lane set:
 convert where the human number enters, convert back where a person reads it,
 and leave `postTransfer` alone.
 
-Ten of the twelve convert on the way in: the proposal-accept award, the
-commerce product grant and its reversal, the exchange reversal,
-`POST /api/wallet/send`, `POST /api/admin/library/adjust`,
+**Ten of the twelve convert on the way in, and the list this sentence used to
+carry named twelve of them.** Re-read site by site at `1861f7d`, reading the
+`amount` expression inside each of the twelve calls, the ten are: the
+proposal-accept award, the commerce product grant, the commerce product
+reversal, the exchange reversal, `POST /api/admin/library/adjust`,
 `POST /api/admin/exchange/stock`, `POST /api/admin/tokens/:slug/mint`, its
-co-signed approval, the quest consent credit, the quest work-exchange stay
-release, and the cycle pool share. Two do NOT, and that is the harder half to
-see: the two `stay_purchases.credits_granted` legs post the column
-unconverted, because lane E declared that column MINOR.
+co-signed approval, the quest consent credit, and the cycle pool share.
 
-`POST /api/wallet/send` also stopped truncating. It ran `Math.trunc` over the
-typed amount, so a send of 0.5 became 0 and met the route's own refusal, which
-is the send four decimals exists to allow. The refusal now fires when the
-amount rounds to nothing at the token's own resolution.
+The old list was wrong twice in the same sentence, and one of the errors
+inverted a fact. It named `POST /api/wallet/send` among the converters, and
+that route is one of the TWO that do not convert. It also named the quest
+work-exchange stay release, which does convert (`toLedgerUnits(STAY_CREDIT,
+stayReward)`) and is not one of the twelve: it reaches the ledger through
+`mintStayCredits`, so a walk of the direct posting sites never sees it.
+
+**The two that do NOT convert are the harder half to see, and they are not the
+pair the old text named.** They are the stay chargeback clawback, which posts
+`stay_purchases.credits_granted` unconverted because lane E declared that
+column MINOR, and `POST /api/wallet/send`. Only ONE `credits_granted` leg is
+among the twelve; the other one lives in `server/routes/stays.ts`, which is a
+different file and outside this count.
+
+`POST /api/wallet/send` is the one worth reading slowly, because the truncation
+it was reported to have dropped is still there. The route runs
+`Math.trunc(Number(amount) || 0)` today, and that is correct, because what
+arrives is ALREADY MINOR: `SendTokensCard.tsx` calls `toMinorUnits` beside an
+input whose step is the token's own smallest unit, so a `toLedgerUnits` at the
+route would post ten thousand times what was typed. The defect that closed was
+the one where a member typed 0.5 and the route truncated a HUMAN number to 0 and
+refused it. What fixed it was moving the conversion to the client, not a change
+to the refusal, and the refusal that fires today (`n <= 0`) is the one that fires
+when the typed amount rounds to nothing at the token's own resolution.
 
 **The mint cap is ONE decision across three doors.** `mintCapGuard` counts
 `SUM(token_ledger.amount)`, so its contract is MINOR; the dial
@@ -727,13 +855,22 @@ convert one frame up. `server/economy.test.ts` runs the whole path at 0 and at 4
 against a scratch schema each, and each case reads the ledger AND the allowance
 in one test, because a case reading only one of them is satisfiable by a fix
 that is wrong by ten thousand on the other. **Two things this lane found and did
-not fix**: `allowanceFor`'s reversal SUM is keyed on the note id and carries no
-giver, so one member's reversed gift refunds a slice of everybody's allowance
-(the same size at 0 decimals as at 4, and reachable only by a future caller,
-since nothing in this build reverses such a key); and `users.recognitionBalance`
-is a MINOR cache that `server/index.ts` weighs against
-`governance.hypha_threshold`, a dial declared in Gratitude, so after the flip a
-member holding 0.01 clears a bar set to 100.
+not fix, and BOTH ARE CLOSED NOW. Re-measured 2026-09-04 at `1861f7d`.**
+
+- `allowanceFor`'s reversal SUM was keyed on the note id and carried no giver, so
+  one member's reversed gift refunded a slice of everybody's allowance. Lane AF
+  closed it: `gratitudeGivenInCycle` (`server/lib/economy.ts`) builds the keys
+  this member's own notes were posted under, with the same builder `give` posts
+  them under, and a mirror whose `source_ref` matches none of them is skipped by
+  name. The subsection "Whose allowance a reversal returns (D30, lane AF)" in
+  section 5 carries the whole reading.
+- `users.recognitionBalance` was a MINOR cache weighed raw against
+  `governance.hypha_threshold`, a dial declared in Gratitude. Lane A closed it:
+  `mechanicsStandingFor` in `server/index.ts` passes
+  `fromLedgerUnits(PLATFORM_TOKEN, Number(user.recognitionBalance ?? 0))` to
+  `proposerStanding`, so the two sides of the comparison are one unit. The
+  sweep-lane-A subsection above already said "It divides now", and this list
+  disagreed with it for a day.
 
 ---
 
@@ -772,24 +909,38 @@ Conservation is checked against `token_balances`, which is a CACHE, and the cach
 - `docs/TOKENS.md` matches the code (`scripts/check-token-doc.mjs`).
 - The generated regions of THIS file match the code
   (`scripts/check-economics-doc.mjs`), and its prose cannot go stale in silence
-  (`scripts/check-economics-narrative.mjs`). See section 17.
+  (`scripts/check-economics-narrative.mjs`). See section 18.
 
 **Convention only, and worth knowing:**
 
 - **The database has ZERO foreign keys**, and one check constraint
   (`token_ledger_amount_positive`, in `drizzle/0009_ledger_accounts_and_transfers.sql`).
-  Verified at `45869ad`: every `FOREIGN KEY` string in `drizzle/` is inside a
-  comment saying why there is not one. Every relational invariant here lives in
+  Re-verified 2026-09-04 at `1861f7d`, over 122 files: `grep -rn "FOREIGN KEY"
+  drizzle/` returns exactly three lines and all three are `--` comments saying why
+  there is not one (0140, 0149, 0150), and `grep -rn "CHECK (" drizzle/*.sql`
+  returns the one constraint above. Every relational invariant here lives in
   application code, which is why the slug freeze had to be a code refusal.
-- The 29 unconverted `postTransfer` callers in section 7, and the admin mint's
-  disagreement with the rule engine about what "10 voice" means.
+- **The units contract at each posting call site.** This bullet used to read "the
+  29 unconverted `postTransfer` callers in section 7, and the admin mint's
+  disagreement with the rule engine about what 10 voice means", and both halves
+  are gone. The sweeps closed the 29 and both admin mint doors convert. What
+  remains as convention is that whether a site converts is a decision recorded in
+  a comment beside it and in section 7, with nothing mechanical holding it:
+  21 of the 38 posting sites convert with `toLedgerUnits` and 17 are already
+  minor, and only a test per path tells the two apart.
 - A rule can be saved for an amount smaller than its token's resolution.
 - Faucets may go negative, and member accounts may too, by ruling. Nothing in the
   schema distinguishes an intended negative from a bug; the boot invariant reads
   the SOURCE of a debit to tell them apart, which is a convention about source
   strings rather than a constraint.
-- **`spendSinkFor` has exactly one caller.** `server/lib/stays.ts` uses it; the
-  library and the seat paths name their own accounts directly. See section 12.
+- **`spendSinkFor` has exactly one POSTING caller and two callers.** Re-measured
+  2026-09-04 at `1861f7d`: `server/lib/stays.ts:321` is the only one that posts
+  anything, and `server/lib/dryRunEconomyReader.ts:209` reads it to describe a
+  token's sinks and moves nothing. `shared/dryRun/economicsModel.ts:152` holds a
+  mirrored copy of the same rule for the simulation engine, which is a third
+  place the answer is spelled. The library and the seat paths name their own
+  accounts directly. Line numbers are a reading and not a contract; grep the
+  identifier. See section 12, which says the same thing at more length.
 
 ---
 
@@ -880,16 +1031,44 @@ note and its credit now commit together, both or neither, which is what
 `postTransferPair` has always done for a swap's two legs. Proven by its tests;
 not yet proven in production.
 
-### 10.3 The wallet is wrong by a factor of a thousand
+### 10.3 The wallet was wrong by a factor of a thousand. Fixed on `wt/econ`, measured.
 
-`fromLedgerUnits` has non-test callers in exactly **one** file
+**As written:** `fromLedgerUnits` had non-test callers in exactly one file
 (`server/lib/voiceClaim.ts`, three call sites, verified at `45869ad`). Every other
-surface prints the raw minor units. A member holding 10 Village Voice reads **10**
-on their profile chip and **10000** on their wallet. The wallet is the one they
+surface printed the raw minor units. A member holding 10 Village Voice read **10**
+on their profile chip and **10000** on their wallet, and the wallet is the one they
 will believe.
 
-This must be fixed BEFORE the 4-decimals sweep. Today one token is wrong;
-afterwards every token is wrong by 10,000x on every surface that does not divide.
+**Re-measured 2026-09-04 at `08bc494`, and both halves are closed.** The count
+first, by the same handle: `grep -rn "fromLedgerUnits(" server/ shared/ client/
+--include=*.ts --include=*.tsx`, dropping tests, comment lines, the import
+clauses and the definition itself, is **48 call sites in 13 files**
+(`server/index.ts` 12, `server/lib/exit.ts` 8, `server/lib/library.ts` 6,
+`server/lib/exchange.ts` 4, `server/routes/redemption.ts` 4,
+`server/lib/voiceClaim.ts` 3, `server/lib/eventSeats.ts` 2,
+`server/lib/mintCap.ts` 2, `server/lib/redemption.ts` 2, `server/routes/stays.ts` 2,
+`server/lib/economy.ts` 1, `server/lib/redemptionStore.ts` 1,
+`server/lib/stays.ts` 1). One file and three sites is now thirteen files and
+forty-eight, and seven of those arrived with redemption in the hours between two
+readings of this paragraph.
+
+The wallet itself divides. `client/src/lib/tokenAmount.ts` holds
+`formatTokenAmount(units, decimals)`, which is the one place minor units become a
+number a member reads, and `decimalsOf` reads the scale out of the payload rather
+than guessing it from a slug. `client/src/pages/Wallet.tsx` renders
+`formatTokenAmount(Number(bal), decimalsOf(tokenDecimals, slug))`, and so do the
+profile wallet card, the profile sheet, the public profile, the send card, the
+game dashboard, the library balance, the stay balance and the Mint panel. The
+scale travels with the amount: `server/index.ts` puts a `tokenDecimals` map beside
+the balances on the wallet payload, on the tokens payload and on the member's own
+data export, each built from `tokenDef(slug).decimals`.
+
+**What is left is not this defect and is worth naming so nobody re-opens it as
+one.** Village Voice still carries 3 decimals, so its wallet figure is a real
+0.010 whenever a posting was small, and section 11 item 1 is the decision that
+lowers it to 0. Lowering it is the DOWNWARD scale change section 7 opens with,
+and the wallet dividing correctly is exactly what makes that change visible to a
+member the moment it lands.
 
 ### 10.4 `reverse()` took its amount from the caller. Fixed on `wt/econ`, measured.
 
@@ -1028,12 +1207,25 @@ issues exactly three `DebtProof` values, `GRACE_NIGHT_DEBT`,
 `PAYMENT_REVERSAL_DEBT` and `CLAWBACK_DEBT`, each naming the one source it
 licenses; `validateLeg` checks them by IDENTITY before any transaction opens, so
 an object literal of the right shape is refused as firmly as `true` is, and a
-proof issued for a grace night cannot be spent on a clawback. The whole set of
-callers that can create debt is now `grep -rn "_DEBT" server/`: five call sites
-in four files, and the compiler enumerated every one of them when the type
-changed. Proven by `refuses \`allowNegative: true\`, which used to take an account
-holding 10 down to -990` and `refuses a forged proof, and a real proof spent on
-the wrong source`.
+proof issued for a grace night cannot be spent on a clawback. Proven by
+`refuses \`allowNegative: true\`, which used to take an account holding 10 down to
+-990` and `refuses a forged proof, and a real proof spent on the wrong source`.
+
+**THE HANDLE THIS ENTRY GAVE IS SUPERSEDED, and following it today reports the
+opposite of the truth.** It said the whole set of callers that can create debt is
+`grep -rn "_DEBT" server/`, five call sites in four files. 10.20 made the three
+proofs module-private, so that grep now answers only `server/lib/ledger.ts` and
+two comment lines: the set of modules that can create debt looks empty when it is
+not. Re-measured 2026-09-04 at `1861f7d`, the handle is the four narrow
+operations the ledger exports in their place,
+`grep -rn "postGraceNightBurn(\|postPaymentReversalLeg(\|postClawbackMirror(\|postClawbackMirrorPair(" server/`,
+which answers six call sites in three files, dropping tests and the ledger module
+itself: `server/lib/stays.ts:343` (the grace night burn), `server/index.ts` at
+6505, 6593 and 6655 (three payment reversal legs) and `server/lib/economy.ts` at
+1135 and 1248 (the clawback mirror, and the pair form). **Five of those six can
+create debt.** The sixth is `postClawbackMirrorPair`, which goes through
+`postTransferPair` and so refuses `allowNegative` outright (10.13). Section 12
+counts the same five from the other end.
 
 ### 10.11 The two gates on `source` used two different equalities. Fixed on `wt/econ`, measured.
 
@@ -1475,9 +1667,21 @@ decimals is 1 minor unit and its simulation pays what the engine used to pay. Th
 model is a mirror by table and may not import anything under `server/`, so
 closing this means flooring the ceiling in the reader and adding the three rows
 above to the mirror table in `shared/dryRun/economicsModel.test.ts`. Both files
-are outside this lane's zone and neither is edited here. The engine and the model
-therefore DISAGREE at every ceiling the column can hold and the token cannot,
-with the engine now correct, until that lane runs.
+were outside that lane's zone and neither was edited there.
+
+**THAT LANE RAN, AND THIS IS CLOSED. Re-measured 2026-09-04 at `1861f7d`.** The
+fix landed in the model instead of the reader, which is where it belongs and is
+why this entry's own prescription is worth reading against the code rather than
+following. `WrittenAmount` in `shared/dryRun/economicsModel.ts` carries a
+`floored` reading beside its `rounded` one, `writtenCeiling` fills both, and
+`ceilingOutcomeMinor` takes `const cap = written.floored` with a comment naming
+this defect: a cap of 0.5 on a whole-unit token arrived as 1 and the model
+previewed twice the cap the village wrote. The reader still scales through
+`writtenAmount` and still hands back `rounded`, which is correct for an AMOUNT,
+because the nearest payable figure is what a payment means. The engine floors a
+bound in `ceilingAtScale` and the model floors the same bound in
+`ceilingOutcomeMinor`, so the preview and the run answer alike and the sentence
+above about them DISAGREEING is no longer true of any ceiling.
 
 **None of these had hurt anyone, because production has zero ledger rows. All
 of them would have landed on the first day more than one person used the thing.**
@@ -1677,6 +1881,130 @@ the one worth having proven: half that file exists to hold the third exit code
 apart from the second, and an assertion of "non-zero" would have let 2 rot into
 1 without a word.
 
+### 10.36 Two doors wrote one gift under two keys, so a reversal refunded nobody. Fixed on `wt/econ`, measured.
+
+`sendGratitude()` in `server/lib/gratitude.ts` posted its ledger leg under a
+hand-built `gratitude_received:<noteId>`. `give()` in `server/lib/economy.ts`
+posts under `keys.gratitudeGiven`, which is
+`gratitude.given:<esc(village)>:<esc(noteId)>`, and that is the shape the
+allowance's refund arm rebuilds and the shape `server/lib/health.ts` narrows
+the `gratitude_allowance_given` snapshot on. Both doors write one
+`gratitude_log` row apiece and both spend one allowance, so a gift made through
+the acknowledgement door was charged like any other and refunded like nothing:
+reversing it returned the giver zero, they were out that amount for the rest of
+the cycle, and no surface reported it. The missing village was the second half
+of the same defect, and it is the half that matters in a product where two
+villages run one image.
+
+**Measured before the fix**, in `server/gratitudeKeys.test.ts` against a scratch
+schema: a member sent 3 and 5 through the acknowledgement door, the allowance
+read a spend of 8, and `reverse()` on the key the allowance builds answered
+`there is no such posting to reverse`. Four cases were red that way, and the
+same file's case for `give()` was green, which is the shape of a defect on one
+door and not on a rule.
+
+**Existing rows are REPAIRED, by `drizzle/0154_one_gift_one_key.sql`, and the
+repair moves no value.** It rewrites `idempotency_key` and touches no amount, no
+account and no `source_ref`, so per-token `SUM(balance)` is the same number
+after it as before and `token_balances` stays a cache of rows it did not change.
+A second matcher was the alternative and was refused: two `LIKE` patterns for
+one rule is how `moon-329` came to sit beside `lunar-000329` in one column
+(`drizzle/0105_one_cycle_one_name.sql`), and one member's 130 units of spending
+was then counted against two allowances of 100 and 30 with the missing 30
+reported to nobody.
+
+**A repair that guesses is worse than one that refuses**, so the file repairs
+only what it can prove and every clause of its `WHERE` is a proof obligation:
+
+| It refuses | Why there is no honest answer |
+|---|---|
+| a row whose `source_ref` names no `gratitude_log` row | `token_ledger` has no `village_id` column, so the note is the only witness to which village the gift belonged to |
+| a note id or village id that `esc` would rewrite | rebuilding the percent-escape in SQL would be a second copy of a rule that already has one home, so the file repairs the ids the escape leaves alone and no others |
+| a gift that already carries a reversal mirror | `reverse()` derives its mirror key as `reversal:<village>:<the original key>`, so renaming an original out from under a stored mirror lets a second reversal of that gift collide with nothing and debit the recipient twice. A rename can mint, and that is the direction it mints in here |
+
+Every refusal leaves a key still shaped `gratitude_received:%`, so one query
+finds all of them and nothing else (a clawback of one begins `reversal:`):
+
+```sql
+SELECT `id`, `source`, `source_ref`, `at` FROM `token_ledger`
+  WHERE `idempotency_key` LIKE 'gratitude_received:%';
+```
+
+An operator with rows in that answer has a gift whose reversal will not refund
+its giver. The row names the note, `gratitude_log` names the giver and the
+village, and the correction is a new numbered migration written against those
+two facts, never a second matcher in the allowance.
+
+**The whole class is currently empty and unreachable, and the file ships
+anyway.** `reverse()` has **three** non-test callers as of `08bc494`: twice in
+`server/lib/voiceClaim.ts`, both passing a voice-claim debit key, and once in
+`server/lib/redemptionStore.ts`'s `releaseHold`, passing a redemption's stored
+`hold_key`. None of the three passes a gratitude key, so nothing in this build has
+ever reversed a gratitude posting of either spelling. This entry said TWO callers
+in one file when it was written hours earlier, which is how fast the evidence
+under a finding moves while the finding stands. Section 2 measured `token_ledger` at zero
+entries on 2026-09-03. That census covers ONE instance, thirteen founder
+instances run this image, and the obvious next change is a caller that reverses
+a gift. A rewrite of an unreversed key costs nothing today and is expensive on
+the day somebody writes that caller.
+
+**Run rather than read.** The migration is exercised in
+`server/gratitudeKeys.test.ts` against seeded rows in every shape it claims to
+handle, including an id carrying a capital and a village id carrying a colon,
+with a REAL mirror written by `reverse()` for the case it refuses. First run
+changed 2 rows, second run changed 0 and left all eight keys byte-identical.
+Every seeded posting goes through `postTransfer`, because a raw ledger row would
+fail `checkLedgerInvariants` as cache drift, which is the invariant doing its
+job.
+
+**The engine caveat.** This was measured on MariaDB 12.3.2 under
+`utf8mb4_uca1400_ai_ci`; CI and the fleet run MySQL 8. `idempotency_key` answers
+under a case-insensitive collation, and the two engines differ on trailing
+spaces, so every clause that decides whether a row is escape-neutral compares
+`CAST(... AS BINARY)` and means the same thing on both. What is left
+collation-dependent is the join from `token_ledger.source_ref` to
+`gratitude_log.id`, which under a PAD SPACE collation could match a padded
+`source_ref` to an unpadded id; `sourceRef` is written from the note id and
+cannot carry padding, and the key the file writes is derived byte-wise from the
+key itself, so only the village would be taken from the wrong row.
+
+### 10.37 A generated region stated a count the same region's own table contradicted. Fixed on `wt/econ`, measured.
+
+**The guard on this document cannot see a sentence the generator hardcodes**, and
+that is structural rather than a bug in the guard.
+`scripts/check-economics-doc.mjs` regenerates each region and compares it to what
+is committed, so a literal inside `scripts/generate-economics-doc.mjs` is
+byte-identical on both sides and passes forever, however wrong it is.
+
+Measured on 2026-09-04 at `1861f7d`. The triggers region in section 1 read
+"`keys` in `server/lib/economy.ts` builds eight of them" and then printed a table
+it derives from the code with **nine** rows in it: `questCompleted`,
+`gratitudeGiven`, `roleCycle`, `journeyStage`, `welcomeAboard`, `voiceDecay`,
+`transfer`, `reversal` and `voiceClaim`. The count was a string literal at
+`generate-economics-doc.mjs:1131`; the table came from `occurrenceKeys(root)`.
+`voiceClaim` was the ninth and the sentence never moved.
+
+**Nothing in the guard's self-test could catch it either, and the reason is worth
+carrying.** `check-economics-doc.test.mjs` pins the reader with
+`assert.ok(keys.length >= 8)`, which is a LOWER BOUND: it passes at eight, at
+nine and at ninety, so it can never notice the prose and the table disagreeing.
+A bound proves a reader still finds something and says nothing about a number
+printed beside it.
+
+**Two changes.** The sentence derives its count (`builderRows.length`), so it and
+the table are one read. And a new self-test, `PROSE: every count a region states
+equals the table it prints`, parses the numeral out of the rendered region,
+counts the rows of the table below it, and refuses when they differ. Proven to go
+red in both directions the way 10.35 asks: with the literal `8` put back, the
+runner printed `the triggers region says it builds 8 keys and prints 9 rows` and
+the file exited 1; restored, `41 check(s) passed` and the generator is
+byte-identical to what it was.
+
+**What this does NOT close.** The new test guards ONE region's one count, and the
+general shape is any prose a generator writes beside a list it derives. There is
+no reader that finds those pairs on its own, so the next hardcoded count in a
+generated region is invisible again. Naming that here is the honest form of it.
+
 ### The governed numbers a member was told wrong (lane P1)
 
 **The needs floor is the village's, and it is now kept as well as stated.**
@@ -1743,92 +2071,9 @@ pays nobody, and that the warning names the smallest cap that would work. A seco
 case at 0.0010 holds the other side of the boundary, so the rule reads as a scale
 rule and not as a refusal of small caps.
 
-### 10.33 Two doors wrote one gift under two keys, so a reversal refunded nobody. Fixed on `wt/econ`, measured.
-
-`sendGratitude()` in `server/lib/gratitude.ts` posted its ledger leg under a
-hand-built `gratitude_received:<noteId>`. `give()` in `server/lib/economy.ts`
-posts under `keys.gratitudeGiven`, which is
-`gratitude.given:<esc(village)>:<esc(noteId)>`, and that is the shape the
-allowance's refund arm rebuilds and the shape `server/lib/health.ts` narrows
-the `gratitude_allowance_given` snapshot on. Both doors write one
-`gratitude_log` row apiece and both spend one allowance, so a gift made through
-the acknowledgement door was charged like any other and refunded like nothing:
-reversing it returned the giver zero, they were out that amount for the rest of
-the cycle, and no surface reported it. The missing village was the second half
-of the same defect, and it is the half that matters in a product where two
-villages run one image.
-
-**Measured before the fix**, in `server/gratitudeKeys.test.ts` against a scratch
-schema: a member sent 3 and 5 through the acknowledgement door, the allowance
-read a spend of 8, and `reverse()` on the key the allowance builds answered
-`there is no such posting to reverse`. Four cases were red that way, and the
-same file's case for `give()` was green, which is the shape of a defect on one
-door and not on a rule.
-
-**Existing rows are REPAIRED, by `drizzle/0154_one_gift_one_key.sql`, and the
-repair moves no value.** It rewrites `idempotency_key` and touches no amount, no
-account and no `source_ref`, so per-token `SUM(balance)` is the same number
-after it as before and `token_balances` stays a cache of rows it did not change.
-A second matcher was the alternative and was refused: two `LIKE` patterns for
-one rule is how `moon-329` came to sit beside `lunar-000329` in one column
-(`drizzle/0105_one_cycle_one_name.sql`), and one member's 130 units of spending
-was then counted against two allowances of 100 and 30 with the missing 30
-reported to nobody.
-
-**A repair that guesses is worse than one that refuses**, so the file repairs
-only what it can prove and every clause of its `WHERE` is a proof obligation:
-
-| It refuses | Why there is no honest answer |
-|---|---|
-| a row whose `source_ref` names no `gratitude_log` row | `token_ledger` has no `village_id` column, so the note is the only witness to which village the gift belonged to |
-| a note id or village id that `esc` would rewrite | rebuilding the percent-escape in SQL would be a second copy of a rule that already has one home, so the file repairs the ids the escape leaves alone and no others |
-| a gift that already carries a reversal mirror | `reverse()` derives its mirror key as `reversal:<village>:<the original key>`, so renaming an original out from under a stored mirror lets a second reversal of that gift collide with nothing and debit the recipient twice. A rename can mint, and that is the direction it mints in here |
-
-Every refusal leaves a key still shaped `gratitude_received:%`, so one query
-finds all of them and nothing else (a clawback of one begins `reversal:`):
-
-```sql
-SELECT `id`, `source`, `source_ref`, `at` FROM `token_ledger`
-  WHERE `idempotency_key` LIKE 'gratitude_received:%';
-```
-
-An operator with rows in that answer has a gift whose reversal will not refund
-its giver. The row names the note, `gratitude_log` names the giver and the
-village, and the correction is a new numbered migration written against those
-two facts, never a second matcher in the allowance.
-
-**The whole class is currently empty and unreachable, and the file ships
-anyway.** `reverse()` has two callers, both in `server/lib/voiceClaim.ts`, and
-both pass a voice-claim debit key, so nothing in this build has ever reversed a
-gratitude posting of either spelling. Section 2 measured `token_ledger` at zero
-entries on 2026-09-03. That census covers ONE instance, thirteen founder
-instances run this image, and the obvious next change is a caller that reverses
-a gift. A rewrite of an unreversed key costs nothing today and is expensive on
-the day somebody writes that caller.
-
-**Run rather than read.** The migration is exercised in
-`server/gratitudeKeys.test.ts` against seeded rows in every shape it claims to
-handle, including an id carrying a capital and a village id carrying a colon,
-with a REAL mirror written by `reverse()` for the case it refuses. First run
-changed 2 rows, second run changed 0 and left all eight keys byte-identical.
-Every seeded posting goes through `postTransfer`, because a raw ledger row would
-fail `checkLedgerInvariants` as cache drift, which is the invariant doing its
-job.
-
-**The engine caveat.** This was measured on MariaDB 12.3.2 under
-`utf8mb4_uca1400_ai_ci`; CI and the fleet run MySQL 8. `idempotency_key` answers
-under a case-insensitive collation, and the two engines differ on trailing
-spaces, so every clause that decides whether a row is escape-neutral compares
-`CAST(... AS BINARY)` and means the same thing on both. What is left
-collation-dependent is the join from `token_ledger.source_ref` to
-`gratitude_log.id`, which under a PAD SPACE collation could match a padded
-`source_ref` to an unpadded id; `sourceRef` is written from the note id and
-cannot carry padding, and the key the file writes is derived byte-wise from the
-key itself, so only the village would be taken from the wrong row.
-
 ---
 
-### 10.33 The founder's redemption sequence could not be executed on this code. Closed on `wt/econ`, measured.
+### 10.38 The founder's redemption sequence could not be executed on this code. Closed on `wt/econ`, measured.
 
 **His words, and they are the requirement.** *"On platform all we need is a
 'redemption' process that destroys currency that is redeemed... a member makes a
@@ -1927,6 +2172,51 @@ choices, with the vote path refusing at the door while it is unbuilt
 that setting is told instead of being left with a stranded hold. Section 16
 carries both as questions.
 
+### 10.39 A generated table said where value sits and named four of the eleven places. Fixed on `wt/econ`, measured.
+
+10.37's blind spot has a second form and this is it: a HAND-KEPT LIST inside the
+generator, which the guard cannot see for the same reason it could not see a
+hardcoded count. Both sides of the comparison carry the same short list, so it
+passes forever however incomplete it is.
+
+The faucets region in section 4 prints two tables. The faucet half was derived.
+**The vault half named four accounts, written one at a time in
+`scripts/generate-economics-doc.mjs`, while `drizzle/` seeds ELEVEN non-faucet
+system accounts.** Measured 2026-09-04 at `08bc494` by reading every `INSERT`
+into `ledger_accounts` across the migration set: sixteen `sys:` rows, five with
+the faucet flag and eleven without. The four listed were `sys:treasury`,
+`sys:exit-settlement`, `sys:voice-bridge` and `sys:voice-settled`. The seven
+missing were `sys:event-escrow`, `sys:library-escrow`, `sys:library-pool`,
+`sys:library-sink`, `sys:voice-decay`, `sys:redemption-hold` and `sys:redeemed`.
+
+**Why this one is worse than a wrong count.** A reader asking where value can sit
+in this economy consults exactly that table, it sits inside a region marked
+GENERATED so it is trusted more than the prose around it, and three of the seven
+missing accounts are ESCROWS holding value that belongs to a member: a seat fee
+before the gathering, a loan deposit before the loan settles, tokens held against
+an open redemption. `sys:voice-decay` had been missing since `0148` landed it,
+and `sys:redemption-hold` and `sys:redeemed` arrived in `0155` today and did not
+reach it either, which is what made the omission visible at all.
+
+**The fix is 10.33's fix, in the document instead of the code.**
+`seededSystemAccounts(root)` reads the seed tuples out of `drizzle/`, stripping
+comment lines first because the runner does, taking the first seed of each id
+because `INSERT IGNORE` means a later restatement changes nothing. The region
+renders every row whose faucet flag is 0 and states the count it printed.
+`VAULT_SENTENCES` keeps the four hand-written sentences that read better than a
+migration label and nothing else: **the LIST is derived and only the WORDING is
+kept**, so a twelfth vault reaches the table on the day it is seeded rather than
+on the day somebody remembers a map.
+
+**Proven, and proven to go red.** A new self-test asserts the five faucets read as
+faucets, four known vaults read as vaults, every non-faucet seed appears in the
+rendered table, and no faucet appears in it (that last one is the dangerous
+direction: a faucet listed as an account that never goes below zero would deny the
+one fact section 4 exists to state). Dropping `sys:redeemed` from the reader on
+purpose turned it red with `sys:redeemed is seeded by
+0155_a_member_redeems_what_they_hold.sql and is missing from the vault table`;
+restored, the file passes 42 checks and the generator is byte-identical.
+
 ## 11. Open decisions
 
 1. **Decimals. SETTLED 2026-09-04, and the other way.** Rye had ruled 4 across
@@ -1943,15 +2233,33 @@ carries both as questions.
    is zero before changing its decimals, and if it is not, either rescale in the
    same transaction or stop and name the village. A fork that has been running for a
    month is where this quietly becomes a thousandfold gift.
-2. **Whether an audit event is a guarantee.** 62 `void recordEvent` calls post the
-   audit trail without awaiting it, so a member who acts and immediately opens the
-   audit feed can miss their own action. Fine as best effort, wrong if the feed is
-   a control.
+   **And if the registry and the stored column cannot move in one transaction, the
+   REGISTRY MOVES LAST.** A stale registry over rescaled data reads too SMALL; a
+   fresh registry over unscaled data reads too LARGE. Only one of those is acted
+   on. A member whose balance reads a thousand times high spends it, claims it or
+   swaps it, and the repair afterwards is a clawback against somebody who did
+   nothing wrong. Section 7 opens with this, because that is where a reader who is
+   about to make the change will be standing.
+2. **Whether an audit event is a guarantee.** **76** `void recordEvent` calls post
+   the audit trail without awaiting it, so a member who acts and immediately opens
+   the audit feed can miss their own action. Fine as best effort, wrong if the feed
+   is a control. This entry said 62; re-counted 2026-09-04 at `08bc494` by
+   `grep -rn "void recordEvent" server/ --include=*.ts` dropping tests, which
+   answers 76 with none of them on a comment line, in `server/index.ts` (57) and
+   ten route and library files. The same grep for `await recordEvent(` answers 46,
+   so three in five of this build's audit writes are fire and forget, and the ratio
+   is what makes this a decision instead of a cleanup: it is the shape of the
+   build, not a handful of sites.
 3. **What proves this engine.** Nothing short of one real cycle in a real village,
    with several members acting at once, separates "proven by its tests" from
    "proven". See `PLAN_TO_A.md`.
-4. **What a village owes a departing member.** Section 14. The code deliberately
-   declines to decide, and says so on the member's screen.
+4. **What a village owes a departing member.** Section 14. **Narrower than it was,
+   and still open.** R4's ten levers decide how a settlement EXECUTES, and a
+   village votes them, so the shape of a departure is now the village's own. What
+   is undecided is the valuation: `DEFAULT_EXIT_POLICY` still ships
+   `placeholder: true`, `/exit-policy` still prints the caution card, and no dial
+   answers what contributed value is honoured at. The code declines to decide that
+   and says so on the member's screen.
 
 ---
 
@@ -1990,31 +2298,65 @@ two admin negative-adjustment routes and the three Stripe reversal handlers.
 **Both lanes enumerated by CLOSURE and not by keyword**, which is the only method
 that can be repeated: exactly two statements in this repository write
 `token_ledger`, both in `server/lib/ledger.ts`, and the posting set is therefore
-closed by the call sites of the doors that reach them. One lane read six doors and
-reported seventeen paths while its own table carried fourteen rows. The other read
-**seven** (it also had `postTransferOn`) and reported fourteen paths across sixteen
-call sites, which agrees with the table. **Fourteen is the number for the tree
-before redemption**, and the seventeen was prose that had drifted from the rows
-beneath it, which is the same defect this section exists to fix, committed while
-fixing it.
+closed by the call sites of the doors that reach them. **Three lanes have now
+written a total into this paragraph and no two of them agreed: four, then
+seventeen, then fourteen across sixteen call sites, over a table that carried
+first four rows, then seventeen, then eighteen.**
 
-**Redemption adds one, so the table below carries fifteen.** The enumeration is
-repeated in the header of `server/redemption.test.ts` with every call site named.
+**They disagreed because "path" and "call site" are two different units and none
+of the three said which it was counting.** That is the whole of it, and it is
+worth more than any of the numbers. A PATH is a thing that happens to a member
+and gets one row in the table below; a CALL SITE is one call to one door. They
+are not the same count, because one path can be several sites: the three Stripe
+reversal handlers are three sites and read as one path, `reverse` and
+`reversePair` are two sites and one path, and a redemption is two sites (the
+hold, then the burn) under one row.
 
-**How the list was enumerated, so it can be redone.** The ledger invariant in
-`CLAUDE.md` is that all movement goes through `postTransfer` and
-`postTransferPair`, and that is checkable: `INSERT INTO token_ledger` appears
-at exactly two places in the tree, both inside `server/lib/ledger.ts`. So the
-set of postings is closed by the call sites of the six exported doors:
-`postTransfer`, `postTransferPair`, and the four narrow wrappers around them,
+**Measured once, in both units, on 2026-09-04 at `08bc494`, which is the tree
+with redemption in it.**
+
+| | Before redemption (`1861f7d`) | With redemption (`08bc494`) |
+|---|---|---|
+| Posting call sites, all seven doors | 36 | **38** |
+| Of those, with a member account on the `from` side | 17 | **19** |
+| Rows in the table below | 17 | **18** |
+
+Nineteen sites and eighteen rows, because redemption's hold and its burn are two
+call sites under one row. Whenever this paragraph and that table disagree again,
+the table is the PATHS and the paragraph should say which unit it means before it
+says a number.
+
+**How to redo it, so the next lane gets the same answer.** `INSERT INTO
+token_ledger` appears at exactly two places in the tree, both inside
+`server/lib/ledger.ts`, so the posting set is closed by the call sites of the
+**seven** exported writing doors: `postTransfer`, `postTransferOn`,
+`postTransferPair`, and the four narrow wrappers around them,
 `postGraceNightBurn`, `postPaymentReversalLeg`, `postClawbackMirror` and
-`postClawbackMirrorPair`. Walk every TypeScript file under `server/` that is
-not a test, take each call to one of those six, and read its `from`. A
-member is debited whenever that `from` is `memberAccount(...)`, a variable
-bound to one, or an account id read back off the `token_ledger` row being
-mirrored. That is seventeen call sites, measured on `wt/econ-small`.
+`postClawbackMirrorPair`. Grep all seven across `server/ --include=*.ts`, drop
+tests, drop `server/lib/ledger.ts` itself, drop comment lines, and read each
+call's `from`. A member is debited whenever that `from` is `memberAccount(...)`,
+a variable bound to one, or an account id read back off the `token_ledger` row
+being mirrored.
 
-**Fifteen name a member account outright. Two derive one.**
+Three notes on the method, each of which cost a lane a re-read:
+
+- **The door list is SEVEN and was written as six.** `postTransferOn` is exported
+  too. It has exactly one caller outside the ledger module (`give()` in
+  `server/lib/economy.ts`), which posts from the gratitude faucet and so debits
+  nobody, which is why missing it changed no total and would have on any other
+  day.
+- **Three of the nineteen hide inside a ternary**, so a walk that reads only the
+  first identifier after `from:` finds sixteen and calls the answer complete:
+  `from: amount > 0 ? LIBRARY_MINT : memberAccount(...)` in `server/index.ts`,
+  the same shape in `server/routes/stays.ts`, and
+  `from: row.heldAccount ?? memberAccount(row.userId)` in
+  `server/lib/redemptionStore.ts`.
+- **That third one is a fallback and not a normal path.** A redemption's burn
+  debits `sys:redemption-hold` in every ordinary case; it names the member only
+  when the village has `redemption.holds_on_propose` off, so nothing was held and
+  the burn takes the tokens directly. It counts, and it counts for that reason.
+
+**Sixteen name a member account outright. Two derive one, and one names either.**
 
 | Path | Posting | Source | Idempotency key | Sink |
 |---|---|---|---|---|
@@ -2041,15 +2383,30 @@ The last two are the two that derive their member: they mirror a row, so they
 debit a member exactly when the posting being undone credited one. Everything
 above them names `memberAccount(...)` in the source.
 
-**Five of the seventeen can drive a member negative, and only five.** The
-ledger's `ALLOW_NEGATIVE_SOURCES` is `stay_night`, `payment_reversal` and
-`reversal`, and the debt capability behind each is module-private: only
-`postGraceNightBurn`, `postPaymentReversalLeg` and `postClawbackMirror` carry
-one. So the paths that can leave a member owing are the nights burn, the three
-bank-side payment reversals, and the clawback mirror. `reversePair` is not one
-of them: `postTransferPair` refuses `allowNegative` outright, because undoing a
-swap behind a member who already spent what it gave them is a refusal a person
+**Five of the nineteen can drive a member negative, and only five. Redemption
+added two sites and neither of them is one. Re-verified 2026-09-04 at
+`08bc494`, and the five are named so the count can be checked instead of
+believed.** The ledger's `ALLOW_NEGATIVE_SOURCES` is `stay_night`,
+`payment_reversal` and `reversal`, built by `frozenSet` in
+`server/lib/ledger.ts`, and the debt capability behind each is module-private:
+only `postGraceNightBurn`, `postPaymentReversalLeg` and `postClawbackMirror`
+carry one, and all three are declared in that same file. Grepping their call
+sites outside the ledger module answers six, of which five create debt:
+`server/lib/stays.ts` (the grace-night burn), `server/index.ts` three times (the
+commerce, stays and exchange bank reversals), and `server/lib/economy.ts` twice
+(`reverse()`'s clawback mirror, and `reversePair()`'s pair form). So the paths
+that can leave a member owing are the nights burn, the three bank-side payment
+reversals, and the clawback mirror. `reversePair` is the sixth site and not one
+of the five: `postTransferPair` refuses `allowNegative` outright, because undoing
+a swap behind a member who already spent what it gave them is a refusal a person
 should settle.
+
+**Redemption's two sites carry no proof and neither of its sources is on the
+list.** `redemption_hold` and `redemption_burn` post through the plain
+`postTransfer`, so the ledger's ordinary overdraft test applies to both and a
+member who does not hold the tokens is refused. That is deliberate and it is
+what makes the hold honest: a redemption cannot put anybody in debt, and a
+redemption of tokens somebody has already spent fails instead of creating them.
 
 **A source is not a capability, and the stay refund is the case that shows
 it.** `POST /api/admin/stays/purchases/:id/refund` posts source
@@ -2061,11 +2418,14 @@ prevails and the village case does not. Waning is deliberately outside all of
 this: a waning that could drive a member below zero would be a debt nobody
 incurred.
 
-**A new hold mechanism has to answer all seventeen and not four.** The four the
-old table listed are the four a member CHOOSES. The other thirteen happen to a
-member: a moon closing, a bank reversing a charge, a steward correcting a
-number, a departure settling. A guard written only where a member clicks is a
-guard the other thirteen walk past.
+**A new hold mechanism has to answer all eighteen paths and not four.** The four
+the old table listed are the four a member CHOOSES. The other fourteen happen to
+a member: a moon closing, a bank reversing a charge, a steward correcting a
+number, a departure settling, a redemption confirming. A guard written only where
+a member clicks is a guard the other fourteen walk past. Redemption is the case
+that proves the rule and it did the work: its lock had to be tested against every
+path, and `server/redemption.test.ts` names each one in its header along with
+which of them can reach a locked token at all.
 
 Two things follow from this table and both are easy to misread.
 
@@ -2177,18 +2537,31 @@ display name as the member sees it.
 The list above is what the code returns. This is what that feels like from the
 other side of the screen, which is not the same thing.
 
+**Four rows of this table used to describe defects that are now fixed, in the
+present tense, which is the worst direction for a table headed "as a member meets
+them": it made a repaired build read as a broken one. Every row re-measured
+2026-09-04 at `1861f7d`, and the four are moved out below.**
+
 | What a member does | What they see | What is actually true |
 |---|---|---|
-| Thanks somebody while another member is thanking somebody | A 400 carrying raw MySQL driver text, or nothing at all if the throw escaped | 10.1: the whole village shares one lock. At 12 concurrent givers, 10 fail |
-| Thanks somebody and it appears to work | The gratitude wall shows the note, and the recipient's balance does not move | 10.2: the note commits and spends the allowance, then the ledger post fails outside the lock. Nothing tells either person |
-| Opens their wallet holding 10 Village Voice | **10000** | 10.3: the wallet prints minor units. The profile chip prints 10. Both are the same balance |
 | Tries to give a fifth member 30 when the cap is 25 | `25 is the most you can give one person this moon, and you have given them 0. That leaves 25 for them` | Correct, and deliberately worded to say what is left rather than only what is refused |
 | Has not created a profile yet and tries to give | `Your sending budget unlocks as you progress on the path` | Correct. A Visitor's stage multiplier is 0, so their allowance is 0 |
 | Tries to send Gratitude to another member | `Gratitude is recognition, and recognition is a record of what happened. It is given, never handed over` | Correct, and enforced in three places: the send refusal, the boot invariant, and the registry flag |
 | Is refused a give because the village has not launched | The launch refusal from `issuanceRefusal` | Correct, and it is asked LAST so a member over their budget hears about the budget instead |
 | Taps a heart twice on the same post | `You have already acknowledged this` | Correct. A unique index, not a check |
-| Is granted 10 Village Voice by a steward | Their balance rises by 10 minor units, which is 0.010 voice | Section 7. The steward believes they granted 10 |
+| Consents a claim a second time, on a village with the submission guard off | `This claim was already consented, so it was not consented again. The member was paid once.` as a 409 | Correct since 10.34: the status test moved inside `claimsRepo.update`'s row lock, so the claim's amount and the ledger row agree |
 | Asks to leave while holding an unsettled library loan | `Open state must settle through its own domain first`, with the blocking domains named | Correct. See section 14 |
+| Opens their wallet holding 10 Village Voice | **10** | Correct. `formatTokenAmount` divides by the scale the payload carries. It printed 10000 until 10.3 closed |
+
+**The four that no longer happen, kept here because deleting them would lose what
+a member used to meet and what closed it.**
+
+| What a member did | What they saw | Closed by |
+|---|---|---|
+| Thanked somebody while another member was thanking somebody | A 400 carrying raw MySQL driver text, or nothing at all if the throw escaped | 10.1. The row runs at REPEATABLE READ now and the `FOR UPDATE` on the giver's own row is what serialises a member against themselves |
+| Thanked somebody and it appeared to work | The gratitude wall showed the note, and the recipient's balance did not move | 10.2. The note and its credit commit in one transaction through `postTransferOn`, both or neither |
+| Opened their wallet holding 10 Village Voice | **10000** | 10.3. Nine surfaces render through `formatTokenAmount` and the scale rides in the payload |
+| Was granted 10 Village Voice by a steward | A balance rising by 10 minor units, which is 0.010 voice | Section 7. The hand-mint route posts `toLedgerUnits(slug, amt)` at both its doors, so 10 typed is 10 granted |
 
 ---
 
@@ -2200,24 +2573,50 @@ lifecycle exactly: ENUMERATE, SETTLE, RESOLVE.
 ### What happens to a departing member's balance, line by line
 
 `sweepBalances(pool, { exitId, userId })` is the only settlement move exit owns.
-In plain words:
+**Re-read line by line on 2026-09-04 at `1861f7d`, because the levers of R4
+landed inside this function and four of these steps had gone stale.** In plain
+words:
 
-1. It reads `balancesFor(mem:<userId>)`, which is every token that account holds.
-2. It walks them in whatever order the map yields.
-3. **Any balance at or below zero is skipped.** A debt is never touched here: it
+1. It reads the exit row itself and refuses while the cooling period stands
+   (`coolingRefusal`), so a caller that did not know about `exit.cooling_days`
+   cannot skip it. The refusal names the date.
+2. It reads `balancesFor(mem:<userId>)`, which is every token that account holds,
+   and the tokens this exit has already PAID the member, which it skips. A Voice
+   conversion credits the leaver, and a second settle would otherwise take a
+   share of those same credits back under a fresh key.
+3. It walks the balances in whatever order the map yields.
+4. **Any balance at or below zero is skipped.** A debt is never touched here: it
    resolves through the domain that created it, and sweeping a negative would be
    the village paying the member to leave.
-4. Each positive balance is posted from `mem:<userId>` to `sys:exit-settlement`
-   through `postTransfer`, in full, with `source: "exit_settlement"`,
-   `sourceRef: <exitId>`, the description `Balance settled at departure`, and the
-   idempotency key `exit:<exitId>:sweep:<token>`.
-5. **The amount is the balance as read, unconverted.** That balance is already in
-   minor units, so this is correct today and is one of the two call sites that
-   would break if anybody "fixed" units inside `postTransfer` (section 7).
-6. A refused post does not stop the sweep. It is collected into `errors` and the
+5. **Each positive balance is SPLIT, and only the remainder leaves.** The kept
+   share is `exit.keep_pct.<kind>` for that token's kind, computed in minor units
+   and floored; the remainder is the balance minus that share, and it posts to
+   whichever of four accounts `exit.remainder_account` names. On the shipped
+   defaults every share is 0 and the account is `sys:exit-settlement`, so the
+   posting a default village sees is the whole balance to exit settlement, which
+   is what this step used to say happened always. Source `exit_settlement`,
+   `sourceRef: <exitId>`, description `Balance settled at departure`, key
+   `exit:<exitId>:sweep:<token>`. A remainder of zero posts nothing.
+6. **Voice gets a second decision, and one branch of it CREDITS the member.**
+   `exit.voice_on_exit` is `forfeit` (the share goes with everything else, the
+   default), `keep` (refused at save time, honoured here if a stored value
+   predates the guard) or `convert`, which posts a `postTransferPair`: the Voice
+   share out to the remainder account and credits IN to the member from
+   `sys:treasury`, both legs or neither, under two distinct keys. The credits come
+   from the treasury and never from a faucet, because a faucet leg is issuance and
+   would print credits at a departure; a treasury that cannot cover it refuses the
+   whole pair.
+7. **What is POSTED is the balance as read, unconverted.** That balance is already
+   in minor units, so this is correct at any scale and is one of the call sites
+   that would break if anybody "fixed" units inside `postTransfer` (section 7).
+   What is RETURNED is HUMAN, divided once with `fromLedgerUnits`, because both
+   its consumers show it to a person.
+8. A refused post does not stop the sweep. It is collected into `errors` and the
    loop continues, so one bad token cannot strand the rest.
-7. It returns `{ swept, errors }`. The route appends `swept` to the exit row's
-   resolution text and sets the exit's status to `settling`.
+9. It returns **seven fields**, `{ swept, errors, refusal, policy, captured, note,
+   paidOut }`. The route appends `note`, which `sweepBalances` itself built and
+   which carries the captured split, to the exit row's resolution text, and sets
+   the exit's status to `settling`.
 
 The key shape is what makes a double click safe: one sweep per exit per token,
 forever. Re-running it moves nothing.
@@ -2259,11 +2658,33 @@ platform's words, naming every field that does. Adopting the platform's meaning 
 still available; adopting its wording while claiming the community decided it is
 not.
 
-So the state today is exact: **a departing member's positive balances move to
-`sys:exit-settlement` and stay there.** No code pays them out, converts them,
-values them, or returns them. `sys:exit-settlement` is not a faucet, so what it
-holds is real and traceable, and the village has to decide what happens to it.
-That decision is item 4 in section 11 and R4 in section 16.
+So the state today is exact, **and the sentence that used to stand here is not,
+because the levers landed under it.** It read: no code pays them out, converts
+them, values them, or returns them. Three of those four are now things the code
+does, on a village that has set the dials. `exit.keep_pct.<kind>` RETURNS a share
+by leaving it in the member's account; `exit.voice_on_exit: convert` CONVERTS
+Voice and PAYS the member credits out of `sys:treasury`; and
+`exit.voice_convert_rate` is the VALUATION that conversion applies. What no code
+does is decide what any of those numbers should be.
+
+The honest statement, split the way the thing itself is split:
+
+- **On the shipped defaults nothing has changed and that is measured.** Every
+  keep share is 0, the remainder account is `sys:exit-settlement`, cooling is 0,
+  Voice is forfeit, there is no vote and no sellback. A departing member's
+  positive balances move to `sys:exit-settlement` and stay there.
+  `sys:exit-settlement` is not a faucet, so what it holds is real and traceable.
+  `server/lib/exitDefaults.test.ts` runs a whole departure against a schema with
+  no `exit.%` row and compares every field of every `token_ledger` row to what
+  `origin/main`'s `sweepBalances` writes; the two dumps are identical.
+- **On a village that has voted the dials, the settlement genuinely pays.** The
+  line-by-line above is the whole of it, and the split that ACTUALLY applied is
+  captured on `exits.resolution` at the moment it applies, because the amount
+  changes with the dials and the idempotency key does not.
+- **What the village OWES is still undecided, and that is the part that has not
+  moved.** The levers say how a settlement executes. They do not answer what
+  contributed value is worth, which is what `DEFAULT_EXIT_POLICY`'s placeholder
+  says out loud. That decision is item 4 in section 11 and R4 in section 16.
 ### The levers a village can set (R4)
 
 Ten dials now describe an exit policy, in the `Exit` category of
@@ -2501,13 +2922,21 @@ quest advertised.
 
 ### 15.3 Wren thanks Ash, 5 gratitude
 
-Two writes, in this order, and the order is the defect in 10.2.
+Two writes, in **one transaction**, which is the shape 10.1 and 10.2 left behind.
+Re-read 2026-09-04 at `1861f7d`, because this example used to describe the code
+those two entries fixed.
 
-1. `writeGratitudeRow` opens a SERIALIZABLE transaction, locks Wren's row,
-   re-reads the allowance INSIDE the lock, runs `checkGive`, and writes one
-   `gratitude_log` row. **That row is the spend**: the allowance is a sum over
-   this table, so the note is what charges the cycle.
-2. After the lock releases, one ledger row:
+1. `writeGratitudeRow` opens a REPEATABLE READ transaction (it ran at
+   SERIALIZABLE, which is what deadlocked every giver in the village against
+   every other), takes `SELECT ... FOR UPDATE` on Wren's own row, which is what
+   serialises a member against themselves, re-reads the allowance INSIDE that
+   lock, runs `checkGive`, and writes one `gratitude_log` row. **That row is the
+   spend**: the allowance is a sum over this table, so the note is what charges
+   the cycle.
+2. **Inside the same transaction**, through `postTransferOn`, one ledger row.
+   Both or neither: the note used to commit first and the credit posted
+   afterwards in a transaction of its own, which is 10.2, and a member could be
+   charged for a credit nobody received.
 
 | Posted by | From | To | Token | Amount | Source | Idempotency key |
 |---|---|---|---|---|---|---|
@@ -2526,7 +2955,7 @@ guards would run through `sendGratitude`, the amount would be `feed.heart_amount
 (1), the cap would be `feed.max_hearts_per_recipient_per_cycle` (5) taps, the
 source would be `heart_received`, and the ledger key would be
 `gratitude.given:local:<noteId>`. Two doors, one lock, one key shape as of
-2026-09-04: see section 5 and 10.33 for the shape that used to sit here and what
+2026-09-04: see section 5 and 10.36 for the shape that used to sit here and what
 it cost.
 
 ### 15.4 Wren holds a seat through a settlement
@@ -2571,7 +3000,7 @@ decided rather than re-splitting a pool that is already partly out the door.
 
 | # | Posted by | From | To | Token | Amount | Source | Idempotency key |
 |---|---|---|---|---|---|---|---|
-| 1 | `chargeSeat` | `mem:<wren>` | `sys:event-escrow` | `credits` | **10** (10) | `event_seat_fee` | `seat:<eventId>:-:<wren>:1:pay` |
+| 1 | `chargeForPlace`, `server/lib/eventSeats.ts` | `mem:<wren>` | `sys:event-escrow` | `credits` | **10** (10) | `event_seat_fee` | `seat:<eventId>:-:<wren>:1:pay` |
 | 2a | the gathering is held | `sys:event-escrow` | `sys:treasury` | `credits` | **10** (10) | `event_seat_kept` | `seat:<eventId>:-:<wren>:1:keep` |
 | 2b | or it is cancelled | `sys:event-escrow` | `mem:<wren>` | `credits` | **10** (10) | `event_seat_refund` | `seat:<eventId>:-:<wren>:1:refund` |
 
@@ -2590,8 +3019,11 @@ which that is legal.
 ### 15.6 Wren leaves
 
 An admin opens the exit, and Wren's open state is enumerated. Suppose it is clean.
-The admin presses settle-balances, and `sweepBalances` writes one row per positive
-balance:
+The admin presses settle-balances. **This example is on PLATFORM DEFAULTS, which
+for exit means every keep share at 0, the remainder to `sys:exit-settlement`,
+cooling at 0 and Voice forfeit**, so `sweepBalances` writes one row per positive
+balance. A village that has voted the levers of R4 gets a different set of rows,
+and section 14 walks that case:
 
 | Posted by | From | To | Token | Amount | Source | Idempotency key |
 |---|---|---|---|---|---|---|
@@ -2603,10 +3035,18 @@ Then resolve anonymises the account and vacates the seat. Wren's contributions
 stay part of the village record; every ledger row stays exactly where it is, and
 conservation holds.
 
-**And then nothing.** `sys:exit-settlement` now holds 290 credits and 60 voice
-that belong to nobody and that no code path will ever move again. That is the
-whole of what the village owes a departing member today: a number in an account,
-and a written promise that the community will decide.
+**And then nothing, ON THESE DEFAULTS.** `sys:exit-settlement` now holds 290
+credits and 60 voice that belong to nobody, and no code path in this build will
+move them again: nothing reads `sys:exit-settlement` to pay anybody out of it.
+That is the whole of what a DEFAULT village gives a departing member: a number in
+an account, and a written promise that the community will decide.
+
+The levers change where the value goes and never who decides what it is worth.
+Had Amora voted `exit.keep_pct.credit` to 40, Wren would have kept 116 credits
+and 174 would have moved; had it voted `exit.voice_on_exit` to `convert`, the
+Voice would have left and credits would have come back from `sys:treasury` at
+`exit.voice_convert_rate`. Neither of those is the village answering what
+contributed value is honoured at, which is still item 4 in section 11.
 
 ---
 
@@ -2619,7 +3059,7 @@ two that are left are the two worth reading carefully.
 **This list rotted silently, which is what a list of absences does.** Two lanes
 found R3 and R4 shipped while this section still called them unbuilt, and a
 sentence saying a thing does not exist is exactly the sentence nobody rechecks:
-there is no compiler error for it, no test, and the guard in section 17 cannot
+there is no compiler error for it, no test, and the guard in section 18 cannot
 read prose. So every entry below was re-measured, not only the two that were
 reported.
 
@@ -2640,6 +3080,21 @@ each other, and an entry is only "built" when at least the first two answer:
 A ruling that is refused rather than absent gets a fourth reading: the guard
 that refuses it, by function name, so whoever builds it answers the guard
 instead of routing around it.
+
+**RE-MEASURED AGAIN 2026-09-04 at `1861f7d`, by a lane that did not write the
+correction it was checking**, because a correction is a claim like any other and
+the whole failure this section records is a claim nobody re-read. Every one of
+the six was walked through the three handles a second time. **The verdict is
+unchanged: four built, two not.** The readings, so the work is repeatable:
+
+| Ruling | Handle 1, a dial | Handle 2, a posting or table | Handle 3, a surface | Verdict |
+|---|---|---|---|---|
+| R1 needs | 5 keys `needs.*` in `shared/gameVariables.ts` | `village_needs`, `need_links` from `drizzle/0149_a_village_says_what_it_is_for.sql`; `shared/needs.ts` names 10 needs | `server/routes/needs.ts`, `client/src/components/admin/NeedsPanel.tsx` (which re-exports `NeedsSetupStep`) | built |
+| R3 voice decay | `economy.voice_decay_pct` default 1, `economy.voice_decay_basis` | `sys:voice-decay` seeded by `drizzle/0148_voice_that_waned.sql` with `faucet` 0; source `voice_decay`; `decayVoice` called from `runSettlement` | The Mint dials, and `publicSupply`'s `waned` beside `issued` | built |
+| R4 exit levers | 10 keys `exit.*` | `sweepBalances` reads five of them; the convert branch posts a `postTransferPair` | `PUT` on the admin variables route and the governance apply loop, both through `setVariable` | built |
+| R9 unspent gratitude | none, and none is wanted: it is a measurement | `gratitude_allowance_total`, `_given`, `_unspent` in `shared/healthMetrics.ts`, written at close by `server/lib/health.ts` | the health dashboard | built |
+| R2 voice for contributions | none | `seedEconomy` is the ONLY `INSERT` into `mint_rules` in the tree; `queueRuleChange` and `applyPendingRules` write four pending columns and never `trigger` or `token_slug` | `POST /api/admin/tokens/:slug/mint` grants any platform token for any typed reason | **not enforced** |
+| R5 all tokens buyable | none | none | `tradingProblem` refuses every kind but `credit`, Voice by name first; `weightTokenListingProblem` and `weightTokenProblem` close the second door from both sides | **not built, and refused** |
 
 ### Built since this list was written
 
@@ -2801,7 +3256,174 @@ reopen and what it may not.
 
 ---
 
-## 17. How this document is kept true
+## 17. Crowdpooling, and where the boundary falls
+
+**The one sentence to act on: the money mechanics of a crowdpool are the HUB's,
+and this platform's crowdpool module is a window onto them that does not touch the
+village's own token economy at all.** A pledge is not a posting. Nothing in
+sections 1 to 16 changes because a campaign exists, and nothing about a campaign
+changes because a village mints, gives, settles or sweeps.
+
+**That last clause is the one worth checking rather than believing, so it was
+measured five ways at `1861f7d` and all five agree.**
+
+1. **`server/lib/crowdpool.ts` has no imports.** Not the ledger, not the economy,
+   not `spending.ts`, not anything: `grep -n "import" server/lib/crowdpool.ts`
+   returns nothing at all. A module that cannot reach the ledger cannot post to it.
+2. **It is not among the posting call sites.** Section 12's enumeration walks
+   every call to the seven exported writing doors under `server/`; 38 sites at
+   `08bc494`, and none of them is in this module or in the routes that serve it.
+3. **No economy file names a campaign or a pledge.** `grep -rniE "\bcampaign|\bpledge"`
+   over `ledger.ts`, `economy.ts`, `spending.ts`, `exchange.ts`, `exit.ts`,
+   `library.ts`, `stays.ts`, `eventSeats.ts`, `voiceClaim.ts`, `mintCap.ts` and
+   `gratitude.ts` returns nothing.
+4. **No mint rule can fire on one.** The only writer of `mint_rules` ROWS is
+   `seedEconomy` (section 16, R2), and the triggers it seeds are `quest.completed`
+   and `role.cycle`. There is no route that creates a rule, so there is no trigger
+   a campaign could be attached to even by an admin.
+5. **It has no dial of its own in the economy's plane.** There is no
+   `crowdpool.*` game variable. The one variable it reads is `governance.hub_url`,
+   which is an address and never an amount, and its campaign list lives in
+   `module_settings` like any other module's config.
+
+So the question a reader arrives with, **how does a pledge relate to the village's
+own tokens**, has a flat answer: it does not. Pledging on the hub issues no
+Gratitude, mints no Credits, moves no Voice and fires no rule. It is not one of
+section 12's eighteen paths that debit a member and not one of section 4's five
+faucets. **The relationship is editorial, not economic.** The bridge page tells a
+village what its raising is doing; the village's own economy is the separate
+thing sections 1 to 16 describe.
+
+### What this side actually does
+
+`server/lib/crowdpool.ts` reads **five** public tRPC procedures off the hub's
+no-auth `/api/trpc`: `campaigns.list` (only to resolve a slug to a numeric id by
+slugified title), `campaigns.getById`, `campaigns.getItems`,
+`campaigns.getActivity` and `campaigns.getPartnerLinks`. The hub sends no CORS
+headers, so a browser cannot read them; the game server proxies through
+`guardedFetchJson`, the same pinned, range-checked dialer the feedback relay uses,
+with a 12 second timeout. The four per-campaign reads go out together.
+
+The cache is memory, TTL **90 seconds** (`CROWDPOOL_TTL_MS`). Every successful
+fetch becomes that key's snapshot, and the `crowdpool-sync` job runs every **10
+minutes** while the module is on, refreshing every configured campaign and writing
+the whole snapshot map into the `crowdpool-snapshots` `app_config` document, so a
+reboot with the hub dark still has the last good numbers. **No new tables, and
+nothing in the module writes to any table the economy reads.**
+
+Two derived figures, both computed here and not read off the hub: `endsAt` is
+`startedAt + durationDays` because the hub stores no end column, and
+`percentDelivered` weights each need's delivered fraction by its estimated value,
+with a need whose `quantityWanted` is 0 contributing nothing instead of dividing
+by zero.
+
+### What a member sees when the hub is unreachable
+
+Three states, and the third is the one that matters:
+
+| State | The list card | The campaign page |
+|---|---|---|
+| Fresh, inside the TTL | the numbers, `stale: false` | the numbers, `stale: false` |
+| Hub refusing, a snapshot exists | the snapshot with `stale: true` and its real `lastSyncAt` | the same, and the page names the AGE of what it is showing |
+| Hub refusing, never synced | `{ key, reachable: false, lastSyncAt: null }` | 503 and the sentence `The hub is out of reach and no snapshot has been kept yet. Try again in a minute.` |
+
+**There is no path that renders a fake zero**, which is the same rule the rest of
+this document holds the economy to: an empty state and a real zero are different
+facts, and a campaign that has raised nothing and a campaign nobody could read
+must never print the same number.
+
+### The fields this side normalises, and the failure they hide
+
+Every normaliser reads NAMED fields off the hub's JSON with `??` fallback chains
+and a default at the end, so **a rename on the hub's side does not error here. It
+falls through to the default, and the panel goes quietly empty or quietly wrong.**
+That is worth knowing where somebody will meet it, because there is no alert for
+it and the sync job will keep reporting success.
+
+- A need takes `id`, `name` through a fallback chain, `kind` defaulting to
+  `item`, `category`, `capitalType` defaulting to `material`, a description read
+  through `resourceDescription` then `roleDescription` then
+  `equipmentDescription` then `landDescription`, `estimatedValue`,
+  `pledgedValue`, the three-slot `quantityWanted` / `quantityClaimed` /
+  `quantityDelivered` meter, `needDeadline`, `priorityPinned` and
+  `groupClaimable`. A need whose `id` does not survive is DROPPED from the list.
+- A campaign takes `id`, `title` defaulting to `Untitled campaign`,
+  `projectName`, `location`, `description`, `status` defaulting to `active`,
+  `currency` defaulting to `USD`, `totalValue`, `pledgedTotal`,
+  `financialTarget`, `pledgedFinancial`, `startedAt`, `durationDays`,
+  `contributorsCount`, `isDemo`, and a cover image through
+  `coverImage.url` then `projectImageUrl` then `generatedImageUrl`.
+- **The activity feed is the one place a rename MISLABELS instead of emptying.**
+  A row is read for an id, a verb, a public display name and a timestamp, each
+  through its own fallback chain: the verb through `type` then `eventType` then
+  `status` then `action`, the name through `contributorName` then `displayName`
+  then `userName` then `username` then `name`, the timestamp through `createdAt`
+  then `at` then `timestamp`. `foldEventType` then folds the verb into the three
+  words the page narrates. **An unknown verb passes through lowercased**, which
+  degrades to an unstyled line and is the safe direction. **A verb that is
+  missing entirely becomes `pledged`**, so a hub that renamed all four of those
+  field names at once would turn every row in the public feed into a pledge. The
+  feed is capped at 60 rows and the partner list at 8.
+- **What is deliberately NOT read off an activity row: any amount, any value,
+  any user id.** The normaliser never touches those fields, a row with no public
+  name travels as `A contributor`, and a test holds the wire clean of them. That
+  is the aggregate-first privacy ruling, and it is the reason this section can
+  say the relationship is editorial: there is no per-person figure crossing the
+  boundary in either direction.
+- Numbers are coerced and strings are clipped at the boundary (a description to
+  600 or 2000 characters, a url to 500), which is the same discipline
+  `postTransfer`'s callers keep and for the same reason: a vendor string that
+  arrives long is a lost record and not a truncated one.
+
+**A finding, not a wording problem, and out of this lane's zone to fix.** Both
+`server/lib/crowdpool.ts:5` and `docs/modules/crowdpool.md` say **four**
+procedures are read and then list **five**. It is the same defect class as 10.37
+in this file, in two more places, and it is the count a reader integrating against
+this module would take at face value. Neither file is this lane's to edit.
+
+### THE SEAM, and it is unconfirmed on the far side
+
+**Everything above is what THIS code does. None of it describes the hub's
+mechanics, and it must not be read as doing so.** A pledge happens on the hub
+page every claim here links out to. What a pledge means, what it commits somebody
+to, and what happens between `pledged`, `delivered` and `thanked` are the hub's to
+state.
+
+Four questions are open with the Crowdpooling session and are **not answered
+here, because answering them from this side would be describing somebody else's
+mechanics from a read path**:
+
+1. Which of the five procedures and which of their fields are stable contract,
+   and which are internal and free to move. The normalisers above are written
+   against a live read taken 2026-08-22 and nothing has promised them.
+2. What a pledge does in the hub's own terms, including whether it is a
+   commitment, a payment, or an intent.
+3. Whether the nine `capitalType` values are theirs to change, and on what notice.
+4. Whether the `quantityWanted` / `quantityClaimed` / `quantityDelivered` meter
+   is theirs to change, and what the three slots mean when they disagree.
+
+**One more thing belongs on the seam, because it is where the boundary would
+move.** The commitments module (D7, designed in
+`docs/modules/crowdpool-dashboard.md`) is the deferred piece that would WRITE:
+post-campaign pledge tracking, fulfillment fanning out into the library and
+quests, pledge linking by email. **That module does not exist in this build.** If
+it is built, the flat answer at the top of this section stops being flat, and
+this section is where the new answer goes.
+
+One presentation decision is worth stating because it looks like an omission and
+is not. Each need's `capitalType` IS used here: it tints the need's tile and is
+named in a sentence on the campaign page. What is deliberately absent is the
+hub's nine-segment capital-stack WIDGET, because the capitals framework is not
+part of the living map's vocabulary. And the word "needs"
+collides: a crowdpool `CrowdpoolNeed` is read-only mirror data with a capital
+type, an estimated value and a pledge meter, while the village's own ten
+`HUMAN_NEEDS` (`shared/needs.ts`, R1 in section 16) carry none of those and scope
+the `village_needs` table. The two can appear on one admin panel. They are not
+the same thing and neither reads the other.
+
+---
+
+## 18. How this document is kept true
 
 Two guards, because the document has two halves.
 
@@ -2829,9 +3451,47 @@ The narrative guard cannot tell whether the words you added are TRUE. It can onl
 insist that somebody looked. That is the honest limit of it, and it is the reason
 this file still needs reading by a person.
 
+**A third limit, learned on 2026-09-04 and now half closed.** The doc guard
+compares a GENERATED region to a COMMITTED one, so a sentence hardcoded inside
+`scripts/generate-economics-doc.mjs` is identical on both sides and passes
+forever. One shipped: a region that stated a count over a table it derived, and
+the two had disagreed for as long as both existed (10.37). The half that is
+closed is a self-test asserting that region's stated count equals its printed
+rows. The half that is not is every other number a generator writes beside a list
+it derives; there is no reader that finds those pairs.
+
+**The same shape has a second form: a HAND-KEPT list inside the generator, and
+one of those shipped incomplete (10.39).** The
+refusals region in section 13 reads four functions named one at a time in
+`scripts/generate-economics-doc.mjs` (`sendRefusal`, `priceRefusal`,
+`mayToggleTransferable`, `checkGive`), so a fifth refusal function would never
+reach the document and the guard would go on passing. Checked 2026-09-04 at
+`1861f7d` and **the list is complete today**: `grep -n "): string | null"
+server/lib/spending.ts` returns exactly the three that are named, and `checkGive`
+is the fourth. This is a note and not a defect, and it is the thing to re-check
+whenever a refusal is added.
+
+**What a sweep of this file is actually doing, because the failure mode is
+specific.** Section 10 is a growing list, sections 11, 14 and 16 name absences,
+and a sentence saying a thing does not exist is the sentence nobody rechecks:
+there is no compiler error for it, no test, and neither guard can read prose. So
+the rot runs in ONE direction, toward a build that reads as less built and less
+safe than it is. Three separate lanes have now found exactly that: a defect
+described as open that was closed, a count low by a factor of four, and a list of
+unbuilt rulings where four of six were built. **When you re-verify, re-verify the
+absences first**, and re-verify them against the code with two independent
+handles, never against this document and never against the report of the lane that
+last touched it.
+
 ---
 
 *Written 2026-09-02, revised 2026-09-03: the economy was exercised rather than
 read, and the facts were split into generated regions so they cannot drift again.
-Production figures read 2026-09-03. If a number here disagrees with
-`docs/TOKENS.md`, that file is generated and this one is only half generated.*
+Revised 2026-09-04 at `1861f7d` by a sweep whose whole job was to make every
+sentence true again: section 7 stopped planning a cancelled flip and gained the
+rule for lowering a token's scale, four fixed defects stopped being described as
+live, the exit path stopped saying no code converts or returns value, and the
+counts in sections 2, 8, 11, 12 and 16 were re-measured with their methods
+written beside them. Production figures still read 2026-09-03 and were NOT
+re-measured by that sweep. If a number here disagrees with `docs/TOKENS.md`, that
+file is generated and this one is only half generated.*
