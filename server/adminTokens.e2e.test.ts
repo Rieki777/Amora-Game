@@ -448,14 +448,16 @@ describe.skipIf(!DB_CONFIGURED)("the tokens tab, and what a member sees afterwar
    * the payloads stop carrying `decimals`, `decimals ?? 0` makes every
    * assertion above collapse onto that control and this case fails.
    *
-   * THE AMOUNT IS IN MINOR UNITS because `POST /api/admin/tokens/:slug/mint`
-   * takes ledger units, not human ones. That is its own defect, reported as a
-   * handoff and deliberately not fixed here: this file is about what a member
-   * READS, and changing what an admin TYPES is a different change with a
-   * different blast radius.
+   * THE AMOUNT AN ADMIN TYPES IS NOW WHOLE TOKENS. This route took ledger
+   * units, so a steward typing 10 for Voice minted 0.01, and the paragraph
+   * that stood here recorded that as a defect it was declining to fix. The
+   * decimals sweep fixed it at the route (`toLedgerUnits(slug, amt)` on the
+   * way in), so the number typed below is ten, the number the ledger holds is
+   * ten thousand, and the gap between those two lines IS the fix.
    */
   it("shows ten Village Voice as ten on the wallet, the Exchange and the ledger", async () => {
     const VOICE = "village-voice";
+    const WHOLE_TEN = 10; // what a steward types on the mint form
     const TEN = 10_000; // ten Voice, in the thousandths the ledger stores
 
     // Seeded by `seedEconomy` at boot, with decimals 3. If this ever fails the
@@ -465,14 +467,13 @@ describe.skipIf(!DB_CONFIGURED)("the tokens tab, and what a member sees afterwar
     expect(voiceRow, "the village voice token is seeded at boot").toBeTruthy();
     expect(voiceRow.decimals, "and it is the one token that rides in thousandths").toBe(3);
 
-    // Over the co-signature threshold, so it goes through the two-steward
-    // flow the cases above establish.
-    const raised = await call("POST", `/api/admin/tokens/${VOICE}/mint`, {
-      toUserId: oraId, amount: TEN, reason: "ten voice, so there is a real balance to read",
+    // UNDER the co-signature threshold now that the amount is whole tokens,
+    // so this is the one-steward path. The two-steward flow is established by
+    // the cases above and is not what this case is about.
+    const minted = await call("POST", `/api/admin/tokens/${VOICE}/mint`, {
+      toUserId: oraId, amount: WHOLE_TEN, reason: "ten voice, so there is a real balance to read",
     }, founderToken);
-    expect(raised.status, `raise: ${raised.text.slice(0, 200)}`).toBe(202);
-    const signed = await call("POST", `/api/admin/mint-requests/${String(raised.json?.requestId)}/approve`, {}, boToken);
-    expect(signed.status, `sign-off: ${signed.text.slice(0, 200)}`).toBe(200);
+    expect(minted.status, `mint: ${minted.text.slice(0, 200)}`).toBe(200);
 
     // 1. /api/wallet — behind the send card and the on-chain card.
     const wallet = await call("GET", "/api/wallet", undefined, oraToken);
