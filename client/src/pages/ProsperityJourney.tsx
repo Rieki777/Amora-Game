@@ -3,6 +3,7 @@ import { altOr, useBrandImages, useVillageLinks } from "@/lib/gameApi";
 import FaqSection from "@/components/FaqSection";
 import { useVillageName } from "@/hooks/useVillageName";
 import { useTokenName, useValueTokenName } from "@/hooks/useTokenNames";
+import { useValueConversion } from "@/lib/moneyClaims";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -165,6 +166,15 @@ export default function ProsperityJourney() {
   // button that mails a stranger's enquiry to a different village.
   const { eventsUrl, mailTo } = useVillageLinks();
   const packetHref = mailTo(PACKET_SUBJECT);
+  /*
+   * The value token's conversion sentence, from the founder rather than from
+   * this file. It read "As {village} matures, {value} can convert to cash,
+   * equity, or community currency" as compiled copy, printed here and again on
+   * the Quests explainer, and nothing in the product converts anything. The
+   * ruling (2026-09-03): the conversion is real and OFF platform, and the
+   * on-platform process is coming and unbuilt. See client/src/lib/moneyClaims.ts.
+   */
+  const conversionNote = useValueConversion({ village: villageName, value: valueName });
   const steps = journeySteps.map((step) => {
     if (step.id === "community-call") return { ...step, link: eventsUrl };
     if (step.id === "prosperity-packet") return { ...step, link: packetHref };
@@ -310,7 +320,7 @@ export default function ProsperityJourney() {
                 {tokenName} Economy
               </h2>
               <p className="text-muted-foreground text-sm">
-                All businesses integrate with our contribution tracking system. Revenue shares are acknowledged in {tokenName} (the recognition signal, with no financial value of its own), and each cycle a real pool of {valueName} is shared across everyone's {tokenName}. As {villageName} matures, {valueName} can convert to cash, equity, or community currency.
+                All businesses integrate with our contribution tracking system. Revenue shares are acknowledged in {tokenName} (the recognition signal, with no financial value of its own), and each cycle a real pool of {valueName} is shared across everyone's {tokenName}.{conversionNote ? ` ${conversionNote}` : ""}
               </p>
             </motion.div>
 
