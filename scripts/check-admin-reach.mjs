@@ -115,27 +115,6 @@ const ALLOWED = {
     "The fetch half of 'paste your site address' shipped on its own, deliberately: it is the security surface and it was built and reviewed apart from the screen that calls it. The setup screen and the brand extractor are separate lanes. Delete this line when the screen lands.",
   "POST /api/admin/site-pull/assets":
     "Waiting on the same screen as POST /api/admin/site-pull, and on the rights checkbox that screen has to render. Delete this line when the screen lands.",
-  /*
-   * THE TWO REMAINING NEEDS WRITES, and the same story as the land pair above.
-   *
-   * server/routes/needs.ts and migration 0149 are the data layer of the needs
-   * scope (R1, R18). The screens that call the scope pair are the six-screen
-   * setup ceremony in client/src/components/admin/NeedsPanel.tsx, built in a
-   * different lane because client/src/pages/Admin.tsx is held by that lane and
-   * by nobody else. A founder cannot say what this village is for from the
-   * product until that panel exists, and that is the thing being recorded.
-   *
-   * THE LINK PAIR CAME OUT ALREADY. `POST /api/admin/needs/links` and its
-   * DELETE sibling are called by client/src/components/admin/NeedTagPicker.tsx,
-   * which an admin reaches on a quest's own page and on a seat's card in the
-   * roles list. Tagging the work was a separate lane from saying what the
-   * village is for, and it landed first, so those two lines were deleted the
-   * day the picker did. The remaining pair still waits on the panel.
-   */
-  "PUT /api/admin/needs/scope":
-    "Waiting on client/src/components/admin/NeedsPanel.tsx, the setup ceremony's needs step. The lane that built the routes could not edit Admin.tsx. Delete this line when the panel lands.",
-  "POST /api/admin/needs/retire":
-    "Waiting on the same panel as PUT /api/admin/needs/scope. Delete this line when the panel lands.",
 };
 
 /**
