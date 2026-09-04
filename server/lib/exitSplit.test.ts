@@ -31,6 +31,7 @@ import {
   balanceOf,
   checkLedgerInvariants,
   CYCLE_POOL_FAUCET,
+  GRACE_NIGHT_DEBT,
   loadTokenRegistry,
   memberAccount,
   MINT_FAUCET,
@@ -116,7 +117,9 @@ describe.skipIf(!configured)("a departure on dials a village actually moved", ()
       tokenType: token,
       amount: units,
       source: "stay_night",
-      allowNegative: true,
+      // The ledger ISSUES this; a caller cannot forge one, and its reason has
+      // to equal the source it is spent on.
+      allowNegative: GRACE_NIGHT_DEBT,
       idempotencyKey: `exit-split-debt:${userId}:${token}:${++seq}`,
     });
     if (!r.ok) throw new Error(`could not seed a debt in ${token}: ${r.error}`);

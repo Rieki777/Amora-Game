@@ -121,6 +121,8 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `admin_mint:<slug>:<body>` | `server/index.ts` |
 | `admin_mint:req:<id>` | `server/index.ts` |
 | `comp-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/routes/stays.ts` |
+| `exit:<exitId>:convert-credit:<token>` | `server/lib/exit.ts` |
+| `exit:<exitId>:convert:<token>` | `server/lib/exit.ts` |
 | `exit:<exitId>:sweep:<token>` | `server/lib/exit.ts` |
 | `gratitude_pool:<cycleNumber>:<userId>` | `server/index.ts` |
 | `gratitude_received:<id>` | `server/lib/gratitude.ts` |
@@ -162,7 +164,7 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `xstock-<Date.now()>-<Math.random().toString(36).slice(2, 8)>` | `server/index.ts` |
 | `xstock:<slug>:<body>` | `server/index.ts` |
 
-45 distinct shapes across 49 posting site(s), plus 2 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
+47 distinct shapes across 51 posting site(s), plus 2 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
 <!-- generated:triggers end -->
 
 ---
@@ -1308,7 +1310,7 @@ So the state today is exact: **a departing member's positive balances move to
 values them, or returns them. `sys:exit-settlement` is not a faucet, so what it
 holds is real and traceable, and the village has to decide what happens to it.
 That decision is item 4 in section 11 and R4 in section 16.
-### The levers a village can set, and what they do not yet do (R4)
+### The levers a village can set (R4)
 
 Ten dials now describe an exit policy, in the `Exit` category of
 `shared/gameVariables.ts`: a keep share per token KIND (`exit.keep_pct.credit`,
@@ -1323,36 +1325,107 @@ village governs its own exit terms, and every default reproduces the paragraph
 above exactly: shares at 0, remainder to `sys:exit-settlement`, cooling at 0,
 Voice forfeit, no vote, no sellback.
 
-**The dials are set, and the sweep does not read them.** `sweepBalances` still
-posts every positive balance in full to `sys:exit-settlement`, and no code in
-`server/lib/exit.ts` touches the registry. That is measured and not assumed:
-`server/lib/exitDefaults.test.ts` runs a whole departure on the inherited
-defaults, against a schema holding no `exit.%` row at all, and compares every
-field of every `token_ledger` row to the rows `origin/main`'s `sweepBalances`
-writes. The two dumps are identical. Until the settlement lane teaches the sweep
-to split, moving one of these dials changes what the village has SAID and
-nothing about what a departure DOES, and each dial's own description says so on
-the panel.
+**On the defaults, nothing changed, and that is measured.**
+`server/lib/exitDefaults.test.ts` runs a whole departure against a schema
+holding no `exit.%` row at all and compares every field of every `token_ledger`
+row to the rows `origin/main`'s `sweepBalances` writes. The two dumps are
+identical. A village that never opens this panel keeps the departure it already
+had.
 
-What already acts is the save-time guard. `exitLeverProblem` in
-`server/lib/exitPolicy.ts` refuses six combinations no engine could honour, and
-the variables write route calls it before `setVariable` commits: a share of
-recognition, a share of equity, burning back to a faucet that does not exist for
-a token this village issues, converting Voice at a rate of zero, keeping Voice
-while resolve turns the account into a tombstone, and a cooling period longer
-than the notice the published policy prints. Each refusal is one sentence naming
-what is wrong and what to do instead, and the cooling one names both numbers. A
-seventh combination is a WARNING and never a refusal: a full credit keep with no
-vote, on a token somebody can buy today, is a withdrawal window wearing an exit,
-and a village may genuinely mean that, so the save goes through and the test run
-is where it is said out loud.
+The save-time guard. `exitLeverProblem` in `server/lib/exitPolicy.ts` refuses
+six combinations no engine could honour: a share of recognition, a share of
+equity, burning back to a faucet that does not exist for a token this village
+issues, converting Voice at a rate of zero, keeping Voice while resolve turns
+the account into a tombstone, and a cooling period longer than the notice the
+published policy prints. Each refusal is one sentence naming what is wrong and
+what to do instead, and the cooling one names both numbers. A seventh
+combination is a WARNING and never a refusal: a full credit keep with no vote,
+on a token somebody can buy today, is a withdrawal window wearing an exit, and a
+village may genuinely mean that, so the save goes through and the test run is
+where it is said out loud.
 
-Two things the guard cannot see, stated here because nothing else will say them.
-It runs at the variables write route alone, and the governance apply path writes
-through `setVariable` directly, so a passed proposal can still land a refused
-combination. And it reads the published notice period at the moment a DIAL is
-written, so editing the published policy down to a shorter notice afterwards
-leaves an already-saved cooling period standing above it.
+**The guard now runs where every writer passes.** It used to sit in the admin
+variables route alone, while `applyMechanicsProposal` writes through
+`setVariable` directly and every Exit dial is Ring 2, so a passed proposal could
+land a combination the product refuses to let a founder type. `setVariable` now
+calls `variableWriteRefusal` (`server/lib/variables.ts`), a guard wired once at
+boot, so the admin route, the governance apply loop and any writer added later
+meet one function. Measured through the door and not inferred: with the check
+back in the route, `server/exitLevers.routes.e2e.test.ts` watches a passed
+proposal answer `{"success":true,"applied":["exit.keep_pct.voice",
+"exit.keep_pct.recognition"]}` and store a forty percent recognition keep; with
+it in `setVariable` the same proposal comes back 207 with that element named and
+unwritten, and the other twelve refusals are unchanged.
+
+### What the settlement does with them, line by line
+
+`sweepBalances` reads five of the ten dials and splits each POSITIVE balance in
+two. The kept share is `exit.keep_pct.<kind>` for that token's KIND off the
+registry, never a slug allowlist, for the reason `SENDABLE_KINDS` gives in
+`server/lib/spending.ts`: a fork names its own tokens. The share is computed in
+MINOR units and FLOORED, and what moves is the balance minus the share in that
+order, so what a leaver keeps plus what the village receives is exactly what
+they held, at every scale, and a rounding remainder can never exceed the
+balance. The remainder posts to whichever of the four accounts
+`exit.remainder_account` names: `sys:exit-settlement`, `sys:treasury`,
+`sys:cycle-pool`, or `faucetFor(slug)` to burn, which refuses by name for a
+token that has no faucet. `exit.voice_on_exit` decides Voice: `forfeit` sends
+the whole holding with everything else, which is what a departure did before;
+`keep` is refused at save time; `convert` posts a `postTransferPair`, the Voice
+out to the remainder account and credits in FROM THE TREASURY, both legs or
+neither, under two distinct keys. The credits come from the treasury and never
+from a faucet, because a faucet leg is issuance and each faucet's negative
+balance IS that token's issued supply, so paying a leaver out of one would print
+credits at a departure. A treasury that cannot cover it refuses the whole pair.
+
+`exit.cooling_days` finally gives `notice_ends_at` a reader. The settle act is
+refused until the cooling period has passed, naming the date, and the date is
+CAPPED at the notice the member's own exit row carries, so a policy edited after
+somebody opened their departure cannot hold their balance past the day they were
+told. The two dates are not on the same clock: `opened_at` is written by MySQL's
+`NOW()` in the database session's zone and read back through a pool declaring
+`timezone: "Z"`, so a cooling period counted from it opens the session offset
+early (seven hours on the machine this was measured on), while `notice_ends_at`
+is written from a JS Date and is true UTC. The cap is the exact half.
+
+**The amount changes with the dials and the idempotency key does not.** A sweep
+that ran under one policy, then a dial change, then a retry, is a DUPLICATE that
+posts nothing, so the first split silently stands. That is correct, because
+value moves once. It is only honest if a reader is told the split that HAPPENED
+instead of the dial that stands now, so the run that moved value writes the
+policy it applied onto `exits.resolution` beside the dated line the settle route
+always wrote, a run that moved nothing writes no capture, and `capturedSplit`
+reads the split of record back out. The sweep response carries it, so a panel
+reading the live dial after a settled sweep would be printing a number that did
+not happen. A second settle also never sweeps back what the same exit PAID the
+member, which is how a converted Voice share stays converted.
+
+Negative balances are still never swept and still block resolve. No policy
+touches that.
+
+### The two halves of the exit promise are governed differently
+
+The ten dials are Ring 2, so a village votes them. The PUBLISHED policy those
+dials must agree with is not: `PUT /api/admin/exit-policy` writes the
+`exit-policy` document through `dbDocument`, guarded by `isAdmin` alone, and
+`CHANGE_ITEM_KINDS` (`shared/dryRun/types.ts`) is dial, mint_rule,
+weight_allocation, mode_switch, module_lifecycle, brand_field and role, with no
+document kind at all; `brand_field` reaches the brand document and nothing else.
+So after the Birthing, an administrator still edits by hand what a departing
+member is told they get, while the numbers that decide what they actually get go
+to a vote.
+
+The consequence for the cooling period is exact. The save-time guard refuses a
+cooling period longer than the published notice, and it reads that notice at the
+moment a DIAL is written. Because the exit policy route is outside the changeset
+path, the published notice can be lowered BELOW an already-saved cooling period
+afterwards with nothing re-checking, and the governance session's landing-time
+reading does not catch it either, because that reading only sees what a
+changeset carries. What that can no longer do is hold a member's balance past
+the date their own exit row promised, because the settle date is capped at
+`notice_ends_at`. A repair is a named Phase 2 task for the governance lane: a
+`document` item kind covering exit-policy, that route behind the post-Birthing
+refuse-and-redirect, and these two exit levers in the set-level predicates.
 
 ---
 
