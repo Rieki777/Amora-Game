@@ -56,7 +56,10 @@ import { GAME_CONFIG } from "../../shared/gameConfig";
 import { cycleBoundsByNumber, cycleBoundsFor } from "../../shared/lunar";
 import { formatCycleId } from "./gratitude-cycles";
 import { cyclePoolProblem } from "./cyclePool";
-import { faucetFor, toLedgerUnits, VILLAGE_VOICE } from "./economy";
+// `toLedgerUnits` is gone from this list on purpose: the conversion happens
+// inside `ceilingOutcome` now, so this module converts nothing of its own and
+// cannot come to disagree with the engine about the scale it converted at.
+import { ceilingOutcome, decimalsFor, faucetFor, humanAtScale, VILLAGE_VOICE } from "./economy";
 import { shareCapFor } from "./gratitude";
 import { tokenDef } from "./ledger";
 import { numberVar, stringVar } from "./variables";
@@ -363,6 +366,12 @@ function allowanceTable(feedOff: boolean): DryRunAllowance[] {
  * source a seat does not have, so it pays nothing forever; a rule for a token
  * with no faucet can never pay; and a rule whose amount rounds to zero ledger
  * units pays nothing while showing a number on the dial.
+ *
+ * The fourth was NOT mirrored and is now: the ceiling. This function held the
+ * column on its rule type and read it only to narrate a queued change, so it
+ * printed the rule's amount where the engine would have printed the clamp, and
+ * it did that on the one screen a founder opens to find out whether a setting
+ * works before they bet a village on it.
  */
 function settlementFindings(
   snapshot: DryRunSnapshot,
@@ -457,8 +466,31 @@ function settlementFindings(
       });
       continue;
     }
-    const units = toLedgerUnits(r.tokenSlug, r.amount);
-    if (units <= 0) {
+    /*
+     * THE CEILING, THROUGH THE ENGINE'S OWN FUNCTION.
+     *
+     * `DryRunRule` has carried `ceiling` since it was written and used it for
+     * exactly one thing: narrating a queued change to it. So a founder running
+     * the test run over `amount 25, ceiling 5` was told "each thanked 25", the
+     * one surface built to catch a setting that cannot work agreed with the
+     * two that were already wrong, and at a ceiling of 0 all three promised a
+     * payout of 25 that the engine would refuse outright.
+     *
+     * `ceilingOutcome` decides it, the same call `runSettlement` makes, so a
+     * disagreement between the run and the moon is now a compile-time
+     * impossibility instead of a habit.
+     */
+    const decimals = decimalsFor(r.tokenSlug);
+    const capped = ceilingOutcome(r, r.amount, decimals, tokenName);
+    if (capped.refusal) {
+      out.push({
+        area: "settlement",
+        outcome: "refused",
+        sentence: `The ${tokenName} rule for holding a seat cannot pay, because ${capped.refusal}.`,
+      });
+      continue;
+    }
+    if (capped.units <= 0) {
       out.push({
         area: "settlement",
         outcome: "refused",
@@ -466,12 +498,17 @@ function settlementFindings(
       });
       continue;
     }
+    // What the engine would actually post, converted back once for the
+    // sentence. The moon total is the per-seat integer times the seats, so it
+    // carries the clamp rather than restating the rule's own number.
+    const each = humanAtScale(capped.units, decimals);
+    const moon = humanAtScale(capped.units * snapshot.seatCount, decimals);
     out.push({
       area: "settlement",
       outcome: "issued",
       sentence:
         `${plural(snapshot.seatCount, "seat holder", "seat holders")} each thanked ` +
-        `${r.amount} ${tokenName}, which comes to ${snapshot.seatCount * r.amount} for the moon.`,
+        `${each} ${tokenName}, which comes to ${moon} for the moon.`,
     });
   }
   return out;

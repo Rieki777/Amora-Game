@@ -22,6 +22,7 @@ import { Link } from "wouter";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -39,6 +40,19 @@ interface Rule {
   ceiling: number;
   recipient: string;
   enabled: boolean;
+  /**
+   * The founder's sentence when the engine cannot honour this rule, and null
+   * when it can. This field has been served since the rules feed was written
+   * and this interface did not carry it, so the panel showed an unpayable rule
+   * under the same green badge as a working one. It now carries the ceiling's
+   * refusals too.
+   */
+  problem: string | null;
+  /**
+   * WHAT ONE OCCURRENCE ACTUALLY PAYS, in minor units with its scale (R31).
+   * `units` is null for a rule that reads its amount from the work.
+   */
+  pays: { units: number | null; ceilingUnits: number; decimals: number };
   pending: null | { amount: number | null; ceiling: number; enabled: boolean; fromCycle: number };
 }
 
@@ -46,7 +60,7 @@ interface View {
   cycleKey: string;
   rules: Rule[];
   supply: Array<{ token: string; source: string; issued: number }>;
-  settlementPreview: { seats: number; mints: Array<{ token: string; units: number }> };
+  settlementPreview: { seats: number; mints: Array<{ token: string; units: number; decimals: number }> };
 }
 
 /**
@@ -354,19 +368,41 @@ export default function Mint() {
                       </p>
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          r.enabled ? "bg-sage-light text-sage" : "bg-gray-100 text-gray-700"
+                          !r.enabled
+                            ? "bg-gray-100 text-gray-700"
+                            : r.problem
+                              ? "bg-amber-light text-gray-900"
+                              : "bg-sage-light text-sage"
                         }`}
                       >
-                        {r.enabled ? "Paying" : "Paused"}
+                        {!r.enabled ? "Paused" : r.problem ? "Paying nobody" : "Paying"}
                       </span>
                     </div>
+                    {/*
+                      WHAT THE ENGINE PAYS, never what the row was typed with.
+                      This printed `r.amount` and never showed the ceiling at
+                      all, so a rule left at 25 over a ceiling of 5 read
+                      "25 Village Credits" beside a green Paying badge while
+                      every payment was 5. The units and their scale both come
+                      down in the payload and the division happens in the one
+                      place it happens anywhere on this client.
+                    */}
                     <p className="mt-1 text-sm text-gray-700">
                       {r.amount === null
-                        ? `up to ${r.ceiling} ${r.tokenName}, as much as the work was posted for`
-                        : `${r.amount} ${r.tokenName}`}
+                        ? `up to ${formatTokenAmount(r.pays.ceilingUnits, r.pays.decimals)} ${r.tokenName}, as much as the work was posted for`
+                        : `${formatTokenAmount(r.pays.units ?? 0, r.pays.decimals)} ${r.tokenName}`}
                       {" to each "}
                       {r.recipient}
                     </p>
+                    <p className="mt-1 text-sm text-gray-700">
+                      The most one payment may be: {formatTokenAmount(r.pays.ceilingUnits, r.pays.decimals)}{" "}
+                      {r.tokenName}
+                    </p>
+                    {r.problem ? (
+                      <p className="mt-2 rounded-lg bg-amber-light px-3 py-2 text-sm text-gray-900">
+                        This rule pays nobody: {r.problem}.
+                      </p>
+                    ) : null}
 
                     {r.pending ? (
                       <p className="mt-2 rounded-lg bg-amber-light px-3 py-2 text-sm text-gray-900">
@@ -544,7 +580,7 @@ export default function Mint() {
                 {view.settlementPreview.seats === 1 ? "" : "s"} thanked
                 {view.settlementPreview.mints.length
                   ? `, and ${view.settlementPreview.mints
-                      .map((m) => `${m.units} of ${m.token}`)
+                      .map((m) => `${formatTokenAmount(m.units, m.decimals)} of ${m.token}`)
                       .join(", ")} minted.`
                   : "."}
               </p>
