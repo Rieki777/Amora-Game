@@ -117,7 +117,7 @@ describe("the needs card on a member's own profile", () => {
     await screen.findByText(/I feel ____ because I need ____/);
     const vitality = document.querySelectorAll('input[name="depth-vitality"]');
     expect(vitality).toHaveLength(5);
-    expect([...vitality].map((r) => (r as HTMLInputElement).value)).toEqual([
+    expect(Array.from(vitality).map((r) => (r as HTMLInputElement).value)).toEqual([
       "deprived",
       "unmet",
       "alive",
