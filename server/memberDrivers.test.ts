@@ -25,6 +25,7 @@ import { looksLikeSubjectRef } from "./lib/subjectRefs";
  */
 function standInPool() {
   const refs = new Map<string, string>();
+  const pending: string[] = [];
   const pool = {
     async query(sql: string, params: any[] = []) {
       if (sql.startsWith("SELECT `ref`")) {
@@ -34,6 +35,14 @@ function standInPool() {
       if (sql.startsWith("INSERT IGNORE INTO `subject_refs`")) {
         const [ref, userId] = params;
         if (!refs.has(String(userId))) refs.set(String(userId), String(ref));
+        return [{}];
+      }
+      if (sql.startsWith("UPDATE `subject_refs`")) {
+        // markErasurePending. Accepted and not modelled further: what it
+        // WRITES is asserted against a real database in
+        // server/lib/memberDriverReferences.test.ts, and these cases are about
+        // what the village says rather than about the mapping table.
+        pending.push(String(params[1]));
         return [{}];
       }
       if (sql.startsWith("DELETE FROM `subject_refs`")) {
@@ -46,7 +55,7 @@ function standInPool() {
       throw new Error(`the stand-in pool was asked something it does not model: ${sql}`);
     },
   } as any;
-  return { pool, refs };
+  return { pool, refs, pending };
 }
 
 let db = standInPool();
