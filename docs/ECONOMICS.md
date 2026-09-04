@@ -1684,19 +1684,80 @@ A token may carry a price when it is platform-governed, active, not an example, 
 Kinds a member may hand to another member (`SENDABLE_KINDS`): `credit`. Held out by name even though they are that kind (`MODULE_VOUCHERS`): `stay-credit`, `library-credit`.
 <!-- generated:sinks end -->
 
-### What a member can actually buy today
+### Every posting that debits a member
 
-Four surfaces move value out of a member's hands. Only one of them asks
-`spendSinkFor` where the value should land.
+**This table said four paths and named a function that does not exist. There
+are seventeen.** `chargeSeat` was never in this build; the seat charge is
+`chargeForPlace` in `server/lib/eventSeats.ts`. A reader deciding whether a new
+hold mechanism is safe consults exactly this table, and four was low by a
+factor of four.
 
-| Surface | Posting | Source | Idempotency key | Sink |
+**How the list was enumerated, so it can be redone.** The ledger invariant in
+`CLAUDE.md` is that all movement goes through `postTransfer` and
+`postTransferPair`, and that is checkable: `INSERT INTO token_ledger` appears
+at exactly two places in the tree, both inside `server/lib/ledger.ts`. So the
+set of postings is closed by the call sites of the six exported doors:
+`postTransfer`, `postTransferPair`, and the four narrow wrappers around them,
+`postGraceNightBurn`, `postPaymentReversalLeg`, `postClawbackMirror` and
+`postClawbackMirrorPair`. Walk every `.ts` file under `server/` that is not a
+`.test.ts`, take each call to one of those six, and read its `from`. A
+member is debited whenever that `from` is `memberAccount(...)`, a variable
+bound to one, or an account id read back off the `token_ledger` row being
+mirrored. That is seventeen call sites, measured on `wt/econ-small`.
+
+**Fifteen name a member account outright. Two derive one.**
+
+| Path | Posting | Source | Idempotency key | Sink |
 |---|---|---|---|---|
 | A night of a stay | `postNightsForStay`, `server/lib/stays.ts` | `stay_night` | `stay:<stayId>:night:<date>` | `spendSinkFor(token)`, so `sys:mint` for stay credits |
-| A seat at a gathering | `chargeSeat`, `server/lib/eventSeats.ts` | `event_seat_fee` | `seat:<eventId>:<occurrenceKey>:<userId>:<seq>:pay` | `sys:event-escrow`, then `sys:treasury` when the gathering is held |
+| A seat at a gathering | `chargeForPlace`, `server/lib/eventSeats.ts` | `event_seat_fee` | `seat:<eventId>:<occurrenceKey>:<userId>:<seq>:pay` | `sys:event-escrow`, then `sys:treasury` when the gathering is held |
 | A library loan deposit | `server/lib/library.ts` | `library_escrow` | `loan:<loanId>:escrow` | `sys:library-escrow`, then split between `sys:library-pool` and the member at settle |
-| Sending credits to another member | the member send route | `member_send` | `send:<userId>:<clientNonce>` | the other member, no sink at all |
+| Sending credits to another member | `POST /api/wallet/send` | `member_send` | `send:<userId>:<clientNonce>` | the other member, no sink at all |
+| Swapping one token for another | `executeSwap`, `server/lib/exchange.ts`, leg 1 of a pair | `exchange_swap` | `ord:<orderId>:leg1` | `sys:treasury` |
+| Voice that wanes at a cycle close | `decayVoice`, `server/lib/economy.ts` | `voice_decay` | `voice.decay:<village>:<cycleKey>:<userId>:<token>` | `sys:voice-decay` |
+| Claiming Voice toward Hypha | `requestVoiceClaim`, `server/lib/voiceClaim.ts` | `voice_claim` | `voice-claim-debit:<village>:<claimId>` | `sys:voice-bridge` |
+| A departing member's balance | `sweepBalances`, `server/lib/exit.ts` | `exit_settlement` | `exit:<exitId>:sweep:<token>` | whatever `exit.remainder_account` names: `sys:exit-settlement`, `sys:treasury`, `sys:cycle-pool`, or the token's own faucet |
+| A departing member's Voice, converted | `sweepBalances`, leg 1 of a pair | `exit_settlement` | `exit:<exitId>:convert:<token>` | the same four, with credits paid back from `sys:treasury` on leg 2 |
+| An admin burning library credit | `POST /api/admin/library/adjust`, negative amount | `library_burn` | the adjustment's own id | `sys:library-sink` |
+| An admin burning stay credit | `POST /api/admin/stays/adjust`, negative amount | `stay_manual_override` | the adjustment's own id | `sys:mint` |
+| A village refunding a stay purchase | `POST /api/admin/stays/purchases/:id/refund` | `payment_reversal` | `ord:<purchaseId>:reversal-leg1` | `sys:mint` |
+| A bank taking back a stay purchase | the stays reversal handler, `server/index.ts` | `payment_reversal` | `ord:<orderId>:reversal-leg1`, deliberately the SAME key | `sys:mint` |
+| A bank taking back an exchange order | the exchange reversal handler, `server/index.ts` | `payment_reversal` | `ord:<orderId>:reversal-leg1` | `sys:treasury` |
+| A bank taking back a product purchase | the commerce reversal handler, `server/index.ts` | `payment_reversal` | `pp:<purchaseId>:reversal:<periodKey>` | `sys:treasury` |
+| Reversing one posting | `reverse`, `server/lib/economy.ts` | `reversal` | `reversal:<village>:<original key>` | the original's `from`, whatever it was |
+| Reversing both legs of a pair | `reversePair`, `server/lib/economy.ts` | `reversal` | the same, per leg | the same |
 
-Two things follow from that table and both are easy to misread.
+The last two are the two that derive their member: they mirror a row, so they
+debit a member exactly when the posting being undone credited one. Everything
+above them names `memberAccount(...)` in the source.
+
+**Five of the seventeen can drive a member negative, and only five.** The
+ledger's `ALLOW_NEGATIVE_SOURCES` is `stay_night`, `payment_reversal` and
+`reversal`, and the debt capability behind each is module-private: only
+`postGraceNightBurn`, `postPaymentReversalLeg` and `postClawbackMirror` carry
+one. So the paths that can leave a member owing are the nights burn, the three
+bank-side payment reversals, and the clawback mirror. `reversePair` is not one
+of them: `postTransferPair` refuses `allowNegative` outright, because undoing a
+swap behind a member who already spent what it gave them is a refusal a person
+should settle.
+
+**A source is not a capability, and the stay refund is the case that shows
+it.** `POST /api/admin/stays/purchases/:id/refund` posts source
+`payment_reversal` through the plain poster with no debt proof, on purpose: a
+village-initiated refund still refuses when the guest already slept on the
+credits, and a human settles the difference. The chargeback handler for the
+same purchase carries the proof and posts under the SAME key, so the bank case
+prevails and the village case does not. Waning is deliberately outside all of
+this: a waning that could drive a member below zero would be a debt nobody
+incurred.
+
+**A new hold mechanism has to answer all seventeen and not four.** The four the
+old table listed are the four a member CHOOSES. The other thirteen happen to a
+member: a moon closing, a bank reversing a charge, a steward correcting a
+number, a departure settling. A guard written only where a member clicks is a
+guard the other thirteen walk past.
+
+Two things follow from this table and both are easy to misread.
 
 **The seat and the library paths hold value in ESCROW rather than retiring it,
 and that is the design.** `sys:event-escrow` is not a faucet: it can only ever
@@ -1704,8 +1765,16 @@ pay out what somebody paid in, which is what makes a refund provably funded. A
 cancelled seat is refunded from escrow (`event_seat_refund`), and only a gathering
 that actually happened moves the fee on to the treasury (`event_seat_kept`).
 
-**`spendSinkFor` is an abstraction with one user.** Verified at `45869ad`:
-`server/lib/stays.ts:256` is its only non-test caller. The generated table above
+**`spendSinkFor` has exactly one POSTING user, and it is no longer the only
+caller.** It had one when this was written and the line number has moved twice
+since; measured again on `wt/econ-small` by grepping the whole tree, there are
+two non-test callers in `server/`: `server/lib/stays.ts:321`, which is the only
+one that posts anything, and `server/lib/dryRunEconomyReader.ts:209`, which
+reads it to describe a token's sinks to the dry run and moves nothing.
+`shared/dryRun/economicsModel.ts:152` holds a mirrored copy of the same rule
+for the simulation engine, which is a third place the answer is spelled and a
+fourth thing that can drift. Line numbers here are a reading and not a
+contract: grep the identifier. The generated table above
 is therefore a true description of the FUNCTION and an incomplete description of
 where spent value actually goes, which is why the table in this section exists
 beside it. Stay credits genuinely retire into their own faucet, because that
