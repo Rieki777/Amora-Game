@@ -15,6 +15,14 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, RefreshCw, Save } from "lucide-react";
 import { API_BASE, authHeaders, refusal } from "./adminApi";
 import { emptyContentFor } from "./contentSections";
+import {
+  SECTION_FIELDS,
+  readGroup,
+  readPath,
+  writeGroup,
+  writePath,
+  type DocField,
+} from "./contentFields";
 
 export default function ContentEditorTab({ password, sectionKey, sectionLabel }: {
   password: string;
@@ -197,6 +205,68 @@ export default function ContentEditorTab({ password, sectionKey, sectionLabel }:
     fn(arr);
     setRaw(JSON.stringify(arr, null, 2));
   };
+
+  /*
+   * The field editor for the sections that are documents rather than cards.
+   *
+   * Same architecture as the cards above and for the same reason: it parses
+   * the raw JSON, edits the PARSED document and re-serializes, so a key no
+   * spec describes survives an edit untouched and the JSON below stays the
+   * ground truth. A field editor that rebuilt the document from its own spec
+   * would silently drop whatever it had not been taught about.
+   *
+   * `spec` is null for a section with no field spec, which falls through to
+   * the raw editor exactly as before.
+   */
+  const spec = SECTION_FIELDS[sectionKey] ?? null;
+  const docData: any = spec && raw ? (() => {
+    try { const p = JSON.parse(raw); return p && typeof p === "object" && !Array.isArray(p) ? p : null; } catch { return null; }
+  })() : null;
+  const setDocField = (path: string[], value: string) =>
+    setRaw(JSON.stringify(writePath(JSON.parse(raw), path, value), null, 2));
+  const setDocGroup = (path: string[], rows: any[]) =>
+    setRaw(JSON.stringify(writeGroup(JSON.parse(raw), path, rows), null, 2));
+
+  /*
+   * `htmlFor` and a matching id, which the card editor above still lacks.
+   * A label that is only next to its box is a label a screen reader does
+   * not read out with it, and it is also what makes clicking the words
+   * focus the box. The id carries a prefix because a repeat group's rows
+   * all share the same field paths.
+   */
+  const fieldControl = (f: DocField, value: string, onChange: (v: string) => void, idPrefix = "content") => {
+    const id = `${idPrefix}-${f.path.join("-")}`;
+    return (
+    <div key={f.path.join(".")} className={f.kind === "long" ? "sm:col-span-2" : ""}>
+      <label htmlFor={id} className="text-xs font-medium text-foreground block mb-1">
+        {f.label}
+        {f.claim && (
+          <span className="ml-2 text-[11px] font-normal rounded px-1.5 py-0.5 border border-amber-300 bg-amber-50 text-amber-800">
+            a claim about your jurisdiction
+          </span>
+        )}
+      </label>
+      {f.kind === "long" ? (
+        <textarea
+          id={id}
+          rows={f.rows ?? 3}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 resize-y"
+        />
+      ) : (
+        <input
+          id={id}
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
+        />
+      )}
+      <p className="text-[11px] text-muted-foreground mt-0.5">{f.help}</p>
+    </div>
+    );
+  };
   // field spec: [key, label, kind, options?]
   const CARD_FIELDS: Array<[string, string, "text" | "long" | "lines" | "select", string[]?]> = [
     ["name", "Name", "text"],
@@ -249,6 +319,90 @@ export default function ContentEditorTab({ password, sectionKey, sectionLabel }:
         <div className="text-center py-12 text-gray-400">Loading...</div>
       ) : (
         <>
+          {/* Field editor for document sections. No JSON in sight. */}
+          {spec && docData && (
+            <div className="mb-6 space-y-5">
+              <p className="text-sm text-muted-foreground max-w-2xl">{spec.intro}</p>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                {spec.fields.map((f) =>
+                  fieldControl(f, readPath(docData, f.path), (v) => setDocField(f.path, v)),
+                )}
+              </div>
+
+              {(spec.groups ?? []).map((g) => {
+                const rows = readGroup(docData, g.path);
+                const write = (next: any[]) => setDocGroup(g.path, next);
+                return (
+                  <div key={g.path.join(".")}>
+                    <p className="text-xs font-medium text-foreground">{g.label}</p>
+                    <p className="text-[11px] text-muted-foreground mb-2 max-w-2xl">{g.help}</p>
+                    <div className="space-y-3">
+                      {rows.map((row: any, i: number) => (
+                        <div key={i} className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="font-semibold text-foreground text-sm">
+                              {String(row?.[g.titlePath[0]] ?? "").trim() || `#${i + 1}`}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                title="Move up"
+                                disabled={i === 0}
+                                onClick={() => { const n = [...rows]; const [c] = n.splice(i, 1); n.splice(i - 1, 0, c); write(n); }}
+                                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Move down"
+                                disabled={i === rows.length - 1}
+                                onClick={() => { const n = [...rows]; const [c] = n.splice(i, 1); n.splice(i + 1, 0, c); write(n); }}
+                                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const name = String(row?.[g.titlePath[0]] ?? "").trim() || "this one";
+                                  if (window.confirm(`Remove "${name}"?`)) write(rows.filter((_, j) => j !== i));
+                                }}
+                                className="text-xs text-muted-foreground hover:text-red-600"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                          <div className="grid sm:grid-cols-2 gap-3">
+                            {g.fields.map((f) =>
+                              fieldControl(f, String(row?.[f.path[0]] ?? ""), (v) => {
+                                const n = rows.map((r, j) => (j === i ? { ...r, [f.path[0]]: v } : r));
+                                write(n);
+                              }, `${g.path.join("-")}-${i}`),
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => write([...rows, Object.fromEntries(g.fields.map((f) => [f.path[0], ""]))])}
+                      className="mt-2 text-sm text-teal-deep font-medium hover:underline"
+                    >
+                      + {g.addLabel}
+                    </button>
+                  </div>
+                );
+              })}
+
+              <p className="text-xs text-muted-foreground">
+                Remember to hit Save Changes above. Edits here go live only after saving.
+              </p>
+            </div>
+          )}
+
           {/* Card editor — plain fields, no JSON in sight */}
           {isCards && cardsData && (
             <div className="mb-6 space-y-4">
@@ -347,17 +501,18 @@ export default function ContentEditorTab({ password, sectionKey, sectionLabel }:
           {/* Raw JSON editor, always shown, acts as ground truth */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                {isCards ? "Raw JSON (advanced edits)" : "Edit JSON"}
+              <label htmlFor="content-raw-json" className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                {isCards || spec ? "Raw JSON (advanced edits)" : "Edit JSON"}
               </label>
               {parseError && (
                 <span role="alert" className="text-xs text-red-500">{parseError}</span>
               )}
             </div>
             <textarea
+              id="content-raw-json"
               value={raw}
               onChange={(e) => { setRaw(e.target.value); setParseError(""); }}
-              rows={isCards ? 12 : 28}
+              rows={isCards || spec ? 12 : 28}
               spellCheck={false}
               className="w-full px-4 py-3 text-xs font-mono border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-deep/40 bg-gray-900 text-green-300 resize-none"
             />

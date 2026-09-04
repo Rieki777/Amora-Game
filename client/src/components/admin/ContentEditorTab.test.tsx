@@ -38,7 +38,7 @@ import userEvent from "@testing-library/user-event";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { ContentEditorTab } from "./Admin";
+import ContentEditorTab from "@/components/admin/ContentEditorTab";
 
 /**
  * Every write the component attempts, in order. The point of the suite is
@@ -78,7 +78,12 @@ const stubFetch = (statusBySection: Record<string, number>, writes: Write[]) => 
   );
 };
 
-const box = () => screen.getByRole("textbox") as HTMLTextAreaElement;
+/**
+ * The raw JSON box specifically. Addressed by id rather than by role, because
+ * the field editor puts many textboxes on the same screen and the whole point
+ * of these assertions is which document the SAVE would send.
+ */
+const box = () => document.getElementById("content-raw-json") as HTMLTextAreaElement;
 
 describe("the content editor never offers a failed read as content", () => {
   let writes: Write[];
@@ -155,4 +160,75 @@ describe("the content editor never offers a failed read as content", () => {
     await user.click(screen.getByRole("button", { name: /Save Changes/i }));
     expect(writes, "a save was sent on top of an unknown current state").toHaveLength(0);
   });
+
+  /*
+   * Rye, on both Legal & Jurisdiction Notices and Love Letter Covenant: "need
+   * to improve the UI of this so non tech users can update this information".
+   * Both rendered a raw JSON textarea, which asks a founder to know which keys
+   * the public pages read and to keep the braces balanced while they type.
+   */
+  describe("the field editor for document sections", () => {
+    it("offers named fields instead of JSON, with what each one does to the page", async () => {
+      stubFetch({ covenant: 404 }, writes);
+      render(<ContentEditorTab password="secret" sectionKey="covenant" sectionLabel="Love Letter Covenant" />);
+
+      await waitFor(() => expect(screen.getByText(/The invitation/i)).toBeTruthy());
+      expect(screen.getByText(/How this village will govern itself/i)).toBeTruthy();
+      // The help says what a reader sees, which is the question a founder has.
+      expect(screen.getByText(/where a village describes its own land/i)).toBeTruthy();
+    });
+
+    it("marks the boxes that are claims about a jurisdiction", async () => {
+      // These are tax and entity claims. Inheriting another village's by not
+      // noticing a field is the failure this label exists to prevent.
+      stubFetch({ legal: 404 }, writes);
+      render(<ContentEditorTab password="secret" sectionKey="legal" sectionLabel="Legal & Jurisdiction Notices" />);
+
+      await waitFor(() => expect(screen.getByText(/The legal entity a member joins/i)).toBeTruthy());
+      expect(screen.getAllByText(/a claim about your jurisdiction/i).length).toBeGreaterThan(0);
+    });
+
+    it("keeps keys the spec has never heard of", async () => {
+      /*
+       * THE PROPERTY THAT MAKES THIS SAFE. The editor edits the PARSED
+       * document and re-serializes, so the JSON stays ground truth. A field
+       * editor that rebuilt the document from its own spec would silently
+       * drop whatever it had not been taught about, and a village that saved
+       * something through the raw box would lose it by opening this screen.
+       */
+      const user = userEvent.setup();
+      stubFetch({ covenant: 200 }, writes);
+      render(<ContentEditorTab password="secret" sectionKey="covenant" sectionLabel="Love Letter Covenant" />);
+      await waitFor(() => expect(box().value).toContain("already saved"));
+
+      // Put an undescribed key in through the advanced box.
+      await user.clear(box());
+      await user.type(box(), '{{"opening":"old","mystery":"keep me"}');
+
+      const invitation = screen.getByLabelText(/The invitation/i);
+      await user.clear(invitation);
+      await user.type(invitation, "ours");
+
+      const doc = JSON.parse(box().value);
+      expect(doc.opening).toBe("ours");
+      expect(doc.mystery, "an undescribed key was dropped by the field editor").toBe("keep me");
+    });
+
+    it("removes a key when its box is emptied rather than storing a blank", async () => {
+      /*
+       * The pages branch on absent-or-blank identically, so this changes
+       * nothing a member sees. It changes what the next person reading the
+       * document can tell: a file full of empty strings looks answered, and a
+       * deliberate blank is indistinguishable from a box nobody reached.
+       */
+      const user = userEvent.setup();
+      stubFetch({ covenant: 200 }, writes);
+      render(<ContentEditorTab password="secret" sectionKey="covenant" sectionLabel="Love Letter Covenant" />);
+      await waitFor(() => expect(box().value).toContain("already saved"));
+
+      await user.clear(screen.getByLabelText(/The invitation/i));
+      expect(Object.keys(JSON.parse(box().value))).not.toContain("opening");
+    });
+  });
 });
+
