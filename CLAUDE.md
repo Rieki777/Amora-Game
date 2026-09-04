@@ -75,6 +75,36 @@ so it is right on the day you run it. Prefer it to this block when the two disag
 - **What it costs:** roughly 35 to 50 minutes locally depending on how many lanes share the
   database, against about 7 in CI. The 41 e2e files are two thirds of it.
 
+### If you are one of several sessions: do NOT run the full suite
+
+**A lane runs its own tests. The session that MERGES runs the full suite, once, on the
+composed tree.** Put this in every lane brief, verbatim:
+
+> Do NOT run the full suite. Run the test files you added, any existing suite covering the
+> files you touched, and the gate scripts. Say plainly that you skipped the full run and
+> why. The integrator runs it once on the composed tree.
+
+**Measured on 2026-09-04**, when the opposite was briefed: two lanes at 3h04m each with
+their work already committed, a third at 1h55m likewise, one lane running the suite three
+times and calling two of the three invalid itself. Roughly twelve machine-hours across the
+day, and **not one unique defect found by any full-suite run.** What caught things was the
+TypeScript compiler, targeted controls that break a fix and watch a NAMED test fail,
+rendered output, the gate scripts, live probes against a booted server, and production. What
+the full suites contributed was flakes that three separate agents each had to rule out.
+
+The reasoning is not only economic. **N greens on N sibling branches say nothing about the
+tree they merge into**, and that tree has to be tested anyway. A lane's suite is a tax on
+confidence you were already going to buy.
+
+Two things that follow:
+
+- **A lane that has finished and is running a suite looks exactly like a hung lane.** Before
+  concluding a session is stuck, check its worktree: `git status` and the commit count.
+  Twice on 2026-09-04 the work was committed and the tree clean while the panel showed 0/2.
+- **Stopping such a lane and taking its committed work is correct**, not a shortcut. Verify
+  the branch yourself with the gates plus the targeted suites, which is what should have
+  happened anyway.
+
 Two CI budgets cap the client: main JS **700 KB** and total `dist/public` **6600 KB**, both
 measured after `pnpm build`. Read the numbers off `MAX_MAIN_JS_KB` and `MAX_TOTAL_DIST_KB` in
 `.github/workflows/ci.yml`, which is the authority: this block said 6 MB for as long as the
