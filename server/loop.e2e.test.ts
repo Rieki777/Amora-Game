@@ -5736,12 +5736,39 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
      * one is a real round trip, which is all the yielding this needs.
      */
     let rollNotes: any[] = [];
-    for (let i = 0; i < 20; i++) {
+    let rollArrived = false;
+    let rollTries = 0;
+    /*
+     * BOUNDED BY TIME, NOT BY ROUND TRIPS, AND IT SAYS WHICH WAY IT ENDED.
+     *
+     * This was twenty round trips with no sleeps, on the reasoning that each
+     * read is real work and therefore all the yielding needed. That holds on an
+     * idle machine and stops holding under load, because the reads slow down
+     * alongside the insert they are waiting for, so twenty of them stops being
+     * a meaningful amount of time.
+     *
+     * Worse than being flaky, it was flaky ILLEGIBLY. When the poll ran out, the
+     * next line reported `expected [ 'ballot_opened' ] to include
+     * 'ballot_carried'`, which reads as "the village was told the wrong thing"
+     * when the truth was "we stopped waiting". Three separate agents hit this on
+     * three separate days and each spent real effort proving it was not their
+     * change. A wait that cannot say it timed out is the same defect this
+     * codebase keeps paying for: a check that reports the same thing when it did
+     * not finish as when it failed.
+     */
+    const rollDeadline = Date.now() + 10_000;
+    while (Date.now() < rollDeadline) {
+      rollTries += 1;
       const bell = await api("GET", "/api/notifications", undefined, voters[2].token);
       rollNotes = (bell.json.notifications ?? []).filter((n: any) => n.link === `/decisions/${ballot.id}`);
-      if (rollNotes.some((n: any) => n.type === "ballot_carried")) break;
+      if (rollNotes.some((n: any) => n.type === "ballot_carried")) { rollArrived = true; break; }
     }
     const rollTypes = rollNotes.map((n: any) => n.type);
+    expect(
+      rollArrived,
+      `the ballot_carried notice never arrived within 10s (${rollTries} reads, saw: ${rollTypes.join(", ") || "nothing"}). ` +
+        "notifyRoll is called without await on purpose, so this is a WAIT that ran out, not necessarily a wrong notice.",
+    ).toBe(true);
     expect(rollTypes, "a voter on the roll heard the vote open").toContain("ballot_opened");
     expect(rollTypes, "and heard what the village decided").toContain("ballot_carried");
     // The outcome note travels with it, so the bell carries the reasoning and
