@@ -358,6 +358,22 @@ export const keys = {
    */
   reversal: (v: string, eventKey: string) => `reversal:${esc(v)}:${eventKey}`,
   voiceClaim: (v: string, claimRowId: string) => `voice-claim:${esc(v)}:${esc(claimRowId)}`,
+  /**
+   * The two postings one redemption can make, and they are built HERE.
+   *
+   * A redemption holds at request and burns at confirmation, so it owns two
+   * keys and never one with a suffix appended at the call site. That suffix
+   * form is what `questCompleted` above records as a live defect twice over:
+   * the appended segment goes in unescaped, and the generated key table in
+   * `docs/ECONOMICS.md` reads this object, so a key assembled elsewhere is a
+   * shape the document cannot print.
+   *
+   * The redemption row id is the occurrence. Two redemptions by one member for
+   * the same token and the same amount are two occurrences and must not
+   * collide, which the row id gives for free.
+   */
+  redemptionHold: (v: string, redemptionId: string) => `redemption:${esc(v)}:${esc(redemptionId)}:hold`,
+  redemptionBurn: (v: string, redemptionId: string) => `redemption:${esc(v)}:${esc(redemptionId)}:burn`,
 };
 
 // ── The cycle ───────────────────────────────────────────────────────────────

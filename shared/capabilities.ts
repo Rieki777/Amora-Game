@@ -79,7 +79,24 @@ export type Capability =
   // It passes the test the five handover keys set: a member can finish the
   // sentence "the village's ____ look after that", and it covers a real
   // refusal rather than a button.
-  | "quest.approve"; // put a proposed quest on the board, with what it pays
+  | "quest.approve" // put a proposed quest on the board, with what it pays
+  // ── The redemption key (0155) ────────────────────────────────────────────
+  //
+  // A member asks for their tokens to become something real off the platform,
+  // and somebody has to say that it happened before the tokens are destroyed.
+  // The founder's words are "confirmed by a steward or a vote (if no stewards
+  // are in a role)", and this key is how the first half of that sentence is
+  // executed. There is no `isSteward()` in this codebase: the word is prose for
+  // an admin or founder role check, and the vacancy question in the second half
+  // is spelled four different ways in four places with no shared helper.
+  //
+  // A key asks neither question. A village that wants its Steward Circle to
+  // confirm redemptions grants this to that role; a village that has granted it
+  // to nobody falls through the one gate to admin, which is the behaviour the
+  // default describes. So "steward" comes to mean whatever this village has
+  // decided it means, and there is no vacancy to detect, only a key nobody was
+  // given.
+  | "redemption.confirm"; // agree that a member was paid, and destroy their tokens
 
 /**
  * The canonical list, as a VALUE: badge validation and unlock diffs iterate
@@ -117,6 +134,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "story.tell",
   "dial.set",
   "quest.approve",
+  "redemption.confirm",
 ];
 
 /**
@@ -168,6 +186,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "story.tell": "Say what the village is, in public, in its own words",
   "dial.set": "Turn the village's own dials",
   "quest.approve": "Put a proposed quest on the board and set what it pays",
+  "redemption.confirm": "Confirm that a member was paid, and destroy the tokens they redeemed",
 };
 
 /**
@@ -330,6 +349,11 @@ export const TRANSFERABLE: Record<Capability, boolean> = {
   // route asks `guardCapability`, so the escape hatch and the public record
   // this column promises are both really there.
   "quest.approve": true,
+  // Confirming a redemption destroys somebody's tokens on the strength of a
+  // payment the platform cannot see, so it is exactly the sort of power a
+  // village hands to a named circle. Its two routes ask `guardCapability`, so
+  // the escape hatch and the public record this column promises are both there.
+  "redemption.confirm": true,
   "library.keep": true,
   "story.tell": true,
   "org.seat": true,
@@ -551,6 +575,11 @@ export const DENIABLE: Record<Capability, boolean> = {
   // earned as a say in a decision the village makes, which is the line R65 and
   // R66 draw.
   "quest.approve": true,
+  // A job, on the same line R65 and R66 draw. Taking it off somebody stops
+  // them signing off other people's payouts; it takes away nothing they earned
+  // as a say in what the village decides, and nothing at all about their own
+  // right to ask to redeem.
+  "redemption.confirm": true,
   "library.keep": true,
   "story.tell": true,
   "dial.set": true,

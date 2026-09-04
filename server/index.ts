@@ -67,6 +67,8 @@ import { register as registerBrandPreviewRoutes } from "./routes/brandPreview";
 import { register as registerBrandUploadRoutes } from "./routes/brandUploads";
 import { register as registerNeedsRoutes } from "./routes/needs";
 import { register as registerDryRunRoutes } from "./routes/dryRun";
+import { register as registerRedemptionRoutes } from "./routes/redemption";
+import { expireRedemptions, retiredSupply } from "./lib/redemptionStore";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -5583,6 +5585,14 @@ async function startServer() {
       (f.skipped.length ? `, ${f.skipped.length} stuck and reported` : "");
   }
   registerJob("exchange-reconcile", 60 * 60 * 1000, runExchangeReconcile);
+  // A redemption nobody answers ends by itself and the held tokens go back in
+  // full. It settles through the same door a human uses, so an expiry cannot
+  // become a second way to move value, and `redemption.expires_after_days` at 0
+  // means a village that would sooner answer late than expire something.
+  registerJob("redemption-reap", 60 * 60 * 1000, async () => {
+    const n = await expireRedemptions(getPool());
+    return n ? `${n} redemption(s) expired and released` : "nothing expired";
+  });
   // S66: feedback relay — every 15 minutes, while the village keeps it on.
   // The hub being down costs nothing but a log line; rows wait their turn.
   registerJob("feedback-relay", 15 * 60 * 1000, async () => {
@@ -17462,8 +17472,20 @@ Send an empty drafts array when you are still listening. A role payload is {name
     for (const r of issuance) {
       (byToken[r.token_type] ??= {})[r.account_id] = Number(r.issued);
     }
+    /*
+     * WHAT A REDEMPTION HAS RETIRED, BESIDE ISSUANCE AND NEVER NETTED INTO IT.
+     *
+     * A confirmed redemption posts to `sys:redeemed`, which is not a faucet, so
+     * every `issued` figure above is exactly what it was before: what has been
+     * released to date. That is the correct reading and it is also an
+     * incomplete story on its own, because some of what was released can no
+     * longer circulate. Printing the two side by side is the honest form, and
+     * netting them silently would be the change of meaning `spendSinkFor`
+     * refuses in writing.
+     */
+    const retired = await retiredSupply(getPool());
     res.json({
-      tokens: allTokens().map((t) => ({ ...t, issuedBy: byToken[t.slug] ?? {} })),
+      tokens: allTokens().map((t) => ({ ...t, issuedBy: byToken[t.slug] ?? {}, retired: retired[t.slug] ?? 0 })),
       mintCapPerCycle: numberVar("ledger.admin_mint_cycle_cap"),
     });
   });
@@ -19399,6 +19421,7 @@ ${inner}
   registerBrandPreviewRoutes(app, { isAdmin, getPool, brandRepo });
   registerNeedsRoutes(app, { isAdmin, authedUser, getPool });
   registerDryRunRoutes(app, { authedUser, isAdmin, overLimit, getPool });
+  registerRedemptionRoutes(app, { authedUser, getPool, guardCapability, members, notify });
 
   // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

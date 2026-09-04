@@ -252,6 +252,58 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   three scans. **`git log --all --diff-filter=A` is NOT a fourth way and it under-reports**: it
   missed 0151 entirely, because that file reached its number by a rename and rename detection
   reports an R and not an A. Sweep the ref TREES.
+- **redemption lane (RB), 2026-09-04: claims 0155 for
+  `drizzle/0155_a_member_redeems_what_they_hold.sql`.** One new table, `redemptions`, plus
+  `INSERT IGNORE` for two non-faucet system accounts (`sys:redemption-hold`,
+  `sys:redeemed`). Additive only. **It took 0153 first, collided, and renumbered before
+  landing.** Both readings are kept below, because the difference between them is the whole
+  lesson and a corrected number with the working thrown away teaches nobody.
+
+  **Reading one, 12:05. Answer 0153, and it was wrong within the hour.**
+  `node scripts/check-migration-numbers.mjs --next` printed **0151** and exited 0, and it was
+  wrong twice over. 0151 was already taken (`0151_a_member_finds_their_own_reservation.sql`,
+  found in the REMOTE scan across 220 refs, in the LOCAL scan across 331, and on DISK in
+  `TREASURES/` and `wt-rebase/`). 0152 was taken by an **UNTRACKED** file,
+  `0152_a_vendor_record_names_more_than_one_person.sql` in the `wt-bridge` worktree on branch
+  `wt/draft-deadlock`, reported by `git status` as `??`, found ONLY in the disk scan and on no
+  ref at all. So the gate was two behind and the disk scan was the only channel that knew.
+
+  **Reading two, 13:40, after the coordinator flagged a collision. Answer 0155.** Same three
+  scans, and every competing number is recorded with the channel it was hiding in, which is
+  what makes this repeatable instead of a claim:
+
+  | Number | Found in | File |
+  |---|---|---|
+  | 0151 | all three | `0151_a_member_finds_their_own_reservation.sql` |
+  | 0152 | remote and local refs, and disk in `RD-di`, `wt-bridge`, `wt-holders` | `0152_a_vendor_record_names_more_than_one_person.sql` |
+  | 0153 | **REMOTE**, pushed to `origin/wt/holders-readback` | `0153_subject_refs.sql` |
+  | 0153 | local refs and disk, this lane | `0153_a_member_redeems_what_they_hold.sql`, renumbered |
+  | 0154 | **DISK ONLY**, `ECON-keys`, unpushed | `0154_one_gift_one_key.sql` |
+
+  **Each of the three channels was the only one that knew about a different number**, which is
+  the argument for running all three every time: 0152 hid on disk at the first reading, 0153 hid
+  on a remote branch that is not `main`, and 0154 hid on disk in a sibling worktree with no ref
+  anywhere. Checking any one channel would have called at least one taken number free.
+
+  **`check-migration-numbers.mjs` returned success at both readings and was blind at both.** It
+  compares disk against `origin/main` only, and none of 0151 to 0154 is on `main`. It is
+  therefore structurally silent on the single case that collides, two branches in flight, while
+  reporting green. That is the same blindness that produced the live `0144` double-claim.
+
+  **Why the renumber was safe here, and the test it had to pass.** `_migrations_applied` keys on
+  FILENAME with no checksum, so on any database where the old name has run, a renamed file is a
+  NEW file that replays while the old name stays marked applied. This one had run in exactly
+  three places, all of which create and drop their own schema: the vitest harness, whose template
+  is named `village_tpl_<sha256 of every filename AND its bytes>` so a rename produces a
+  different template and can never reuse the old one (the stale template was dropped by hand
+  anyway), `check-migration-compat.mjs`, and one throwaway schema this lane made to run the file
+  twice. Nothing persistent had seen it. **Renumbered before landing, never after.**
+
+  **Swept for the number as a STRING, not only as a filename.** Four references outside the file
+  carried it and all four were corrected in the same change: the migration's own first line, two
+  "Seeded by 0153" comments in `server/lib/redemption.ts`, and the section marker in
+  `shared/capabilities.ts`. Two other files in the repository contain the digits `0153` and
+  neither is about a migration (`docs/prototypes/grounds-v0.html`, `shared/lunarTable.json`).
 - **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
   new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
   makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the
