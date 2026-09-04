@@ -69,7 +69,7 @@ export function SeatSomebody({
 
   return (
     <>
-      <label className="text-xs text-gray-500">
+      <label className="text-xs text-muted-foreground">
         Seat someone
         <select className={`${inputCls} mt-1`} value={who} onChange={(e) => setWho(e.target.value)}>
           <option value="">Choose a member...</option>
@@ -82,7 +82,7 @@ export function SeatSomebody({
         </select>
       </label>
       {seatingAnAgent && (
-        <label className="text-xs text-gray-500">
+        <label className="text-xs text-muted-foreground">
           What the agent is called
           <input
             className={`${inputCls} mt-1`}
