@@ -13,22 +13,30 @@
  * Runs against the S5 harness: a scratch schema with every real migration
  * applied. No TEST_DATABASE_URL → skips loudly.
  */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import mysql from "mysql2/promise";
+import * as ledgerModule from "./lib/ledger";
 import {
   ALLOW_NEGATIVE_SOURCES,
   balanceOf,
   balancesFor,
   checkLedgerInvariants,
-  CLAWBACK_DEBT,
+  CLAWBACK_SOURCES,
   CYCLE_POOL_FAUCET,
-  GRACE_NIGHT_DEBT,
-  PAYMENT_REVERSAL_DEBT,
+  type DebtProof,
   entriesForMember,
+  frozenSet,
   loadTokenRegistry,
   memberAccount,
   MINT_FAUCET,
   PLATFORM_TOKEN,
+  postClawbackMirror,
+  postClawbackMirrorPair,
+  postGraceNightBurn,
+  postPaymentReversalLeg,
   postTransfer,
   postTransferPair,
   questCreditsFor,
@@ -298,7 +306,7 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
 
   it("refuses allowNegative, duplicate keys within the pair, and invalid legs", async () => {
     const debt = await postTransferPair(pool, [
-      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 1, source: "exchange_swap", idempotencyKey: "k1", allowNegative: GRACE_NIGHT_DEBT },
+      { from: memberAccount("swapper"), to: TREASURY, tokenType: "pair-a", amount: 1, source: "exchange_swap", idempotencyKey: "k1", allowNegative: {} as unknown as DebtProof },
       { from: TREASURY, to: memberAccount("swapper"), tokenType: "pair-b", amount: 1, source: "exchange_swap", idempotencyKey: "k2" },
     ]);
     expect(debt.ok).toBe(false);
@@ -553,7 +561,7 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
         source: "reversal",
         // The old signature took `true` here. It is a type error now, and the
         // cast is what an attacker (or a JavaScript caller) actually has.
-        allowNegative: true as unknown as typeof CLAWBACK_DEBT,
+        allowNegative: true as unknown as DebtProof,
         idempotencyKey: "reversal:local:f12-a1",
       });
       expect(attack.ok).toBe(false);
@@ -566,20 +574,27 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
       const forged = await postTransfer(pool, {
         from: memberAccount("f12-forge"), to: TREASURY, amount: 1000,
         source: "reversal",
-        allowNegative: { reason: "reversal" } as unknown as typeof CLAWBACK_DEBT,
+        allowNegative: { reason: "reversal" } as unknown as DebtProof,
         idempotencyKey: "reversal:local:f12-forge",
       });
       // Shape is not the gate. Identity is: this object is not one of the three.
       expect(forged.ok).toBe(false);
       expect(String(forged.error)).toContain("capability the ledger issues");
 
-      const wrongReason = await postTransfer(pool, {
+      // The other half of this test used to spend a REAL `CLAWBACK_DEBT` on
+      // source "stay_night" and read back "licenses source". It cannot be
+      // written any more, and that is the improvement: the three proofs are
+      // module-private, so no test and no module can hold one to mis-spend.
+      // The proof/source agreement check stays in `validateLeg` as defence in
+      // depth; what proves it now is that the names do not leave the module,
+      // which `the debt capability never leaves the ledger` asserts below.
+      const stillForged = await postTransfer(pool, {
         from: memberAccount("f12-forge"), to: TREASURY, amount: 1000,
-        source: "stay_night", allowNegative: CLAWBACK_DEBT,
+        source: "stay_night", allowNegative: { reason: "stay_night" } as unknown as DebtProof,
         idempotencyKey: "f12-forge-mismatch",
       });
-      expect(wrongReason.ok).toBe(false);
-      expect(String(wrongReason.error)).toContain("licenses source");
+      expect(stillForged.ok).toBe(false);
+      expect(String(stillForged.error)).toContain("capability the ledger issues");
       expect(await balanceOf(pool, memberAccount("f12-forge"), PLATFORM_TOKEN)).toBe(10);
     });
 
@@ -590,7 +605,7 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
       // because a mirror is keyed `reversal:<village>:<original>`.
       const loose = await postTransfer(pool, {
         from: memberAccount("f12-ns"), to: TREASURY, amount: 5,
-        source: "reversal", allowNegative: CLAWBACK_DEBT,
+        source: "reversal", allowNegative: { reason: "reversal" } as unknown as DebtProof,
         idempotencyKey: "f12-ns-not-a-mirror",
       });
       expect(loose.ok).toBe(false);
@@ -703,7 +718,7 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
       });
       const r = await postTransfer(pool, {
         from: memberAccount("f14-gate"), to: TREASURY, amount: 500,
-        source: "spend", allowNegative: CLAWBACK_DEBT, idempotencyKey: "f14-gate-attack",
+        source: "spend", allowNegative: { reason: "spend" } as unknown as DebtProof, idempotencyKey: "f14-gate-attack",
       });
       expect(r.ok).toBe(false);
       expect(await balanceOf(pool, memberAccount("f14-gate"), PLATFORM_TOKEN)).toBe(10);
@@ -889,4 +904,256 @@ describe.skipIf(!configured)("the MySQL token ledger", () => {
     });
   });
 
+  describe("W4: the three narrow doors, and the law behind the clawback one", () => {
+    /*
+     * The debt proofs used to be `export const`, so the set of modules that
+     * could create member debt was every module willing to type an import. A
+     * closing proof imported all three into a test module and took one
+     * account to -990, -990 and -777 through the ordinary public primitive,
+     * with `checkLedgerInvariants` reporting NOTHING each time: the debit's
+     * own source is allow-negative, so it raises the account's lawful bound
+     * by exactly what it just took.
+     *
+     * The proofs are module-private now and these three functions are what
+     * left the module instead. Each supplies its own proof and pins the
+     * source that proof licenses, so the capability is never a value anybody
+     * holds.
+     */
+    const DOOR = "l8-door";
+
+    beforeAll(async () => {
+      await registerToken(pool, { slug: DOOR, name: "Door Credit", kind: "credit", governance: "platform", transferable: false });
+    });
+
+    const fundDoor = async (member: string, amount: number, key: string): Promise<void> => {
+      const r = await postTransfer(pool, {
+        from: MINT_FAUCET, to: memberAccount(member), tokenType: DOOR,
+        amount, source: "admin_mint", idempotencyKey: key,
+      });
+      expect(r.ok).toBe(true);
+    };
+
+    it("burns a grace night into debt, and the debt is lawful at boot", async () => {
+      await fundDoor("l8-gn", 10, "l8-gn-fund");
+      const burn = await postGraceNightBurn(pool, {
+        from: memberAccount("l8-gn"), to: TREASURY, tokenType: DOOR, amount: 25,
+        sourceRef: "stay-l8", description: "Night of 2026-09-03",
+        idempotencyKey: "stay:stay-l8:night:2026-09-03",
+      });
+      expect(burn.ok).toBe(true);
+      expect(await balanceOf(pool, memberAccount("l8-gn"), DOOR)).toBe(-15);
+      const report = await checkLedgerInvariants(pool);
+      expect(report.problems.filter((p) => p.includes(memberAccount("l8-gn")))).toEqual([]);
+    });
+
+    it("posts a payment reversal leg into debt, and the debt is lawful at boot", async () => {
+      await fundDoor("l8-pv", 5, "l8-pv-fund");
+      const claw = await postPaymentReversalLeg(pool, {
+        from: memberAccount("l8-pv"), to: TREASURY, tokenType: DOOR, amount: 20,
+        sourceRef: "ord-l8pv", description: "Refund: tokens returned to stock",
+        idempotencyKey: "ord:ord-l8pv:reversal-leg1",
+      });
+      expect(claw.ok).toBe(true);
+      expect(await balanceOf(pool, memberAccount("l8-pv"), DOOR)).toBe(-15);
+      const report = await checkLedgerInvariants(pool);
+      expect(report.problems.filter((p) => p.includes(memberAccount("l8-pv")))).toEqual([]);
+    });
+
+    it("mirrors a posting through the clawback door, into debt, lawfully", async () => {
+      const payer = memberAccount("l8-cb");
+      const spent = memberAccount("l8-cb-sink");
+      const original = await postTransfer(pool, {
+        from: MINT_FAUCET, to: payer, tokenType: DOOR, amount: 25,
+        source: "quest_consent", idempotencyKey: "l8-cb-original",
+      });
+      expect(original.ok).toBe(true);
+      // Spent onward, which is the case where the clawback has to be able to
+      // finish and the negative balance is the truthful state.
+      await postTransfer(pool, {
+        from: payer, to: spent, tokenType: DOOR, amount: 25,
+        source: "member_send", idempotencyKey: "l8-cb-spent",
+      });
+      const mirror = await postClawbackMirror(pool, {
+        from: payer, to: MINT_FAUCET, tokenType: DOOR, amount: 25,
+        sourceRef: "l8-cb-original", description: "l8-cb-original",
+        idempotencyKey: "reversal:local:l8-cb-original",
+      });
+      expect(mirror.ok).toBe(true);
+      expect(await balanceOf(pool, payer, DOOR)).toBe(-25);
+      const report = await checkLedgerInvariants(pool);
+      expect(report.problems.filter((p) => p.includes(payer))).toEqual([]);
+    });
+
+    it("refuses an invented mirror even through the narrow door, because the law is behind it", async () => {
+      // Holding the door buys nothing on its own: the law derives the row
+      // from the posting the key names, so a caller who invents a number
+      // gets the same refusal a caller of plain postTransfer would.
+      await fundDoor("l8-inv", 40, "l8-inv-fund");
+      const inflated = await postClawbackMirror(pool, {
+        from: memberAccount("l8-inv"), to: MINT_FAUCET, tokenType: DOOR, amount: 1000,
+        idempotencyKey: "reversal:local:l8-cb-original",
+      });
+      expect(inflated.ok).toBe(false);
+      expect(String(inflated.error)).toContain("does not mirror");
+
+      const ghost = await postClawbackMirror(pool, {
+        from: memberAccount("l8-inv"), to: MINT_FAUCET, tokenType: DOOR, amount: 5,
+        idempotencyKey: "reversal:local:l8-never-happened",
+      });
+      expect(ghost.ok).toBe(false);
+      expect(String(ghost.error)).toContain("to reverse");
+      expect(await balanceOf(pool, memberAccount("l8-inv"), DOOR)).toBe(40);
+    });
+
+    it("undoes both legs of a pair through the pair door, and neither alone", async () => {
+      const u = memberAccount("l8-pair");
+      await fundDoor("l8-pair", 100, "l8-pair-fund");
+      await postTransfer(pool, { from: MINT_FAUCET, to: TREASURY, tokenType: PLATFORM_TOKEN, amount: 500, source: "exchange_stock", idempotencyKey: "l8-pair-stock" });
+      const swap = await postTransferPair(pool, [
+        { from: u, to: TREASURY, tokenType: DOOR, amount: 100, source: "exchange_swap", sourceRef: "ord-l8p", idempotencyKey: "ord:ord-l8p:leg1" },
+        { from: TREASURY, to: u, tokenType: PLATFORM_TOKEN, amount: 40, source: "exchange_swap", sourceRef: "ord-l8p", idempotencyKey: "ord:ord-l8p:leg2" },
+      ]);
+      expect(swap.ok).toBe(true);
+
+      // One leg alone, through the door that carries no proof at all: still
+      // refused, and the refusal names the sibling.
+      const half = await postClawbackMirror(pool, {
+        from: u, to: TREASURY, tokenType: PLATFORM_TOKEN, amount: 40,
+        idempotencyKey: "reversal:local:ord:ord-l8p:leg2",
+      });
+      expect(half.ok).toBe(false);
+      expect(String(half.error)).toContain("ord:ord-l8p:leg1");
+
+      const both = await postClawbackMirrorPair(pool, [
+        { from: TREASURY, to: u, tokenType: DOOR, amount: 100, idempotencyKey: "reversal:local:ord:ord-l8p:leg1" },
+        { from: u, to: TREASURY, tokenType: PLATFORM_TOKEN, amount: 40, idempotencyKey: "reversal:local:ord:ord-l8p:leg2" },
+      ]);
+      expect(both.ok).toBe(true);
+      expect(await balanceOf(pool, u, DOOR)).toBe(100);
+      expect(await balanceOf(pool, u, PLATFORM_TOKEN)).toBe(0);
+    });
+
+    it("still reports a report after a prototype swap on the keystone set is refused", async () => {
+      // The other half of the prototype finding: an emptied set made
+      // `IN (?)` expand to `IN ()`, which MySQL will not parse, so the boot
+      // check THREW where it was meant to report. The trap stops the set
+      // being emptied and the placeholder list stops the empty case being
+      // expressible; this asks the check itself, against a real database.
+      expect(() => Object.setPrototypeOf(ALLOW_NEGATIVE_SOURCES as object, { has: () => true })).toThrow();
+      expect(Array.from(ALLOW_NEGATIVE_SOURCES)).toHaveLength(3);
+      const report = await checkLedgerInvariants(pool);
+      expect(Array.isArray(report.problems)).toBe(true);
+    });
+  });
+
+});
+
+/**
+ * THE DEBT CAPABILITY NEVER LEAVES THE LEDGER, held by a walk instead of by a
+ * paragraph.
+ *
+ * This needs no database and is deliberately outside the skip above: the
+ * property it defends is about the module graph, and a machine with no
+ * `TEST_DATABASE_URL` can still tell the truth about it. It follows the same
+ * shape `server/dryRun.test.ts` uses to pin its own isolation, and it asks
+ * two independent questions, because either one alone can be satisfied while
+ * the property is false:
+ *
+ *  - the RUNTIME namespace of `server/lib/ledger.ts` carries no `_DEBT` name,
+ *    which is the exact measurement a closing proof made when it printed
+ *    `_DEBT names on ledger module ["GRACE_NIGHT_DEBT", ...]` and then
+ *    borrowed all three;
+ *  - no module under `server/` NAMES one in an import clause, which is the
+ *    call-graph question rather than a substring question: a comment saying
+ *    `CLAWBACK_DEBT` is documentation, and an import of it is a capability.
+ */
+describe("the debt capability never leaves the ledger", () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const LEDGER = path.join(HERE, "lib", "ledger.ts");
+  const PROOF_NAMES = ["GRACE_NIGHT_DEBT", "PAYMENT_REVERSAL_DEBT", "CLAWBACK_DEBT"];
+
+  const tsFilesUnder = (dir: string): string[] => {
+    const out: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name === "dist") continue;
+        out.push(...tsFilesUnder(full));
+      } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
+        out.push(full);
+      }
+    }
+    return out;
+  };
+
+  /** The names a file imports, from every `import { ... } from "..."` clause. */
+  const importedNames = (src: string): string[] => {
+    const names: string[] = [];
+    for (const m of src.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["'][^"']+["']/g)) {
+      for (const raw of m[1].split(",")) {
+        const cleaned = raw.replace(/\btype\b/, "").trim().split(/\s+as\s+/)[0].trim();
+        if (cleaned) names.push(cleaned);
+      }
+    }
+    return names;
+  };
+
+  it("exports none of the three proofs, at runtime", () => {
+    const exported = Object.keys(ledgerModule).filter((k) => k.endsWith("_DEBT"));
+    expect(exported).toEqual([]);
+    for (const name of PROOF_NAMES) {
+      expect((ledgerModule as Record<string, unknown>)[name]).toBeUndefined();
+    }
+  });
+
+  it("declares them module-private in the source, and exports the narrow doors instead", () => {
+    const source = fs.readFileSync(LEDGER, "utf8");
+    expect(source.length).toBeGreaterThan(1000);
+    expect(source).not.toMatch(/export\s+const\s+\w*_DEBT\b/);
+    for (const name of PROOF_NAMES) {
+      expect(source).toMatch(new RegExp(`^const ${name}: DebtProof = issueDebtProof\\(`, "m"));
+    }
+    for (const door of ["postGraceNightBurn", "postPaymentReversalLeg", "postClawbackMirror"]) {
+      expect(source).toMatch(new RegExp(`export async function ${door}\\(`));
+    }
+  });
+
+  it("is imported by nobody under server/", () => {
+    const files = tsFilesUnder(HERE).filter((f) => path.resolve(f) !== path.resolve(LEDGER));
+    expect(files.length).toBeGreaterThan(50);
+    const borrowers: string[] = [];
+    for (const file of files) {
+      const names = importedNames(fs.readFileSync(file, "utf8"));
+      if (names.some((n) => PROOF_NAMES.includes(n))) borrowers.push(path.relative(HERE, file));
+    }
+    expect(borrowers).toEqual([]);
+  });
+});
+
+/**
+ * The frozen set's last hole, closed. No database: this is about one object.
+ */
+describe("a frozen set keeps its prototype too", () => {
+  it("refuses a prototype swap that used to make `has` answer anything", () => {
+    // PROOF FS: `Object.setPrototypeOf -> SUCCEEDED: has("zzz")=true
+    // Array.from=[]`, and on the keystone itself `has(spend) = true |
+    // Array.from = [] | size = undefined`. One line widened the allow-negative
+    // gate to every source there is and emptied the list the boot check builds
+    // its `IN (...)` from.
+    const set = frozenSet(["a", "b"]);
+    expect(() => Object.setPrototypeOf(set as object, { has: () => true })).toThrow(/frozen/);
+    expect(set.has("zzz")).toBe(false);
+    expect(Array.from(set)).toEqual(["a", "b"]);
+    expect(set.size).toBe(2);
+  });
+
+  it("keeps the two keystone sets intact through the attempt", () => {
+    expect(() => Object.setPrototypeOf(ALLOW_NEGATIVE_SOURCES as object, { has: () => true })).toThrow(/frozen/);
+    expect(() => Object.setPrototypeOf(CLAWBACK_SOURCES as object, { has: () => true })).toThrow(/frozen/);
+    expect(ALLOW_NEGATIVE_SOURCES.has("spend")).toBe(false);
+    expect(ALLOW_NEGATIVE_SOURCES.has("reversal")).toBe(true);
+    expect([...ALLOW_NEGATIVE_SOURCES].sort()).toEqual(["payment_reversal", "reversal", "stay_night"]);
+    expect([...CLAWBACK_SOURCES].sort()).toEqual(["payment_reversal", "reversal"]);
+    expect(ALLOW_NEGATIVE_SOURCES.size).toBe(3);
+  });
 });

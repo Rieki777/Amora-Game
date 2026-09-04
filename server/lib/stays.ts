@@ -43,7 +43,7 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { fromLedgerUnits, toLedgerUnits } from "./economy";
-import { GRACE_NIGHT_DEBT, ledgerEntryExists, MINT_FAUCET, memberAccount, postTransfer, registerToken, tokenDef } from "./ledger";
+import { ledgerEntryExists, MINT_FAUCET, memberAccount, postGraceNightBurn, postTransfer, registerToken, tokenDef } from "./ledger";
 import { spendSinkFor } from "./spending";
 import { numberVar } from "./variables";
 
@@ -334,16 +334,20 @@ export async function postNightsForStay(pool: Pool, stay: StayRow, todayUtc: str
     // Grace is checked BEFORE the post: a night may land the balance anywhere
     // down to -(grace_nights × rate), never past it.
     if (balance - rate < graceFloor) return { posted, stopped: true, balance };
-    const result = await postTransfer(pool, {
+    // The source and the debt capability belong to the operation now, not to
+    // this call: `GRACE_NIGHT_DEBT` was an exported value any module could
+    // import and spend on any posting at all, so the ledger stopped exporting
+    // it and exports this narrow door instead. The grace FLOOR stays here,
+    // checked one line above: how far a member may go is a village dial and
+    // the ledger knows nothing about nights.
+    const result = await postGraceNightBurn(pool, {
       from: memberAccount(stay.userId),
       to: sink,
       tokenType: token,
       amount: rate,
-      source: "stay_night",
       sourceRef: stay.id,
       description: `Night of ${night}`,
       idempotencyKey: `stay:${stay.id}:night:${night}`,
-      allowNegative: GRACE_NIGHT_DEBT,
     });
     if (!result.ok) return { posted, stopped: true, balance };
     // toBalance is the RECEIVING side (the faucet); re-read the payer.

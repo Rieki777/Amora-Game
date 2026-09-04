@@ -58,8 +58,11 @@ import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { openExitFor } from "./exit";
 import { numberVar, stringVar } from "./variables";
 import {
-  CLAWBACK_DEBT,
+  CLAWBACK_SOURCES,
   memberAccount,
+  pairSiblingKey,
+  postClawbackMirror,
+  postClawbackMirrorPair,
   postTransfer,
   postTransferOn,
   postTransferPair,
@@ -779,21 +782,24 @@ function reverseClaimProblem(
 }
 
 /**
- * The sources that ARE a clawback, and so may never be clawed back again.
- *
- * `reversal` is the mirror this file writes. `payment_reversal` is the leg
- * the refund and dispute handlers write after a bank has taken the money
- * back, and it is the one the old prefix guard could not see, because those
- * postings are keyed `ord:<id>:reversal-leg1` and `pp:<id>:reversal:<period>`
- * — outside the `reversal:` namespace entirely. `stay_night` is not here:
- * a burnt grace night is a charge, and a charge can be undone.
- */
-const CLAWBACK_SOURCES: readonly string[] = Object.freeze(["reversal", "payment_reversal"]);
-
-/**
  * `token_ledger.description` is `varchar(500)` (0005), and MySQL runs strict.
+ *
+ * MySQL counts a varchar in CHARACTERS, which for utf8mb4 means CODE POINTS,
+ * and JavaScript counts a string in UTF-16 code units. The two disagree by a
+ * factor of two on every astral character, so the clamp below counts the
+ * ledger's unit and not JavaScript's.
  */
 const MAX_DESCRIPTION = 500;
+
+/** How many characters MySQL will say this string is. */
+const codePoints = (s: string): string[] => Array.from(s);
+
+/** The first `n` CODE POINTS, so a clamp can never land inside a character. */
+function clampToCodePoints(s: string, n: number): string {
+  if (n <= 0) return "";
+  const points = codePoints(s);
+  return points.length <= n ? s : points.slice(0, n).join("");
+}
 
 /**
  * What the mirror row says, with the original key kept and the NOTE clipped.
@@ -812,49 +818,41 @@ const MAX_DESCRIPTION = 500;
  * what an auditor uses to find the posting that was undone and the note is
  * commentary. Clipping is marked so nobody reads a truncated sentence as the
  * whole one.
+ *
+ * IT USED TO CLIP BY UTF-16 CODE UNIT, WHICH IS THE WRONG UNIT TWICE OVER.
+ * An emoji is two code units and one character, so a note of 400 emoji is
+ * 800 to `String.prototype.slice` and 400 to the column: the old arithmetic
+ * clipped a note that would have fitted whole. Worse, when the boundary
+ * landed at an odd offset it cut a surrogate PAIR in half, and the lone
+ * surrogate reached MySQL as `EF BF BD` - U+FFFD, the replacement character -
+ * so the stored note ended in a black diamond that no member ever typed. A
+ * closing proof measured both on a 400-emoji note.
+ *
+ * Counting code points fixes both at once: it is the unit the column counts,
+ * so the clamp is neither early nor late, and a code point is by definition
+ * never half a character.
  */
 function reversalDescription(note: string | undefined, originalKey: string): string {
-  if (!note) return originalKey.slice(0, MAX_DESCRIPTION);
+  if (!note) return clampToCodePoints(originalKey, MAX_DESCRIPTION);
   const tail = ` (${originalKey})`;
-  const room = MAX_DESCRIPTION - tail.length;
-  if (room <= 0) return `${originalKey}`.slice(0, MAX_DESCRIPTION);
-  const clipped = note.length <= room ? note : `${note.slice(0, Math.max(0, room - 3))}...`;
+  const room = MAX_DESCRIPTION - codePoints(tail).length;
+  if (room <= 0) return clampToCodePoints(originalKey, MAX_DESCRIPTION);
+  const clipped = codePoints(note).length <= room ? note : `${clampToCodePoints(note, Math.max(0, room - 3))}...`;
   return `${clipped}${tail}`;
 }
 
-/**
- * WHAT A PAIR LEG IS, since no column says so.
+/*
+ * `pairSiblingKey` and `CLAWBACK_SOURCES` LIVE IN THE LEDGER NOW.
  *
- * `postTransferPair` is the platform's both-or-neither primitive and the one
- * production caller is `executeSwap`, which keys its two legs
- * `ord:<orderId>:leg1` and `ord:<orderId>:leg2` with the same `source` and
- * the same `source_ref`. Nothing on the row records the pairing, and adding
- * a `pair_key` column is a migration, so this DERIVES it from the shape:
- *
- *   a posting is a pair leg when its key ends in `:leg1` or `:leg2` and a
- *   posting exists whose key is the same prefix with the other suffix and
- *   whose `source` is the same.
- *
- * The suffix alone is not enough and that is why the source is in it:
- * `ord:<orderId>:leg1` is ALSO the key of three ordinary single postings
- * (a fiat exchange settlement, a stay purchase, a manual stay purchase),
- * each of which has no sibling row and each of which stays reversible.
- * `ord:<id>:reversal-leg1` ends in `-leg1`, not `:leg1`, and is not matched.
- *
- * Returns the sibling's key, so a refusal can name it.
+ * Both used to be declared here, and both are rules about what may be
+ * WRITTEN. A rule about a write that lives in the module in front of the
+ * writer is a rule with a door beside it, and a closing proof walked through
+ * that door with plain `postTransfer` and reproduced this file's exact
+ * losses. The definitions moved to `server/lib/ledger.ts`, where they are
+ * asked inside the posting's own transaction; the two calls below are what is
+ * left of them here, and they exist only to give a better message before any
+ * transaction opens. The ledger decides, whatever this file asks.
  */
-async function pairSiblingKey(pool: Pool, key: string, source: string): Promise<string | null> {
-  const m = /^(.*):leg([12])$/.exec(key);
-  if (!m) return null;
-  const sibling = `${m[1]}:leg${m[2] === "1" ? "2" : "1"}`;
-  const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT `idempotency_key` FROM `token_ledger` WHERE `idempotency_key` = ? AND `source` = ? LIMIT 1",
-    [sibling, source],
-  );
-  // Byte-exact, like every other key read here: the collation would happily
-  // hand back a different key that merely collates equal.
-  return rows.some((r) => String(r.idempotency_key) === sibling) ? sibling : null;
-}
 
 /**
  * Undo one posting with a mirror that has its own key.
@@ -960,7 +958,7 @@ export async function reverse(
    * able to give it back.
    */
   const source = String(row.source);
-  if (CLAWBACK_SOURCES.includes(source)) {
+  if (CLAWBACK_SOURCES.has(source)) {
     return {
       ok: false,
       error:
@@ -997,18 +995,23 @@ export async function reverse(
     reverseClaimProblem("amount", opts.amount, mirror.amount);
   if (problem) return { ok: false, error: problem };
 
-  const res = await postTransfer(pool, {
+  const res = await postClawbackMirror(pool, {
     from: mirror.from,
     to: mirror.to,
     tokenType: mirror.tokenType,
     amount: mirror.amount,
-    source: "reversal",
-    // The clawback may take a member below zero, and below zero is the truth
-    // once the value has been spent onward. `CLAWBACK_DEBT` is a capability
-    // the ledger issues and checks by identity, so this is the only function
-    // in the build that can create clawback debt: the flag used to be `true`,
-    // which any caller could write beside the string "reversal".
-    allowNegative: CLAWBACK_DEBT,
+    // THE SOURCE AND THE DEBT CAPABILITY ARE NO LONGER WRITTEN HERE.
+    //
+    // They used to be `source: "reversal"` and `allowNegative: CLAWBACK_DEBT`,
+    // and the comment above them said this was the only function in the build
+    // that could create clawback debt. It was not: `CLAWBACK_DEBT` was an
+    // `export const`, so any module under `server/` could import it and post
+    // the same debt, and a closing proof did exactly that to -990 with every
+    // invariant green. The proof is module-private now and
+    // `postClawbackMirror` supplies it, so the sentence is true for the first
+    // time. What actually stops the debt, though, is not the door: it is the
+    // law inside the ledger, which derives this row from the posting the key
+    // names and refuses anything it did not derive.
     // Prefix, because source_ref is varchar(120) and a quest occurrence key can
     // run past it. A prefix is enough for the allowance query, which matches on
     // `gratitude.given:<village>:%`, and the whole key rides in the note so a
@@ -1080,7 +1083,7 @@ export async function reversePair(
 
   for (const r of [a, b]) {
     const source = String(r.source);
-    if (CLAWBACK_SOURCES.includes(source)) {
+    if (CLAWBACK_SOURCES.has(source)) {
       return {
         ok: false,
         error: `${String(r.idempotency_key)} is itself a clawback (source "${source}") and may not be reversed`,
@@ -1105,11 +1108,10 @@ export async function reversePair(
     };
   }
 
-  const res = await postTransferPair(pool, [
+  const res = await postClawbackMirrorPair(pool, [
     {
       from: String(a.to_account), to: String(a.from_account),
       tokenType: String(a.token_type), amount: Number(a.amount),
-      source: "reversal",
       sourceRef: String(a.idempotency_key).slice(0, MAX_SOURCE_REF),
       description: reversalDescription(opts.note, String(a.idempotency_key)),
       idempotencyKey: keys.reversal(villageId(), String(a.idempotency_key)),
@@ -1117,7 +1119,6 @@ export async function reversePair(
     {
       from: String(b.to_account), to: String(b.from_account),
       tokenType: String(b.token_type), amount: Number(b.amount),
-      source: "reversal",
       sourceRef: String(b.idempotency_key).slice(0, MAX_SOURCE_REF),
       description: reversalDescription(opts.note, String(b.idempotency_key)),
       idempotencyKey: keys.reversal(villageId(), String(b.idempotency_key)),
