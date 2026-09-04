@@ -642,7 +642,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Hypha",
     label: "Founder Base account address",
     description:
-      "The 0x address that created your DAO and issued its first tokens on Base. Used by Integrate DAO to discover your token contracts automatically: issue yourself even a tiny amount of each token, and the lookup finds the contract by the token's exact name in this account's transfer history.",
+      "The 0x address that created your DAO and issued its first tokens on Base. The Hypha Bridge panel reads it to list every token this account holds, so you can confirm which contract is which: issue yourself even a tiny amount of each token on Hypha first, because an issuance is what puts the contract on chain.",
     type: "text",
     default: "",
     ring: "founder",
