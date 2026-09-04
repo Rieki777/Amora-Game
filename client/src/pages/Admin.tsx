@@ -10475,11 +10475,12 @@ export default function Admin() {
   // passes everything through, so a slow link never flashes an empty rail.
   const [moduleLifecycles, setModuleLifecycles] = useState<Record<string, ModuleLifecycle> | null>(null);
 
+  // The needs scope, so this rail and the wizard agree about "finished".
+  const needsSetup = useNeedsSetupObservation(password);
   // The nav rail's width, remembered. Phones and small tablets start
   // collapsed — 224px of menu on a 390px screen left the settings themselves
   // in a column too narrow to read — and anything laptop-sized starts open,
   // where there is room for both. A stored choice beats both defaults.
-  const needsSetup = useNeedsSetupObservation(password);
   const [navOpen, setNavOpen] = useState<boolean>(() => {
     const saved = localStorage.getItem("admin.navOpen");
     if (saved !== null) return saved === "1";
