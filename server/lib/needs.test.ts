@@ -31,9 +31,18 @@ import {
   needKeyProblem,
   needLabelFor,
 } from "../../shared/needs";
+import { cycleIdFor } from "./gratitude-cycles";
 import {
+  MEMBER_NEED_FEELING_MAX,
+  MEMBER_NEED_NOTE_MAX,
+  NEEDS_AGGREGATE_FLOOR,
   coverageReport,
+  deleteMemberNeed,
+  forgetMemberNeeds,
   linkNeed,
+  needsAggregate,
+  readMemberNeeds,
+  saveMemberNeed,
   linksForNeed,
   linksForSubject,
   needSeatings,
@@ -548,6 +557,415 @@ describe.skipIf(!configured)("the needs store", () => {
       expect(report.uncovered).toContain("play");
       expect(report.uncovered).toContain("honesty");
       expect(report.uncovered).toHaveLength(8);
+    });
+  });
+});
+
+/* ========================================================================== *
+ * The member's own card. `member_needs` (0150), lane N4.
+ *
+ * ITS OWN SCHEMA AND NOT N1's BLOCK ABOVE. The two lanes share this file and
+ * a shared `beforeEach` would have made every one of N1's cases depend on a
+ * table N4 added, which is how one lane's edit turns another lane's green
+ * red. Provisioning clones a template, so a second schema is cheap.
+ *
+ * WHAT IS PROVED HERE AND NOWHERE ELSE. Four of these are properties of the
+ * SCHEMA: that the `visibility` enum admits ONE value so a raised row is
+ * impossible even with the route removed, that the unique key makes a second
+ * answer in one moon an update, that an over-long note is clipped before the
+ * insert instead of losing the row to strict MySQL, and that 0150 applied
+ * twice does nothing. A stub pool would prove the stub.
+ * ========================================================================== */
+
+describe.skipIf(!configured)("the member's own needs card", () => {
+  let db: TestDb;
+  let pool: mysql.Pool;
+
+  const ANA = "usr-ana";
+  const BEN = "usr-ben";
+  const CAI = "usr-cai";
+  const DEE = "usr-dee";
+
+  beforeAll(async () => {
+    db = await provisionTestDb();
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 });
+  }, 180_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    await db?.drop();
+  });
+
+  beforeEach(async () => {
+    await pool.query("DELETE FROM `member_needs`");
+    await pool.query("DELETE FROM `need_links`");
+    await pool.query("DELETE FROM `village_needs`");
+  });
+
+  const rowsOf = async (userId: string) => {
+    const [rows] = await pool.query<any[]>("SELECT * FROM `member_needs` WHERE `user_id` = ?", [userId]);
+    return rows;
+  };
+
+  describe("migration 0150 is safe to apply twice", () => {
+    it("applies nothing the second time and leaves the schema alone", async () => {
+      const schema = new URL(db.url).pathname.replace("/", "");
+      const shapeOf = async () => {
+        const [cols] = await db.conn.query<any[]>(
+          "SELECT ORDINAL_POSITION, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA " +
+            "FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'member_needs' " +
+            "ORDER BY ORDINAL_POSITION",
+          [schema],
+        );
+        const [idx] = await db.conn.query<any[]>(
+          "SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME FROM information_schema.STATISTICS " +
+            "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'member_needs' ORDER BY INDEX_NAME, SEQ_IN_INDEX",
+          [schema],
+        );
+        return { cols, idx };
+      };
+
+      const before = await shapeOf();
+      expect(before.cols.map((c: any) => c.COLUMN_NAME)).toEqual([
+        "id",
+        "user_id",
+        "need_key",
+        "depth",
+        "feeling",
+        "note",
+        "visibility",
+        "cycle_id",
+        "recorded_at",
+        "updated_at",
+      ]);
+
+      const again = await applyPending(db.conn);
+      expect(again.failed).toBeNull();
+      expect(again.applied, "a second run applies nothing").toEqual([]);
+      expect(again.skipped).toContain("0150_a_member_says_how_they_are.sql");
+      expect(await shapeOf()).toEqual(before);
+    }, 120_000);
+
+    it("has no foreign keys, the house norm for this schema", async () => {
+      const schema = new URL(db.url).pathname.replace("/", "");
+      const [fks] = await db.conn.query<any[]>(
+        "SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS " +
+          "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'member_needs' AND CONSTRAINT_TYPE = 'FOREIGN KEY'",
+        [schema],
+      );
+      expect(fks).toEqual([]);
+    });
+
+    it("indexes user id through the unique key's leftmost column, so no second index is written on every insert", async () => {
+      const schema = new URL(db.url).pathname.replace("/", "");
+      const [idx] = await db.conn.query<any[]>(
+        "SELECT INDEX_NAME, SEQ_IN_INDEX, COLUMN_NAME FROM information_schema.STATISTICS " +
+          "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'member_needs' ORDER BY INDEX_NAME, SEQ_IN_INDEX",
+        [schema],
+      );
+      const uq = idx.filter((r: any) => r.INDEX_NAME === "member_needs_uq");
+      expect(uq.map((r: any) => r.COLUMN_NAME)).toEqual(["user_id", "need_key", "cycle_id"]);
+      // MySQL uses a composite key's leftmost prefix for `WHERE user_id = ?`,
+      // which is every read a member makes of their own card. A second index
+      // naming only that column would be written on every insert and read by
+      // nothing.
+      const userOnly = idx.filter(
+        (r: any) => r.COLUMN_NAME === "user_id" && r.INDEX_NAME !== "member_needs_uq",
+      );
+      expect(userOnly).toEqual([]);
+      // The aggregate's own question, and it never touches a row.
+      const need = idx.filter((r: any) => r.INDEX_NAME === "member_needs_need_idx");
+      expect(need.map((r: any) => r.COLUMN_NAME)).toEqual(["need_key", "cycle_id", "depth"]);
+    });
+  });
+
+  describe("a row is private, and there is no second setting", () => {
+    it("saves as private when no visibility field is sent at all", async () => {
+      const saved = await saveMemberNeed(pool, ANA, { needKey: "love", depth: "unmet" });
+      expect(saved.ok).toBe(true);
+      const [row] = await rowsOf(ANA);
+      expect(row.visibility).toBe("private");
+      expect(row.depth).toBe("unmet");
+      expect(row.cycle_id).toMatch(/^lunar-\d{6}$/);
+    });
+
+    it("refuses a visibility of village with a sentence, and writes nothing", async () => {
+      const saved = await saveMemberNeed(pool, ANA, {
+        needKey: "love",
+        depth: "unmet",
+        visibility: "village",
+      });
+      expect(saved.ok).toBe(false);
+      if (saved.ok) throw new Error("unreachable");
+      expect(saved.problem).toContain("private");
+      expect(await rowsOf(ANA)).toEqual([]);
+    });
+
+    it("refuses stewards too, so the design's third value is not half shipped", async () => {
+      const saved = await saveMemberNeed(pool, ANA, {
+        needKey: "love",
+        depth: "unmet",
+        visibility: "stewards",
+      });
+      expect(saved.ok).toBe(false);
+    });
+
+    it("accepts an explicit private, because that is what the row already is", async () => {
+      const saved = await saveMemberNeed(pool, ANA, {
+        needKey: "love",
+        depth: "alive",
+        visibility: "private",
+      });
+      expect(saved.ok).toBe(true);
+    });
+
+    it("cannot be raised by raw SQL either: the column admits one value", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "unmet" });
+      // The refusal above is a sentence for a member. THIS is the guarantee:
+      // even with every line of TypeScript removed, the database refuses.
+      await expect(
+        pool.query("UPDATE `member_needs` SET `visibility` = 'village' WHERE `user_id` = ?", [ANA]),
+      ).rejects.toThrow();
+      const [row] = await rowsOf(ANA);
+      expect(row.visibility).toBe("private");
+    });
+  });
+
+  describe("one answer per member per need per moon", () => {
+    it("a second answer in the same moon updates the row it already had", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "play", depth: "deprived", feeling: "flat" });
+      await saveMemberNeed(pool, ANA, { needKey: "play", depth: "alive", feeling: "lighter" });
+      const rows = await rowsOf(ANA);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].depth).toBe("alive");
+      expect(rows[0].feeling).toBe("lighter");
+    });
+
+    it("the next moon is a new row, and last moon's answer is still there", async () => {
+      const winter = new Date("2026-01-10T12:00:00Z");
+      const spring = new Date("2026-03-10T12:00:00Z");
+      expect(cycleIdFor(winter)).not.toBe(cycleIdFor(spring));
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "deprived" }, winter);
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "satisfied" }, spring);
+      const rows = await rowsOf(ANA);
+      expect(rows).toHaveLength(2);
+      const then = await readMemberNeeds(pool, ANA, { at: winter });
+      expect(then.map((r) => r.depth)).toEqual(["deprived"]);
+    });
+
+    it("two members answering the same need in the same moon are two rows", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "unmet" });
+      await saveMemberNeed(pool, BEN, { needKey: "love", depth: "thriving" });
+      const [rows] = await pool.query<any[]>("SELECT COUNT(*) AS n FROM `member_needs`");
+      expect(Number(rows[0].n)).toBe(2);
+    });
+  });
+
+  describe("the member's own words survive the write", () => {
+    it("clips an over-long note to the column width instead of losing the row", async () => {
+      const long = "x".repeat(MEMBER_NEED_NOTE_MAX + 400);
+      const saved = await saveMemberNeed(pool, ANA, { needKey: "growth", depth: "alive", note: long });
+      // Strict MySQL REFUSES an over-long field, so an unclipped write would
+      // have thrown and the member would have lost every word.
+      expect(saved.ok).toBe(true);
+      const [row] = await rowsOf(ANA);
+      expect(row.note).toHaveLength(MEMBER_NEED_NOTE_MAX);
+    });
+
+    it("clips an over-long feeling the same way", async () => {
+      const long = "y".repeat(MEMBER_NEED_FEELING_MAX + 40);
+      const saved = await saveMemberNeed(pool, ANA, { needKey: "growth", depth: "alive", feeling: long });
+      expect(saved.ok).toBe(true);
+      const [row] = await rowsOf(ANA);
+      expect(row.feeling).toHaveLength(MEMBER_NEED_FEELING_MAX);
+    });
+
+    it("keeps an empty string out of the column as null, so a blank is not a word", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "growth", depth: "alive", feeling: "  ", note: "" });
+      const [row] = await rowsOf(ANA);
+      expect(row.feeling).toBeNull();
+      expect(row.note).toBeNull();
+    });
+
+    it("refuses a rung that is not one of the five, by name", async () => {
+      const saved = await saveMemberNeed(pool, ANA, { needKey: "love", depth: "flourishing" as any });
+      expect(saved.ok).toBe(false);
+      if (saved.ok) throw new Error("unreachable");
+      expect(saved.problem).toContain("Thriving");
+    });
+  });
+
+  describe("no member ever reads another member's row", () => {
+    it("reads only the id it was given", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "deprived", note: "I am lonely" });
+      expect(await readMemberNeeds(pool, BEN)).toEqual([]);
+      const hers = await readMemberNeeds(pool, ANA);
+      expect(hers.map((r) => r.needKey)).toEqual(["love"]);
+    });
+
+    it("an empty user id reads nothing and never the whole table", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "deprived" });
+      expect(await readMemberNeeds(pool, "")).toEqual([]);
+    });
+
+    it("a member with no rows and a member who recorded Deprived on nothing are different facts", async () => {
+      // Ben has been asked and has answered, on two needs, neither of them
+      // below the target. A count alone would read both as "nothing to show".
+      await saveMemberNeed(pool, BEN, { needKey: "love", depth: "satisfied" });
+      await saveMemberNeed(pool, BEN, { needKey: "play", depth: "thriving" });
+      expect(await readMemberNeeds(pool, ANA)).toEqual([]);
+      const ben = await readMemberNeeds(pool, BEN);
+      expect(ben).toHaveLength(2);
+      expect(ben.filter((r) => r.depth === "deprived")).toEqual([]);
+    });
+  });
+
+  describe("taking an answer back", () => {
+    it("removes this moon's answer and says whether there was one", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "unmet" });
+      expect(await deleteMemberNeed(pool, ANA, "love")).toBe(true);
+      expect(await deleteMemberNeed(pool, ANA, "love")).toBe(false);
+      expect(await rowsOf(ANA)).toEqual([]);
+    });
+
+    it("never reaches another member's answer on the same need", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "unmet" });
+      await saveMemberNeed(pool, BEN, { needKey: "love", depth: "unmet" });
+      await deleteMemberNeed(pool, ANA, "love");
+      expect(await rowsOf(BEN)).toHaveLength(1);
+    });
+  });
+
+  describe("the tombstone takes these rows with it", () => {
+    it("forgets every moon this member ever answered in, and touches nobody else", async () => {
+      const winter = new Date("2026-01-10T12:00:00Z");
+      const spring = new Date("2026-03-10T12:00:00Z");
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "deprived", note: "I am lonely" }, winter);
+      await saveMemberNeed(pool, ANA, { needKey: "play", depth: "unmet" }, spring);
+      await saveMemberNeed(pool, BEN, { needKey: "love", depth: "alive" }, spring);
+
+      const gone = await forgetMemberNeeds(pool, ANA);
+      expect(gone).toBe(2);
+      expect(await rowsOf(ANA)).toEqual([]);
+      expect(await rowsOf(BEN)).toHaveLength(1);
+    });
+
+    it("is deletion and not anonymization, so no sentence of theirs is left behind", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "deprived", note: "I am lonely" });
+      await forgetMemberNeeds(pool, ANA);
+      const [rows] = await pool.query<any[]>(
+        "SELECT COUNT(*) AS n FROM `member_needs` WHERE `note` LIKE '%lonely%'",
+      );
+      expect(Number(rows[0].n)).toBe(0);
+    });
+
+    it("an empty id forgets nothing, so a missing argument cannot empty the table", async () => {
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "unmet" });
+      expect(await forgetMemberNeeds(pool, "")).toBe(0);
+      expect(await rowsOf(ANA)).toHaveLength(1);
+    });
+  });
+
+  describe("the aggregate: counts, and never a name", () => {
+    it("counts members at or above the target and below it, once the floor is met", async () => {
+      await upsertScopeNeed(pool, { needKey: "love", depthTarget: "satisfied" });
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "satisfied" });
+      await saveMemberNeed(pool, BEN, { needKey: "love", depth: "thriving" });
+      await saveMemberNeed(pool, CAI, { needKey: "love", depth: "deprived" });
+
+      const report = await needsAggregate(pool);
+      expect(report.floor).toBe(NEEDS_AGGREGATE_FLOOR);
+      const love = report.needs.find((n) => n.needKey === "love");
+      expect(love).toBeDefined();
+      expect(love?.suppressed).toBe(false);
+      expect(love?.atOrAbove).toBe(2);
+      expect(love?.below).toBe(1);
+      expect(love?.answers).toBe(3);
+    });
+
+    it("withholds both numbers when the same village is one answer short of the floor", async () => {
+      await upsertScopeNeed(pool, { needKey: "love", depthTarget: "satisfied" });
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "satisfied" });
+      await saveMemberNeed(pool, BEN, { needKey: "love", depth: "thriving" });
+      await saveMemberNeed(pool, CAI, { needKey: "love", depth: "deprived" });
+
+      // The same three answers, read under a floor of four.
+      const report = await needsAggregate(pool, { floor: 4 });
+      const love = report.needs.find((n) => n.needKey === "love");
+      expect(love?.suppressed).toBe(true);
+      expect(love?.atOrAbove).toBeNull();
+      expect(love?.below).toBeNull();
+      expect(love?.answers).toBeNull();
+    });
+
+    it("returns a suppressed ROW and not an absent one, so a screen can say why", async () => {
+      await upsertScopeNeed(pool, { needKey: "play" });
+      await saveMemberNeed(pool, ANA, { needKey: "play", depth: "deprived" });
+      const report = await needsAggregate(pool);
+      const play = report.needs.find((n) => n.needKey === "play");
+      // Absent would say the need does not exist. Zero would say nobody is
+      // struggling. Neither is what "too few answers" means.
+      expect(play).toBeDefined();
+      expect(play?.suppressed).toBe(true);
+      expect(play?.atOrAbove).toBeNull();
+    });
+
+    it("shows a need the village took on that nobody has answered about", async () => {
+      await upsertScopeNeed(pool, { needKey: "honesty" });
+      const report = await needsAggregate(pool);
+      expect(report.needs.map((n) => n.needKey)).toEqual(["honesty"]);
+      expect(report.needs[0].inScope).toBe(true);
+      expect(report.needs[0].suppressed).toBe(true);
+    });
+
+    it("surfaces a need the village never took on, once enough members have said it", async () => {
+      await upsertScopeNeed(pool, { needKey: "vitality" });
+      for (const who of [ANA, BEN, CAI]) {
+        await saveMemberNeed(pool, who, { needKey: "play", depth: "deprived" });
+      }
+      const report = await needsAggregate(pool);
+      const play = report.needs.find((n) => n.needKey === "play");
+      expect(play?.inScope).toBe(false);
+      expect(play?.below).toBe(3);
+      expect(play?.label).toBe("Play");
+    });
+
+    it("reads the target the village set, so Thriving and Satisfied count differently", async () => {
+      await upsertScopeNeed(pool, { needKey: "love", depthTarget: "thriving" });
+      await saveMemberNeed(pool, ANA, { needKey: "love", depth: "satisfied" });
+      await saveMemberNeed(pool, BEN, { needKey: "love", depth: "satisfied" });
+      await saveMemberNeed(pool, CAI, { needKey: "love", depth: "thriving" });
+      const strict = await needsAggregate(pool);
+      expect(strict.needs.find((n) => n.needKey === "love")?.atOrAbove).toBe(1);
+
+      await upsertScopeNeed(pool, { needKey: "love", depthTarget: "satisfied" });
+      const gentle = await needsAggregate(pool);
+      expect(gentle.needs.find((n) => n.needKey === "love")?.atOrAbove).toBe(3);
+    });
+
+    it("carries no user id at any depth of the payload", async () => {
+      await upsertScopeNeed(pool, { needKey: "love" });
+      for (const who of [ANA, BEN, CAI, DEE]) {
+        await saveMemberNeed(pool, who, { needKey: "love", depth: "deprived", note: `${who} said this` });
+      }
+      const report = await needsAggregate(pool);
+      const wire = JSON.stringify(report);
+      for (const who of [ANA, BEN, CAI, DEE]) {
+        expect(wire, "a count is not a name").not.toContain(who);
+      }
+      expect(wire).not.toContain("said this");
+    });
+
+    it("counts one moon and never sums the year", async () => {
+      const winter = new Date("2026-01-10T12:00:00Z");
+      await upsertScopeNeed(pool, { needKey: "love" });
+      for (const who of [ANA, BEN, CAI]) {
+        await saveMemberNeed(pool, who, { needKey: "love", depth: "deprived" }, winter);
+      }
+      const thisMoon = await needsAggregate(pool);
+      expect(thisMoon.needs.find((n) => n.needKey === "love")?.suppressed).toBe(true);
+      const thatMoon = await needsAggregate(pool, { at: winter });
+      expect(thatMoon.needs.find((n) => n.needKey === "love")?.below).toBe(3);
     });
   });
 });

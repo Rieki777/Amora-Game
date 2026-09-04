@@ -46,20 +46,47 @@
 import type { Express } from "express";
 import type { AppDeps } from "../lib/appDeps";
 import { recordEvent } from "../lib/events";
+import { cycleIdFor } from "../lib/gratitude-cycles";
 import {
+  aggregateFloor,
   coverageReport,
+  deleteMemberNeed,
   linkNeed,
+  memberNeedProblem,
+  needsAggregate,
+  readMemberNeeds,
   readScope,
   retireNeed,
+  saveMemberNeed,
   scopeProblem,
   scopeSummary,
   unlinkNeed,
   upsertScopeNeed,
+  MEMBER_NEED_FEELING_MAX,
+  MEMBER_NEED_NOTE_MAX,
+  type MemberNeedInput,
   type ScopeInput,
 } from "../lib/needs";
-import { HUMAN_NEEDS, NEED_DEPTHS, isNeedDepth, isNeedSubject, isNeedWeight } from "../../shared/needs";
+import {
+  HUMAN_NEEDS,
+  NEED_DEPTHS,
+  NEED_DEPTH_LABELS,
+  isNeedDepth,
+  isNeedSubject,
+  isNeedWeight,
+} from "../../shared/needs";
 
 type Deps = Pick<AppDeps, "isAdmin" | "authedUser" | "getPool">;
+
+/**
+ * What the member's own card asks for, and it is NARROWER than `Deps`.
+ *
+ * No widening was needed to add lane N4's four doors: `authedUser` and
+ * `getPool` were already in the slice, and the member card wants nothing else.
+ * `isAdmin` is deliberately absent from this type, so the four handlers below
+ * cannot reach the admin gate even by accident.
+ */
+type MemberDeps = Pick<AppDeps, "authedUser" | "getPool">;
 
 /** How many needs one PUT may carry. Ten platform needs plus room to name more. */
 const MAX_SCOPE_ENTRIES = 100;
@@ -213,5 +240,128 @@ export function register(app: Express, deps: Deps): void {
     const gone = await unlinkNeed(getPool(), req.params.id);
     if (!gone) return res.status(404).json({ error: "No link with that id." });
     res.json({ success: true });
+  });
+
+  // Lane N4's four doors, on this module so server/index.ts keeps ONE import
+  // and ONE register call. `deps` is passed whole and narrowed by the
+  // parameter type, so the member handlers never see `isAdmin`.
+  registerMemberCard(app, deps);
+}
+
+/**
+ * The member's own card, and the only figure the village gets back. Lane N4.
+ *
+ * Four more doors on the same module, because server/index.ts is under a
+ * no-net-lines ratchet that exempts exactly one import and one register call
+ * per route module. A second module would have cost a second pair.
+ *
+ *   GET    /api/needs/mine       this member's own answers, this moon
+ *   PUT    /api/needs/mine       save one answer
+ *   DELETE /api/needs/mine       take one answer back
+ *   GET    /api/needs/aggregate  counts per need, for any member
+ *
+ * THERE IS NO FIFTH DOOR, and its absence is the design. Nothing here takes a
+ * user id from a request. `authedUser(req)` is the only source of the id every
+ * one of these three member routes filters on, so there is no shape of URL,
+ * body or query string that reads somebody else's answer. An admin who asks
+ * for `/api/admin/needs/mine` gets Express's own 404, because that route was
+ * never registered, and an admin who asks for `/api/needs/mine` gets their own
+ * card. The refusal is the missing handler, so no gate has to hold.
+ *
+ * NO EVENT IS RECORDED for any of the three. `recordEvent` writes
+ * `health_events`, which stewards read; a row saying "member-7 answered on
+ * Love" would put on the admin's screen exactly the fact this table exists to
+ * keep off it. The scope writes above DO record one, because what a village
+ * says it is for is a public decision.
+ *
+ * THE AGGREGATE IS OPEN TO EVERY MEMBER, on purpose. A count that only the
+ * admin can read is a count the village cannot use to hold anybody to the
+ * target it set, and the panel's own reading of R20 is that the signal has to
+ * reach the electorate. It carries no user id at any depth, and it withholds
+ * both numbers below the floor.
+ */
+export function registerMemberCard(app: Express, deps: MemberDeps): void {
+  const { authedUser, getPool } = deps;
+
+  /**
+   * This member's own answers for the moon in progress.
+   *
+   * `answered` is separate from the length of `mine` on purpose. A member with
+   * no rows has not been asked yet; a member who recorded Deprived on three
+   * needs and Thriving on none has answered, and both would read as "nothing
+   * to show" from a count alone. The card says different sentences for them.
+   */
+  app.get("/api/needs/mine", async (req, res) => {
+    const me = await authedUser(req);
+    if (!me) return res.status(401).json({ error: "auth_required" });
+    const mine = await readMemberNeeds(getPool(), me.id);
+    res.json({
+      cycleId: cycleIdFor(),
+      floor: aggregateFloor(),
+      needs: HUMAN_NEEDS,
+      depths: NEED_DEPTHS,
+      depthLabels: NEED_DEPTH_LABELS,
+      feelingMax: MEMBER_NEED_FEELING_MAX,
+      noteMax: MEMBER_NEED_NOTE_MAX,
+      answered: mine.length > 0,
+      mine,
+    });
+  });
+
+  /**
+   * Save one answer.
+   *
+   * A client that sends a `visibility` of anything but `private` is REFUSED by
+   * name. Downgrading it silently would leave the member believing a setting
+   * exists, and the column in 0150 admits one value anyway, so a silent
+   * downgrade would also be the only reason the write did not simply fail.
+   */
+  app.put("/api/needs/mine", async (req, res) => {
+    const me = await authedUser(req);
+    if (!me) return res.status(401).json({ error: "auth_required" });
+    const body = req.body ?? {};
+    const input = {
+      needKey: String(body.needKey ?? body.key ?? "").trim(),
+      depth: body.depth,
+      feeling: body.feeling === undefined ? undefined : body.feeling === null ? null : String(body.feeling),
+      note: body.note === undefined ? undefined : body.note === null ? null : String(body.note),
+      visibility: body.visibility === undefined ? undefined : String(body.visibility),
+    };
+    const problem = memberNeedProblem(input);
+    if (problem) return res.status(400).json({ error: problem });
+    const saved = await saveMemberNeed(getPool(), me.id, input as MemberNeedInput);
+    if (!saved.ok) return res.status(400).json({ error: saved.problem });
+    res.json({ success: true, need: saved.row });
+  });
+
+  /**
+   * Take one answer back.
+   *
+   * The key is REQUIRED. A DELETE with an empty body that erased the whole
+   * card would make a mistyped request an act of forgetting, and a member who
+   * wants everything gone has the account-deletion door, which takes these
+   * rows with it through `forgetMemberNeeds`.
+   */
+  app.delete("/api/needs/mine", async (req, res) => {
+    const me = await authedUser(req);
+    if (!me) return res.status(401).json({ error: "auth_required" });
+    const needKey = String(req.body?.needKey ?? req.query?.needKey ?? "").trim();
+    if (!needKey) return res.status(400).json({ error: "Name the need you are taking back." });
+    const gone = await deleteMemberNeed(getPool(), me.id, needKey);
+    if (!gone) return res.status(404).json({ error: "You have no answer on that need this moon." });
+    res.json({ success: true });
+  });
+
+  /**
+   * How the village is doing, as counts and never as people.
+   *
+   * The payload is generated by `needsAggregate`, whose SELECT names no
+   * `user_id`, so there is no row here to leak however the response is read.
+   * Below the floor both numbers are null and `suppressed` is true, which a
+   * screen prints as a sentence about why it has nothing to show.
+   */
+  app.get("/api/needs/aggregate", async (req, res) => {
+    if (!(await authedUser(req))) return res.status(401).json({ error: "auth_required" });
+    res.json(await needsAggregate(getPool()));
   });
 }

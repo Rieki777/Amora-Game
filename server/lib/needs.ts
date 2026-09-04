@@ -23,8 +23,20 @@
  * against a scratch schema and none of them owns a connection.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
+/**
+ * THE ONE CYCLE ID, and this import is the whole of why it is spelled right.
+ *
+ * The design points at `cycleKeyFor` (server/lib/economy.ts:256). That is a
+ * one-line delegate to this function, and importing economy.ts here would drag
+ * the ledger, the mint and the settlement into a file whose header promises
+ * none of them are reachable from it. gratitude-cycles.ts imports shared/lunar
+ * and nothing else, and its own header calls `cycleIdFor` the only function
+ * allowed to make one of these strings.
+ */
+import { cycleIdFor } from "./gratitude-cycles";
 import {
   CUSTOM_NEED_PREFIX,
+  depthAtLeast,
   HUMAN_NEEDS_BY_ID,
   isCustomNeedKey,
   isNeedDepth,
@@ -587,3 +599,337 @@ export async function coverageReport(pool: Pool): Promise<{
 
 /** Re-exported so a caller has one import for the whole domain. */
 export { CUSTOM_NEED_PREFIX };
+
+/* -------------------------------------------------------------------------- *
+ * The member's own card: `member_needs` (0150). Lane N4.
+ *
+ * WHAT THE VILLAGE MAY READ FROM THIS TABLE, and it is the whole design: a
+ * COUNT, and only above a floor. There is no function below that returns
+ * another member's row, and no route that calls one. A steward, an admin and
+ * the founder all read the same aggregate every other member reads.
+ *
+ * WHY THAT IS STRUCTURAL AND NOT A PROMISE. `readMemberNeeds` takes the user
+ * id it filters on, and the only caller passes the id off the signed-in
+ * member's own token. `needsAggregate` takes no user id at all and its SELECT
+ * names no `user_id` in its column list, so a caller who wanted a name would
+ * have to write new SQL to get one.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The smallest number of answers on one need that may be shown as a count.
+ *
+ * THE DIAL IS NOT THIS LANE'S. The design asks for `needs.aggregate_floor` in
+ * a new `Needs` category of shared/gameVariables.ts, and lane N5 owns that
+ * file. Until it lands there is no dial to read, and a number invented on a
+ * screen would be a second copy of the rule. So the floor lives here, once,
+ * and `aggregateFloor()` is the seam: N5 changes that one function body to
+ * read the variable and every caller follows, including the sentence the card
+ * prints, which asks the server for this number and never hardcodes one.
+ *
+ * WHY 3 AND NOT THE DESIGN'S 5. Neither number is the founder's: he has not
+ * answered this question. 3 is the smallest floor at which a count cannot be
+ * read back to a person by elimination once two of three answers are known,
+ * and it is a floor a village of thirteen can clear on a need only a few
+ * people care about. A village that wants 5 sets the dial the day N5 ships.
+ */
+export const NEEDS_AGGREGATE_FLOOR = 3;
+
+/** The floor in force. One seam, so a later dial reaches every caller at once. */
+export function aggregateFloor(): number {
+  return NEEDS_AGGREGATE_FLOOR;
+}
+
+/**
+ * What a member's own row may be seen by. ONE VALUE THIS RELEASE.
+ *
+ * The column is `enum('private')` in 0150 for the reasons its header gives.
+ * This array is what the route validates against, so the refusal is a sentence
+ * and never a MySQL error, and the two can never disagree about the list.
+ */
+export const MEMBER_NEED_VISIBILITIES = ["private"] as const;
+export type MemberNeedVisibility = (typeof MEMBER_NEED_VISIBILITIES)[number];
+
+/** The widths 0150 declares. Clipped HERE, before the insert, never by MySQL. */
+export const MEMBER_NEED_FEELING_MAX = 64;
+export const MEMBER_NEED_NOTE_MAX = 500;
+
+/** One member's answer about one need in one moon. */
+export interface MemberNeedRow {
+  id: string;
+  needKey: string;
+  depth: NeedDepth;
+  feeling: string | null;
+  note: string | null;
+  visibility: MemberNeedVisibility;
+  cycleId: string;
+  recordedAt: Date;
+  updatedAt: Date;
+}
+
+/** What a member may send. Everything but the key and the rung is optional. */
+export interface MemberNeedInput {
+  needKey: string;
+  depth: NeedDepth;
+  feeling?: string | null;
+  note?: string | null;
+  /** Present only so a client that sends one is REFUSED by name. */
+  visibility?: string;
+}
+
+const MEMBER_NEED_ID_PREFIX = "mneed";
+
+/**
+ * Why this answer may not be saved, or null when it may.
+ *
+ * The visibility clause is the load-bearing one. A client that sends
+ * "village" is told what happened in a sentence, because a request silently
+ * downgraded to private teaches the member that the field works.
+ */
+export function memberNeedProblem(input: Partial<MemberNeedInput>): string | null {
+  const keyProblem = needKeyProblem(input.needKey);
+  if (keyProblem) return keyProblem;
+  if (!isNeedDepth(input.depth)) {
+    return "Say where you are with it: Deprived, Unmet, Alive, Satisfied or Thriving.";
+  }
+  if (input.visibility !== undefined && input.visibility !== "private") {
+    return "Your answer is private. This release ships no other setting for it.";
+  }
+  return null;
+}
+
+function toMemberNeedRow(r: RowDataPacket): MemberNeedRow {
+  return {
+    id: String(r.id),
+    needKey: String(r.need_key),
+    depth: String(r.depth) as NeedDepth,
+    feeling: r.feeling === null || r.feeling === undefined ? null : String(r.feeling),
+    note: r.note === null || r.note === undefined ? null : String(r.note),
+    visibility: String(r.visibility) as MemberNeedVisibility,
+    cycleId: String(r.cycle_id),
+    recordedAt: new Date(r.recorded_at),
+    updatedAt: new Date(r.updated_at),
+  };
+}
+
+const MEMBER_NEED_COLUMNS =
+  "`id`, `need_key`, `depth`, `feeling`, `note`, `visibility`, `cycle_id`, `recorded_at`, `updated_at`";
+
+/**
+ * Trim and clip one free-text field, or null.
+ *
+ * STRICT MYSQL DOES NOT TRUNCATE, IT REFUSES THE ROW, so a member typing past
+ * the width would lose every word of the answer and be told nothing they could
+ * act on. The clip happens on this side of the insert for the same reason
+ * `needLabelFor` clips the scope's label.
+ */
+function clipOrNull(value: string | null | undefined, max: number): string | null {
+  if (value === undefined || value === null) return null;
+  const s = String(value).trim();
+  return s ? s.slice(0, max) : null;
+}
+
+/**
+ * Save one member's answer about one need, for one moon.
+ *
+ * `visibility` IS SET HERE AND NEVER READ FROM THE INPUT. The column takes the
+ * literal, so no code path exists that could write another value even if the
+ * refusal above were removed. The ON DUPLICATE clause does not name it either,
+ * so a second save cannot raise a row that was already saved.
+ *
+ * The cycle stamp comes from `cycleIdFor`, which server/lib/gratitude-cycles.ts
+ * calls the only function allowed to make one. An answer changed twice inside
+ * one moon updates the same row; the next moon is a new row, and last moon's
+ * answer is still there to be compared against.
+ */
+export async function saveMemberNeed(
+  pool: Pool,
+  userId: string,
+  input: MemberNeedInput,
+  at: Date = new Date(),
+): Promise<{ ok: true; row: MemberNeedRow } | { ok: false; problem: string }> {
+  const problem = memberNeedProblem(input);
+  if (problem) return { ok: false, problem };
+  const uid = String(userId ?? "").trim().slice(0, 64);
+  if (!uid) return { ok: false, problem: "Sign in to answer this." };
+  const needKey = input.needKey.trim();
+  const cycleId = cycleIdFor(at);
+  const feeling = clipOrNull(input.feeling, MEMBER_NEED_FEELING_MAX);
+  const note = clipOrNull(input.note, MEMBER_NEED_NOTE_MAX);
+  await pool.query(
+    "INSERT INTO `member_needs` " +
+      "(`id`, `user_id`, `need_key`, `depth`, `feeling`, `note`, `visibility`, `cycle_id`) " +
+      "VALUES (?,?,?,?,?,?,'private',?) " +
+      "ON DUPLICATE KEY UPDATE `depth` = VALUES(`depth`), `feeling` = VALUES(`feeling`), " +
+      "`note` = VALUES(`note`)",
+    [newId(MEMBER_NEED_ID_PREFIX), uid, needKey, input.depth, feeling, note, cycleId],
+  );
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT ${MEMBER_NEED_COLUMNS} FROM \`member_needs\` ` +
+      "WHERE `user_id` = ? AND `need_key` = ? AND `cycle_id` = ? LIMIT 1",
+    [uid, needKey, cycleId],
+  );
+  if (!rows[0]) return { ok: false, problem: "That answer did not save." };
+  return { ok: true, row: toMemberNeedRow(rows[0]) };
+}
+
+/**
+ * One member's own answers. THE ONLY READ THAT RETURNS A ROW.
+ *
+ * Defaults to the moon in progress, because that is the card's question. A
+ * caller that wants the whole history says `allCycles`, which is what a data
+ * export would ask for.
+ */
+export async function readMemberNeeds(
+  pool: Pool,
+  userId: string,
+  opts: { allCycles?: boolean; at?: Date } = {},
+): Promise<MemberNeedRow[]> {
+  const uid = String(userId ?? "").trim();
+  if (!uid) return [];
+  if (opts.allCycles) {
+    const [all] = await pool.query<RowDataPacket[]>(
+      `SELECT ${MEMBER_NEED_COLUMNS} FROM \`member_needs\` WHERE \`user_id\` = ? ` +
+        "ORDER BY `cycle_id` DESC, `need_key`",
+      [uid],
+    );
+    return all.map(toMemberNeedRow);
+  }
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT ${MEMBER_NEED_COLUMNS} FROM \`member_needs\` WHERE \`user_id\` = ? AND \`cycle_id\` = ? ` +
+      "ORDER BY `need_key`",
+    [uid, cycleIdFor(opts.at ?? new Date())],
+  );
+  return rows.map(toMemberNeedRow);
+}
+
+/** Take one answer back. Returns false when there was nothing to take back. */
+export async function deleteMemberNeed(
+  pool: Pool,
+  userId: string,
+  needKey: string,
+  at: Date = new Date(),
+): Promise<boolean> {
+  const uid = String(userId ?? "").trim();
+  if (!uid || !needKey) return false;
+  const [r] = await pool.query<any>(
+    "DELETE FROM `member_needs` WHERE `user_id` = ? AND `need_key` = ? AND `cycle_id` = ?",
+    [uid, String(needKey).trim(), cycleIdFor(at)],
+  );
+  return Number(r?.affectedRows ?? 0) > 0;
+}
+
+/**
+ * Every answer this member ever gave, gone. What the tombstone calls.
+ *
+ * DELETED AND NOT ANONYMIZED, which is the opposite of what the value tables
+ * do. The ledger keeps its rows because conservation has to keep holding and
+ * the village owes somebody the record. This table holds no value and settles
+ * nothing: it is one person's words about their own life, and there is no
+ * accounting reason to keep a single one of them.
+ *
+ * WHERE THIS IS CALLED FROM. `anonymizeMember` in server/index.ts, which exit
+ * resolve runs. That function sits inside the monolith, which is under a
+ * no-net-lines ratchet this lane may not spend, so the call is a one-line
+ * addition another hand makes beside `eraseIntentsForMember`. The function is
+ * here, tested, and takes exactly the arguments that line would pass.
+ */
+export async function forgetMemberNeeds(pool: Pool, userId: string): Promise<number> {
+  const uid = String(userId ?? "").trim();
+  if (!uid) return 0;
+  const [r] = await pool.query<any>("DELETE FROM `member_needs` WHERE `user_id` = ?", [uid]);
+  return Number(r?.affectedRows ?? 0);
+}
+
+/* -------------------------------------------------------------------------- *
+ * The aggregate. Counts, never rows.
+ * -------------------------------------------------------------------------- */
+
+/** How one need is going across the village, as two numbers or as nothing. */
+export interface NeedAggregateRow {
+  needKey: string;
+  /** The village's own word for it, when it took the need on. */
+  label: string;
+  /** The rung this village aims at, or the platform default when out of scope. */
+  depthTarget: NeedDepth;
+  /** True when this need is one the village said it was for. */
+  inScope: boolean;
+  /** Members at or above the target. Null when the answers are too few. */
+  atOrAbove: number | null;
+  /** Members below it. Null when the answers are too few. */
+  below: number | null;
+  /** How many answered at all. Null when the answers are too few. */
+  answers: number | null;
+  /** True when the counts were withheld, so a screen can say why. */
+  suppressed: boolean;
+}
+
+/**
+ * Per need, how many members are at or above the target and how many below.
+ *
+ * THE FLOOR IS COUNTED IN ANSWERS ON THAT NEED, never in members on the roll.
+ * A village of two hundred where three people answered about Love is exactly
+ * the case the rule is for: the count is small, the answers are recent, and
+ * two people who know they both answered can read the third off the total. So
+ * the suppression asks the question the leak asks, which is how many answers
+ * this number is made of.
+ *
+ * A SUPPRESSED ROW IS STILL A ROW, carrying nulls and `suppressed: true`. An
+ * absent row would say the need does not exist; a zero would say nobody is
+ * struggling. Neither is what "too few answers to show" means, and a screen
+ * that cannot tell the three apart prints a confident number about a village
+ * it knows nothing about.
+ *
+ * NEEDS WITH NO ANSWERS AT ALL still appear when they are in scope, with
+ * `suppressed: true`, because the village asking and nobody answering is a
+ * fact worth seeing. A need OUT of scope appears only once somebody has
+ * answered on it, which is how a village hears about a need it never took on.
+ */
+export async function needsAggregate(
+  pool: Pool,
+  opts: { at?: Date; cycleId?: string; floor?: number } = {},
+): Promise<{ cycleId: string; floor: number; needs: NeedAggregateRow[] }> {
+  const cycleId = opts.cycleId ?? cycleIdFor(opts.at ?? new Date());
+  const floor = opts.floor ?? aggregateFloor();
+  const scope = await readScope(pool);
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT `need_key` AS need_key, `depth` AS depth, COUNT(*) AS n FROM `member_needs` " +
+      "WHERE `cycle_id` = ? GROUP BY `need_key`, `depth`",
+    [cycleId],
+  );
+  const tallies = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    const key = String(r.need_key);
+    const byDepth = tallies.get(key) ?? new Map<string, number>();
+    byDepth.set(String(r.depth), Number(r.n));
+    tallies.set(key, byDepth);
+  }
+  const scopeByKey = new Map(scope.map((s) => [s.needKey, s]));
+  const answeredKeys = Array.from(tallies.keys()).filter((k) => !scopeByKey.has(k));
+  const keys = scope.map((s) => s.needKey).concat(answeredKeys);
+  const out: NeedAggregateRow[] = [];
+  for (const key of keys) {
+    const inScopeRow = scopeByKey.get(key) ?? null;
+    const target: NeedDepth = inScopeRow?.depthTarget ?? "satisfied";
+    const byDepth = tallies.get(key) ?? new Map<string, number>();
+    let atOrAbove = 0;
+    let below = 0;
+    for (const [depth, n] of Array.from(byDepth.entries())) {
+      if (!isNeedDepth(depth)) continue;
+      if (depthAtLeast(depth, target)) atOrAbove += n;
+      else below += n;
+    }
+    const answers = atOrAbove + below;
+    const suppressed = answers < floor;
+    out.push({
+      needKey: key,
+      label: inScopeRow?.label ?? needLabelFor(key, null),
+      depthTarget: target,
+      inScope: inScopeRow !== null,
+      atOrAbove: suppressed ? null : atOrAbove,
+      below: suppressed ? null : below,
+      answers: suppressed ? null : answers,
+      suppressed,
+    });
+  }
+  return { cycleId, floor, needs: out };
+}

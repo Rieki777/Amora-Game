@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import GameDashboard from "@/components/GameDashboard";
 import ProfileJourney from "@/components/ProfileJourney";
+import NeedCard from "@/components/NeedCard";
 import NotifyPrefsPanel from "@/components/NotifyPrefsPanel";
 import YourAgentPanel from "@/components/YourAgentPanel";
 import ProfileSheet from "@/components/ProfileSheet";
@@ -155,6 +156,12 @@ export default function Profile() {
                 turns the economics section on */}
             <div className="mb-8">
               <OnchainCard />
+            </div>
+
+            {/* R20: what this member needs, and how they are doing on it.
+                Private to them; the village only ever reads counts. */}
+            <div className="mb-8" id="my-needs">
+              <NeedCard />
             </div>
 
             {/* S16/S18: notification cadence + data rights */}
