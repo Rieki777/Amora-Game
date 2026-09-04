@@ -24,6 +24,9 @@
  * `DEFAULT_EXIT_POLICY` lives here rather than in the server file so this
  * comparison is unit-testable without booting a server.
  */
+import { faucetFor } from "./economy";
+import { isListedForTrade } from "./exchange";
+import { allTokens } from "./ledger";
 
 export interface ExitPolicyVoluntary {
   noticePeriodDays: number;
@@ -171,4 +174,262 @@ export function blankTerms(policy: ExitPolicy): string[] {
   if (!policy.involuntary.process) blank.push(label("involuntaryProcess"));
   if (!policy.restorative.steps.length) blank.push(label("restorativeSteps"));
   return blank;
+}
+
+/*
+ * ── THE EXIT LEVERS, AND THE COMBINATIONS THAT ARE REFUSED (R4) ────────────
+ *
+ * R4, in the founder's words: "This exit policy can be many things, I think we
+ * build some levers so that each village can create the policy that matters
+ * for them." Ten of those levers are game variables in the `Exit` category of
+ * `shared/gameVariables.ts`. Six combinations of them describe a policy the
+ * engine cannot honour, and a village that saves one has been told something
+ * false about its own departure terms on the highest-stakes page on the site.
+ *
+ * WHY THE GUARD LIVES HERE. Same reason `DEFAULT_EXIT_POLICY` does, stated at
+ * the top of this file: the comparison has to be unit-testable without booting
+ * a server. `exitLeverFindings` and `exitLeverProblem` are PURE. Every fact
+ * they need about the world arrives in the `reading` they are handed: the
+ * effective value of each dial, the notice period the village publishes, and
+ * the token registry reduced to the four facts a lever asks about. That is
+ * what lets `exitPolicy.test.ts` drive all six refusals and the warning with
+ * no database, no registry load and no Express.
+ *
+ * `exitLeverRefusal` is the one impure function, and it is a four-line
+ * adapter: it reads the live registry and hands the pure pair a reading. The
+ * variables write route calls that, so `server/index.ts` keeps one line.
+ *
+ * A REFUSAL AND A WARNING ARE DIFFERENT ANSWERS, and the difference is whose
+ * decision it is. A refusal says the engine cannot do what the dials describe.
+ * A warning says the village may genuinely mean this and somebody should see
+ * it said out loud; the seventh finding is the only one of those, and it saves
+ * every time.
+ *
+ * WHAT THIS GUARD CANNOT SEE, stated the way the other guards in this
+ * repository state their own blind spots:
+ *
+ *   1. It runs at the variables WRITE ROUTE and nowhere else. The governance
+ *      apply path (`server/index.ts`, the mechanics change-set loop) calls
+ *      `setVariable` directly, and every Exit dial is Ring 2, so a passed
+ *      proposal can still land a combination this refuses. Closing that means
+ *      moving the call into `setVariable` itself, which is a different file
+ *      and a different lane.
+ *   2. It reads the published notice period at the moment a DIAL is written.
+ *      Editing the published policy down to a shorter notice through the exit
+ *      policy route does not come back through here, so an already-saved
+ *      cooling period can outlive the term it was checked against.
+ *   3. It says nothing about whether the settlement HONOURS the dials. On this
+ *      ref nothing reads them at all, which each dial's own description says.
+ */
+
+/** The four facts a lever asks about one token. */
+export interface ExitLeverToken {
+  slug: string;
+  /** The display name a refusal prints. */
+  name: string;
+  /** Levers-spec taxonomy: recognition | equity | voice | credit. */
+  kind: string;
+  /** 'platform' = this ledger moves it; 'hypha' = read-only mirror. */
+  governance: "platform" | "hypha";
+  active: boolean;
+  /** `faucetFor(slug) !== null`: whether there is anywhere to burn it back to. */
+  hasFaucet: boolean;
+  /** `isListedForTrade(slug)`: purchasable or swappable on the exchange right now. */
+  listedForTrade: boolean;
+}
+
+/** Everything the levers are judged against, with nothing read from the world. */
+export interface ExitLeverReading {
+  /** The effective raw value of one dial: the village's override, or the default. */
+  value: (key: string) => string;
+  /** `voluntary.noticePeriodDays` off the PUBLISHED policy, in whole days. */
+  noticePeriodDays: number;
+  /** The token registry, reduced. */
+  tokens: ReadonlyArray<ExitLeverToken>;
+}
+
+export interface ExitLeverFinding {
+  /** The dials this is about. A route refusal prefers the one being written. */
+  keys: string[];
+  severity: "refusal" | "warning";
+  message: string;
+}
+
+const pct = (reading: ExitLeverReading, key: string): number => {
+  const n = Number(reading.value(key));
+  return Number.isFinite(n) ? n : 0;
+};
+
+/** "A", "A and B", "A, B and C"   the shape `platformDefaultTerms` names fields in. */
+function nameList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Every incoherent thing this reading describes, refusals and warnings alike.
+ *
+ * The order is C.3's order, which is the order a founder meets them: the two
+ * kinds that can never be kept, then the account, then the Voice pair, then
+ * the published term, then the one warning.
+ */
+export function exitLeverFindings(reading: ExitLeverReading): ExitLeverFinding[] {
+  const out: ExitLeverFinding[] = [];
+
+  // 1. Recognition. `sendRefusal` already says why in a member's words:
+  // recognition "is given, never handed over". A leaver "keeping" a share of
+  // it means it sits in an account that becomes a tombstone at resolve, where
+  // nobody can read it. A policy that does nothing, dressed as one that does.
+  if (pct(reading, "exit.keep_pct.recognition") > 0) {
+    out.push({
+      keys: ["exit.keep_pct.recognition"],
+      severity: "refusal",
+      message:
+        "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep.",
+    });
+  }
+
+  // 2. Equity. `validateLeg` refuses to move a hypha-governed token and a boot
+  // invariant requires zero equity rows in this ledger, so any share here is a
+  // promise about a book this platform does not write.
+  if (pct(reading, "exit.keep_pct.equity") > 0) {
+    out.push({
+      keys: ["exit.keep_pct.equity"],
+      severity: "refusal",
+      message:
+        "Equity is governed on Base under Hypha and this platform never moves it. What happens to it on departure is decided there.",
+    });
+  }
+
+  // 3. Burn, where something a member can hold has no faucet to go back to.
+  // `faucetFor` returns null for anything outside the slugs it knows, and this
+  // borrows the wording `ruleCannotPay` already uses for the same fact.
+  if (reading.value("exit.remainder_account") === "burn") {
+    const stranded = reading.tokens
+      .filter((t) => t.governance === "platform" && t.active && !t.hasFaucet)
+      .map((t) => t.name);
+    if (stranded.length) {
+      const one = stranded.length === 1;
+      out.push({
+        keys: ["exit.remainder_account"],
+        severity: "refusal",
+        message: `${nameList(stranded)} ${one ? "has" : "have"} no faucet, so there is nowhere to burn ${one ? "it" : "them"} back to.`,
+      });
+    }
+  }
+
+  // 4. A conversion that pays nothing. It would read to a departing member as
+  // a conversion, and settle as a forfeit.
+  if (reading.value("exit.voice_on_exit") === "convert" && pct(reading, "exit.voice_convert_rate") <= 0) {
+    out.push({
+      keys: ["exit.voice_on_exit", "exit.voice_convert_rate"],
+      severity: "refusal",
+      message: "A conversion at zero is a forfeit. Say forfeit, or set a rate.",
+    });
+  }
+
+  // 5. Keeping Voice, while resolve anonymizes. `anonymizeMember` runs at
+  // resolve and a tombstone is not a person who can hold voting weight. The
+  // refusal names the condition that would make it available, because a
+  // village reading "no" deserves to know what "yes" would take.
+  if (reading.value("exit.voice_on_exit") === "keep") {
+    out.push({
+      keys: ["exit.voice_on_exit"],
+      severity: "refusal",
+      message:
+        "Keeping Voice needs an account that still exists after the departure, and a resolved exit makes the account a tombstone. This becomes available when a village can record a departure without one.",
+    });
+  }
+
+  // 6. A cooling period longer than the notice the village PUBLISHES. The page
+  // would tell a member one number while the engine held their balance for
+  // another, which is the same class of dishonesty `platformDefaultTerms`
+  // already guards. Both numbers go in the sentence, because a refusal that
+  // names one of them sends the founder looking for the other.
+  const cooling = pct(reading, "exit.cooling_days");
+  if (cooling > reading.noticePeriodDays) {
+    out.push({
+      keys: ["exit.cooling_days"],
+      severity: "refusal",
+      message: `Your published policy says ${reading.noticePeriodDays} days of notice and this would hold balances for ${cooling}. Change the published term first.`,
+    });
+  }
+
+  // 7. THE WARNING, and the one finding that is never a refusal. Full credit
+  // keep, no vote at any amount, on a credit token somebody can buy today: a
+  // member can buy in, leave, and take everything back out with nobody asked.
+  // A village may genuinely mean that, so it saves and the test run says it.
+  if (pct(reading, "exit.keep_pct.credit") >= 100 && pct(reading, "exit.vote_over") === 0) {
+    const buyable = reading.tokens
+      .filter((t) => t.governance === "platform" && t.active && t.kind === "credit" && t.listedForTrade)
+      .map((t) => t.name);
+    if (buyable.length) {
+      out.push({
+        keys: ["exit.keep_pct.credit", "exit.vote_over"],
+        severity: "warning",
+        message: `Somebody can buy ${nameList(buyable)}, open an exit, and take all of it back out with nobody asked. That is a withdrawal window wearing an exit. A village may mean exactly this, so it saves; the test run flags it every time.`,
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * The one sentence a save is refused with, or null when the reading is
+ * coherent. Warnings never come back through here.
+ *
+ * `aboutKey` NARROWS the answer to the dial being written, and that narrowing
+ * is load-bearing rather than cosmetic. Judging a write against every finding
+ * in the reading DEADLOCKS a village holding two bad values at once: fixing
+ * either one is refused because the other still stands, and neither can go
+ * first. That state is reachable, because the governance apply path writes
+ * through `setVariable` without passing this guard at all. So a write is
+ * judged on ITSELF: a refusal comes back only when the dial being written is
+ * one the finding names, and every other finding in the reading belongs to
+ * the test run to report. Called with no key, which is what a whole-reading
+ * check does, the first refusal in C.3's order comes back.
+ */
+export function exitLeverProblem(reading: ExitLeverReading, aboutKey?: string): string | null {
+  const refusals = exitLeverFindings(reading).filter((f) => f.severity === "refusal");
+  if (!refusals.length) return null;
+  if (!aboutKey) return refusals[0].message;
+  return refusals.find((f) => f.keys.includes(aboutKey))?.message ?? null;
+}
+
+/**
+ * The live adapter the variables write route calls, and the only impure thing
+ * in this file.
+ *
+ * It exists so `server/index.ts` costs one statement and no new imports beyond
+ * this name: the file is under a ratchet that only turns down, and the three
+ * registry reads below would otherwise be three more lines in the monolith.
+ *
+ * Keys outside `exit.` return null without reading anything, because no other
+ * dial can move a lever and the write route runs this on every save.
+ */
+export function exitLeverRefusal(
+  key: string,
+  proposed: string,
+  policy: ExitPolicy,
+  rawValue: (key: string) => string,
+): string | null {
+  if (!key.startsWith("exit.")) return null;
+  const value = String(proposed).trim();
+  return exitLeverProblem(
+    {
+      value: (k) => (k === key ? value : rawValue(k)),
+      noticePeriodDays: Number(policy?.voluntary?.noticePeriodDays ?? DEFAULT_EXIT_POLICY.voluntary.noticePeriodDays),
+      tokens: allTokens().map((t) => ({
+        slug: t.slug,
+        name: t.name,
+        kind: t.kind,
+        governance: t.governance,
+        active: t.active,
+        hasFaucet: faucetFor(t.slug) !== null,
+        listedForTrade: isListedForTrade(t.slug),
+      })),
+    },
+    key,
+  );
 }
