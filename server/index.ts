@@ -13,8 +13,7 @@ import bcrypt from "bcrypt";
 import { GAME_CONFIG, getStage, stageIndex } from "../shared/gameConfig";
 import { recognitionNameCheck } from "../shared/launchRequirements";
 import { civilParts, moonPhase, moonPhaseName, daysRemainingInCycle } from "../shared/lunar";
-import { sceneStopsFor } from "../shared/questScenes";
-import { cleanCrewName, crewsRepo as crewsRepoFactory } from "./lib/crews";
+import { crewsRepo as crewsRepoFactory } from "./lib/crews";
 import {
   ALL_CAPABILITIES,
   capabilityDecision,
@@ -77,7 +76,6 @@ import {
 import { buildThemeCss, sanitizeFontName } from "./lib/themeCss";
 import { applyTimingOf, ringOf, VARIABLES_BY_KEY } from "../shared/gameVariables";
 import { CONSTITUTION } from "../shared/constitution";
-import { sortMembersByName } from "../shared/memberOrder";
 import { DEFAULT_MAP_SKIN, sanitiseMapSkin } from "../shared/mapSkin";
 import {
   DEFAULT_MAP_VOCABULARY,
@@ -85,26 +83,12 @@ import {
   MAP_VOCABULARY_DOC,
   MAP_WALK_DOC,
   sanitiseMapKey,
-  sanitiseMapVocabulary,
   sanitiseWalk,
-  WALK_GESTURES,
 } from "../shared/mapAddress";
 import { isPromiseKind, type PromiseReason, type PromiseResult } from "../shared/mapPromise";
 import { goingCountFor, missingReason, rowByMapKey } from "./lib/mapPromise";
 import {
-  ALT_TEXT_MAX,
-  CAPTION_MAX,
-  REASON_MAX,
-  altTextProblem,
-  captionProblem,
-  isPhotoMimeType,
-  orderPhotos,
-  remainingForPlace,
-  takenOnProblem,
-} from "../shared/placePhotos";
-import {
   CarriesLocationData,
-  readMetadataMarkers,
   sanitiseForVolume,
   stampedName,
   writeToVolume,
@@ -126,35 +110,14 @@ import {
   isPhotoFile,
   isSuppressedUpload,
   loadSuppressed,
-  suppressUploads,
   unsuppressUploads,
-  writePhoto,
 } from "./lib/placePhotos";
 import * as placePhotosRepo from "./repos/placePhotos";
-import {
-  SCENE_BODY_LIMIT,
-  changeSummary,
-  sceneProblem,
-  sceneSizeProblem,
-  sceneSummary,
-} from "../shared/mapScene";
-import {
-  discardDraft,
-  getDraft,
-  listRevisions,
-  publishScene,
-  publishedScene,
-  publishedVersion,
-  restoreRevision,
-  saveDraft,
-} from "./lib/mapScene";
-import {
-  allRows as housingRows,
-  publicEntries as housingPublicEntries,
-  setAvailability as setHousingAvailability,
-} from "./lib/housing";
+import { SCENE_BODY_LIMIT } from "../shared/mapScene";
+import { publishedScene } from "./lib/mapScene";
+import { publicEntries as housingPublicEntries } from "./lib/housing";
 import { CALENDAR_KINDS, CALENDAR_LAYERS, toSchemaOrg } from "../shared/gatherings";
-import { recordWalkRows, walkReport } from "./lib/walkLog";
+import { recordWalkRows } from "./lib/walkLog";
 import {
   createGathering,
   deleteGathering,
@@ -262,17 +225,7 @@ import {
   weightTokenProblem,
   type WeightModeSnapshot,
 } from "./lib/governanceWeights";
-// Aliased on import: `server/lib/drafts.ts` (the assistant's draft-and-confirm
-// queue) already owns the bare names in this file, and two unrelated features
-// both called "drafts" is exactly the collision the design's own note warned
-// about when it named this module `proposalDrafts.ts`.
-import {
-  ADVISORY_TYPES,
-  deleteDraft as deleteProposalDraft,
-  draftsOf as proposalDraftsOf,
-  saveDraft as saveProposalDraft,
-  typeRefusesCapability,
-} from "./lib/proposalDrafts";
+import { ADVISORY_TYPES, typeRefusesCapability } from "./lib/proposalDrafts";
 import {
   BALLOT_METHODS,
   dialsForMethod,
@@ -331,17 +284,12 @@ import {
   STAY_CREDIT,
   ensureStayToken,
   releaseAbandonedStayPurchases,
-  listAccommodations,
   mintStayCredits,
-  nightsRemaining,
-  priceFor,
   runNightlyPosting,
-  stayById,
   staysForUser,
   staysOpenState,
-  allStays,
 } from "./lib/stays";
-import { createWalletChallenge, formatUnits, readOnchainBalance, readTokenIdentity, readVillageMetric, verifyWalletSignature } from "./lib/base-reads";
+import { createWalletChallenge, readOnchainBalance, readTokenIdentity, verifyWalletSignature } from "./lib/base-reads";
 import {
   allExits,
   blockingStates,
@@ -408,21 +356,12 @@ import {
   sweepReturnDeadlines,
 } from "./lib/library";
 import {
-  addSkill,
-  allBadges,
   assertBadgeInvariants,
-  awardsFor,
   badgeById,
   badgeGrantsFor,
-  badgeChangeSentence,
-  badgeProblem,
   badgesOpenState,
   evaluateEarnedBadges,
-  removeSkill,
-  skillsFor,
   sweepExpiredWarnings,
-  upsertAward,
-  BADGE_KINDS,
 } from "./lib/badges";
 import {
   assertExchangeFirewalls,
@@ -475,33 +414,7 @@ import { registerJob, registeredJobs, startScheduler } from "./lib/scheduler";
 import { dryRun, MAX_MOONS } from "./lib/dryRun";
 import { cyclePoolProblem } from "./lib/cyclePool";
 import { onReplyCreated, onThreadCreated, processMentions, subscribe } from "./lib/forum";
-import {
-  MAX_BODY_CHARS,
-  addMembers as addConversationMembers,
-  advanceRead,
-  auditLastMessageAt,
-  cleanText,
-  conversationFor,
-  createGroup,
-  editMessage,
-  inboxFor,
-  latestSeq,
-  leaveConversation,
-  membersOf,
-  messagesFor,
-  onMessageSent,
-  openDirect,
-  removeMember,
-  renameConversation,
-  reportMessage,
-  sendMessage,
-  setMuted,
-  softDeleteMessage,
-  totalUnreadFor,
-  transferOwnership as transferConversationOwnership,
-  type Conversation,
-  type MemberSummary,
-} from "./lib/messaging";
+import { auditLastMessageAt } from "./lib/messaging";
 import {
   conciergeLog,
   contactCountsToday,
@@ -525,7 +438,6 @@ import {
   listRelations,
   listRelationTypes,
   seedStarterTypes,
-  type NodeKind,
 } from "./lib/orgRelations";
 import {
   buildOrgExport,
@@ -598,7 +510,6 @@ import {
   resolveMemberKey, storeMemberKey,
 } from "./lib/memberSecrets";
 import { RSVP_STATUSES, type RsvpStatus } from "../shared/gatherings";
-import { MEMBER_DRAFT_KINDS } from "../shared/draftKinds";
 import { weekAhead } from "./lib/villageReaders";
 import {
   ABOUT_TIERS, MATCHING_CONSENT_SENTENCE, aboutMeForAssistant, decideMemberDraft, decideStatement, getAgentProfile,
@@ -761,7 +672,6 @@ import {
   assertCanPurchase,
   ceilMinor,
   createCheckout,
-  floorTokens,
   handleStripeEvent,
   isSuspended,
   recordFiatCharge,
