@@ -16,6 +16,7 @@ import { gameFetch, useGameConfig, type ProgressionCapability } from "@/lib/game
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, Edit2, LogOut, ArrowRight, CheckCircle2 } from "lucide-react";
 import { useTokenName } from "@/hooks/useTokenNames";
+import { usePathLadders } from "@/hooks/usePathLadders";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 
@@ -97,6 +98,16 @@ export default function Profile() {
       live = false;
     };
   }, []);
+
+  /**
+   * Where this member stands on each path they walk.
+   *
+   * Called before the early returns below, because a hook has to be. Null until
+   * it lands and null means UNKNOWN, the same contract `prog` above holds: no
+   * ladder is drawn until there is one to draw. A member who walks no path
+   * makes no request at all, and claiming a path re-reads.
+   */
+  const ladders = usePathLadders(user?.paths ?? []);
 
   /**
    * Take a path or let one go.
@@ -235,6 +246,7 @@ export default function Profile() {
                 saving={savingPath}
                 error={pathError}
                 onToggle={togglePath}
+                ladders={ladders}
               />
 
               {/* HOW FAR YOU HAVE COME. Both halves wait for their payload:

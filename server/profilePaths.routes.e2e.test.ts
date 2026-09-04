@@ -289,3 +289,91 @@ describe.skipIf(!DB_CONFIGURED)("what the route refuses to write", () => {
     expect((await call("PUT", "/api/profile", { handle: "no" })).status).toBe(400);
   });
 });
+
+/**
+ * THE LADDER UNDER THE PATH, over HTTP, against the built server.
+ *
+ * The derivation has its own suite and the SQL has its own; neither of them can
+ * say the route is MOUNTED, that it refuses a stranger, or that a position
+ * really does fall out of the database with nothing written to make it. That is
+ * what these ask, and they ask it here because Mira already exists and already
+ * walks a path.
+ *
+ * The seating is written with SQL because nothing in the product seats a
+ * member without an admin session, and the admin door is a different suite's
+ * subject. `season_id` is left NULL on purpose: `isLapsed` short-circuits on a
+ * seating with no season, so these cases turn on the seating alone and not on
+ * whichever season this village happens to be running when they run.
+ *
+ * Runs last, so it changes nothing the cases above depend on.
+ */
+describe.skipIf(!DB_CONFIGURED)("where the member stands on the path", () => {
+  it("refuses a stranger", async () => {
+    const r = await call("GET", "/api/paths/ladders", undefined, "");
+    expect(r.status).toBe(401);
+    expect(r.json?.error).toBe("auth_required");
+  });
+
+  it("serves one ladder per walked path, and names the mechanic when it is bare", async () => {
+    // Mira walks the steward path and nothing else at this point.
+    const r = await call("GET", "/api/paths/ladders");
+    expect(r.status).toBe(200);
+    expect(r.json?.ladders?.map((l: any) => l.pathId)).toEqual(["steward"]);
+    const steward = r.json.ladders[0];
+    expect(steward.position).toBe(0);
+    expect(steward.rungs).toHaveLength(3);
+    expect(steward.empty?.doorHref).toBe("/roles");
+  });
+
+  it("climbs when the village seats her, with nothing but the seating written", async () => {
+    await pool.query( // module-review-ok: the e2e harness against the scratch schema, as every e2e suite holds
+      "INSERT INTO org_roles (id, name) VALUES ('ladder-seat', 'Water Steward')",
+    );
+    await pool.query( // module-review-ok: the e2e harness against the scratch schema, as every e2e suite holds
+      "INSERT INTO org_role_assignments (id, org_role_id, holder_kind, user_id, holder_key) " +
+        "VALUES ('ladder-seating', 'ladder-seat', 'member', ?, ?)",
+      [mira.id, mira.id],
+    );
+    const r = await call("GET", "/api/paths/ladders");
+    const steward = r.json.ladders[0];
+    expect(steward.position).toBe(2);
+    expect(steward.rungs.filter((x: any) => x.lit).map((x: any) => x.id)).toEqual(["seated", "mandate"]);
+    expect(steward.empty).toBeNull();
+  });
+
+  /*
+   * THE REQUIREMENT, end to end. One `ended_at` and the position falls on the
+   * next read. No job ran, no cache was cleared, no rung was written anywhere,
+   * and the record still says what happened.
+   */
+  it("drops every rung when the seating ends, and keeps the history", async () => {
+    await pool.query( // module-review-ok: the e2e harness against the scratch schema, as every e2e suite holds
+      "UPDATE org_role_assignments SET ended_at = NOW(), ended_reason = ? WHERE id = 'ladder-seating'",
+      ["stood down at the turn"],
+    );
+    const r = await call("GET", "/api/paths/ladders");
+    const steward = r.json.ladders[0];
+    expect(steward.position).toBe(0);
+    expect(steward.rungs[0].fell).toBe(true);
+    expect(steward.rungs[0].note).toBe("stood down at the turn");
+    // A moon, never a cycle id, and never a raw timestamp.
+    expect(steward.rungs[0].moon === null || typeof steward.rungs[0].moon.ordinal !== "undefined").toBe(true);
+  });
+
+  it("adds a ladder when she claims a second path, and none for a path she drops", async () => {
+    expect((await call("PUT", "/api/profile", { paths: ["steward", "resident"] })).status).toBe(200);
+    const both = await call("GET", "/api/paths/ladders");
+    expect(both.json?.ladders?.map((l: any) => l.pathId)).toEqual(["steward", "resident"]);
+
+    expect((await call("PUT", "/api/profile", { paths: ["resident"] })).status).toBe(200);
+    const one = await call("GET", "/api/paths/ladders");
+    expect(one.json?.ladders?.map((l: any) => l.pathId)).toEqual(["resident"]);
+  });
+
+  it("hands back nothing at all to a member who walks no path", async () => {
+    expect((await call("PUT", "/api/profile", { paths: [] })).status).toBe(200);
+    const r = await call("GET", "/api/paths/ladders");
+    expect(r.status).toBe(200);
+    expect(r.json?.ladders).toEqual([]);
+  });
+});

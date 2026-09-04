@@ -59,6 +59,7 @@ import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/q
 import { register as registerHousingRoutes } from "./routes/housing";
 import { register as registerJourneyRoutes } from "./routes/journey";
 import { register as registerProfileRoutes } from "./routes/profile";
+import { register as registerPathLadderRoutes } from "./routes/pathLadders";
 import { register as registerPlacesRoutes } from "./routes/places";
 import { register as registerMapSceneRoutes } from "./routes/mapScene";
 import { register as registerBadgesRoutes } from "./routes/badges";
@@ -18266,6 +18267,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
   // A member's own account record: read, update, and the contribution journal.
   // Registered at exactly the point those three routes used to sit.
   registerProfileRoutes(app, { authedUser, members, publicUser });
+
+  // Where the member stands on each path they walk. Beside the profile routes
+  // because it answers only to the account behind the token, and derived from
+  // live rows on every read so a rung falls with nothing written anywhere.
+  registerPathLadderRoutes(app, { authedUser, getPool, lapseContext });
 
   // Journey to Launch: the founding team's own tracker, read and written
   // through the admin gate. Registered at exactly the point it used to sit.
