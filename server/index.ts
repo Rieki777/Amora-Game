@@ -357,6 +357,7 @@ import {
   blankTerms,
   normalizeExitPolicy,
   platformDefaultTerms,
+  withPolicyDefaults,
 } from "./lib/exitPolicy";
 import {
   allRecordings,
@@ -1414,6 +1415,23 @@ const seasonRepo = dbDocument(getPool(), "season", GAME_CONFIG.season as any);
  * server.
  */
 const exitPolicyRepo = dbDocument(getPool(), "exit-policy", DEFAULT_EXIT_POLICY as any);
+/**
+ * READ THE POLICY THROUGH THIS, never `exitPolicyRepo.get()` directly.
+ *
+ * `dbDocument.get()` answers `cache ?? fallback` with no merge, so a village
+ * that has saved its exit policy once holds a document frozen at the shape of
+ * whichever release saved it. A field added to `DEFAULT_EXIT_POLICY` reaches
+ * new instances and no existing one. `involuntary.grounds` is the live
+ * example: without this wrapper the questions a steward answers before asking
+ * somebody to leave would be empty on all thirteen live villages while
+ * reading correctly on a fresh checkout, which is the shape of defect that
+ * only production finds.
+ *
+ * All seven readers go through it rather than the two that needed it today,
+ * because the next field added has the same problem and will not come with a
+ * reminder.
+ */
+const readExitPolicy = (): any => withPolicyDefaults(exitPolicyRepo.get());
 // The runOnce ledger (one-shot data fixups) — formerly data/migrations.json.
 const dataMigrations = dbDocument(getPool(), "data-migrations", { applied: [] as string[] });
 // S19: circles — the village's organizational shape, as data.
@@ -12923,7 +12941,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
               detail: "Signing with a random per-process key. Every restart logs everyone out",
             },
       "exit-policy-terms": () => {
-        const p: any = exitPolicyRepo.get();
+        const p: any = readExitPolicy();
         return p && !p.placeholder
           ? { state: "ok" as const, detail: "The terms are written" }
           : {
@@ -15214,7 +15232,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * are the two facts a member most needs from this page.
    */
   app.get("/api/exit-policy", async (_req, res) => {
-    const policy: any = exitPolicyRepo.get();
+    const policy: any = readExitPolicy();
     const namedCircle = (id: unknown) => {
       const wanted = String(id ?? "");
       if (!wanted) return null;
@@ -15290,7 +15308,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       }
     }
     await exitPolicyRepo.put(next);
-    res.json({ success: true, policy: exitPolicyRepo.get() });
+    res.json({ success: true, policy: readExitPolicy() });
   });
 
   /** The per-member open-state enumeration, on the admin's desk. */
@@ -15318,7 +15336,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // platform's words in the bundle. One source of truth, checked in one place.
     res.json({
       exits: withNames,
-      policy: exitPolicyRepo.get(),
+      policy: readExitPolicy(),
       defaults: DEFAULT_EXIT_POLICY,
       terms: EXIT_POLICY_TERMS,
       circles: circlesRepo.all().map((c: any) => ({ id: c.id, name: c.name })),
@@ -15335,7 +15353,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     }
     const stranding = await departureStrandingRefusal(user, true);
     if (stranding) return res.status(409).json({ error: stranding });
-    const policy: any = exitPolicyRepo.get();
+    const policy: any = readExitPolicy();
     const r = await createExit(getPool(), {
       userId: user.id,
       kind: "voluntary",
@@ -15364,7 +15382,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (isExampleUser(target)) return res.status(409).json(EXAMPLE_REFUSAL_BODY);
     const stranding = await departureStrandingRefusal(target, false);
     if (stranding) return res.status(409).json({ error: stranding });
-    const policy: any = exitPolicyRepo.get();
+    const policy: any = readExitPolicy();
     const r = await createExit(getPool(), {
       userId: target.id,
       kind: kind === "involuntary" ? "involuntary" : "voluntary",
@@ -15461,7 +15479,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     }
     const message = String(req.body?.message ?? "").trim();
     if (!message) return res.status(400).json({ error: "Say what happened, in your own words" });
-    const policy: any = exitPolicyRepo.get();
+    const policy: any = readExitPolicy();
     const roleId = String(policy?.restorative?.intakeContactRole ?? "");
     if (!roleId) return res.status(409).json({ error: "No intake contact role is configured yet. Write to the stewards directly" });
     const holders = loadRoleHolders().filter((h: any) => h.roleId === roleId);

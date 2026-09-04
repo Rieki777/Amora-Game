@@ -98,7 +98,10 @@ describe("the founder can set the village's own currency", () => {
 
   it("offers the codes the daily rate table actually carries", async () => {
     await open();
-    const options = [...(document.getElementById("fiat-currency-options") as HTMLDataListElement).options].map((o) => o.value);
+    // Array.from, not spread: an HTMLCollection needs downlevelIteration to
+    // spread, and this file IS typechecked (tsconfig excludes *.test.ts, and
+    // this is .tsx).
+    const options = Array.from((document.getElementById("fiat-currency-options") as HTMLDataListElement).options).map((o) => o.value);
     // Read off the stubbed table, never a list typed into the component: a
     // hardcoded list is one that drifts from what the village can convert.
     expect(options).toEqual(["CHF", "EUR", "GBP", "USD"]);

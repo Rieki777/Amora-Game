@@ -41,6 +41,10 @@ import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
 import { CrowdpoolAdminTab, ForumCategoriesEditor, ToolsCategoriesEditor } from "@/components/admin/ModuleConfigPanels";
 import { CONTENT_SECTIONS, emptyContentFor } from "@/components/admin/contentSections";
 import { displayCurrencyProblem } from "@shared/money";
+import InvoluntaryExitDialog from "@/components/admin/InvoluntaryExitDialog";
+import ContentEditorTab from "@/components/admin/ContentEditorTab";
+import WorkWithUsTab from "@/components/admin/WorkWithUsTab";
+import { StepListEditor, stalePolicyTerms } from "@/components/admin/exitPolicyEditing";
 import { navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
 import { SETUP_STEPS, measureSetup, setupIsComplete } from "@/components/admin/setupProgress";
 import TokenNamingLink from "@/components/admin/TokenNamingLink";
@@ -1010,359 +1014,6 @@ function SubmissionsTab({ password }: { password: string }) {
   );
 }
 
-// ── Content Editor Tab ────────────────────────────────────────────────────────
-
-export function ContentEditorTab({ password, sectionKey, sectionLabel }: {
-  password: string;
-  sectionKey: string;
-  sectionLabel: string;
-}) {
-  const [raw, setRaw] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [parseError, setParseError] = useState("");
-  /**
-   * The save's own answer, beside the save button.
-   *
-   * `parseError` renders inside the advanced JSON block, which is collapsed
-   * on the card editor, so a refusal reported there is a refusal nobody sees.
-   */
-  const [saveError, setSaveError] = useState("");
-  const [saved, setSaved] = useState(false);
-  /**
-   * Set when the LOAD could not establish what this section currently holds.
-   *
-   * It is not the same as "this section is empty", and the difference is the
-   * whole point: an empty section is safe to save over, a section whose
-   * contents are unknown is not. While this is set, saving is refused.
-   */
-  const [loadError, setLoadError] = useState("");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError("");
-    try {
-      const res = await fetch(`${API_BASE}/content/${sectionKey}`);
-      /*
-       * THE BODY OF A FAILED RESPONSE IS NOT CONTENT.
-       *
-       * This read `const data = await res.json()` with no status check, so
-       * GET /api/content/:section answering 404 {"error":"Section not found"}
-       * (server/index.ts, the expected answer for a section this village has
-       * never saved) put that object in the editor as if it were the
-       * village's own words. Every founder opening Legal & Jurisdiction
-       * Notices or Love Letter Covenant on a fresh instance saw it, because
-       * a fresh instance has saved none of them.
-       *
-       * The damage was not the display. `save()` PUTs whatever is in this
-       * box, and the PUT route assigns `content[section] = req.body`
-       * unvalidated, so pressing Save Changes wrote {"error":"Section not
-       * found"} into the village as REAL content. The section then answered
-       * 200 with that object forever after, which is strictly worse than the
-       * 404: useVillageContent reads a 404 as `isPlaceholder` and renders a
-       * neutral placeholder, and a 200 defeats that fallback. The public
-       * Love Letter would have gone on serving a covenant with no opening
-       * and no governance paragraph, with no way back through this screen.
-       *
-       * A never-saved section is EMPTY. That is what the public reader
-       * already believes (see client/src/hooks/useVillageContent.ts) and
-       * this editor now agrees with it.
-       */
-      if (res.status === 404) {
-        setRaw(JSON.stringify(emptyContentFor(sectionKey), null, 2));
-        setLoading(false);
-        return;
-      }
-      if (!res.ok) {
-        // Any OTHER failure is genuinely unknown ground. Do not offer an
-        // empty document to save over content that may well exist.
-        setLoadError(
-          `This section could not be read (${res.status}), so what it holds right now is unknown. ` +
-          `Saving is blocked until a read succeeds, because saving from here could overwrite real content with a blank.`,
-        );
-        setRaw("");
-        setLoading(false);
-        return;
-      }
-      const data = await res.json();
-      setRaw(JSON.stringify(data, null, 2));
-    } catch {
-      setLoadError(
-        "This section could not be read: the request did not reach the server. " +
-        "Saving is blocked until a read succeeds.",
-      );
-      setRaw("");
-    }
-    setLoading(false);
-  }, [sectionKey]);
-
-  // `saveError` clears with the rest: a refusal is about the section that was
-  // on screen when it happened, and carrying it onto the next one would make
-  // this panel lie in the other direction.
-  useEffect(() => { load(); setSaved(false); setSaveError(""); }, [load]);
-
-  const save = async () => {
-    setParseError("");
-    /*
-     * A save is only ever safe on top of a KNOWN current state. If the read
-     * failed we do not have one, so this refuses rather than writing a blank
-     * over content that may exist. The 404 case is not this case: a 404 is a
-     * successful read establishing that the section is empty.
-     */
-    if (loadError) {
-      setSaveError("This section has not been read successfully yet, so there is nothing safe to save over. Press refresh first.");
-      return;
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (e: any) {
-      setParseError("Invalid JSON: " + e.message);
-      return;
-    }
-    /*
-     * The last line of defence, and it is deliberately narrow: a document
-     * whose ONLY key is `error` is an error envelope that reached this box by
-     * some route, never a village's own content. It is checked here as well
-     * as at load because this box is editable and pasteable, and because the
-     * PUT route stores req.body unvalidated: whatever passes here becomes
-     * what the public pages serve.
-     */
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const keys = Object.keys(parsed);
-      if (keys.length === 1 && keys[0] === "error") {
-        setSaveError(`This looks like an error message ("${String((parsed as any).error)}"), not content. Saving it would publish it. Clear the box to start this section from scratch.`);
-        return;
-      }
-    }
-    // Blank list entries are trimmed HERE, not while typing — see the
-    // "one per line" textarea's comment. Typing must never rewrite what
-    // you just typed.
-    if (Array.isArray(parsed)) {
-      for (const card of parsed) {
-        if (card && typeof card === "object") {
-          for (const [k, v] of Object.entries(card)) {
-            if (Array.isArray(v)) card[k] = v.filter((x) => String(x ?? "").trim() !== "");
-          }
-        }
-      }
-    }
-    setSaving(true);
-    setSaveError("");
-    /*
-     * THE SAVE ASKS. It did not, and the button said "Saved!" whatever came
-     * back, which is the one thing an editor must never do.
-     *
-     * `fetch` resolves on a 403 and on a 500 the same way it resolves on a
-     * 200, so the old `catch` only ever caught a dead network. This route is
-     * behind `story.tell`, and a village that holds that power answers with a
-     * 409 the break-glass turns into a question. An operator who reads that
-     * question and chooses "Leave it" gets the 409 back, so a save that skips
-     * the status check prints "Saved!" over a change the operator just
-     * declined to make.
-     */
-    try {
-      const res = await fetch(`${API_BASE}/admin/content/${sectionKey}`, {
-        method: "PUT",
-        headers: authHeaders(password, { "Content-Type": "application/json" }),
-        body: JSON.stringify(parsed),
-      });
-      if (res.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-      } else {
-        const body = await res.json().catch(() => null);
-        setSaveError(refusal(body, `The server refused this save (${res.status}). The live page is unchanged.`));
-      }
-    } catch {
-      setSaveError("This save did not reach the server. The live page is unchanged.");
-    }
-    setSaving(false);
-  };
-
-  // Team gets a card editor: plain fields, the raw JSON demoted to "advanced".
-  // Editing mutates the PARSED array in place and re-serializes, so keys the
-  // form doesn't know about survive untouched — the JSON stays the ground
-  // truth. These cards feed the public /team page directly.
-  const isCards = sectionKey === "team";
-  const cardsData: any[] | null = isCards && raw ? (() => {
-    try { const p = JSON.parse(raw); return Array.isArray(p) ? p : null; } catch { return null; }
-  })() : null;
-  const mutateCards = (fn: (arr: any[]) => void) => {
-    const arr = JSON.parse(raw);
-    fn(arr);
-    setRaw(JSON.stringify(arr, null, 2));
-  };
-  // field spec: [key, label, kind, options?]
-  const CARD_FIELDS: Array<[string, string, "text" | "long" | "lines" | "select", string[]?]> = [
-    ["name", "Name", "text"],
-    ["role", "Role title", "text"],
-    ["circle", "Circle (shown under the title)", "text"],
-    ["photo", "Photo URL", "text"],
-    ["bio", "Bio", "long"],
-  ];
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Edit: {sectionLabel}</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Changes save to the server and go live immediately.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={load}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium hover:bg-teal-deep/90 disabled:opacity-50 transition-colors"
-          >
-            <Save className="w-4 h-4" />
-            {saving ? "Saving..." : saved ? "Saved!" : "Save Changes"}
-          </button>
-        </div>
-      </div>
-
-      {loadError && (
-        <p role="alert" className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          {loadError}
-        </p>
-      )}
-
-      {saveError && (
-        <p role="alert" className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          {saveError}
-        </p>
-      )}
-
-      {loading ? (
-        <div className="text-center py-12 text-gray-400">Loading...</div>
-      ) : (
-        <>
-          {/* Card editor — plain fields, no JSON in sight */}
-          {isCards && cardsData && (
-            <div className="mb-6 space-y-4">
-              {cardsData.map((card: any, idx: number) => (
-                <div key={idx} className="border border-gray-200 rounded-xl p-5 bg-gray-50">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="font-semibold text-gray-800 text-sm">{card.name || `#${idx + 1}`}</p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => mutateCards((a) => { if (idx > 0) { const [c] = a.splice(idx, 1); a.splice(idx - 1, 0, c); } })}
-                        disabled={idx === 0}
-                        title="Move up"
-                        className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"
-                      >
-                        <ArrowUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => mutateCards((a) => { if (idx < a.length - 1) { const [c] = a.splice(idx, 1); a.splice(idx + 1, 0, c); } })}
-                        disabled={idx === cardsData.length - 1}
-                        title="Move down"
-                        className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"
-                      >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => { if (window.confirm(`Remove "${card.name || "this entry"}"?`)) mutateCards((a) => a.splice(idx, 1)); }}
-                        className="text-xs text-gray-400 hover:text-red-600"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    {CARD_FIELDS.map(([key, label, kind, options]) => (
-                      <div key={key} className={kind === "text" ? "" : "sm:col-span-2"}>
-                        <label className="text-xs font-medium text-gray-500 block mb-1">{label}</label>
-                        {kind === "lines" ? (
-                          <textarea
-                            rows={Math.max(3, (Array.isArray(card[key]) ? card[key].length : 3))}
-                            value={Array.isArray(card[key]) ? card[key].join("\n") : String(card[key] ?? "")}
-                            // NO .filter(Boolean): dropping empty lines means
-                            // the moment you press Enter to start a new item,
-                            // the trailing blank vanishes, the value
-                            // re-serializes identically, and the cursor jumps
-                            // to the end — you can never actually add a line.
-                            // Blanks are trimmed once, on save, not on keypress.
-                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value.split("\n"); })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 resize-none"
-                          />
-                        ) : kind === "select" ? (
-                          <select
-                            value={String(card[key] ?? (options?.[0] ?? ""))}
-                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value; })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 bg-white"
-                          >
-                            {(options ?? []).map((o) => (
-                              <option key={o} value={o}>
-                                {o === "open" ? "Open Seat" : o === "filled" ? "Filled" : o === "partial" ? "Partially Filled" : o === "forming" ? "Forming" : o}
-                              </option>
-                            ))}
-                          </select>
-                        ) : kind === "long" ? (
-                          <textarea
-                            rows={2}
-                            value={String(card[key] ?? "")}
-                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value; })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40 resize-none"
-                          />
-                        ) : (
-                          <input
-                            type="text"
-                            value={String(card[key] ?? "")}
-                            onChange={(e) => mutateCards((a) => { a[idx][key] = e.target.value; })}
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-deep/40"
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <button
-                onClick={() => mutateCards((a) => a.push(
-                  { name: "New team member", role: "", circle: "", photo: "", bio: "" },
-                ))}
-                className="text-sm text-teal-deep font-medium hover:underline"
-              >
-                + Add a team member
-              </button>
-              <p className="text-xs text-gray-400">
-                Remember to hit Save Changes above. Edits here go live only after saving.
-              </p>
-            </div>
-          )}
-
-          {/* Raw JSON editor, always shown, acts as ground truth */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                {isCards ? "Raw JSON (advanced edits)" : "Edit JSON"}
-              </label>
-              {parseError && (
-                <span role="alert" className="text-xs text-red-500">{parseError}</span>
-              )}
-            </div>
-            <textarea
-              value={raw}
-              onChange={(e) => { setRaw(e.target.value); setParseError(""); }}
-              rows={isCards ? 12 : 28}
-              spellCheck={false}
-              className="w-full px-4 py-3 text-xs font-mono border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-deep/40 bg-gray-900 text-green-300 resize-none"
-            />
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 // ── Email Settings Tab ────────────────────────────────────────────────────────
 
@@ -7770,85 +7421,6 @@ function HealthAdminTab({ password }: { password: string }) {
  * blocking badges, the balance sweep, the terminal resolve (refused with
  * named domains until clean), and the policy editor.
  */
-/**
- * An ordered list of sentences, editable. Used by the exit policy for the two
- * step lists /exit-policy prints as numbered lists.
- *
- * Rows are addressed by index, so a step keeps its position while it is being
- * retyped. Every control clears 44px and carries a text label, because "the
- * red one deletes" is not a label.
- */
-function StepListEditor({
-  label, hint, steps, onChange,
-}: {
-  label: string;
-  hint?: string;
-  steps: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const set = (i: number, v: string) => onChange(steps.map((s, j) => (j === i ? v : s)));
-  const remove = (i: number) => onChange(steps.filter((_, j) => j !== i));
-  const move = (i: number, by: number) => {
-    const j = i + by;
-    if (j < 0 || j >= steps.length) return;
-    const next = [...steps];
-    [next[i], next[j]] = [next[j], next[i]];
-    onChange(next);
-  };
-  const btn = "min-h-[44px] min-w-[44px] px-3 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-deep disabled:opacity-40";
-  // An HTML id may not contain whitespace, and the label is a sentence.
-  const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return (
-    <fieldset className="mb-4 border-0 p-0 m-0">
-      <legend className="text-xs font-medium text-gray-700">{label}</legend>
-      {hint && <p className="text-[11px] text-gray-500 mb-2">{hint}</p>}
-      <ol className="space-y-2">
-        {steps.map((s, i) => (
-          <li key={i} className="flex items-start gap-2">
-            <span className="text-xs text-gray-400 mt-3 w-4 text-right shrink-0">{i + 1}.</span>
-            <label className="sr-only" htmlFor={`step-${slug}-${i}`}>{`Step ${i + 1} of ${label}`}</label>
-            <textarea id={`step-${slug}-${i}`} rows={2} value={s} onChange={(e) => set(i, e.target.value)}
-              className="flex-1 min-h-[44px] border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-deep" />
-            <div className="flex flex-col gap-1 shrink-0">
-              <button type="button" className={btn} onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move step ${i + 1} up`}>Up</button>
-              <button type="button" className={btn} onClick={() => move(i, 1)} disabled={i === steps.length - 1} aria-label={`Move step ${i + 1} down`}>Down</button>
-            </div>
-            <button type="button" className={`${btn} text-red-600 border-red-200`} onClick={() => remove(i)} aria-label={`Remove step ${i + 1}`}>Remove</button>
-          </li>
-        ))}
-      </ol>
-      <button type="button" onClick={() => onChange([...steps, ""])}
-        className="mt-2 min-h-[44px] px-3 text-xs rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-deep">
-        Add a step
-      </button>
-    </fieldset>
-  );
-}
-
-/** Whitespace and case are formatting, so they never count as new words. */
-const sameWords = (a: unknown, b: unknown) =>
-  String(a ?? "").replace(/\s+/g, " ").trim().toLowerCase() === String(b ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-
-const sameSteps = (a: unknown, b: unknown) => {
-  const x = Array.isArray(a) ? a : [];
-  const y = Array.isArray(b) ? b : [];
-  return x.length === y.length && x.every((s, i) => sameWords(s, y[i]));
-};
-
-/**
- * The rendered terms of the exit policy that are still word for word the
- * platform's. The same four the server checks, computed from the SAME defaults
- * the server sends down, so the editor can never disagree with the refusal.
- */
-function stalePolicyTerms(draft: any, defaults: any): string[] {
-  if (!draft || !defaults) return [];
-  const out: string[] = [];
-  if (sameWords(draft.voluntary?.valuationMethod, defaults.voluntary?.valuationMethod)) out.push("How contributed value is honored");
-  if (sameSteps(draft.voluntary?.unwindSteps, defaults.voluntary?.unwindSteps)) out.push("The steps of a voluntary departure");
-  if (sameWords(draft.involuntary?.process, defaults.involuntary?.process)) out.push("If the village asks someone to leave");
-  if (sameSteps(draft.restorative?.steps, defaults.restorative?.steps)) out.push("The restorative path");
-  return out;
-}
 
 function ExitsAdminTab({ password }: { password: string }) {
   const [data, setData] = useState<any>(null);
@@ -7863,6 +7435,13 @@ function ExitsAdminTab({ password }: { password: string }) {
   // the server's refusal can never drift apart.
   const [policyDefaults, setPolicyDefaults] = useState<any>(null);
   const [circles, setCircles] = useState<any[]>([]);
+  /**
+   * The involuntary-exit form. It used to be `window.prompt`, which is to say
+   * the browser's own one-line box, carrying the site's domain, for the act
+   * of asking a person to leave the village.
+   */
+  const [involuntaryOpen, setInvoluntaryOpen] = useState(false);
+  const [involuntaryBusy, setInvoluntaryBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -7954,8 +7533,25 @@ function ExitsAdminTab({ password }: { password: string }) {
                 <>
                   <button onClick={async () => { const d = await call("/admin/exits", { userId: selectedUser, kind: "voluntary" }); if (d) { toast.success("Exit opened"); load(); loadState(selectedUser); } }}
                     className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium">Open exit</button>
-                  <button onClick={async () => { const note = window.prompt("Involuntary exits follow the published process. Note for the record:"); if (note === null) return; const d = await call("/admin/exits", { userId: selectedUser, kind: "involuntary", note }); if (d) { toast.success("Exit opened"); load(); loadState(selectedUser); } }}
+                  <button onClick={() => setInvoluntaryOpen(true)}
                     className="text-sm border border-red-300 text-red-600 rounded-lg px-4 py-2 font-medium">Open involuntary…</button>
+                  <InvoluntaryExitDialog
+                    open={involuntaryOpen}
+                    memberName={players.find((p: any) => p.id === selectedUser)?.name ?? ""}
+                    /* The village's own questions, from the published policy.
+                       `policyDraft` is what the editor below is holding, so an
+                       unsaved edit is not offered here: `data.policy` is what
+                       the village has actually published. */
+                    grounds={Array.isArray(data?.policy?.involuntary?.grounds) ? data.policy.involuntary.grounds : []}
+                    busy={involuntaryBusy}
+                    onCancel={() => setInvoluntaryOpen(false)}
+                    onConfirm={async (note) => {
+                      setInvoluntaryBusy(true);
+                      const d = await call("/admin/exits", { userId: selectedUser, kind: "involuntary", note });
+                      setInvoluntaryBusy(false);
+                      if (d) { setInvoluntaryOpen(false); toast.success("Exit opened"); load(); loadState(selectedUser); }
+                    }}
+                  />
                 </>
               ) : (
                 <>
@@ -7984,11 +7580,33 @@ function ExitsAdminTab({ password }: { password: string }) {
         <h3 className="font-semibold text-gray-900 mb-3">Departure record</h3>
         <div className="space-y-1.5">
           {(data?.exits ?? []).map((e: any) => (
-            <p key={e.id} className="text-sm text-gray-600">
-              <b className="text-gray-900">{e.userName}</b>: {e.kind}, {e.status}
-              <span className="text-xs text-gray-400"> · opened {new Date(e.openedAt).toLocaleDateString()}{e.resolvedAt ? `, closed ${new Date(e.resolvedAt).toLocaleDateString()}` : ""}</span>
-              {e.agreementRef && <span className="text-xs text-teal-deep"> · agreement: {e.agreementRef}</span>}
-            </p>
+            <div key={e.id}>
+              <p className="text-sm text-gray-600">
+                <b className="text-gray-900">{e.userName}</b>: {e.kind}, {e.status}
+                <span className="text-xs text-gray-400"> · opened {new Date(e.openedAt).toLocaleDateString()}{e.resolvedAt ? `, closed ${new Date(e.resolvedAt).toLocaleDateString()}` : ""}</span>
+                {e.agreementRef && <span className="text-xs text-teal-deep"> · agreement: {e.agreementRef}</span>}
+              </p>
+              {/*
+                THE REASON, WHICH NOTHING SHOWED.
+
+                Every departure has carried a `resolution` string since the
+                exits table existed: the route selects it, ExitRow declares it,
+                and it has been on the wire this whole time. This record
+                printed the name, the kind, the status and the dates, and never
+                the one field that says WHY, so the note a steward typed into
+                the old browser prompt went into the database and was read by
+                nobody. There is no other screen that shows it.
+
+                `whitespace-pre-line` because the involuntary form composes a
+                reason and then one line per answered question, and that shape
+                is the record.
+              */}
+              {e.resolution && (
+                <p className="text-xs text-muted-foreground whitespace-pre-line border-l-2 border-gray-200 pl-3 ml-1 mt-1 mb-2">
+                  {e.resolution}
+                </p>
+              )}
+            </div>
           ))}
           {(data?.exits ?? []).length === 0 && <p className="text-sm text-gray-400">No departures yet, and the policy is already published. Good.</p>}
         </div>
@@ -8066,6 +7684,24 @@ function ExitsAdminTab({ password }: { password: string }) {
               onChange={(e) => setInv({ process: e.target.value })}
               className={`${inputCls} w-full mt-1`} />
           </label>
+
+          {/*
+            The questions a steward has to answer, on the record, before this
+            village asks anybody to leave. They are the village's own, so they
+            are edited here rather than compiled into the platform.
+
+            No stale badge beside this one, and that is deliberate: the badge
+            reports membership of EXIT_POLICY_TERMS, which gates publishing,
+            and this field is deliberately not in that list. A badge here
+            would promise a check that does not run. See the comment on
+            `grounds` in server/lib/exitPolicy.ts.
+          */}
+          <StepListEditor
+            label="Questions asked before an involuntary exit"
+            hint="A steward answers each one yes, no, or does not apply when opening a departure. The answers go on the record."
+            steps={Array.isArray(policyDraft.involuntary?.grounds) ? policyDraft.involuntary.grounds : []}
+            onChange={(next) => setInv({ grounds: next })}
+          />
 
           {/*
             Two ids that were stored, published to nobody and editable by
@@ -10232,107 +9868,6 @@ function SettingsTab({ password }: { password: string }) {
   );
 }
 
-// ── Work With Us content tab (exchange types + Maia) ──────────────────────────
-
-export function WorkWithUsTab({ password }: { password: string }) {
-  const [cfg, setCfg] = useState<any>(null);
-  const [saving, setSaving] = useState(false);
-  /*
-   * HOISTED, and it must stay hoisted. This read used to sit inline in the
-   * JSX, below `if (!cfg) return <Loading/>`, which made it a CONDITIONAL
-   * hook: the loading render never reached it, the loaded render did, the
-   * hook count changed between the two and React threw "Rendered more hooks
-   * than during the previous render". The tab crashed to the error screen
-   * every single time it was opened, because the fetch always resolves after
-   * the first paint. `useGameConfig` is a hook, not a getter, however much
-   * `useGameConfig()?.currency?.name` reads like one.
-   */
-  const gameConfig = useGameConfig();
-
-  useEffect(() => {
-    fetch(`${API_BASE}/admin/work-with-us-config`, { headers: authHeaders(password) })
-      .then((r) => r.json()).then(setCfg).catch(() => toast.error("Failed to load"));
-  }, [password]);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch(`${API_BASE}/admin/work-with-us-config`, {
-        method: "PUT",
-        headers: authHeaders(password, { "Content-Type": "application/json" }),
-        body: JSON.stringify(cfg),
-      });
-      if (!res.ok) throw new Error();
-      toast.success("Saved");
-    } catch { toast.error("Save failed"); }
-    setSaving(false);
-  };
-
-  if (!cfg) return <div className="text-center py-12 text-gray-400">Loading...</div>;
-
-  const opts = cfg.reciprocityOptions ?? [];
-  const setOpt = (i: number, patch: any) =>
-    setCfg({ ...cfg, reciprocityOptions: opts.map((o: any, j: number) => (j === i ? { ...o, ...patch } : o)) });
-  const addOpt = () => setCfg({ ...cfg, reciprocityOptions: [...opts, { value: "", title: "", desc: "" }] });
-  const removeOpt = (i: number) => setCfg({ ...cfg, reciprocityOptions: opts.filter((_: any, j: number) => j !== i) });
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Work With Us</h2>
-          <p className="text-sm text-gray-500 mt-1">The intro, the reciprocity (exchange) options, and your AI guide's name and greeting.</p>
-        </div>
-        <button onClick={save} disabled={saving} className="px-4 py-2 bg-teal-deep text-white rounded-lg text-sm font-medium disabled:opacity-50">
-          {saving ? "Saving..." : "Save"}
-        </button>
-      </div>
-
-      <div className="space-y-5 max-w-2xl">
-        <div>
-          <label className="text-sm font-medium text-gray-700 block mb-1">Intro paragraph</label>
-          <textarea value={cfg.intro ?? ""} onChange={(e) => setCfg({ ...cfg, intro: e.target.value })} rows={3} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">AI guide's name</label>
-            <input type="text" value={cfg.assistantName ?? ""} onChange={(e) => setCfg({ ...cfg, assistantName: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">{gameConfig?.currency?.name ?? "recognition"} on accepted proposal</label>
-            <input type="number" min={0} value={cfg.acceptGratitude ?? 0} onChange={(e) => setCfg({ ...cfg, acceptGratitude: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-          </div>
-        </div>
-
-        <div>
-          <label className="text-sm font-medium text-gray-700 block mb-1">Guide's opening greeting</label>
-          <textarea value={cfg.assistantGreeting ?? ""} onChange={(e) => setCfg({ ...cfg, assistantGreeting: e.target.value })} rows={2} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
-          <p className="text-[11px] text-gray-400 mt-0.5">Use {"{name}"} where the guide's name should appear.</p>
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-700">Reciprocity (exchange) options</label>
-            <button onClick={addOpt} className="text-xs text-teal-deep font-medium hover:underline">+ Add option</button>
-          </div>
-          <div className="space-y-3">
-            {opts.map((o: any, i: number) => (
-              <div key={i} className="border border-gray-200 rounded-xl p-3 space-y-2">
-                <div className="flex gap-2">
-                  <input type="text" value={o.title} onChange={(e) => setOpt(i, { title: e.target.value })} placeholder="Title (shown)" className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-                  <input type="text" value={o.value} onChange={(e) => setOpt(i, { value: e.target.value })} placeholder="Value (stored)" className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-                  <button onClick={() => removeOpt(i)} className="p-2 text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
-                </div>
-                <textarea value={o.desc} onChange={(e) => setOpt(i, { desc: e.target.value })} rows={2} placeholder="Description" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg resize-y" />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * S69: payment products — define what the village asks money for, watch
