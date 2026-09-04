@@ -17,6 +17,7 @@ import { motion } from "framer-motion";
 import { authToken } from "@/lib/gameApi";
 import { Link } from "wouter";
 import { Star } from "lucide-react";
+import { announceProfileChange, onProfileRefresh } from "@/lib/profileRefresh";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -42,19 +43,42 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
   const [title, setTitle] = useState<string | null>(null);
   const [moons, setMoons] = useState<number | null>(null);
   const [broken, setBroken] = useState<Record<string, boolean>>({});
+  /**
+   * AN EMPTY PARTY IS A CLAIM, so it waits for an answer.
+   *
+   * `party` starts `[]` and the sentence under the name reads off its length,
+   * so before the fetch landed, and forever after it failed, a member with
+   * six characters was told "No path chosen yet. Choose who you will be." The
+   * empty state is now gated on `status === "ready"`, and a failure says it
+   * failed. Same three-state shape as WalletCard.
+   */
+  const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
+  /** One polite region for this page's mutations. See `front` below. */
+  const [said, setSaid] = useState("");
 
-  const load = () => {
+  // `quiet` re-reads without blanking what is already drawn, which is what a
+  // refresh after a write wants: the sheet is correct, it is just one write
+  // behind. Only the first read, and an explicit Retry, show the loading line.
+  const load = (quiet = false) => {
+    if (!quiet) setStatus("loading");
     fetch("/api/me/profile", { headers: headers() })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!d) return;
-        setParty(d.party ?? []);
-        setTitle(d.title ?? null);
-        setMoons(typeof d.moonsOnTheLand === "number" ? d.moonsOnTheLand : null);
+      .then((r) => {
+        if (!r.ok) throw new Error(`me/profile ${r.status}`);
+        return r.json();
       })
-      .catch(() => {});
+      .then((d) => {
+        setParty(d?.party ?? []);
+        setTitle(d?.title ?? null);
+        setMoons(typeof d?.moonsOnTheLand === "number" ? d.moonsOnTheLand : null);
+        setStatus("ready");
+      })
+      .catch(() => setStatus("failed"));
   };
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+  }, []);
+  // A character walked or left on /profile/characters, or fronted here.
+  useEffect(() => onProfileRefresh(() => load(true)), []);
   useEffect(() => {
     fetch("/api/archetypes")
       .then((r) => (r.ok ? r.json() : []))
@@ -68,12 +92,25 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
 
   const primary = party.find((c) => c.isPrimary) ?? party[0] ?? null;
 
+  /**
+   * Fronting swaps the hero art, the name and the subtitle at once, and did
+   * it in complete silence for a screen reader. It also had no else branch,
+   * so a refusal changed nothing and said nothing.
+   */
   const front = async (id: string) => {
-    const res = await fetch(`/api/me/characters/${id}/primary`, { method: "POST", headers: headers() });
-    if (res.ok) {
+    const label = nameOf(party.find((c) => c.id === id)?.archetypeKey ?? "");
+    try {
+      const res = await fetch(`/api/me/characters/${id}/primary`, { method: "POST", headers: headers() });
+      if (!res.ok) throw new Error(`primary ${res.status}`);
       const d = await res.json().catch(() => null);
       if (d?.party) setParty(d.party);
       else load();
+      setSaid(`${label} now fronts your sheet.`);
+      // The quest chips, the balance and the journey below all describe this
+      // profile, and all three read once on mount. See lib/profileRefresh.ts.
+      announceProfileChange();
+    } catch {
+      setSaid(`${label} could not be fronted. Try again.`);
     }
   };
 
@@ -106,6 +143,24 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
               {nameOf(primary.archetypeKey)}
               {subtitleOf(primary.archetypeKey) ? ` · ${subtitleOf(primary.archetypeKey)}` : ""}
             </p>
+          ) : status === "loading" ? (
+            <p role="status" className="text-lg text-muted-foreground">
+              Reading your paths…
+            </p>
+          ) : status === "failed" ? (
+            /* The failure branch that used to be the empty branch. Retry, and
+               never the sentence that tells a member with six characters that
+               they have none. */
+            <p role="status" className="text-lg text-muted-foreground">
+              Couldn't load your paths.{" "}
+              <button
+                type="button"
+                onClick={() => load()}
+                className="min-h-11 font-medium text-foreground underline underline-offset-2"
+              >
+                Retry
+              </button>
+            </p>
           ) : (
             <p className="text-lg text-muted-foreground">
               No path chosen yet.{" "}
@@ -128,10 +183,18 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
         <div className="mt-5">
           <div className="flex flex-wrap items-center gap-3">
             {party.map((c) => (
+              /* The name is on the BUTTON, not inherited from the image's
+                 `alt`. `onError` two lines down replaces that image with a
+                 single letter, and `title` is only consulted when there is no
+                 content at all, so a portrait that failed to load used to
+                 rename this control to "S". Same defect the class rail on
+                 /profile/characters carried across thirty buttons. */
               <button
                 key={c.id}
                 type="button"
                 onClick={() => front(c.id)}
+                aria-label={`Front ${nameOf(c.archetypeKey)}`}
+                aria-pressed={c.isPrimary}
                 title={`Front ${nameOf(c.archetypeKey)}`}
                 className={`relative w-20 shrink-0 overflow-hidden rounded-xl border bg-card transition ${
                   c.isPrimary ? "border-foreground ring-2 ring-ring" : "border-border hover:border-foreground"
@@ -168,6 +231,15 @@ export default function ProfileHero({ name, handle }: { name: string; handle?: s
           </p>
         </div>
       ) : null}
+
+      {/* ONE POLITE REGION FOR THIS PAGE. Fronting a character swaps the hero
+          art, the name and the subtitle, and none of that was announced. The
+          region is always in the DOM so a change to its text is spoken;
+          rendering it only when there is something to say gives a reader
+          nothing, because an inserted live region announces nothing. */}
+      <p aria-live="polite" className="sr-only">
+        {said}
+      </p>
     </motion.div>
   );
 }
