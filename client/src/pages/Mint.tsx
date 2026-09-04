@@ -89,6 +89,24 @@ const HYPHA_KEY = "economy.hypha_space";
 
 const card = "bg-white rounded-2xl shadow-lg p-6";
 const h2 = "text-xl font-display font-bold text-teal-deep mb-4";
+/*
+ * Two class strings this page repeats, named once, in the same idiom as `card`
+ * and `h2` above.
+ *
+ * They stay FROZEN on purpose. This page pairs a fixed `bg-white` card with
+ * fixed greys throughout, and the rule measured elsewhere in this codebase is
+ * that a theme-responsive foreground on a fixed surface is the defect, not the
+ * fix: `text-muted-foreground` over a hardcoded white reads at 2.76 to 1 in
+ * dark mode. Surface and text migrate together or neither, and migrating this
+ * page's surface is its own change and not a side effect of a mint fix.
+ *
+ * Naming them is still worth doing: three identical long strings drifting
+ * apart is how two spellings of one rule start, and the gray ratchet counts
+ * literals, so the mint-ceiling work that added these lines put the file over
+ * its baseline while changing nothing about how it renders.
+ */
+const ruleLine = "mt-1 text-sm text-gray-700";
+const ruleWarn = "mt-2 rounded-lg bg-amber-light px-3 py-2 text-sm text-gray-900";
 
 /** Plain words for a machine-readable trigger. */
 const TRIGGER_WORDS: Record<string, string> = {
@@ -387,25 +405,25 @@ export default function Mint() {
                       down in the payload and the division happens in the one
                       place it happens anywhere on this client.
                     */}
-                    <p className="mt-1 text-sm text-gray-700">
+                    <p className={ruleLine}>
                       {r.amount === null
                         ? `up to ${formatTokenAmount(r.pays.ceilingUnits, r.pays.decimals)} ${r.tokenName}, as much as the work was posted for`
                         : `${formatTokenAmount(r.pays.units ?? 0, r.pays.decimals)} ${r.tokenName}`}
                       {" to each "}
                       {r.recipient}
                     </p>
-                    <p className="mt-1 text-sm text-gray-700">
+                    <p className={ruleLine}>
                       The most one payment may be: {formatTokenAmount(r.pays.ceilingUnits, r.pays.decimals)}{" "}
                       {r.tokenName}
                     </p>
                     {r.problem ? (
-                      <p className="mt-2 rounded-lg bg-amber-light px-3 py-2 text-sm text-gray-900">
+                      <p className={ruleWarn}>
                         This rule pays nobody: {r.problem}.
                       </p>
                     ) : null}
 
                     {r.pending ? (
-                      <p className="mt-2 rounded-lg bg-amber-light px-3 py-2 text-sm text-gray-900">
+                      <p className={ruleWarn}>
                         Queued for the next moon:{" "}
                         {r.pending.amount === null ? "read from the source" : `${r.pending.amount} ${r.tokenName}`}
                         {r.pending.enabled ? "" : ", paused"}
@@ -516,7 +534,7 @@ export default function Mint() {
                         )}
                       </div>
                       {dialNote?.key === d.key ? (
-                        <p className="mt-2 rounded-lg bg-amber-light px-3 py-2 text-sm text-gray-900">
+                        <p className={ruleWarn}>
                           {dialNote.text}
                         </p>
                       ) : null}
