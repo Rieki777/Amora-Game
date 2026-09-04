@@ -122,7 +122,7 @@ describe("what a tick does", () => {
     await screen.findByText("Play");
     // Two weights per row, so the button is found within the row's own list item.
     const row = screen.getByText("Play").closest("li")!;
-    const helps = [...row.querySelectorAll("button")].find((b) => b.textContent === "Helps with it")!;
+    const helps = Array.from(row.querySelectorAll("button")).find((b) => b.textContent === "Helps with it")!;
     await userEvent.click(helps);
 
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
@@ -148,7 +148,7 @@ describe("what a tick does", () => {
     const onChanged = mount();
     await screen.findByText("Play");
     const row = screen.getByText("Play").closest("li")!;
-    const meets = [...row.querySelectorAll("button")].find((b) => b.textContent === "Meets it")!;
+    const meets = Array.from(row.querySelectorAll("button")).find((b) => b.textContent === "Meets it")!;
     await userEvent.click(meets);
 
     const said = await screen.findByRole("alert");
