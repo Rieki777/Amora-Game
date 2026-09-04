@@ -207,6 +207,7 @@ if (!DB_URL) {
   skip("a compat-ok waiver reports but does not fail (scenario 7)", "TEST_DATABASE_URL not set");
   skip("new NOT NULL with no default fails the schema contract (scenario 8)", "TEST_DATABASE_URL not set");
   skip("new migrations with no database is a failure, not a skip (scenario 9)", "TEST_DATABASE_URL not set");
+  skip("a landing instant stamped from the local wall clock (scenario 10)", "TEST_DATABASE_URL not set");
 } else {
   // ── 4. Destructive statement: DROP TABLE, caught even though it runs clean ──
   {
@@ -363,6 +364,77 @@ if (!DB_URL) {
       cleanup(repo);
     }
   }
+
+  // ── 10. A backfill that stamps a landing instant from the local wall clock ──
+  //
+  // Phase 3b. The schema is IDENTICAL either way, so phases 3 and 4 see nothing
+  // and only the value in the row tells the two apart. The gate's own session
+  // clock is pushed off UTC for the new files precisely so that `NOW()` and
+  // `UTC_TIMESTAMP()` stop agreeing; without that push this scenario would pass
+  // on a database that happens to run at UTC and prove nothing at all.
+  {
+    const base =
+      "CREATE TABLE ballots (\n" +
+      "  id varchar(64) NOT NULL,\n" +
+      "  status varchar(30) NOT NULL,\n" +
+      "  subject_type varchar(30) NOT NULL,\n" +
+      "  subject_ref varchar(64) NOT NULL,\n" +
+      "  PRIMARY KEY (id)\n" +
+      ");\n" +
+      "CREATE TABLE mechanics_proposals (\n" +
+      "  id varchar(64) NOT NULL,\n" +
+      "  status varchar(30) NOT NULL,\n" +
+      "  PRIMARY KEY (id)\n" +
+      ");\n";
+    const backfill = (clock) =>
+      "ALTER TABLE ballots ADD COLUMN lands_at datetime NULL;\n" +
+      "ALTER TABLE ballots ADD COLUMN veto_closes_at datetime NULL;\n" +
+      "UPDATE ballots b JOIN mechanics_proposals p ON p.id = b.subject_ref\n" +
+      `  SET b.lands_at = DATE_ADD(${clock}, INTERVAL 72 HOUR),\n` +
+      `      b.veto_closes_at = DATE_ADD(${clock}, INTERVAL 72 HOUR)\n` +
+      "  WHERE b.status = 'passed'\n" +
+      "    AND b.lands_at IS NULL\n" +
+      "    AND p.status IN ('passed_verified','passed_onsite');\n";
+
+    const repo = makeFixture();
+    try {
+      writeMigration(repo, "0001_a.sql", base);
+      commitAll(repo, "base: 0001");
+      writeMigration(repo, "0002_backfill.sql", backfill("NOW()"));
+      const r = runJson(repo, []);
+      checkTrue("a window stamped from the local wall clock fails", r.status === 1, `status ${r.status}`);
+      checkTrue("phase 2 (destructive) found nothing: the UPDATE carries a WHERE", (r.json?.destructive ?? []).length === 0);
+      checkTrue("no schema violation either: the two files produce the same columns", (r.json?.violations ?? []).length === 0);
+      checkTrue("phase 3b is what caught it", r.json?.restingLanding?.ok === false, JSON.stringify(r.json?.restingLanding));
+      checkTrue(
+        "and it says how short the window was",
+        (r.json?.restingLanding?.short ?? []).some((s) => /lands_at is \d+ minute/.test(s)),
+        JSON.stringify(r.json?.restingLanding?.short),
+      );
+    } finally {
+      cleanup(repo);
+    }
+
+    // The control, and the reason the assertion above is about the CLOCK and
+    // not about backfilling at all: the same statement reading UTC passes.
+    const repo2 = makeFixture();
+    try {
+      writeMigration(repo2, "0001_a.sql", base);
+      commitAll(repo2, "base: 0001");
+      writeMigration(repo2, "0002_backfill.sql", backfill("UTC_TIMESTAMP()"));
+      const r2 = runJson(repo2, []);
+      checkTrue("the same backfill reading UTC passes", r2.status === 0, `status ${r2.status}: ${r2.stderr}`);
+      checkTrue("and the instant was actually measured", r2.json?.restingLanding?.ran === true, JSON.stringify(r2.json?.restingLanding));
+      checkTrue(
+        "72 hours out, to the minute",
+        Number(r2.json?.restingLanding?.landsIn) >= 72 * 60 - 1,
+        JSON.stringify(r2.json?.restingLanding),
+      );
+    } finally {
+      cleanup(repo2);
+    }
+  }
+
 }
 
 console.log(

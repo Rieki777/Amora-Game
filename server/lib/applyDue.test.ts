@@ -21,6 +21,8 @@
  * (house rule). Nothing here passes hollowly.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import mysql from "mysql2/promise";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
 import { castVote, closeBallot, openBallot, setSubjectCloserCheck, type BallotRow, type OpenBallotInput } from "./ballots";
@@ -75,6 +77,8 @@ describe("the window notices this job sends", () => {
     expect(Object.values(MOMENT_TYPE)).not.toContain("governance");
   });
 });
+
+const ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 const configured = testDbConfigured();
 let db: TestDb;
@@ -781,6 +785,108 @@ describe.skipIf(!configured)("the claim runs against a real resting row", () => 
     );
     expect(Number(claims[0].n), "one election, one attempt row").toBe(1);
     expect((await landingRow(pool, b.id))?.landingStatus).toBe("applied");
+  });
+});
+
+/* -------------------------------------------------------------------------- *
+ * The backfill's instant is a UTC instant.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The two backfill UPDATEs, read OUT OF migration 0144 rather than retyped, so
+ * the statement proved here is the statement that ships. Line comments are
+ * stripped before the split because the file argues itself at length and a
+ * semicolon inside prose would otherwise cut a statement in half.
+ */
+const backfillStatements = (): string[] => {
+  const file = path.join(ROOT, "drizzle", "0144_the_landing_loop_names_its_own_rows.sql");
+  const bare = fs
+    .readFileSync(file, "utf8")
+    .split("\n")
+    .filter((line) => !/^\s*--/.test(line))
+    .join("\n");
+  const found = bare
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => /^UPDATE\b/i.test(s) && /lands_at/.test(s));
+  if (found.length !== 2) {
+    throw new Error(`expected the two landing backfill UPDATEs in 0144, found ${found.length}`);
+  }
+  return found;
+};
+
+describe("the backfill in migration 0144 writes the same clock as the loop", () => {
+  it("takes its instant from UTC and never from the database server's wall clock", () => {
+    /*
+     * THE FAILURE: `lands_at` is a plain DATETIME with no zone attached, and
+     * every other writer and reader of it works in UTC (`sqlInstant` in
+     * applyDue.ts stamps it, and the due query compares it against
+     * `sqlInstant(at)`). The backfill alone read `NOW()`, the database
+     * server's local wall clock. On a server seven hours behind UTC the 72
+     * hours the ruling promises a steward became 65; on a server ahead of UTC
+     * the row sat past the instant it had published.
+     *
+     * This is the static half: it holds with no database at all, so on a run
+     * where the cases below skip, the file is still pinned.
+     */
+    for (const stmt of backfillStatements()) {
+      expect(stmt, "no writer of a governance instant may read the local wall clock").not.toMatch(
+        /\b(NOW|SYSDATE|CURRENT_TIMESTAMP|LOCALTIME|LOCALTIMESTAMP)\s*\(/i,
+      );
+    }
+    expect(backfillStatements().join("\n"), "it names UTC out loud").toContain("UTC_TIMESTAMP()");
+  });
+});
+
+describe.skipIf(!configured)("a legacy row the backfill reaches", () => {
+  it("gets at least 72 hours measured against UTC, on a database not running at UTC", async () => {
+    /*
+     * The running half. The session clock is FORCED seven hours behind UTC
+     * rather than assumed, because on a server already at UTC `NOW()` and
+     * `UTC_TIMESTAMP()` agree and the defect is invisible: a test that cannot
+     * see the defect is not a test of it.
+     */
+    const b = await openOne({ subjectRef: `legacy-utc-${++n}` });
+    const closed = await carry(b);
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, status, proposer_user_id, change_set) VALUES (?,?,?,?,?,?)",
+      [b.subjectRef, "A proposal from before the window existed", "why the village was asked", "passed_verified", "u-a", JSON.stringify([])],
+    );
+    // Back to the pre-0144 shape: carried, resting, and with no instant at all.
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "UPDATE ballots SET lands_at = NULL, veto_closes_at = NULL, landing_status = 'not_applicable', vetoed_at = NULL WHERE id = ?",
+      [b.id],
+    );
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.query("SET time_zone = '-07:00'");
+      const [staged] = await conn.query<any[]>("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) AS o");
+      expect(Number(staged[0].o), "the session clock really is behind UTC").toBeLessThan(-6 * 3600);
+
+      for (const stmt of backfillStatements()) await conn.query(stmt);
+
+      const [rows] = await conn.query<any[]>(
+        "SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), b.lands_at) AS ballotMins, " +
+          "TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), b.veto_closes_at) AS vetoMins, " +
+          "TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), p.lands_at) AS proposalMins, " +
+          "b.landing_status AS landingStatus " +
+          "FROM ballots b JOIN mechanics_proposals p ON p.id = b.subject_ref WHERE b.id = ?",
+        [b.id],
+      );
+      const got = rows[0];
+      expect(got, "the backfill reached the row at all").toBeDefined();
+      expect(String(got.landingStatus), "and stamped it pending").toBe("pending");
+      // A minute of slack for the round trip, and not an hour: seven hours out
+      // is the whole failure and it must not fit inside the tolerance.
+      expect(Number(got.ballotMins), "the floor of the window is 72 hours in UTC").toBeGreaterThanOrEqual(72 * 60 - 1);
+      expect(Number(got.vetoMins), "and the veto window closes with it").toBeGreaterThanOrEqual(72 * 60 - 1);
+      expect(Number(got.proposalMins), "and the proposal carries the ballot's instant").toBeGreaterThanOrEqual(72 * 60 - 1);
+    } finally {
+      await conn.query("SET time_zone = 'SYSTEM'");
+      conn.release();
+    }
   });
 });
 

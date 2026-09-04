@@ -98,10 +98,18 @@ ALTER TABLE `governance_executor_pending`
 -- and a village coming back to a backlog watches it land one window from now
 -- rather than all at once. `WHERE` on every clause: nothing already stamped,
 -- nothing already vetoed, nothing that never lands.
+--
+-- UTC_TIMESTAMP() AND NOT NOW(). `lands_at` is a plain DATETIME with no zone
+-- attached, and every other writer and reader of it works in UTC: applyDue.ts
+-- stamps it through `sqlInstant`, which is an ISO string, and the due query
+-- compares it against `sqlInstant(at)`. `NOW()` is the database server's local
+-- wall clock, so on a server seven hours behind UTC the 72 hours the ruling
+-- promises a steward would be stamped as 65, and on a server ahead of UTC the
+-- row would sit past the instant it had published. One clock, and it is UTC.
 UPDATE `ballots` b
   JOIN `mechanics_proposals` p ON p.id = b.subject_ref
-  SET b.lands_at = DATE_ADD(NOW(), INTERVAL 72 HOUR),
-      b.veto_closes_at = DATE_ADD(NOW(), INTERVAL 72 HOUR),
+  SET b.lands_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR),
+      b.veto_closes_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR),
       b.landing_status = 'pending'
   WHERE b.subject_type IN ('mechanics','mint_rule')
     AND b.status = 'passed'

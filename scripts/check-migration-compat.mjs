@@ -155,6 +155,7 @@ const report = {
   unreadable: [],
   destructive: [],
   seeded: { tables: 0, rows: 0, refused: [] },
+  restingLanding: null,
   applyError: null,
   violations: [],
   secondRun: null,
@@ -621,6 +622,131 @@ async function seedRows(conn, snap, tables, log) {
   return { tables: seededTables, rows, refused };
 }
 
+/* -------------------------------------------------------------------------- *
+ * PHASE 3b: A ROW STILL RESTING FROM THE PREVIOUS RELEASE.
+ *
+ * Phase 3 proves a new migration SURVIVES rows. This proves the rows a new
+ * migration deliberately REWRITES come out right, for the one rewrite whose
+ * value is a promise to a person: a governance decision's landing instant, and
+ * with it the veto window a steward is told they have.
+ *
+ * The value is an instant and the column is a plain DATETIME, which carries no
+ * zone. Every writer and reader of it in the server works in UTC (`sqlInstant`
+ * in server/lib/applyDue.ts is an ISO string, and the due query compares
+ * against `sqlInstant(at)`), so a backfill that reaches for `NOW()` writes the
+ * database server's local wall clock into a UTC column. Seven hours behind UTC
+ * that turns the 72-hour floor into 65; ahead of UTC the row sits past the
+ * instant it published. Both are silent: the schema is identical either way, so
+ * phases 3 and 4 see nothing at all.
+ *
+ * Which is why THE NEW MIGRATIONS ARE APPLIED WITH THE SESSION CLOCK PUSHED OFF
+ * UTC. The base ref's migrations still run at +00:00, and the snapshot either
+ * side of the apply is taken at +00:00, so nothing this gate already measured
+ * changes. Only the new files meet a server that is not at UTC, which is what a
+ * founder's instance frequently is, and under that clock `NOW()` and
+ * `UTC_TIMESTAMP()` stop agreeing and the difference becomes visible.
+ * -------------------------------------------------------------------------- */
+
+/** The session clock the new migrations meet. Numeric: named zones need the tz tables loaded. */
+const OFF_UTC = "-07:00";
+
+/** The floor the ruling puts under a steward's window, in hours (governance.veto_hours). */
+const VETO_FLOOR_HOURS = 72;
+
+const RESTING = { ballotId: "compat-resting-ballot", proposalId: "compat-resting-proposal" };
+
+/**
+ * One ballot carried and parked with no landing instant, plus the proposal it
+ * decided, in the shape the previous release left them. Built from the base
+ * snapshot's own columns so it keeps working as those tables change; the few
+ * values the backfill's WHERE actually reads are named, and everything else is
+ * the same synthetic filler phase 3 uses, at an index phase 3 does not use so
+ * the two seeds cannot collide on a unique key.
+ */
+async function seedRestingLanding(conn, snap) {
+  const rows = [
+    {
+      table: "ballots",
+      set: { id: RESTING.ballotId, status: "passed", subject_type: "mechanics", subject_ref: RESTING.proposalId },
+    },
+    { table: "mechanics_proposals", set: { id: RESTING.proposalId, status: "passed_verified" } },
+  ];
+  for (const r of rows) {
+    if (!snap.tables.has(r.table)) return { ran: false, why: `the previous release has no \`${r.table}\`` };
+    const cols = [...snap.cols.values()].filter(
+      (c) => String(c.t) === r.table && String(c.gen || "") === "" && !/auto_increment/i.test(String(c.ex || "")),
+    );
+    const named = new Set(cols.map((c) => String(c.c)));
+    for (const k of Object.keys(r.set)) {
+      if (!named.has(k)) return { ran: false, why: `\`${r.table}\`.\`${k}\` is not a writable column of the previous release` };
+    }
+    const values = cols.map((c) => {
+      const name = String(c.c);
+      if (name in r.set) return r.set[name];
+      // A landing instant that already exists in the base is left EMPTY, which
+      // is the whole point of the row: a backfill keyed on `IS NULL` must find
+      // it, and a filler date here would hide the case behind its own WHERE.
+      if (/^(lands_at|veto_closes_at|vetoed_at)$/.test(name) && String(c.nul) === "YES") return null;
+      return sampleValue(c, 2);
+    });
+    try {
+      await conn.query(
+        `INSERT INTO \`${r.table}\` (${cols.map((c) => `\`${c.c}\``).join(", ")}) ` +
+          `VALUES (${cols.map(() => "?").join(", ")})`,
+        values,
+      );
+    } catch (err) {
+      return { ran: false, why: `\`${r.table}\`: ${err.message}` };
+    }
+  }
+  return { ran: true, why: null };
+}
+
+/**
+ * What the wave did to that row. Three answers and never two of them worded the
+ * same: the row could not be seeded, no new migration stamped it (so this
+ * proved nothing and says so), or it was stamped and the instant is measured
+ * against UTC rather than against whatever clock wrote it.
+ */
+async function readRestingLanding(conn, seeded) {
+  try {
+    return await readRestingLandingInner(conn, seeded);
+  } catch (err) {
+    // Never thrown out of here: the session clock is still off UTC at this
+    // point and the caller has a `SET time_zone` to run before anything else
+    // reads the schema. A read that fell over is reported as a check that did
+    // not happen, which is the one thing it must not be confused with a pass.
+    return { ok: true, ran: false, why: `the resting row could not be read: ${err.message}` };
+  }
+}
+
+async function readRestingLandingInner(conn, seeded) {
+  if (!seeded.ran) return { ok: true, ran: false, why: seeded.why };
+  const [cols] = await conn.query(
+    "SELECT COLUMN_NAME c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+      "AND TABLE_NAME = 'ballots' AND COLUMN_NAME IN ('lands_at','veto_closes_at')",
+  );
+  if (cols.length < 2) return { ok: true, ran: false, why: "`ballots` has no landing instant to stamp" };
+  const [rows] = await conn.query(
+    "SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), lands_at) landsIn, " +
+      "TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), veto_closes_at) vetoIn FROM `ballots` WHERE id = ?",
+    [RESTING.ballotId],
+  );
+  if (rows.length === 0) return { ok: true, ran: false, why: "the resting row is gone from `ballots`" };
+  const landsIn = rows[0].landsIn === null ? null : Number(rows[0].landsIn);
+  const vetoIn = rows[0].vetoIn === null ? null : Number(rows[0].vetoIn);
+  if (landsIn === null && vetoIn === null) {
+    return { ok: true, ran: false, why: "no new migration stamped a resting row, so no instant was written to measure" };
+  }
+  // A minute of slack for the round trip, and not an hour: an offset clock is
+  // hours wrong and must never fit inside the tolerance.
+  const floor = VETO_FLOOR_HOURS * 60 - 1;
+  const short = [];
+  if (landsIn !== null && landsIn < floor) short.push(`lands_at is ${landsIn} minute(s) out`);
+  if (vetoIn !== null && vetoIn < floor) short.push(`veto_closes_at is ${vetoIn} minute(s) out`);
+  return { ok: short.length === 0, ran: true, landsIn, vetoIn, short };
+}
+
 /**
  * Apply a list of migration files from a directory, recording each in
  * `_migrations_applied` exactly as server/db/migrate.ts does. Deliberately NOT
@@ -847,6 +973,7 @@ if (report.newMigrations.length === 0) {
     const touched = tablesTouched([...newSql.values()]);
     await conn.query("SET FOREIGN_KEY_CHECKS = 0");
     report.seeded = await seedRows(conn, before, touched, (l) => say(l));
+    const resting = await seedRestingLanding(conn, before);
     await conn.query("SET FOREIGN_KEY_CHECKS = 1");
     if (report.seeded.refused.length) {
       for (const r of report.seeded.refused) {
@@ -860,7 +987,37 @@ if (report.newMigrations.length === 0) {
       );
     }
 
+    // See phase 3b above: only the NEW files meet a clock that is not UTC.
+    await conn.query(`SET time_zone = '${OFF_UTC}'`);
     const newPass = await applyFiles(conn, DIR, report.newMigrations);
+    // A half-applied file has nothing to say about a value it may never have
+    // reached, and the apply failure below is the interesting error.
+    const landing = newPass.failure
+      ? { ok: true, ran: false, why: "the new migrations did not apply, so nothing stamped anything" }
+      : await readRestingLanding(conn, resting);
+    await conn.query("SET time_zone = '+00:00'");
+    say(`  applied the new migration(s) with the session clock at ${OFF_UTC}, so a wall-clock write is visible`);
+    report.restingLanding = landing;
+    if (!landing.ran) {
+      say(`  no landing instant to measure: ${landing.why}`);
+    } else if (landing.ok) {
+      say(
+        `  a row resting from the previous release was stamped ${landing.landsIn} minute(s) out, ` +
+          `at least the ${VETO_FLOOR_HOURS}-hour floor measured against UTC`,
+      );
+    } else {
+      failed = true;
+      console.error("");
+      console.error(
+        `::error::a new migration stamped a resting governance row with a window SHORTER than the ` +
+          `${VETO_FLOOR_HOURS}-hour floor when measured against UTC: ${landing.short.join("; ")}.`,
+      );
+      console.error(`  \`lands_at\` and \`veto_closes_at\` are plain DATETIMEs and the server writes and reads them`);
+      console.error(`  in UTC. A backfill that reaches for NOW(), CURRENT_TIMESTAMP() or SYSDATE() writes the`);
+      console.error(`  database's local wall clock instead, and every steward on a village whose database is not`);
+      console.error(`  at UTC gets a veto window short by the offset. Use UTC_TIMESTAMP(), or stamp the instant`);
+      console.error(`  from Node with sqlInstant and pass it in.`);
+    }
     report.ran.database = true;
     if (newPass.failure) {
       failed = true;
