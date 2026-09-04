@@ -502,25 +502,68 @@ convert.
 
 Today six of the seven tokens have `decimals = 0` and Village Voice has 3.
 
-**Setting every token to 4 decimals is not a migration. It is a sweep of the code
-that posts to the ledger.** This is the least obvious thing in this document and
-the most expensive to get wrong.
+**THE FOUR-DECIMALS FLIP IS CANCELLED, AND THE SURVIVING QUESTION POINTS THE
+OTHER WAY.** Rye settled it on 2026-09-04, in his words [Whole numbers, keep code
+safe], with the 3 on Village Voice described as future potential for micro
+transactions. So no token is going UP. What is left is Village Voice coming DOWN
+from 3 to 0, and a reader who carries the cancelled plan's instincts into that
+change will do the one thing that cannot be undone. Everything in this section
+below that names "the flip migration" was written for a change that will not
+happen; the UNIT DECISIONS it records are what survives, because they say which
+stored columns mean minor units and which mean what a person typed, and that is
+true at any scale.
 
-Measured at `45869ad` by `grep -rn "postTransfer(" server/ --include=*.ts`,
-excluding tests and the definition itself: **33 call sites** (32 `postTransfer`,
-1 `postTransferPair` carrying two legs). They divide four ways.
+**LOWERING A TOKEN'S DECIMALS IS A SCALE CHANGE, DOWNWARD, AND THE STORED ROWS DO
+NOT MOVE WITH IT.** `token_ledger.amount` holds minor units and `tokens.decimals`
+is the only thing that says how many. Take Voice from 3 to 0 and a stored 100 that
+meant 0.100 becomes 100 whole units the instant the column changes: every holder
+in the village inflates by a thousand, no invariant fires, because conservation
+holds at any scale and the cache still agrees with the ledger it caches. Nothing
+in this build refuses it.
 
-| How many | What they hand the ledger | Where |
-|---|---|---|
-| 1 | a value converted at the call site with `toLedgerUnits` | `voiceClaim.ts` settle |
-| 1 | `mint()`, whose two rule callers convert one frame up | `economy.ts` |
-| 2 | a value read back off the ledger, ALREADY in minor units | `exit.ts` sweep, `voiceClaim.ts` debit |
-| 29 | a human number, straight through | everywhere else |
+**It is safe on this village only by the accident of an empty ledger** (section 2:
+`token_ledger` at 0 entries, measured 2026-09-03), which is not safety by
+construction. Thirteen founder instances run this image and a fork that has been
+issuing Voice for a month is where this becomes a thousandfold gift nobody voted
+for. So the rule, and it is the rule for any decimals change in either direction:
 
-Those 29 are not wrong today, because at `decimals = 0` a human number and a
-minor unit are the same number. `give()` is the plainest case: it posts `amount`
-straight through. Set Gratitude to 4 decimals without touching that line and every
-give posts **0.0020**.
+1. **Assert the token's ISSUED SUPPLY IS ZERO before changing its decimals.** A
+   faucet's negative balance is the issued supply (section 4), so the question is
+   answerable in one read and needs no new column. If it is not zero, either
+   rescale `token_ledger.amount` for that token in the SAME transaction as the
+   registry change, or stop and name the village.
+2. **If the registry and the stored column cannot move in one transaction, the
+   REGISTRY MOVES LAST.** A stale registry over rescaled data reads too SMALL; a
+   fresh registry over unscaled data reads too LARGE. Both are wrong and only one
+   of them is acted on: a member who sees their balance jump a thousandfold spends
+   it, claims it, or sells it, and the correction afterwards is a clawback against
+   somebody who did nothing wrong. Too small is a complaint. Too large is a loss.
+
+Measured at `1861f7d`, `grep -rn "postTransferOn(\|postTransfer(\|postTransferPair(\|postGraceNightBurn(\|postPaymentReversalLeg(\|postClawbackMirror(\|postClawbackMirrorPair(" server/ --include=*.ts`,
+dropping tests, comment lines and `server/lib/ledger.ts` itself: **36 posting call
+sites** across seven exported doors. That figure was **33** when this section was
+written, against a grep for `postTransfer(` alone, which could not see the four
+narrow debt wrappers or `postTransferOn`. Reading each site's `amount` expression
+inside its own call, they divide two ways now:
+
+| How many | What they hand the ledger |
+|---|---|
+| 21 | a human number converted at the call site with `toLedgerUnits` |
+| 15 | a value that is ALREADY minor, by a stated contract |
+
+**The second column used to hold 29 of them and the sweeps closed that.** Those
+29 were "a human number, straight through", correct only because a human number
+and a minor unit are the same number at `decimals = 0`. `give()` was the plainest
+case and posts `toLedgerUnits(HEARTS, amount)` now. The fifteen that convert
+nothing are each a deliberate contract, named below and marked in the code, and
+they add up: **three** balance readers (`sweepBalances`'s remainder and its Voice
+conversion leg, the voice-claim debit), **two** mirror derivations (`reverse` and
+`reversePair`, which read the amount off the row they mirror), **two** minor-only
+pass-throughs (`mint()` and `mintStayCredits`, whose callers convert one frame
+up), **three** seat legs off one converted `seatPriceFor`, **one** grace-night
+burn off a converted stored price, **one** `decayVoice` computing minor units
+directly, **two** `stay_purchases.credits_granted` legs, and **one**
+`POST /api/wallet/send`, whose client converts before the request is sent.
 
 The obvious repair is also wrong. Converting inside `postTransfer` would break
 `sweepBalances` and the voice claim debit, which read balances that are ALREADY
@@ -585,18 +628,22 @@ has to widen and backfill `accommodation_prices.amount_minor`,
 `stays.rate_snapshot_credits` and `stay_purchases.credits_granted`, all three
 still `int` from `0021`.
 
-**One token is already inconsistent with itself, at zero decimals, today.** Village
-Voice has 3 decimals now, and the two ways it can be issued disagree:
+**One token used to be inconsistent with itself, and the two doors agree now.
+Fixed on `wt/econ`, re-measured 2026-09-04 at `1861f7d`.** Village Voice has 3
+decimals, and the two ways it can be issued once disagreed:
 
 - a `quest.completed` rule of 10 goes through `mintForConfirmedClaim`, which calls
   `toLedgerUnits`, and posts **10000** minor units, which is 10 voice;
-- the admin hand-mint route posts `amount: amt` with no conversion, so a steward
-  granting 10 posts **10** minor units, which is 0.010 voice.
+- the admin hand-mint route posted `amount: amt` with no conversion, so a steward
+  granting 10 posted **10** minor units, which is 0.010 voice.
 
-Same token, same number typed by two people, a thousandfold apart. This is not a
-consequence of the 4-decimals decision; it is live now, on the one token that
-already has decimals. It has never hurt anyone for the reason everything else here
-has never hurt anyone: the ledger is empty.
+Same token, same number typed by two people, a thousandfold apart. Both doors
+convert now: `server/index.ts` posts `amount: toLedgerUnits(slug, amt)` at the
+hand-mint route and again at its co-signed approval, so a steward granting 10
+Voice posts 10000. The route's contract is WHOLE TOKENS, which is what the rest of
+this section's sweep-lane-A paragraph records, and `admin_mint_requests.amount`
+stays whole for the co-sign threshold to compare against. It never hurt anyone for
+the reason everything else here never hurt anyone: the ledger is empty.
 
 `mint_rules.amount` is `decimal(18,4)` while most of the tokens it pays are
 `decimals 0`, so a founder can save a rule for an amount the registry then rounds
@@ -633,19 +680,38 @@ ledger figure back to a person. It follows the rule the library lane set:
 convert where the human number enters, convert back where a person reads it,
 and leave `postTransfer` alone.
 
-Ten of the twelve convert on the way in: the proposal-accept award, the
-commerce product grant and its reversal, the exchange reversal,
-`POST /api/wallet/send`, `POST /api/admin/library/adjust`,
+**Ten of the twelve convert on the way in, and the list this sentence used to
+carry named twelve of them.** Re-read site by site at `1861f7d`, reading the
+`amount` expression inside each of the twelve calls, the ten are: the
+proposal-accept award, the commerce product grant, the commerce product
+reversal, the exchange reversal, `POST /api/admin/library/adjust`,
 `POST /api/admin/exchange/stock`, `POST /api/admin/tokens/:slug/mint`, its
-co-signed approval, the quest consent credit, the quest work-exchange stay
-release, and the cycle pool share. Two do NOT, and that is the harder half to
-see: the two `stay_purchases.credits_granted` legs post the column
-unconverted, because lane E declared that column MINOR.
+co-signed approval, the quest consent credit, and the cycle pool share.
 
-`POST /api/wallet/send` also stopped truncating. It ran `Math.trunc` over the
-typed amount, so a send of 0.5 became 0 and met the route's own refusal, which
-is the send four decimals exists to allow. The refusal now fires when the
-amount rounds to nothing at the token's own resolution.
+The old list was wrong twice in the same sentence, and one of the errors
+inverted a fact. It named `POST /api/wallet/send` among the converters, and
+that route is one of the TWO that do not convert. It also named the quest
+work-exchange stay release, which does convert (`toLedgerUnits(STAY_CREDIT,
+stayReward)`) and is not one of the twelve: it reaches the ledger through
+`mintStayCredits`, so a walk of the direct posting sites never sees it.
+
+**The two that do NOT convert are the harder half to see, and they are not the
+pair the old text named.** They are the stay chargeback clawback, which posts
+`stay_purchases.credits_granted` unconverted because lane E declared that
+column MINOR, and `POST /api/wallet/send`. Only ONE `credits_granted` leg is
+among the twelve; the other one lives in `server/routes/stays.ts`, which is a
+different file and outside this count.
+
+`POST /api/wallet/send` is the one worth reading slowly, because the truncation
+it was reported to have dropped is still there. The route runs
+`Math.trunc(Number(amount) || 0)` today, and that is correct, because what
+arrives is ALREADY MINOR: `SendTokensCard.tsx` calls `toMinorUnits` beside an
+input whose step is the token's own smallest unit, so a `toLedgerUnits` at the
+route would post ten thousand times what was typed. The defect that closed was
+the one where a member typed 0.5 and the route truncated a HUMAN number to 0 and
+refused it. What fixed it was moving the conversion to the client, not a change
+to the refusal, and the refusal that fires today (`n <= 0`) is the one that fires
+when the typed amount rounds to nothing at the token's own resolution.
 
 **The mint cap is ONE decision across three doors.** `mintCapGuard` counts
 `SUM(token_ledger.amount)`, so its contract is MINOR; the dial
@@ -727,13 +793,22 @@ convert one frame up. `server/economy.test.ts` runs the whole path at 0 and at 4
 against a scratch schema each, and each case reads the ledger AND the allowance
 in one test, because a case reading only one of them is satisfiable by a fix
 that is wrong by ten thousand on the other. **Two things this lane found and did
-not fix**: `allowanceFor`'s reversal SUM is keyed on the note id and carries no
-giver, so one member's reversed gift refunds a slice of everybody's allowance
-(the same size at 0 decimals as at 4, and reachable only by a future caller,
-since nothing in this build reverses such a key); and `users.recognitionBalance`
-is a MINOR cache that `server/index.ts` weighs against
-`governance.hypha_threshold`, a dial declared in Gratitude, so after the flip a
-member holding 0.01 clears a bar set to 100.
+not fix, and BOTH ARE CLOSED NOW. Re-measured 2026-09-04 at `1861f7d`.**
+
+- `allowanceFor`'s reversal SUM was keyed on the note id and carried no giver, so
+  one member's reversed gift refunded a slice of everybody's allowance. Lane AF
+  closed it: `gratitudeGivenInCycle` (`server/lib/economy.ts`) builds the keys
+  this member's own notes were posted under, with the same builder `give` posts
+  them under, and a mirror whose `source_ref` matches none of them is skipped by
+  name. The subsection "Whose allowance a reversal returns (D30, lane AF)" in
+  section 5 carries the whole reading.
+- `users.recognitionBalance` was a MINOR cache weighed raw against
+  `governance.hypha_threshold`, a dial declared in Gratitude. Lane A closed it:
+  `mechanicsStandingFor` in `server/index.ts` passes
+  `fromLedgerUnits(PLATFORM_TOKEN, Number(user.recognitionBalance ?? 0))` to
+  `proposerStanding`, so the two sides of the comparison are one unit. The
+  sweep-lane-A subsection above already said "It divides now", and this list
+  disagreed with it for a day.
 
 ---
 
