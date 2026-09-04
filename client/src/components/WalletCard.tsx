@@ -23,6 +23,7 @@ import { useModule } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { ArrowRight, Wallet as WalletIcon } from "lucide-react";
+import { decimalsOf, formatTokenAmount } from "@/lib/tokenAmount";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -35,6 +36,14 @@ export default function WalletCard() {
   const [balances, setBalances] = useState<Record<string, number>>({});
   /** The registry's display name per slug, so a rename reaches this card too. */
   const [tokenNames, setTokenNames] = useState<Record<string, string>>({});
+  /**
+   * And the registry's SCALE per slug. `balances` is the ledger's INT column,
+   * so it is MINOR units and a member holding 10 Village Voice arrives here as
+   * 10000. This card sits an inch below the Standing chips on the same page,
+   * and those divide. Two numbers for one balance, side by side, is the defect
+   * this map closes. See client/src/lib/tokenAmount.ts.
+   */
+  const [tokenDecimals, setTokenDecimals] = useState<Record<string, number>>({});
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const section = useRef<HTMLDivElement>(null);
 
@@ -48,6 +57,7 @@ export default function WalletCard() {
       .then((d) => {
         setBalances(d?.mine?.balances ?? {});
         setTokenNames(d?.mine?.tokenNames ?? {});
+        setTokenDecimals(d?.mine?.tokenDecimals ?? {});
         setStatus("ready");
       })
       .catch(() => setStatus("failed"));
@@ -107,7 +117,9 @@ export default function WalletCard() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {Object.entries(balances).map(([slug, bal]) => (
             <div key={slug} className="border border-gray-200 rounded-lg px-3 py-2">
-              <p className={`text-lg font-bold ${Number(bal) < 0 ? "text-coral" : "text-gray-900"}`}>{bal}</p>
+              <p className={`text-lg font-bold ${Number(bal) < 0 ? "text-coral" : "text-gray-900"}`}>
+                {formatTokenAmount(Number(bal), decimalsOf(tokenDecimals, slug))}
+              </p>
               <p className="text-xs text-gray-500">{tokenNames[slug] ?? slug}</p>
             </div>
           ))}

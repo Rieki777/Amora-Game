@@ -6,6 +6,7 @@ import { ArrowRight, Compass, Heart, Sparkles } from "lucide-react";
 import StageAdvanced from "@/components/StageAdvanced";
 import { claimMoment } from "@/lib/celebrated";
 import { onProfileRefresh } from "@/lib/profileRefresh";
+import { formatTokenAmount } from "@/lib/tokenAmount";
 
 const CLAIM_STATUS: Record<string, { label: string; cls: string }> = {
   claimed: { label: "In progress", cls: "bg-amber-100 text-amber-800" },
@@ -167,7 +168,13 @@ export default function GameDashboard() {
             <Heart className="w-5 h-5 text-coral" />
             <h2 className="font-display text-lg font-bold text-teal-deep">{currency}</h2>
           </div>
-          <p className="text-3xl font-display font-bold text-teal-deep mb-1">{me.gratitude.balance}</p>
+          {/* Recognition carries decimals 0 today, so this number does not
+              move. It divides anyway: this is the biggest number on the
+              dashboard, and it is the one a member would quote back. See
+              client/src/lib/tokenAmount.ts. */}
+          <p className="text-3xl font-display font-bold text-teal-deep mb-1">
+            {formatTokenAmount(Number(me.gratitude.balance ?? 0), Number(me.gratitude.decimals ?? 0))}
+          </p>
           <p className="text-sm text-stone-500 mb-4">earned so far</p>
           {me.gratitude.budget.total > 0 && (
             <p className="text-sm text-stone-600 mb-4">

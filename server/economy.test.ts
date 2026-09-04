@@ -44,9 +44,10 @@ import {
   VILLAGE_VOICE,
   VOICE_MINT,
   villageId,
+  writeGratitudeRow,
   type MintRule,
 } from "./lib/economy";
-import { balanceOf, CYCLE_POOL_FAUCET, loadTokenRegistry, memberAccount, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
+import { balanceOf, checkLedgerInvariants, CYCLE_POOL_FAUCET, loadTokenRegistry, memberAccount, postTransfer, registerToken, RECOGNITION_FAUCET } from "./lib/ledger";
 import { loadVariables } from "./lib/variables";
 import { cycleBoundsFor } from "../shared/lunar";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
@@ -293,6 +294,223 @@ describe.skipIf(!configured)("the village economy engine", () => {
     expect(accepted).toBeGreaterThan(0);
   });
 
+  /*
+   * THE VILLAGE AGAINST ITSELF, not one member against themselves.
+   *
+   * The test above fires five gives from ONE member, so the only lock it
+   * exercises is the one that holds a giver against their own second tap. It
+   * passed for months while the village was broken against ITSELF.
+   *
+   * `writeGratitudeRow` ran at SERIALIZABLE, which turns its two SUM reads
+   * over `gratitude_log` into range locks, and the range every giver reads
+   * overlaps every other giver's. Two members thanking somebody at the same
+   * moment deadlocked, and the one InnoDB killed was handed the storage
+   * engine's own words — "Deadlock found when trying to get lock; try
+   * restarting transaction" — as a 400. Measured on this test before the fix:
+   * at twelve concurrent givers, ten failed.
+   *
+   * Different givers, one gift each: nothing here is over any budget, over
+   * any share, or racing itself. Every one of them MUST land, and each must
+   * leave a ledger row, because the note is what spends the allowance and the
+   * ledger row is the only thing that puts anything in the recipient's hands.
+   */
+  it("lets twenty-four different members thank the same person at once", async () => {
+    const to = await makeMember("econ-crowd-to");
+    const givers = await Promise.all(
+      Array.from({ length: 24 }, (_, n) => makeMember(`econ-crowd-from-${n}`)),
+    );
+
+    const before = await balanceOf(pool, memberAccount(to), HEARTS);
+    const results = await Promise.all(
+      givers.map((from) => give(pool, { fromUserId: from, toUserId: to, amount: 1 }, AT_GUEST)),
+    );
+
+    const failures = results.filter((r) => !r.ok).map((r) => (r as any).error);
+    expect(failures).toEqual([]);
+    expect(results.filter((r) => r.ok).length).toBe(24);
+
+    // The note spent the allowance; the ledger row is the delivery. One of
+    // each, or a member was charged for a gift that never arrived.
+    const noteIds = results.map((r) => r.noteId).filter(Boolean) as string[];
+    expect(noteIds.length).toBe(24);
+    const [led] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM token_ledger WHERE source = 'gratitude_received' AND source_ref IN (?)",
+      [noteIds],
+    );
+    expect(Number(led[0].n)).toBe(24);
+    expect(await balanceOf(pool, memberAccount(to), HEARTS)).toBe(before + 24);
+  });
+
+  /*
+   * NO NOTE WITHOUT ITS CREDIT, under the contention that used to break the
+   * pair apart.
+   *
+   * The note row IS the charge (the allowance is a SUM over `gratitude_log`)
+   * and the ledger row is the credit. They used to be two transactions with
+   * the commit of the first outside the lock of the second, so a deadlock on
+   * the ledger post left the allowance spent and nothing delivered: 20, 20
+   * and 30 units of 100 lost across three measured runs, invisible to every
+   * surface because nothing had been created out of balance — nothing had
+   * been created at all.
+   *
+   * This asserts the pairing directly, over every note these members write.
+   */
+  it("never charges a member for a credit it did not deliver", async () => {
+    const from = await makeMember("econ-pair-from");
+    const recipients = await Promise.all(
+      Array.from({ length: 8 }, (_, n) => makeMember(`econ-pair-to-${n}`)),
+    );
+
+    // ONE giver, on purpose. Their notes serialise on their own row and every
+    // one of them commits, which is exactly the condition that leaves the
+    // ledger posts to race each other on the recognition faucet's account
+    // row afterwards, with the budget already spent. 40 gives of 2 is 80
+    // against an allowance of 100, and 10 to any one recipient against a
+    // share of 25, so nothing here may be refused for any lawful reason:
+    // every attempt must land AND carry its credit.
+    const attempts = recipients.flatMap((to) => [to, to, to, to, to]);
+    const results = await Promise.all(
+      attempts.map((to) =>
+        // Caught, because an uncaught throw is the loss rather than the report
+        // of it, and the LEFT JOIN below is what has to see it.
+        give(pool, { fromUserId: from, toUserId: to, amount: 2 }, AT_GUEST).catch(
+          (e) => ({ ok: false as const, error: String(e?.message ?? e) }),
+        ),
+      ),
+    );
+    // The loss is asserted FIRST, because it is the worse failure: a give that
+    // is refused costs a member a retry, and a give that is charged and never
+    // delivered costs them the gift and tells nobody.
+    const [orphans] = await pool.query<any[]>(
+      "SELECT g.id, g.amount FROM gratitude_log g " +
+        "LEFT JOIN token_ledger t ON t.source_ref = g.id AND t.source IN ('gratitude_received','heart_received') " +
+        "WHERE g.from_id = ? AND t.id IS NULL",
+      [from],
+    );
+    expect(orphans.map((r: any) => `${r.id} charged ${r.amount} and delivered nothing`)).toEqual([]);
+
+    expect(results.filter((r) => !r.ok).map((r: any) => r.error)).toEqual([]);
+
+    // And the recipients hold every heart the notes charged for.
+    const delivered = await Promise.all(
+      recipients.map((to) => balanceOf(pool, memberAccount(to), HEARTS)),
+    );
+    expect(delivered.reduce((a, b) => a + b, 0)).toBe(80);
+  });
+
+  /*
+   * BOTH, OR NEITHER, proven on the mechanism rather than on the weather.
+   *
+   * The test above shows the note and its credit arriving together under
+   * contention. This shows what happens when the credit genuinely cannot be
+   * made: the note goes with it. A ledger refusal has real causes that no
+   * retry heals — a village that has not launched, an account that does not
+   * exist, an overdraft — and every one of them used to arrive AFTER the note
+   * had committed and spent the budget.
+   *
+   * A member being told "no" and keeping their allowance is the correct
+   * outcome. A member being told "no" and paying for it is the bug.
+   */
+  it("rolls the note back when the ledger refuses its credit", async () => {
+    const from = await makeMember("econ-atomic-from");
+    const to = await makeMember("econ-atomic-to");
+    const before = await allowanceFor(pool, from, 1);
+
+    const res = await writeGratitudeRow(
+      pool,
+      { fromUserId: from, toUserId: to, amount: 4 },
+      1,
+      async () => ({ ok: true }),
+      async () => ({ ok: false, error: "the ledger refused the credit" }),
+    );
+
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.error).toBe("the ledger refused the credit");
+    // No note, so no charge: the row IS the charge.
+    const [rows] = await pool.query<any[]>(
+      "SELECT COUNT(*) AS n FROM gratitude_log WHERE from_id = ?",
+      [from],
+    );
+    expect(Number(rows[0].n)).toBe(0);
+    const after = await allowanceFor(pool, from, 1);
+    expect(after.spent).toBe(before.spent);
+    expect(after.remaining).toBe(before.remaining);
+  });
+
+  /*
+   * AND WHEN ONE HAPPENS ANYWAY, SOMEBODY CAN SEE IT.
+   *
+   * `give()` cannot leave a note uncredited any more, but this is not the
+   * only way a row lands in `gratitude_log`: the acknowledgement door still
+   * posts its credit after the note commits, an import can backdate a cycle,
+   * and a future caller can be written carelessly. A charge with no delivery
+   * leaves the books perfectly balanced — conservation holds, the cache
+   * agrees, nothing is negative — so every check in `checkLedgerInvariants`
+   * passed over the loss and the founder's reconciliation panel said the
+   * economy was clean.
+   *
+   * It is reported in `uncredited` and NOT in `problems`, so the founder sees
+   * it and the village keeps serving. A loss is worth a person's attention;
+   * it is not a reason to take the village offline, and `gratitude_log`
+   * legitimately carries rows this platform never minted for.
+   */
+  it("shows a founder a gift that was charged and never delivered", async () => {
+    const from = await makeMember("econ-seen-from");
+    const to = await makeMember("econ-seen-to");
+    const clean = await checkLedgerInvariants(pool);
+    expect(clean.uncredited).toEqual([]);
+
+    // The shape the bug used to leave behind: the charge, and nothing else.
+    await pool.query(
+      "INSERT INTO gratitude_log (id, village_id, kind, from_id, to_id, amount, message, cycle_id, cycle_number) " +
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+      ["grat-orphan-seen", villageId(), "gratitude", from, to, 6, "", "lunar-000900", 900],
+    );
+
+    const seen = await checkLedgerInvariants(pool);
+    expect(seen.uncredited.length).toBe(1);
+    expect(seen.uncredited[0]).toContain("charged 6 and delivered nothing");
+    // Still servable: this is a finding, not a corruption.
+    expect(seen.ok).toBe(true);
+    expect(seen.problems).toEqual([]);
+
+    await pool.query("DELETE FROM gratitude_log WHERE id = ?", ["grat-orphan-seen"]);
+  });
+
+  /*
+   * The allowance is still EXACTLY enforced after the isolation level came
+   * down. This is the half of the fix that could have been broken silently:
+   * SERIALIZABLE was doing two jobs, and only one of them was the deadlock.
+   *
+   * 40 gives of 5 from one member against an allowance of 100 has one right
+   * answer and it is not "at most 20". Spread over 8 recipients so the
+   * per-recipient share (25) never binds before the allowance does.
+   */
+  it("spends the allowance to the unit and not one heart further", async () => {
+    const from = await makeMember("econ-exact-from");
+    const recipients = await Promise.all(
+      Array.from({ length: 8 }, (_, n) => makeMember(`econ-exact-to-${n}`)),
+    );
+    const before = await allowanceFor(pool, from, 1);
+    expect(before.spent).toBe(0);
+    const each = 5;
+    const fits = Math.floor(before.total / each);
+    // Five attempts per recipient: 5 * 5 = 25, which is exactly the share
+    // cap, so the share can refuse nothing the allowance would have allowed.
+    const attempts = recipients.flatMap((to) => [to, to, to, to, to]);
+    expect(attempts.length).toBeGreaterThan(fits);
+
+    const results = await Promise.all(
+      attempts.map((to) => give(pool, { fromUserId: from, toUserId: to, amount: each }, AT_GUEST)),
+    );
+
+    const accepted = results.filter((r) => r.ok).length;
+    expect(accepted).toBe(fits);
+    const after = await allowanceFor(pool, from, 1);
+    expect(after.spent).toBe(fits * each);
+    expect(after.remaining).toBe(before.total - fits * each);
+  });
+
   it("computes the allowance from the ledger rather than a counter", async () => {
     const from = await makeMember("econ-allow-from");
     const to = await makeMember("econ-allow-to");
@@ -375,6 +593,107 @@ describe.skipIf(!configured)("the village economy engine", () => {
     });
     expect(res.ok && res.duplicate).toBe(false);
     expect(await balanceOf(pool, memberAccount(u), HEARTS)).toBe(5);
+  });
+
+  it("refuses a reversal for an amount the original posting never moved", async () => {
+    // THE EXPLOIT THIS CLOSES. `reverse` took its amount, its token and both
+    // its accounts from the caller and checked only that SOME row carried the
+    // original key. An audit reversed a 25-credit posting into a 1,000,000
+    // payment to the same member and every invariant stayed green, because a
+    // mirror is two legs and conservation balances at any size.
+    const u = await makeMember("econ-rev-amount");
+    const key = keys.questCompleted(villageId(), "q-mint", "c-mint", u);
+    await mint(pool, {
+      toUserId: u, tokenSlug: HEARTS, amount: 25,
+      from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: key,
+    });
+
+    const inflated = await reverse(pool, key, {
+      from: RECOGNITION_FAUCET, to: memberAccount(u), tokenSlug: HEARTS, amount: 1_000_000,
+    });
+
+    expect(inflated.ok).toBe(false);
+    expect(inflated.ok === false && inflated.error).toMatch(/undoes exactly what was posted/);
+    // THE OUTCOME: nothing was paid, and the original still stands unreversed,
+    // so the honest correction is still available to whoever needs it.
+    expect(await balanceOf(pool, memberAccount(u), HEARTS)).toBe(25);
+    expect(await isReversed(pool, key)).toBe(false);
+  });
+
+  it("refuses a reversal that runs the wrong way, and one in the wrong token", async () => {
+    const u = await makeMember("econ-rev-shape");
+    const key = keys.questCompleted(villageId(), "q-shape", "c-shape", u);
+    await mint(pool, {
+      toUserId: u, tokenSlug: HEARTS, amount: 4,
+      from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: key,
+    });
+
+    // A mirror that pays the member AGAIN rather than clawing back.
+    const backwards = await reverse(pool, key, {
+      from: RECOGNITION_FAUCET, to: memberAccount(u), tokenSlug: HEARTS, amount: 4,
+    });
+    expect(backwards.ok).toBe(false);
+
+    // A mirror in a token the original never touched.
+    const wrongToken = await reverse(pool, key, {
+      from: memberAccount(u), to: RECOGNITION_FAUCET, tokenSlug: VILLAGE_VOICE, amount: 4,
+    });
+    expect(wrongToken.ok).toBe(false);
+
+    expect(await balanceOf(pool, memberAccount(u), HEARTS)).toBe(4);
+    expect(await balanceOf(pool, memberAccount(u), VILLAGE_VOICE)).toBe(0);
+  });
+
+  it("reads the mirror off the original row when the caller names nothing", async () => {
+    // The other half of the same rule: derived is not merely CHECKED against
+    // the caller, it is the source. A caller that asserts nothing still gets
+    // the true opposite of what was posted.
+    const u = await makeMember("econ-rev-derived");
+    const key = keys.questCompleted(villageId(), "q-derived", "c-derived", u);
+    await mint(pool, {
+      toUserId: u, tokenSlug: HEARTS, amount: 9,
+      from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: key,
+    });
+
+    const back = await reverse(pool, key);
+
+    expect(back.ok).toBe(true);
+    expect(await balanceOf(pool, memberAccount(u), HEARTS)).toBe(0);
+  });
+
+  it("claws back value the member has already spent, and says so as a negative", async () => {
+    // A correction that cannot complete is not a correction. This member was
+    // wrongly credited and has already spent it, so the clawback has to be
+    // able to take them below zero: the alternative is that the mistaken
+    // credit stands and the only repair left is a hand-written ledger row.
+    //
+    // What a negative balance MEANS: this member holds less than nothing until
+    // new earnings bring them back to zero. The ledger's overdraft check
+    // refuses any further spend that would take an account below zero, so they
+    // cannot spend while under water, and the figure sits in the balance every
+    // surface already reads rather than in a suspense account beside it.
+    const u = await makeMember("econ-rev-negative");
+    const key = keys.questCompleted(villageId(), "q-spent", "c-spent", u);
+    await mint(pool, {
+      toUserId: u, tokenSlug: HEARTS, amount: 12,
+      from: RECOGNITION_FAUCET, source: "quest_consent", idempotencyKey: key,
+    });
+    // Spent: it left their account and is not coming back on its own.
+    const spent = await postTransfer(pool, {
+      from: memberAccount(u), to: RECOGNITION_FAUCET, tokenType: HEARTS, amount: 12,
+      source: "manual", idempotencyKey: `spend:${key}`,
+    });
+    expect(spent.ok).toBe(true);
+    expect(await balanceOf(pool, memberAccount(u), HEARTS)).toBe(0);
+
+    const back = await reverse(pool, key);
+
+    // THE OUTCOME. Without `reversal` in ALLOW_NEGATIVE_SOURCES the overdraft
+    // check refuses this and the balance stays at 0 with the bad credit
+    // standing; with it the correction lands and the debt is visible.
+    expect(back.ok).toBe(true);
+    expect(await balanceOf(pool, memberAccount(u), HEARTS)).toBe(-12);
+    expect(await isReversed(pool, key)).toBe(true);
   });
 
   // ── Two-party consent ────────────────────────────────────────────────────
@@ -463,6 +782,15 @@ describe.skipIf(!configured)("the village economy engine", () => {
       });
       expect(out.skipped).toBeUndefined();
       expect(out.minted.map((m) => m.token)).toContain(VILLAGE_VOICE);
+
+      // AND IT REPORTS WHAT IT POSTED. The rule reads 0.1 and the ledger row
+      // holds 100 thousandths; this used to report the 0.1, which made the
+      // caller's log and the ledger two different accounts of one payment with
+      // nothing to reconcile them against. `runSettlement` already reported
+      // units, so the two mint paths disagreed with each other as well.
+      const voice = out.minted.find((m) => m.token === VILLAGE_VOICE);
+      expect(voice?.units).toBe(100);
+      expect(await balanceOf(pool, memberAccount(u), VILLAGE_VOICE)).toBe(voice?.units);
     });
 
     it("does not mint Hearts again, because consent already did", async () => {
@@ -667,25 +995,41 @@ describe.skipIf(!configured)("the village economy engine", () => {
   describe("a queued rule change", () => {
     // Self-contained: this suite never runs seedEconomy, so the block makes
     // the row it measures rather than assuming one a seeder would have left.
+    //
+    // ON VOICE, AND NOT ON GRATITUDE. This block measures the DEFERRAL, and it
+    // measures it with fractions (0.9, 0.7, 0.3, 0.4) because a fraction is
+    // easy to tell apart from a live value. Gratitude has decimals 0, so every
+    // one of those amounts rounds to nothing when it is posted, and
+    // `queueRuleChange` now refuses them at save time rather than letting a
+    // founder save a rule that pays nobody forever. Voice rides in thousandths,
+    // so the same fractions are whole numbers of its smallest unit and the
+    // deferral is still measured by the same numbers. The refusal itself is
+    // asserted below, on a whole-unit token, where it belongs.
+    //
+    // Its own trigger, too: `mint_rules` is unique on (village, trigger,
+    // token), and the confirmed-claim block above already owns
+    // (local, quest.completed, voice). Sharing it would make this INSERT an
+    // UPDATE of that row, leaving this block's own id absent and every
+    // assertion here measuring a rule that does not exist.
     const RULE = "rule-deferral-test";
     beforeAll(async () => {
       await pool.query(
         "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
-          "VALUES (?,?,'quest.completed',?,0.1000,1,'claimant',1) ON DUPLICATE KEY UPDATE `amount` = 0.1000, " +
+          "VALUES (?,?,'deferral.probe',?,0.1000,1,'claimant',1) ON DUPLICATE KEY UPDATE `amount` = 0.1000, " +
           "`ceiling` = 1, `enabled` = 1, `pending_from_cycle` = NULL",
-        [RULE, villageId(), HEARTS],
+        [RULE, villageId(), VILLAGE_VOICE],
       );
     });
 
     it("does not touch the live numbers", async () => {
-      const before = (await rulesFor(pool, "quest.completed")).find((r) => r.id === RULE);
+      const before = (await rulesFor(pool, "deferral.probe")).find((r) => r.id === RULE);
       expect(before).toBeTruthy();
       const out = await queueRuleChange(pool, RULE, { amount: 0.9 }, "admin-1");
       expect(out.ok).toBe(true);
       // The whole point of the deferral. A rule cannot be raised, paid against
       // and lowered again around a settlement, and nobody's owed amount changes
       // under them mid-cycle.
-      const after = (await rulesFor(pool, "quest.completed")).find((r) => r.id === RULE);
+      const after = (await rulesFor(pool, "deferral.probe")).find((r) => r.id === RULE);
       expect(after?.amount).toBe(before?.amount);
     });
 
@@ -707,6 +1051,63 @@ describe.skipIf(!configured)("the village economy engine", () => {
     it("refuses a fixed amount above its own ceiling", async () => {
       const out = await queueRuleChange(pool, RULE, { amount: 99 }, "admin-1");
       expect(out.ok).toBe(false);
+    });
+
+    it("refuses an amount that rounds away in the token it pays", async () => {
+      // MEASURED: `mint_rules.amount` is decimal(18,4) and Gratitude has
+      // decimals 0, so 0.4 saved cleanly, published as a live rule, and paid
+      // nothing for the rest of the village's life. The engine reported it as
+      // unpayable, but only after somebody had been promised it and gone
+      // unpaid, in a log the founder is not reading.
+      const WHOLE = "rule-rounding-test";
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+          "VALUES (?,?,'rounding.probe',?,1,100,'claimant',1) ON DUPLICATE KEY UPDATE `amount` = 1",
+        [WHOLE, villageId(), HEARTS],
+      );
+
+      // FIRST, THE HALF A ZERO-CHECK CANNOT CATCH, so that removing this guard
+      // fails here rather than on the easier case below. 1.5 rounds to 2
+      // units, so "does it round to nothing?" says it is fine and the rule
+      // silently pays 2 where the panel and the ballot both say 1.5. Only
+      // asking whether it is a WHOLE number of the token's smallest unit
+      // finds this one.
+      const rounded = await queueRuleChange(pool, WHOLE, { amount: 1.5 }, "admin-1");
+      expect(rounded.ok).toBe(false);
+      expect(rounded.ok === false && rounded.error).toMatch(/steps of 1/);
+
+      // Then the one that rounds to nothing at all, which is the measurement
+      // this defect was filed under.
+      const refused = await queueRuleChange(pool, WHOLE, { amount: 0.4 }, "admin-1");
+      expect(refused.ok).toBe(false);
+      // A sentence a founder can act on: it names the step to round to.
+      expect(refused.ok === false && refused.error).toMatch(/steps of 1/);
+
+      // THE OUTCOME: nothing was queued, so the rule still pays what it paid.
+      const view = await mintView(pool);
+      expect(view.rules.find((r) => r.id === WHOLE)?.pending ?? null).toBeNull();
+
+      // And a whole number still saves, so this refuses the broken case only.
+      expect((await queueRuleChange(pool, WHOLE, { amount: 2 }, "admin-1")).ok).toBe(true);
+    });
+
+    it("accepts a fraction the token can actually hold", async () => {
+      // The counterweight. Voice rides in thousandths, so 0.35 IS a whole
+      // number of its smallest unit and refusing it would be the same mistake
+      // pointed the other way.
+      const out = await queueRuleChange(pool, RULE, { amount: 0.35 }, "admin-1");
+      expect(out.ok).toBe(true);
+      const tooFine = await queueRuleChange(pool, RULE, { amount: 0.0001 }, "admin-1");
+      expect(tooFine.ok).toBe(false);
+
+      // AND THE GUARD'S TOLERANCE IS LOAD-BEARING, which 0.35 does not show:
+      // 0.35 * 1000 is exactly 350 in binary, so an exact test would accept it
+      // too. 1.001 is also a whole number of thousandths and 1.001 * 1000 is
+      // 1000.9999999999999, so an exact test refuses it — along with 175 other
+      // amounts below 10 in this token. The ceiling rides along because this
+      // rule's is 1 and the ceiling check runs first.
+      const drifts = await queueRuleChange(pool, RULE, { amount: 1.001, ceiling: 2 }, "admin-1");
+      expect(drifts.ok).toBe(true);
     });
 
     it("refuses a negative ceiling, and zero is a real answer", async () => {

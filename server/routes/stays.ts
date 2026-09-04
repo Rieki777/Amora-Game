@@ -143,10 +143,14 @@ export function register(app: Express, deps: Deps): void {
       const stays = await staysForUser(getPool(), viewer.id);
       mine = {
         balance,
+        // MINOR units plus the scale that turns them into the number a member
+        // reads. Ported from the decimals fix, which was written against this
+        // code while it still lived in server/index.ts.
+        balanceDecimals: tokenDef(STAY_CREDIT)?.decimals ?? 0,
         balances: Object.fromEntries(
           Object.entries(held)
             .filter(([slug]) => tokenDef(slug)?.active !== false)
-            .map(([slug, n]) => [slug, { name: tokenDef(slug)?.name ?? slug, balance: n }]),
+            .map(([slug, n]) => [slug, { name: tokenDef(slug)?.name ?? slug, balance: n, decimals: tokenDef(slug)?.decimals ?? 0 }]),
         ),
         stays: stays.map((s) => ({
           ...s,

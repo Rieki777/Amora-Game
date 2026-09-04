@@ -53,6 +53,7 @@ import { register as registerPlayersRoutes } from "./routes/players";
 import { register as registerOrgSeatingRoutes } from "./routes/orgSeatings";
 import { register as registerOrgRoutes } from "./routes/org";
 import { register as registerReviewRoutes } from "./routes/review";
+import { register as registerHoldersRoutes } from "./routes/holders";
 import { register as registerGovernanceWeightRoutes } from "./routes/governanceWeights";
 import { register as registerGovernanceWizardRoutes } from "./routes/governanceWizard";
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
@@ -301,7 +302,7 @@ import {
   tokenNameClash, slugFreezeRefusal,
   RECOGNITION_FAUCET,
   balanceOf,
-  balancesFor,
+  balancesFor, PLATFORM_TOKEN,
   checkLedgerInvariants,
   CYCLE_POOL_FAUCET,
   entriesForMember,
@@ -4760,7 +4761,7 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<Era
   // ── Lane C: the stores outside this village ────────────────────────────────
   // Asked AFTER the local sweep, so a slow or refusing driver never delays the
   // one deletion this deployment fully controls.
-  const external = await forgetMemberEverywhere(target.id);
+  const external = await forgetMemberEverywhere(getPool(), target.id);
   for (const miss of external.unconfirmed) {
     // An erasure that did not complete is a fact about an OBLIGATION, so it
     // gets an audit row of its own beside the integration_health failure the
@@ -6722,29 +6723,15 @@ async function startServer() {
   const server = createServer(app);
 
   /**
-   * Express 4 does not route async handler rejections into its error
-   * pipeline — an unawaited throw becomes an unhandled rejection, which kills
-   * the process. S6 made most handlers async (the members repository is
-   * MySQL now), so patch the four registration verbs once, here, instead of
-   * wrapping ~100 call sites: any handler that returns a rejecting promise
-   * has the rejection forwarded to next().
+   * Express 5 changed the default query parser from `extended` to `simple`,
+   * which stops `?a[b]=c` arriving as a nested object and hands it over as
+   * the literal key `a[b]`. Nothing in this repository reads a bracketed
+   * query today, checked by hand across server/ and client/, but thirteen
+   * founder instances run this image with routes upstream cannot see, and a
+   * silent change to how every query string parses is not part of a
+   * dependency upgrade. Pinned to the Express 4 behaviour on purpose.
    */
-  for (const method of ["get", "post", "put", "delete"] as const) {
-    const original = (app as any)[method].bind(app);
-    (app as any)[method] = (pathArg: any, ...handlers: any[]) =>
-      original(
-        pathArg,
-        ...handlers.map((h: any) =>
-          typeof h === "function"
-            ? (req: any, res: any, next: any) => {
-                const out = h(req, res, next);
-                if (out && typeof out.catch === "function") out.catch(next);
-                return out;
-              }
-            : h,
-        ),
-      );
-  }
+  app.set("query parser", "extended");
 
   /**
    * SECURITY RESPONSE HEADERS, on every response this process writes.
@@ -7252,7 +7239,7 @@ async function startServer() {
 
     // Anything else under the agent surface is a 404, never a fall-through to
     // a route the map does not name.
-    app.all(`${AGENT_V1}/*`, (_req, res) => res.status(404).json({ error: "Not found" }));
+    app.all(`${AGENT_V1}/{*splat}`, (_req, res) => res.status(404).json({ error: "Not found" }));
 
     // ── The member's own session routes (the Profile panel) ───────────────
     const me = async (req: express.Request, res: express.Response): Promise<any | null> => {
@@ -9917,7 +9904,10 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
    * A locked thread refuses edits like it refuses replies: a lock that the
    * author can edit around is theater.
    */
-  app.patch("/api/forum/:kind(threads|replies)/:id", async (req, res) => {
+  app.patch("/api/forum/:kind/:id", async (req, res, next) => {
+    // path-to-regexp v8 dropped `:kind(threads|replies)`. next() hands an
+    // unknown kind to the same /api/ catch-all the unmatched route used to.
+    if (req.params.kind !== "threads" && req.params.kind !== "replies") return next();
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in first" });
     const isThread = req.params.kind === "threads";
@@ -15166,7 +15156,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
 
   /** Accept/dismiss records a HUMAN decision. It moves no value, creates no
    *  quest, applies nothing — suggestions are never timer-mutations. */
-  app.post("/api/admin/call-tasks/:id/:action(accept|dismiss)", async (req, res) => {
+  app.post("/api/admin/call-tasks/:id/:action", async (req, res, next) => {
+    // As above: the enum is a guard now, and an unknown action falls through.
+    if (req.params.action !== "accept" && req.params.action !== "dismiss") return next();
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     // The seeded example task ships in status 'suggested', so this UPDATE
     // matches it: without the guard an admin acts on a demo row and the
@@ -16191,9 +16183,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
        * no registry row keeps showing its slug: that is a drift worth seeing
        * and not a name worth inventing.
        */
-      tokenNames: Object.fromEntries(
-        Object.keys(ledger).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
-      ),
+      tokenNames: Object.fromEntries(Object.keys(ledger).map((s) => [s, tokenDef(s)?.name ?? s])),
+      tokenDecimals: Object.fromEntries(Object.keys(ledger).map((s) => [s, tokenDef(s)?.decimals ?? 0])), // THE SCALE OF EACH OF THOSE NUMBERS. `ledger` is the INT column verbatim, so it is MINOR units: Voice at decimals 3 ships 10000 for a member who earned 10, and this payload handed that straight to a card that printed it while their profile chip, off loadStanding, said 10 in the same second. Divide at the render site, through client/src/lib/tokenAmount.ts, which carries the why and why it has to land BEFORE every token moves to 4 decimals.
       wallet: { address: user.walletAddress ?? null, verifiedAt: user.walletVerifiedAt ?? null },
       onchain,
       economicsEnabled,
@@ -16352,7 +16343,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       const stage = stageIndex(await stageOf(viewer));
       const roles = roleIdsFor(viewer.id);
       mine = {
-        balance: await balanceOf(getPool(), memberAccount(viewer.id), LIBRARY_CREDIT),
+        balance: await balanceOf(getPool(), memberAccount(viewer.id), LIBRARY_CREDIT), balanceDecimals: tokenDef(LIBRARY_CREDIT)?.decimals ?? 0, // minor units + scale
         loans: await loansForUser(getPool(), viewer.id),
         strikes: await noShowStrikes(getPool(), viewer.id),
         eligible: Object.fromEntries(items.map((i) => {
@@ -16740,9 +16731,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
         // The same live registry read `/api/wallet` carries, for the same
         // reason: `balances` is keyed by slug, and the wallet page rendered
         // the slug as though it were the currency's name.
-        tokenNames: Object.fromEntries(
-          Object.keys(held).map((slug) => [slug, tokenDef(slug)?.name ?? slug]),
-        ),
+        tokenNames: Object.fromEntries(Object.keys(held).map((s) => [s, tokenDef(s)?.name ?? s])),
+        tokenDecimals: Object.fromEntries(Object.keys(held).map((s) => [s, tokenDef(s)?.decimals ?? 0])), // ...and the SCALE of each. `balances` is MINOR units, and the Tokens page and the profile wallet card both render this map raw. See client/src/lib/tokenAmount.ts.
         orders,
         canBuy: hasCapability("exchange.buy", ctx),
         canSwap: hasCapability("exchange.swap", ctx),
@@ -18014,7 +18004,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
      * check the library runs over its own escrow.
      */
     const drift = await seatEscrowDrift(getPool());
-    const invariants = { ok: core.ok && drift.length === 0, problems: [...core.problems, ...drift] };
+    // `uncredited` is carried and deliberately NOT folded into `problems`: an
+    // undelivered gratitude credit is a finding, not a corruption, so `ok` stays
+    // true. This route used to rebuild the object as { ok, problems } and drop
+    // it, which is why the founder could not see it.
+    const invariants = { ok: core.ok && drift.length === 0, problems: [...core.problems, ...drift], uncredited: core.uncredited };
     const [systems] = await getPool().query<any[]>(
       "SELECT a.id, a.label, a.faucet, tb.token_type, tb.balance FROM ledger_accounts a " +
         "LEFT JOIN token_balances tb ON tb.account_id = a.id WHERE a.kind = 'system' ORDER BY a.id, tb.token_type",
@@ -20703,7 +20697,7 @@ ${inner}
       stage: servedStage(stageId),
       stageIndex: stageIndex(stageId),
       stages: servedLadder(),
-      gratitude: { balance: user.recognitionBalance ?? 0, budget: await gratitudeBudget(user) },
+      gratitude: { balance: user.recognitionBalance ?? 0, decimals: tokenDef(PLATFORM_TOKEN)?.decimals ?? 0, budget: await gratitudeBudget(user) }, // `balance` is the cached MINOR-unit column; `decimals` is what turns it into the number on the card
       quests: claims.map((c: any) =>
         questCredits.has(c.id) ? { ...c, credited: questCredits.get(c.id) } : c,
       ),
@@ -21668,7 +21662,7 @@ ${inner}
     for (const id of sendPeers) sendNames.set(id, (await members.byId(id))?.name ?? null);
     const summed = await balanceOf(getPool(), memberAccount(user.id), "gratitude");
     const raw = await balancesFor(getPool(), memberAccount(user.id));
-    const balances: Record<string, { name: string; balance: number }> = {};
+    const balances: Record<string, { name: string; balance: number; decimals: number }> = {};
     for (const [slug, balance] of Object.entries(raw)) {
       // Hidden tokens stay out of the member's view, the same rule
       // loadStanding applies to the profile chips. The BALANCE is untouched in
@@ -21678,7 +21672,7 @@ ${inner}
       // that is a drift worth seeing, not a token someone chose to hide.
       const def = tokenDef(slug);
       if (def && !def.active) continue;
-      balances[slug] = { name: def?.name ?? slug, balance };
+      balances[slug] = { name: def?.name ?? slug, balance, decimals: def?.decimals ?? 0 }; // MINOR units + scale
     }
     res.json({
       // The column is a cache of the ledger. If these ever disagree the ledger
@@ -21695,7 +21689,8 @@ ${inner}
       entries: entries.map((e) => ({
         tokenType: e.tokenType,
         tokenName: tokenDef(e.tokenType)?.name ?? e.tokenType,
-        amount: e.amount,
+        amount: e.amount, // `token_ledger.amount` verbatim: an INT of MINOR units. A Voice row reading 10000 is ten, and the journey feed printed it as ten thousand.
+        decimals: tokenDef(e.tokenType)?.decimals ?? 0,
         source: e.source,
         sourceRef: e.sourceRef,
         description: e.description,
@@ -27470,10 +27465,10 @@ ${inner}
    * the SPA and answers HTML with a 200, which is how a peer probing for a
    * capability document concludes this village has one.
    */
-  app.get("/.well-known/*", (req, res) => notPublished(res, `Not found: ${req.path}`));
+  app.get("/.well-known/{*splat}", (req, res) => notPublished(res, `Not found: ${req.path}`));
 
   app.get("/org", (_req, res) => res.redirect(308, "/org/index.md"));
-  app.get("/org/*", (req, res) => notPublished(res, `Not found: ${req.path}`));
+  app.get("/org/{*splat}", (req, res) => notPublished(res, `Not found: ${req.path}`));
 
   // Links, structural drafts, seat history and the admin edits to the org
   // chart, all nineteen registered at exactly the point they used to sit.
@@ -27491,6 +27486,7 @@ ${inner}
   registerReviewRoutes(app, {
     isAdmin, authedUser, guardCapability, mayAct, adminActor, getPool, members, questsRepo,
   });
+  registerHoldersRoutes(app, { guardCapability, getPool });
 
   // ── Season patterns (0050) ───────────────────────────────────────────────
   //
@@ -27851,7 +27847,8 @@ ${inner}
       gratitudeSent: log.filter((g) => g.fromId === user.id),
       gratitudeReceived: log.filter((g) => g.toId === user.id),
       ledger: await entriesForMember(getPool(), user.id),
-      balances: await balancesFor(getPool(), memberAccount(user.id)),
+      balances: await balancesFor(getPool(), memberAccount(user.id)), // MINOR units, so the file is the ledger and not a rounding of it
+      tokenDecimals: Object.fromEntries(allTokens().map((t) => [t.slug, t.decimals])), // ...and what turns those rows into the numbers the member reads. Without it a Voice balance of 10000 in a downloaded file is unreadable by the one person entitled to read it.
       stageEvents: stageEventsRepo.all().filter((e: any) => e.userId === user.id),
       submissions: submissionsRepo.all().filter((s: any) => s.userId === user.id),
       notifications: notifRows,
@@ -27892,7 +27889,7 @@ ${inner}
        * could not be read is NAMED in the file the member downloads, so a
        * partial export announces itself instead of looking complete.
        */
-      externalStores: await exportMemberEverywhere(user.id),
+      externalStores: await exportMemberEverywhere(getPool(), user.id),
     };
     res.setHeader("Content-Disposition", `attachment; filename="my-data-${user.id}.json"`);
     res.json(exportDoc);
@@ -28197,10 +28194,10 @@ ${inner}
    * broken assets show as broken, and a browser asking for a bundle that no
    * longer exists gets an error a reload can fix rather than a blank page.
    */
-  app.all("/api/*", (req, res) => {
+  app.all("/api/{*splat}", (req, res) => {
     res.status(404).json({ error: `No such endpoint: ${req.method} ${req.path}` });
   });
-  app.get("/assets/*", (req, res) => {
+  app.get("/assets/{*splat}", (req, res) => {
     res.status(404).type("text/plain").send(`Not found: ${req.path}`);
   });
 
@@ -28287,7 +28284,7 @@ ${inner}
     res.type("html").set("Cache-Control", "no-cache").send(html);
   });
 
-  app.get("*", (_req, res) => {
+  app.get("/{*splat}", (_req, res) => {
     const indexPath = path.join(staticPath, "index.html");
     res.sendFile(indexPath, (err) => {
       if (err) {
@@ -28297,8 +28294,8 @@ ${inner}
     });
   });
 
-  // Terminal error handler: async handler rejections land here via the
-  // registration wrapper above. JSON, because every consumer is the SPA.
+  // Terminal error handler. Express 5 forwards a rejected handler promise
+  // here by itself, on every verb. JSON, because every consumer is the SPA.
   app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error("[route error]", err);
     if (res.headersSent) return next(err);

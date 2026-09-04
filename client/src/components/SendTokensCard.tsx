@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import { authToken } from "@/lib/gameApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { Send } from "lucide-react";
+import { formatTokenAmount, decimalsOf, toMinorUnits, smallestUnit } from "@/lib/tokenAmount";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -30,6 +31,17 @@ export default function SendTokensCard() {
   const { user } = useAuth();
   const [sendable, setSendable] = useState<Sendable[]>([]);
   const [balances, setBalances] = useState<Record<string, number>>({});
+  /**
+   * The scale of those balances, per token, from the same payload.
+   *
+   * `d.ledger` is MINOR units. Nothing sendable carries decimals today, since
+   * Village Voice is non-transferable and never reaches this select, so the
+   * line below has never been wrong. It would be wrong the first afternoon a
+   * village makes a decimal token transferable, and it will be wrong for every
+   * token on the day they all move to 4 decimals. See
+   * client/src/lib/tokenAmount.ts.
+   */
+  const [tokenDecimals, setTokenDecimals] = useState<Record<string, number>>({});
   const [form, setForm] = useState({ toEmail: "", tokenType: "", amount: "", note: "" });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -49,6 +61,7 @@ export default function SendTokensCard() {
         if (!d) return;
         setSendable(Array.isArray(d.sendable) ? d.sendable : []);
         setBalances(d.ledger ?? {});
+        setTokenDecimals(d.tokenDecimals ?? {});
         setForm((f) => (f.tokenType ? f : { ...f, tokenType: d.sendable?.[0]?.slug ?? "" }));
       })
       .catch(() => { /* the card simply does not appear */ });
@@ -66,7 +79,14 @@ export default function SendTokensCard() {
       const r = await fetch("/api/wallet/send", {
         method: "POST",
         headers: headers(),
-        body: JSON.stringify({ ...form, amount: Number(form.amount), clientNonce: nonce }),
+        // The member types what they would say out loud; the ledger stores minor
+        // units. Converting HERE, next to the input that shows the same scale,
+        // is what keeps the two halves of this card agreeing.
+        body: JSON.stringify({
+          ...form,
+          amount: toMinorUnits(form.amount, decimalsOf(tokenDecimals, form.tokenType)),
+          clientNonce: nonce,
+        }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -74,7 +94,10 @@ export default function SendTokensCard() {
         // the rule; a message written here would only be vaguer.
         setResult({ ok: false, text: d?.error ?? "That send did not go through" });
       } else {
-        setResult({ ok: true, text: `Sent ${d.sent} ${d.tokenName}${d.to ? ` to ${d.to}` : ""}.` });
+        setResult({
+          ok: true,
+          text: `Sent ${formatTokenAmount(d.sent, decimalsOf(tokenDecimals, form.tokenType))} ${d.tokenName}${d.to ? ` to ${d.to}` : ""}.`,
+        });
         setForm({ toEmail: "", tokenType: form.tokenType, amount: "", note: "" });
         setNonce(crypto.randomUUID());
         load();
@@ -125,7 +148,10 @@ export default function SendTokensCard() {
           <label className="block">
             <span className="text-xs font-medium text-gray-500">How much</span>
             <input
-              type="number" min={1} step={1} required value={form.amount}
+              type="number"
+              min={smallestUnit(decimalsOf(tokenDecimals, form.tokenType))}
+              step={smallestUnit(decimalsOf(tokenDecimals, form.tokenType))}
+              required value={form.amount}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
               className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
             />
@@ -143,7 +169,7 @@ export default function SendTokensCard() {
         </label>
 
         <div className="flex items-center justify-between gap-3 pt-1">
-          <p className="text-xs text-gray-500">You hold {held}.</p>
+          <p className="text-xs text-gray-500">You hold {formatTokenAmount(held, decimalsOf(tokenDecimals, form.tokenType))}.</p>
           <button
             type="submit" disabled={busy || !form.toEmail || !form.amount}
             className="bg-teal-deep text-white text-sm font-medium rounded-lg px-4 py-2 disabled:opacity-50"

@@ -303,9 +303,35 @@ All of them land on the first day more than one person uses the thing.**
 
 ## 11. Open decisions
 
-1. **Decimals.** Rye ruled 4 across the board. The ledger is empty, which makes
-   now the cheapest moment there will ever be. The work is the 39-caller sweep in
-   §7, after §10.3 is fixed.
+1. **Decimals. RULED 2026-09-04: Village Credits gets 2 decimals. The 4-across-
+   the-board sweep is cancelled.** The work belongs to the economics engine
+   session; nobody else changes a token's scale.
+
+   Rye's ruling, in his own shape: *if a bunch of work is already done to move
+   them all to 4 decimals and we're already nearly there, then finish the work.
+   If not, all I want is that currency-like tokens (the village credits) need to
+   have 2 decimals.*
+
+   **None of that work was done**, which is what settles it. Measured
+   2026-09-04: zero migrations change any token's `decimals`, `VOICE_DECIMALS` is
+   still 3, and no token has moved. The only decimals-adjacent things that landed
+   were `0126` widening `token_ledger.amount` to `bigint`, which was preparation,
+   and the wallet and send-card fixes, which were bugs caused by Village Voice's
+   EXISTING 3 decimals rather than sweep work.
+
+   So the scope is one token: `credits`, from 0 to 2, because two decimals is
+   what money looks like everywhere else and a village currently cannot price
+   anything at 12.50. `library-credit` and `stay-credit` are vouchers where a
+   whole unit may be the honest shape and are NOT covered by this ruling; if the
+   economics session thinks they should move, that is a question to put back.
+   `village-voice` stays at 3: it is governance weight rather than currency, and
+   its scale exists so a rule minting 0.1 voice does not post zero.
+
+   **It is still not a column change.** The per-caller units problem in §7
+   applies to every path that posts `credits`: `postTransfer` takes minor units,
+   most of its callers hand it a human number, and they are correct today only
+   because `credits` sits at 0 where the two are the same number.
+
 2. **Whether an audit event is a guarantee.** 62 `void recordEvent` calls post the
    audit trail without awaiting it, so a member who acts and immediately opens the
    audit feed can miss their own action. Fine as best effort, wrong if the feed is

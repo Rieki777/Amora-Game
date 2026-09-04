@@ -15,7 +15,7 @@ import { boolVar, numberVar } from "./variables";
 import { parseCycleId } from "./gratitude-cycles";
 import { isExampleUser } from "./examples";
 import { issuanceRefusal } from "./gameStart";
-import { memberAccount, postTransfer, RECOGNITION_FAUCET } from "./ledger";
+import { memberAccount, postTransferOn, RECOGNITION_FAUCET } from "./ledger";
 import { allowanceFor, writeGratitudeRow, shareCapFor, recognitionName, type Allowance } from "./economy";
 import { userIdForHandle } from "./profile";
 import type { GratitudeLogRepo, GratitudeEntry } from "../repos/gratitude";
@@ -166,10 +166,10 @@ async function resolveTyped(
  * asserts the guard messages): bad input → unknown recipient → self-send →
  * no budget → over budget → heart tap count → per-recipient share → whether
  * this village may issue at all (R67, and see the block above that check for
- * why it is last of the reads and first of everything else). Then: log
- * row (the heart index may refuse a duplicate), ledger post (recognition
- * issues from the faucet — the sender spends BUDGET, not balance), recipient
- * cache update.
+ * why it is last of the reads and first of everything else). Then, in ONE
+ * transaction: the log row (the heart index may refuse a duplicate) and the
+ * ledger post (recognition issues from the faucet — the sender spends BUDGET,
+ * not balance). The recipient's cached balance is written after that commits.
  */
 export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Promise<SendOutcome> {
   const user = input.fromUser;
@@ -309,9 +309,9 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
        *
        * This row IS the spend: the allowance above is computed by summing
        * `gratitude_log`, so writing it charges the cycle. The ledger post
-       * that follows (outside this lock, after commit) is what puts anything
-       * in the recipient's hands, and `postTransfer` refuses every faucet
-       * posting until the village's launch vote carries.
+       * that follows (on this same connection, before this transaction
+       * commits) is what puts anything in the recipient's hands, and the
+       * poster refuses every faucet posting until the launch vote carries.
        *
        * Asked in that order, the refusal used to arrive too late to matter:
        * the note committed, the allowance was spent, and the recipient
@@ -321,6 +321,11 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
        * carries, that fired on every heart and every acknowledgement anybody
        * sent. Found by Lane TESTRUN, fixed on the economy engine's `give`
        * path by Lane RULES, and this is the same shape on both doors.
+       *
+       * The post below now shares this transaction, so even a refusal nobody
+       * could ask about in advance takes the note back with it. Asking early
+       * is still worth doing, because a member hears the gate's own sentence
+       * rather than watching their words vanish into a rollback.
        *
        * It runs last so the documented order of refusals still holds: a
        * member who is over budget or over the share hears about THAT.
@@ -333,6 +338,43 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
       if (closed) return { ok: false, status: 409, error: closed };
 
       return { ok: true };
+    },
+    /*
+     * ── THE CREDIT, INSIDE THE NOTE'S OWN TRANSACTION ────────────────────
+     *
+     * Recognition ISSUES at send, and it now issues on the connection the note
+     * is written on, before that note commits.
+     *
+     * It used to be a `postTransfer` call AFTER this whole call returned, with
+     * nothing around it. `postTransfer` rolls back and RETHROWS on any
+     * database error — a lock wait, a dropped connection — so a throw there
+     * left the note committed, the cycle's allowance spent, and nothing in the
+     * recipient's hands: a record saying gratitude was given, and no
+     * gratitude. A retry does not heal it either, because a retry writes a NEW
+     * note id and is therefore a second charge.
+     *
+     * `give()` in server/lib/economy.ts had the identical shape and was fixed
+     * first. This is the same fix on the other door, through the same hook,
+     * rather than a second implementation of it.
+     *
+     * Now a refusal rolls the note back and a throw rolls the note back, which
+     * is the same answer arrived at two ways: the member keeps their allowance
+     * and their words, and hears that it did not go through.
+     *
+     * Keyed on the note id, so nothing can double-credit.
+     */
+    async (conn, noteId) => {
+      const res = await postTransferOn(conn, {
+        from: RECOGNITION_FAUCET,
+        to: memberAccount(recipient.id),
+        amount: amt,
+        source: kind === "heart" ? "heart_received" : "gratitude_received",
+        sourceRef: noteId,
+        description: `${recognitionName()} from ${String(user.name ?? "").split(" ")[0]}`,
+        idempotencyKey: `gratitude_received:${noteId}`,
+      });
+      if (!res.ok) return { ok: false, error: res.error ?? "ledger refused the credit", status: 500 };
+      return { ok: true, duplicate: res.duplicate, balance: res.toBalance };
     },
   );
 
@@ -368,23 +410,14 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     at: new Date().toISOString(),
   };
 
-  // Recognition ISSUES at send. Keyed on the acknowledgment id, so a retry
-  // credits once; the balance column is a recomputed cache of the ledger.
-  const credit = await postTransfer(deps.pool, {
-    from: RECOGNITION_FAUCET,
-    to: memberAccount(recipient.id),
-    amount: amt,
-    source: kind === "heart" ? "heart_received" : "gratitude_received",
-    sourceRef: entry.id,
-    description: `${recognitionName()} from ${String(user.name ?? "").split(" ")[0]}`,
-    idempotencyKey: `gratitude_received:${entry.id}`,
-  });
-  if (!credit.ok) {
-    return { ok: false, status: 500, error: credit.error ?? "ledger refused the credit" };
+  // The balance column is a recomputed cache of the ledger, and the credit
+  // that produced it committed with the note above.
+  const balance = result.posted?.balance;
+  if (balance !== undefined) {
+    await deps.members.update(recipient.id, (u: any) => {
+      u.recognitionBalance = balance;
+    });
   }
-  await deps.members.update(recipient.id, (u: any) => {
-    u.recognitionBalance = credit.toBalance;
-  });
 
   // The same allowance the guard above decided against, re-read now that the
   // row is written, and re-read with the multiplier THIS send already
