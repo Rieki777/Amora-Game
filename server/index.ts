@@ -4237,7 +4237,7 @@ function stayPostingHooks() {
         dedupeKey: `stay:${stay.id}:lowbal:${today}`,
       });
     },
-    onStopped: async (stay: { id: string; userId: string }, balance: number) => {
+    onStopped: async (stay: { id: string; userId: string; rateSnapshotToken?: string }, balance: number) => {
       await notify({
         userId: stay.userId,
         type: "stays",
@@ -4246,7 +4246,7 @@ function stayPostingHooks() {
         link: "/stay",
         dedupeKey: `stay:${stay.id}:stopped:${today}`,
       });
-      await notifyAdmins("stays", `A stay is past its grace window (balance ${balance})`, `stay:${stay.id}:stopped:${today}`);
+      await notifyAdmins("stays", `A stay is past its grace window (balance ${fromLedgerUnits(stay.rateSnapshotToken ?? STAY_CREDIT, balance)})`, `stay:${stay.id}:stopped:${today}`);
     },
   };
 }
@@ -5680,7 +5680,7 @@ async function startServer() {
    */
   registerJob("seat-fee-settle", 6 * 60 * 60 * 1000, async () => {
     const r = await settleFinishedSeats(getPool());
-    if (r.settled) console.log(`[seats] ${r.settled} seat fee(s) settled to the treasury, ${r.amount} total`);
+    if (r.settled) console.log(`[seats] ${r.settled} seat fee(s) settled to the treasury, ${r.amount} minor units summed across every token`);
   });
 
   async function runLibrarySweep(): Promise<{ settled: number; overdue: number; stalled: number }> {
@@ -6554,7 +6554,7 @@ async function startServer() {
       if (!r.ok) throw new Error(r.error ?? "stay credit mint failed");
       await notify({
         userId: String(p.user_id), type: "stays",
-        title: `${p.credits_granted} stay credit(s) arrived, see you soon`,
+        title: `${fromLedgerUnits(STAY_CREDIT, Number(p.credits_granted))} stay credit(s) arrived, see you soon`,
         link: "/stay", dedupeKey: `ord:${orderId}:notify`,
       });
     },
@@ -12259,7 +12259,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // their ledger later.
     res.json({
       success: true, status: outcome.status, goingCount: outcome.goingCount,
-      charged: outcome.charged ?? 0,
+      charged: outcome.tokenType ? fromLedgerUnits(outcome.tokenType, outcome.charged ?? 0) : 0,
       tokenName: outcome.tokenType ? (tokenDef(outcome.tokenType)?.name ?? outcome.tokenType) : null,
     });
   });
@@ -12286,7 +12286,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const back = removed ? await seatChargeFor(getPool(), req.params.id, user.id, occ) : null;
     res.json({
       success: true, removed,
-      refunded: back?.status === "released" ? back.amount : 0,
+      refunded: back?.status === "released" ? fromLedgerUnits(back.tokenType, back.amount) : 0,
       tokenName: back ? (tokenDef(back.tokenType)?.name ?? back.tokenType) : null,
     });
   });
@@ -12336,7 +12336,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     }
     res.json({
       success: true, position: outcome.position, waiting: outcome.waiting,
-      charged: outcome.charged ?? 0,
+      charged: outcome.tokenType ? fromLedgerUnits(outcome.tokenType, outcome.charged ?? 0) : 0,
       tokenName: outcome.tokenType ? (tokenDef(outcome.tokenType)?.name ?? outcome.tokenType) : null,
     });
   });
@@ -12353,7 +12353,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const back = removed ? await seatChargeFor(getPool(), req.params.id, user.id, occ) : null;
     res.json({
       success: true, removed,
-      refunded: back?.status === "released" ? back.amount : 0,
+      refunded: back?.status === "released" ? fromLedgerUnits(back.tokenType, back.amount) : 0,
       tokenName: back ? (tokenDef(back.tokenType)?.name ?? back.tokenType) : null,
     });
   });
@@ -16469,7 +16469,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       loans,
       reconciliation: await escrowReconciliation(getPool()),
       supply: await supplyVsBacking(getPool()),
-      poolBalance: await balanceOf(getPool(), "sys:library-pool", LIBRARY_CREDIT),
+      poolBalance: fromLedgerUnits(LIBRARY_CREDIT, await balanceOf(getPool(), "sys:library-pool", LIBRARY_CREDIT)),
       disputeDeadlineDays: numberVar("library.dispute_deadline_days"),
     });
   });
@@ -16806,7 +16806,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
             swap.myPairs.push({
               payToken: from.tokenSlug, payTokenName: tokenDef(from.tokenSlug)?.name ?? from.tokenSlug,
               receiveToken: to.tokenSlug, receiveTokenName: tokenDef(to.tokenSlug)?.name ?? to.tokenSlug,
-              yourBalance: held[from.tokenSlug] ?? 0,
+              yourBalance: fromLedgerUnits(from.tokenSlug, held[from.tokenSlug] ?? 0),
             });
           }
         }
@@ -21510,7 +21510,7 @@ ${inner}
           cycleNumber: cycle.cycleNumber,
           startsAt: String(cycle.startsAt),
           endsAt: String(cycle.endsAt),
-        }, eligible);
+        }, eligible, { stageMultiplierFor: stageMultiplierById });
         // H7: with this lunation frozen, compare it to the one before and
         // tell the stewards what moved. Runs INSIDE the same try as the
         // snapshot on purpose — an alert failure must never unclose a
@@ -22498,7 +22498,7 @@ ${inner}
       // and the `denied` field is on a payload `client/src/pages/GameMechanics.tsx`
       // reads, which belongs to another lane. Removing it is that lane's call.
       isDeniable("mechanics.propose") && (ctx.badgeDenies ?? []).includes("mechanics.propose"),
-      Number(user.recognitionBalance ?? 0),
+      fromLedgerUnits(PLATFORM_TOKEN, Number(user.recognitionBalance ?? 0)),
       Math.max(0, numberVar("governance.hypha_threshold")),
       ctx.isAdmin,
     );
