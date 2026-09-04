@@ -1958,6 +1958,172 @@ describe.skipIf(!configured)("the village economy engine", () => {
     });
   });
 
+  describe("W4: the survivors, re-run against the new law", () => {
+    /*
+     * A fix that closes a hole by breaking something that held is not a fix.
+     * The clawback law is new code on the write path of every reversal in the
+     * build, so the closing proof's SURVIVED list is re-run here rather than
+     * assumed: these are the attacks that were already refused before this
+     * lane touched anything, and every one of them still is.
+     *
+     * The keystone half of the same list (forgery by literal, spread, clone,
+     * Object.create, JSON round trip and Proxy; the near-miss spellings at
+     * both gates; the mutation attempts on the frozen set; an ordinary spend
+     * from a lawfully negative account; allowNegative inside a pair) lives in
+     * `server/ledger.test.ts` and is re-run there.
+     */
+    const ORIG = "l8s-original";
+    let payer = "";
+
+    beforeAll(async () => {
+      payer = await makeMember("l8s-payer");
+      await postTransfer(pool, {
+        from: CYCLE_POOL_FAUCET, to: memberAccount(payer), tokenType: CREDITS,
+        amount: 25, source: "quest_consent", idempotencyKey: ORIG,
+      });
+    });
+
+    it("refuses every claim about the row that disagrees with the row", async () => {
+      // PROOF S: inflated, deflated, wrong direction, wrong token, and a
+      // human-units figure on a minor-units row.
+      const inflated = await reverse(pool, ORIG, { amount: 1_000_000 });
+      expect(inflated.ok).toBe(false);
+      expect(String(inflated.ok === false && inflated.error)).toContain("has amount 25");
+
+      const deflated = await reverse(pool, ORIG, { amount: 1 });
+      expect(deflated.ok).toBe(false);
+
+      const wrongWay = await reverse(pool, ORIG, { from: CYCLE_POOL_FAUCET });
+      expect(wrongWay.ok).toBe(false);
+      expect(String(wrongWay.ok === false && wrongWay.error)).toContain("has from");
+
+      const wrongToken = await reverse(pool, ORIG, { tokenSlug: HEARTS });
+      expect(wrongToken.ok).toBe(false);
+      expect(String(wrongToken.ok === false && wrongToken.error)).toContain("tokenSlug");
+
+      // Nothing moved through any of them.
+      expect(await balanceOf(pool, memberAccount(payer), CREDITS)).toBe(25);
+    });
+
+    it("refuses a degenerate key rather than matching something with it", async () => {
+      // PROOF S: empty, whitespace, `%` and `_`. The lookup is an equality
+      // and not a LIKE, and this is what says so out loud.
+      for (const key of ["", "   ", "%", "_", "%%", "l8s-origina_"]) {
+        const r = await reverse(pool, key, { note: "degenerate" });
+        expect(r.ok, `reverse(${JSON.stringify(key)}) should refuse`).toBe(false);
+      }
+      expect(await balanceOf(pool, memberAccount(payer), CREDITS)).toBe(25);
+    });
+
+    it("refuses a padded or case-folded spelling of a real key", async () => {
+      // PROOF S: the collation matches these to the real row, and the
+      // byte-exact read back is what makes the refusal say so.
+      const padded = await reverse(pool, `${ORIG} `, { note: "padded" });
+      expect(padded.ok).toBe(false);
+      expect(String(padded.ok === false && padded.error)).toContain("different key");
+
+      const shouted = await reverse(pool, ORIG.toUpperCase(), { note: "shouted" });
+      expect(shouted.ok).toBe(false);
+      expect(String(shouted.ok === false && shouted.error)).toContain("different key");
+      expect(await balanceOf(pool, memberAccount(payer), CREDITS)).toBe(25);
+    });
+
+    it("reverses once, then reports a duplicate, and refuses the mirror and its mirror", async () => {
+      // PROOF S sequential double, and PROOF N nested reversal.
+      const first = await reverse(pool, ORIG, { note: "once" });
+      expect(first.ok && first.duplicate).toBe(false);
+      const second = await reverse(pool, ORIG, { note: "twice" });
+      expect(second.ok && second.duplicate).toBe(true);
+      expect(await balanceOf(pool, memberAccount(payer), CREDITS)).toBe(0);
+
+      const mirrorKey = keys.reversal(villageId(), ORIG);
+      const undo = await reverse(pool, mirrorKey, { note: "undo the undo" });
+      expect(undo.ok).toBe(false);
+      const undoUndo = await reverse(pool, keys.reversal(villageId(), mirrorKey), { note: "deeper" });
+      expect(undoUndo.ok).toBe(false);
+      expect(await isReversed(pool, ORIG)).toBe(true);
+
+      const [rows] = await pool.query<any[]>(
+        "SELECT COUNT(*) AS n FROM `token_ledger` WHERE `source_ref` = ? AND `source` = 'reversal'",
+        [ORIG],
+      );
+      expect(Number(rows[0].n)).toBe(1);
+    });
+
+    it("refuses a posting of zero and a posting to itself", async () => {
+      // PROOF S degenerates, at the primitive rather than through reverse().
+      const zero = await postTransfer(pool, {
+        from: memberAccount(payer), to: TREASURY, tokenType: CREDITS,
+        amount: 0, source: "member_send", idempotencyKey: "l8s-zero",
+      });
+      expect(zero.ok).toBe(false);
+      expect(String(zero.error)).toContain("positive integer");
+
+      const itself = await postTransfer(pool, {
+        from: memberAccount(payer), to: memberAccount(payer), tokenType: CREDITS,
+        amount: 1, source: "member_send", idempotencyKey: "l8s-self",
+      });
+      expect(itself.ok).toBe(false);
+      expect(String(itself.error)).toContain("cannot transfer to itself");
+    });
+
+    it("holds every reversePair attack the proof tried", async () => {
+      // PROOF RP: same key twice, a case-variant leg, a padded leg,
+      // mismatched orders, a mirror passed as a leg, two ordinary postings,
+      // and the two that must still WORK: swapped arguments and a replay.
+      const PAY = "l8s-pay";
+      const GET = "l8s-get";
+      await registerToken(pool, { slug: PAY, name: "Survivor Pay", kind: "credit", governance: "platform", transferable: false });
+      await registerToken(pool, { slug: GET, name: "Survivor Get", kind: "credit", governance: "platform", transferable: false });
+      const u = await makeMember("l8s-swapper");
+      await postTransfer(pool, { from: MINT_FAUCET, to: TREASURY, tokenType: GET, amount: 300, source: "exchange_stock", idempotencyKey: "l8s-stock" });
+      await postTransfer(pool, { from: MINT_FAUCET, to: memberAccount(u), tokenType: PAY, amount: 61, source: "admin_mint", idempotencyKey: "l8s-grant" });
+      const swap = await postTransferPair(pool, [
+        { from: memberAccount(u), to: TREASURY, tokenType: PAY, amount: 61, source: "exchange_swap", sourceRef: "ord-l8s", idempotencyKey: "ord:ord-l8s:leg1" },
+        { from: TREASURY, to: memberAccount(u), tokenType: GET, amount: 20, source: "exchange_swap", sourceRef: "ord-l8s", idempotencyKey: "ord:ord-l8s:leg2" },
+      ]);
+      expect(swap.ok).toBe(true);
+
+      const same = await reversePair(pool, "ord:ord-l8s:leg1", "ord:ord-l8s:leg1", {});
+      expect(same.ok).toBe(false);
+      expect(String(same.ok === false && same.error)).toContain("two distinct keys");
+
+      const shouted = await reversePair(pool, "ORD:ord-l8s:leg1", "ord:ord-l8s:leg2", {});
+      expect(shouted.ok).toBe(false);
+      expect(String(shouted.ok === false && shouted.error)).toContain("there is no posting keyed");
+
+      const padded = await reversePair(pool, "ord:ord-l8s:leg1 ", "ord:ord-l8s:leg2", {});
+      expect(padded.ok).toBe(false);
+      expect(String(padded.ok === false && padded.error)).toContain("there is no posting keyed");
+
+      const mismatched = await reversePair(pool, "ord:ord-l8s:leg1", "ord:other-l8s:leg2", {});
+      expect(mismatched.ok).toBe(false);
+
+      const mirrorAsLeg = await reversePair(pool, keys.reversal(villageId(), ORIG), "ord:ord-l8s:leg2", {});
+      expect(mirrorAsLeg.ok).toBe(false);
+      expect(String(mirrorAsLeg.ok === false && mirrorAsLeg.error)).toContain("cannot itself be reversed");
+
+      const ordinary = await reversePair(pool, ORIG, "l8s-zero", {});
+      expect(ordinary.ok).toBe(false);
+
+      // Nothing above moved a thing.
+      expect(await balanceOf(pool, memberAccount(u), PAY)).toBe(0);
+      expect(await balanceOf(pool, memberAccount(u), GET)).toBe(20);
+
+      // The two that must still work: legs in either order, and a replay.
+      const swapped = await reversePair(pool, "ord:ord-l8s:leg2", "ord:ord-l8s:leg1", { note: "either order" });
+      expect(swapped.ok && swapped.duplicate).toBe(false);
+      expect(await balanceOf(pool, memberAccount(u), PAY)).toBe(61);
+      expect(await balanceOf(pool, memberAccount(u), GET)).toBe(0);
+      const replay = await reversePair(pool, "ord:ord-l8s:leg1", "ord:ord-l8s:leg2", { note: "either order" });
+      expect(replay.ok && replay.duplicate).toBe(true);
+      expect(await balanceOf(pool, memberAccount(u), PAY)).toBe(61);
+
+      const report = await checkLedgerInvariants(pool);
+      expect(report.problems.filter((p) => p.includes(memberAccount(u)))).toEqual([]);
+    });
+  });
+
   describe("W4: the description clamp counts the unit the column counts", () => {
     /*
      * PROOF CLIP. Observed then, on a note of 400 emoji:
