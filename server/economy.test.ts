@@ -50,6 +50,7 @@ import {
   runSettlement,
   shareCapFor,
   VILLAGE_VOICE,
+  VOICE_DECIMALS,
   VOICE_BRIDGE,
   VOICE_DECAY,
   VOICE_MINT,
@@ -2414,8 +2415,10 @@ describe.skipIf(!configured)("the village economy engine", () => {
       const u = await holding("wane-five", 5000);
       const out = await runSettlement(dpool, at);
 
-      // 5000 minor units at VOICE_DECIMALS = 3 is 5.000 Voice. One percent of
-      // it is 50 units, which is 0.050 Voice, so the chip reads 4.950.
+      // 5000 minor units at VOICE_DECIMALS = 2 is 50.00 Voice. One percent of
+      // it is 50 units, which is 0.50 Voice, so the chip reads 49.50. The
+      // assertions are in MINOR units, so they hold at any scale and the scale
+      // only decides what a member reads.
       expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(4950);
       expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(50);
       // The whole reason waning is a posting: per token, every balance still
@@ -2550,18 +2553,26 @@ describe.skipIf(!configured)("the village economy engine", () => {
         [`seat-${id}`, `role-${id}`, id, id],
       );
 
+      /*
+       * The rule pays 50 in HUMAN Voice, so what lands in the ledger is 50
+       * times the token's scale. Written as that arithmetic and not as a
+       * constant: every other case in this block seeds MINOR units directly
+       * and is scale-free, and this is the one that converts, so it is the one
+       * that has to say which scale it converted at.
+       */
+      const seat = 50 * 10 ** VOICE_DECIMALS;
       const first = new Date();
       const firstRun = await runSettlement(dpool, first);
-      // 50 Voice at three decimals. Nothing waned: the member held nothing
-      // when the moon opened.
+      // Nothing waned: the member held nothing when the moon opened.
       expect(firstRun.decay.holders).toBe(0);
-      expect(await balanceOf(dpool, memberAccount(id), VILLAGE_VOICE)).toBe(50000);
+      expect(await balanceOf(dpool, memberAccount(id), VILLAGE_VOICE)).toBe(seat);
 
       const second = new Date(first.getTime() + 30 * 24 * 60 * 60 * 1000);
       await runSettlement(dpool, second);
       // One percent of what they held at the open, then this moon's seat.
-      expect(await balanceOf(dpool, memberAccount(id), VILLAGE_VOICE)).toBe(50000 - 500 + 50000);
-      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(500);
+      const waned = Math.floor(seat / 100);
+      expect(await balanceOf(dpool, memberAccount(id), VILLAGE_VOICE)).toBe(seat - waned + seat);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(waned);
       expect(await voiceSum()).toBe(0);
     });
 

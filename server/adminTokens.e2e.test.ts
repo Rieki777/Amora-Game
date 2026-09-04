@@ -465,7 +465,7 @@ describe.skipIf(!DB_CONFIGURED)("the tokens tab, and what a member sees afterwar
     const registry = await call("GET", "/api/admin/tokens", undefined, founderToken);
     const voiceRow = (registry.json?.tokens ?? []).find((t: any) => t.slug === VOICE);
     expect(voiceRow, "the village voice token is seeded at boot").toBeTruthy();
-    expect(voiceRow.decimals, "and it is the one token that rides in thousandths").toBe(3);
+    expect(voiceRow.decimals, "and since the 2026-09-04 scale ruling it rides in hundredths").toBe(2);
 
     // UNDER the co-signature threshold now that the amount is whole tokens,
     // so this is the one-steward path. The two-steward flow is established by

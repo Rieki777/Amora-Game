@@ -292,10 +292,11 @@ describe.skipIf(!DB_CONFIGURED)("four decimals, through the routes that post and
     expect(byslug[CREDITS]?.decimals).toBe(4);
     expect(byslug[GRATITUDE]?.decimals).toBe(4);
     expect(byslug[STAY_CREDIT]?.decimals).toBe(4);
-    // `village-voice` was always the one token with a scale, and it is the
-    // control: if these assertions ever collapse onto decimals 0, this line
-    // fails too and says so.
-    expect(byslug["village-voice"]?.decimals).toBe(3);
+    // `village-voice` is the control: if these assertions ever collapse onto
+    // decimals 0, this line fails too and says so. It reads 2 since the
+    // 2026-09-04 scale ruling and 0162, which is the scale it now carries
+    // everywhere, and it is deliberately NOT the 4 the cases above set.
+    expect(byslug["village-voice"]?.decimals).toBe(2);
     await conserves();
   });
 

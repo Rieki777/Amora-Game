@@ -26,7 +26,7 @@
 --   never be swapped and never be redeemed, and every one of those is refused
 --   in code by name. A recognition token has no financial value of its own, so
 --   a scale on it is a conversion surface bought for nothing.
---   `amora` is equity and `voice` is voice, and both are `governance = 'hypha'`:
+--   `equity` is equity and `voice` is voice, both `governance = 'hypha'`:
 --   read-only mirrors of tokens that live on Base. Their scale is decided by
 --   the chain, a boot invariant requires them to hold no ledger rows here, and
 --   `validateLeg` refuses to move them. Writing a scale onto a mirror would be
@@ -106,6 +106,11 @@ CREATE TABLE IF NOT EXISTS `_token_scale_guard` (
   PRIMARY KEY (`refusal`)
 ) ENGINE=InnoDB;
 
+-- This statement READS `tokens` and writes only the guard table, so the token
+-- doc generator is told to skip it. Without the directive it refuses to guess,
+-- which is the behaviour that belongs in a generator and not a reason to
+-- reshape a guard around a reader.
+-- token-doc: ignore
 INSERT INTO `_token_scale_guard` (`refusal`)
 SELECT `offending`.`refusal`
 FROM (
@@ -134,7 +139,17 @@ FROM (
 ) `offending`
 JOIN (SELECT 1 AS `n` UNION ALL SELECT 2) `twice`;
 
+-- TWO STATEMENTS AND NOT ONE `OR`, for two reasons that agree. The tokens move
+-- for DIFFERENT reasons and each statement now carries exactly one of them:
+-- the first is the currency-like set, the second is the waning set. And
+-- `whereMatcher` in scripts/generate-token-doc.mjs splits a WHERE on AND alone,
+-- so an `OR` here would have needed a directive teaching a generated document
+-- to read a shape written only to save a line.
+
 UPDATE `tokens`
    SET `decimals` = 2
- WHERE (`kind` = 'credit' AND `governance` = 'platform')
-    OR (`slug` = 'village-voice');
+ WHERE `kind` = 'credit' AND `governance` = 'platform';
+
+UPDATE `tokens`
+   SET `decimals` = 2
+ WHERE `slug` = 'village-voice';

@@ -48,6 +48,13 @@ import {
 import { loadVariables, setVariable } from "./variables";
 
 const configured = testDbConfigured();
+/**
+ * PINNED to 0 in the setup below. It used to inherit the registry default, and
+ * `0162` ended that: credits are currency-like and now carry two places. This
+ * file is about a conversion being applied exactly once in each direction, so
+ * it needs one token with no scale and one with a big one, and the pin is what
+ * keeps the first of those true.
+ */
 const CREDITS = "credits";
 /**
  * A credit token at FOUR decimals, which is where the whole platform is going.
@@ -105,7 +112,7 @@ describe.skipIf(!configured)("a night paid in village credits", () => {
     db = await provisionTestDb();
     pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 6 }); // module-review-ok: the S5 scratch-schema harness pool, the ballots.test.ts shape
     await loadTokenRegistry(pool);
-    // A fresh schema seeds gratitude, amora, voice and credits. `stay-credit`
+    // A fresh schema seeds gratitude, equity, voice and credits. `stay-credit`
     // is registered at BOOT by the stays module, not by a migration, so a
     // suite that talks to it has to do what boot does.
     await ensureStayToken(pool);
@@ -117,6 +124,10 @@ describe.skipIf(!configured)("a night paid in village credits", () => {
       transferable: true,
       decimals: 4,
     });
+    // The pin. See CREDITS above: this file needs one token with no scale, and
+    // the platform no longer ships one under that slug.
+    await pool.query("UPDATE tokens SET decimals = 0 WHERE slug = ?", [CREDITS]); // module-review-ok: the decimals seam this file exists to exercise, against the S5 scratch schema
+    await loadTokenRegistry(pool);
   });
 
   afterAll(async () => {

@@ -119,12 +119,16 @@ describe.skipIf(!configured)("0162, the scale ruling, run against a real schema"
     // The runner's own discovery pattern. A file it cannot see never runs
     // anywhere and nothing says so.
     expect(/^\d{4}.*\.sql$/.test(path.basename(MIGRATION))).toBe(true);
-    // Three statements: the guard table, the guard, the registry update. The
-    // registry update is LAST, which is the ordering rule and not an accident
-    // of how the file was typed.
+    // Four statements: the guard table, the guard, then ONE registry update per
+    // reason a token moves. Both updates are LAST, which is the ordering rule
+    // and not an accident of how the file was typed.
     const parts = statements();
-    expect(parts.length).toBe(3);
+    expect(parts.length).toBe(4);
     expect(parts[2]).toMatch(/^UPDATE `tokens`/);
+    expect(parts[3]).toMatch(/^UPDATE `tokens`/);
+    // Nothing writes the registry before the guard has had its say.
+    expect(parts[0]).toMatch(/^CREATE TABLE IF NOT EXISTS `_token_scale_guard`/);
+    expect(parts[1]).toMatch(/^INSERT INTO `_token_scale_guard`/);
   });
 
   it("moves credit tokens up and Village Voice down, and leaves the rest whole", async () => {
@@ -215,9 +219,10 @@ describe.skipIf(!configured)("0162, the scale ruling, run against a real schema"
     await windBack();
     // A member holds five whole credits at scale 0, so the row reads 5.
     const held = 5;
-    // Step OVER the guard and run only the registry update, which is what a
+    // Step OVER the guard and run only the registry updates, which is what a
     // village would get if this file trusted its ledger instead of asking.
     await pool.query(statements()[2]);
+    await pool.query(statements()[3]);
     const after = (await scales()).credits;
     expect(after).toBe(CURRENCY_DECIMALS);
     // The row did not move, so the same 5 now reads as five hundredths. The

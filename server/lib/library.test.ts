@@ -308,13 +308,28 @@ describe.skipIf(!configured)("the material library, in the units the ledger actu
   };
 
   describe("at decimals 0, where a credit and a minor unit are the same number", () => {
+    /*
+     * THE SCALE IS SET HERE AND NO LONGER INHERITED. This block used to lean on
+     * library credits happening to carry 0, which the 2026-09-04 scale ruling
+     * ended: a credit token is currency-like and `0162` gives it two places.
+     * Leaning on a platform default made this block silently change what it was
+     * asking the day that default moved, so it now names the scale it is about.
+     */
+    beforeAll(async () => {
+      await pool.query("UPDATE tokens SET decimals = 0 WHERE slug = ?", [LIBRARY_CREDIT]); // module-review-ok: the decimals seam this block exists to exercise, against the S5 scratch schema
+      await loadTokenRegistry(pool);
+    });
     scenarios("d0", 0);
   });
 
-  describe("at decimals 4, the scale the ruling moves every token to", () => {
+  describe("at decimals 4, a scale no token ships at, which is what makes it a test", () => {
     beforeAll(async () => {
+      // The pre-flip scale, set rather than inherited, so this block does not
+      // depend on which block ran before it.
+      await pool.query("UPDATE tokens SET decimals = 0 WHERE slug = ?", [LIBRARY_CREDIT]); // module-review-ok: the decimals seam this block exists to exercise, against the S5 scratch schema
+      await loadTokenRegistry(pool);
       // A loan opened at the OLD scale, so the flip has something live to
-      // survive. This is the state the migration meets in a seeded fork.
+      // survive. This is the state a rescaling migration meets in a seeded fork.
       const donor = await member("lib-carried-donor");
       const shelved = await recordIntake(pool, {
         name: "Carried barrow", appraisal: 100, donorUserId: donor, recordedBy: null,
@@ -329,9 +344,11 @@ describe.skipIf(!configured)("the material library, in the units the ledger actu
       if (!reserved.ok) throw new Error(reserved.error);
       carriedLoanId = reserved.loanId;
 
-      // THE FLIP, exactly as the migration will do it: the registry row and
+      // THE RESCALE, done the only way it is ever safe: the registry row and
       // every holding move together, in one step, and the module's own mirror
-      // column is deliberately untouched.
+      // column is deliberately untouched. `0162` refuses instead of doing this,
+      // because it cannot know what a fork holds; a village that DID hold rows
+      // would have to move them exactly like this.
       await pool.query("UPDATE tokens SET decimals = 4 WHERE slug = ?", [LIBRARY_CREDIT]);
       await pool.query("UPDATE token_ledger SET amount = amount * 10000 WHERE token_type = ?", [LIBRARY_CREDIT]);
       await pool.query("UPDATE token_balances SET balance = balance * 10000 WHERE token_type = ?", [LIBRARY_CREDIT]);

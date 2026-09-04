@@ -53,7 +53,8 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { balanceOf, ledgerEntryExists, memberAccount, MINT_FAUCET, postTransfer, registerToken, tokenDef, TREASURY } from "./ledger";
-import { CURRENCY_DECIMALS, fromLedgerUnits, toLedgerUnits } from "./economy";
+import { fromLedgerUnits, toLedgerUnits } from "./economy";
+import { CURRENCY_DECIMALS } from "../../shared/tokenScale";
 import { numberVar } from "./variables";
 import { cycleIdFor, currentCycle } from "./gratitude-cycles";
 import { recordEvent } from "./events";

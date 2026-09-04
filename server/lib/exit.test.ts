@@ -59,16 +59,24 @@ import { blockingStates, createExit, EXIT_SETTLEMENT, exitOpenState, sweepBalanc
 
 const configured = testDbConfigured();
 
-/** Registered by 0007, `decimals` 0 by the registry's default. */
+/**
+ * Registered by 0007, and PINNED to 0 in the setup below.
+ *
+ * It used to inherit 0 from the registry default, and `0162` ended that: credits
+ * are currency-like and now carry two places. The pin is what keeps the three
+ * tokens here at three DISTINCT scales, which is the property the last
+ * assertion in the scale case depends on. Left to inherit, credits and Voice
+ * would both read 2 and that assertion would be measuring two scales while
+ * claiming three.
+ */
 const WHOLE = "credits";
-/** Registered by `ensureVoiceToken`, `decimals` 3 today. */
+/** Registered by `ensureVoiceToken`, `decimals` 2 since the 2026-09-04 ruling. */
 const VOICE = VILLAGE_VOICE;
 /**
- * A token at the scale the ruling is moving everything to, registered here so
- * this file proves the sweep AFTER the flip and not only before it. At
- * decimals 0 a conversion bug is invisible, because a human number and a minor
- * unit are the same number; this token is what makes the wrong fix show up as
- * a factor of ten thousand instead of not at all.
+ * A token at a scale no token ships at, registered here so this file proves the
+ * sweep at a third scale. At decimals 0 a conversion bug is invisible, because a
+ * human number and a minor unit are the same number; this token is what makes
+ * the wrong fix show up as a factor of ten thousand instead of not at all.
  */
 const FINE = "exit-sweep-fine";
 
@@ -177,6 +185,9 @@ describe.skipIf(!configured)("what a departing member's balance is worth, and in
       transferable: false,
       decimals: 4,
     });
+    // The pin. See WHOLE above: this file needs three distinct scales and the
+    // platform now ships credits and Voice at the same one.
+    await pool.query("UPDATE tokens SET decimals = 0 WHERE slug = ?", [WHOLE]); // module-review-ok: the decimals seam this file exists to exercise, against the S5 scratch schema
     await loadTokenRegistry(pool);
   });
 
@@ -190,16 +201,17 @@ describe.skipIf(!configured)("what a departing member's balance is worth, and in
   it("reads one minor amount as three different numbers, at today's registered decimals", () => {
     /*
      * THE ONLY SCALE-BOUND CASE IN THIS FILE, and it is deliberately about the
-     * registry rather than about the exit. 12345 minor units is 12345 credits,
-     * 12.345 voice and 1.2345 of a decimals-4 token, and those three readings
-     * are what every other case below asks for without naming them.
+     * registry rather than about the exit. 12345 minor units is 12345 credits
+     * at the pinned 0, 123.45 voice at two places and 1.2345 of a decimals-4
+     * token, and those three readings are what every other case below asks for
+     * without naming them.
      *
-     * When the ruling lands and every token is at 4 decimals, all three become
-     * 1.2345 and this case is the one that has to be re-read. Nothing else in
-     * the file will move, which is the whole reason the numbers live here.
+     * The Voice reading moved from 12.345 to 123.45 when the 2026-09-04 ruling
+     * took Voice from three places to two. Nothing else in the file moved,
+     * which is the whole reason the numbers live here.
      */
     expect(fromLedgerUnits(WHOLE, MINOR)).toBe(12_345);
-    expect(fromLedgerUnits(VOICE, MINOR)).toBe(12.345);
+    expect(fromLedgerUnits(VOICE, MINOR)).toBe(123.45);
     expect(fromLedgerUnits(FINE, MINOR)).toBe(1.2345);
 
     // And the three scales really are three, which is what gives the cases

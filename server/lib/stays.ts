@@ -42,7 +42,8 @@
  * same reason a member in grace on stay credits is.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { CURRENCY_DECIMALS, fromLedgerUnits, toLedgerUnits } from "./economy";
+import { fromLedgerUnits, toLedgerUnits } from "./economy";
+import { CURRENCY_DECIMALS } from "../../shared/tokenScale";
 import { ledgerEntryExists, MINT_FAUCET, memberAccount, postGraceNightBurn, postTransfer, registerToken, tokenDef } from "./ledger";
 import { spendSinkFor } from "./spending";
 import { numberVar } from "./variables";
