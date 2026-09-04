@@ -40,6 +40,8 @@ import {
   routeOutcome,
   stampLanding,
   stewardNoVote,
+  clearPending,
+  openPending,
   unfinishedLandings,
   type CloseRouting,
   type LandingDeps,
@@ -525,6 +527,93 @@ describe.skipIf(!configured)("the election, and landing exactly once", () => {
     throwOnExecute = false;
     await applyDueGovernance(deps());
     expect(writes).toEqual([`landed:${b.id}`]);
+  });
+});
+
+describe.skipIf(!configured)("the unfinished-landing readback, on a database at any offset", () => {
+  /*
+   * Two clocks met in this table and nobody noticed, because the machine that
+   * ran the tests sat seven hours west of UTC.
+   *
+   * `openPending` stamped `claimed_at` with the DATABASE's `NOW()`, while the
+   * bound `unfinishedLandings` compares against is a UTC instant this module
+   * computed itself. On a database at UTC the two land in the same whole
+   * second and a strict `<` cannot see the row it has just claimed, so a
+   * landing that died mid-flight was invisible to the only query a human has
+   * for finding it. Seven hours west, the same bound sits seven hours in the
+   * FUTURE, so every open row came back regardless of age and the ten-minute
+   * grace meant nothing.
+   *
+   * Both readings are pinned here, so neither clock can hide the other: the
+   * stamps are written on this module's own UTC clock, a row claimed this
+   * instant is unfinished at a zero bound, and the same row is still held back
+   * by the default one.
+   */
+  it("stamps claimed_at and cleared_at on the module's own clock, not the database's", async () => {
+    const id = `pend-clock-${++n}`;
+    const before = Date.now();
+    await openPending(pool, id);
+    const [claimed] = await pool.query<any[]>(
+      "SELECT claimed_at FROM governance_executor_pending WHERE ballot_id = ?",
+      [id],
+    );
+    expect(claimed.length).toBe(1);
+    expect(new Date(claimed[0].claimed_at).getTime()).toBeGreaterThanOrEqual(before - 60_000);
+    expect(new Date(claimed[0].claimed_at).getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+
+    await clearPending(pool, id);
+    const [cleared] = await pool.query<any[]>(
+      "SELECT cleared_at FROM governance_executor_pending WHERE ballot_id = ?",
+      [id],
+    );
+    expect(cleared[0].cleared_at).not.toBeNull();
+    expect(new Date(cleared[0].cleared_at).getTime()).toBeGreaterThanOrEqual(before - 60_000);
+    expect(new Date(cleared[0].cleared_at).getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+  });
+
+  it("sees a landing claimed in this very second", async () => {
+    const id = `pend-now-${++n}`;
+    await openPending(pool, id);
+    expect(await unfinishedLandings(pool, 0)).toContain(id);
+  });
+
+  it("still holds back a landing claimed inside the grace, and lets it through once past", async () => {
+    const id = `pend-grace-${++n}`;
+    await openPending(pool, id);
+    expect(await unfinishedLandings(pool)).not.toContain(id);
+    // Age the claim past the default ten minutes and it becomes a report.
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "UPDATE governance_executor_pending SET claimed_at = ? WHERE ballot_id = ?",
+      [new Date(Date.now() - 30 * 60_000), id],
+    );
+    expect(await unfinishedLandings(pool)).toContain(id);
+  });
+
+  it("reports a landing claimed at the very instant of the bound", async () => {
+    /*
+     * The operator, proven on any clock. `claimed_at` is a TIMESTAMP and keeps
+     * whole seconds, so a row claimed in the same second as the bound is not
+     * "before" it, and under a strict `<` the query answered no to `x < x`.
+     * That is exactly the shape a row claimed this instant has on a database
+     * running at UTC, which is what CI runs and what this box does not.
+     */
+    const id = `pend-edge-${++n}`;
+    await openPending(pool, id);
+    // An anchor on a whole second, so the bound the call computes truncates
+    // back to that same second however many milliseconds pass in between.
+    const anchor = Math.floor((Date.now() + HOUR) / 1000) * 1000;
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "UPDATE governance_executor_pending SET claimed_at = ? WHERE ballot_id = ?",
+      [new Date(anchor), id],
+    );
+    expect(await unfinishedLandings(pool, Date.now() - anchor)).toContain(id);
+  });
+
+  it("never reports a landing that finished", async () => {
+    const id = `pend-done-${++n}`;
+    await openPending(pool, id);
+    await clearPending(pool, id);
+    expect(await unfinishedLandings(pool, 0)).not.toContain(id);
   });
 });
 

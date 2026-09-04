@@ -536,6 +536,12 @@ export async function claimDue(pool: Pool, ballotId: string, at: Date): Promise<
  * what it said" became a row that said "this is running", and the only trace of
  * why the first run died was a counter. `attempts` still counts, read off the
  * rows that came before.
+ *
+ * ONE CLOCK. `claimed_at` and `cleared_at` are written with `sqlInstant`, the
+ * same UTC stamp every other instant in this module uses, and never with the
+ * database's `NOW()`. `NOW()` is the database server's wall clock, and every
+ * bound this module compares a stamp against is UTC, so on a server west of
+ * UTC the two were hours apart and the age of an attempt was fiction.
  */
 export async function openPending(pool: Pool, ballotId: string): Promise<void> {
   const [prior] = await pool.query<RowDataPacket[]>(
@@ -543,8 +549,8 @@ export async function openPending(pool: Pool, ballotId: string): Promise<void> {
     [ballotId],
   );
   await pool.query(
-    "INSERT INTO governance_executor_pending (ballot_id, claimed_at, attempts) VALUES (?, NOW(), ?)",
-    [ballotId, Number(prior[0]?.n ?? 0) + 1],
+    "INSERT INTO governance_executor_pending (ballot_id, claimed_at, attempts) VALUES (?, ?, ?)",
+    [ballotId, sqlInstant(new Date()), Number(prior[0]?.n ?? 0) + 1],
   );
 }
 
@@ -559,16 +565,26 @@ export async function clearPending(pool: Pool, ballotId: string, error?: string)
     return;
   }
   await pool.query(
-    "UPDATE governance_executor_pending SET cleared_at = NOW(), last_error = NULL WHERE ballot_id = ? " +
+    "UPDATE governance_executor_pending SET cleared_at = ?, last_error = NULL WHERE ballot_id = ? " +
       "AND cleared_at IS NULL ORDER BY id DESC LIMIT 1",
-    [ballotId],
+    [sqlInstant(new Date()), ballotId],
   );
 }
 
-/** Decisions that started landing and never finished. A human can act on these. */
+/**
+ * Decisions that started landing and never finished. A human can act on these.
+ *
+ * The comparison is `<=`, not `<`, because `claimed_at` is a TIMESTAMP and
+ * carries whole seconds while the bound carries the same. At `olderThanMs` 0
+ * the bound IS the second the row was claimed in, and a strict `<` asked
+ * whether a second was before itself: on a database at UTC the only rows this
+ * could ever report were the ones claimed in an earlier second, so a landing
+ * that died the instant it was claimed stayed invisible to the one query that
+ * looks for it.
+ */
 export async function unfinishedLandings(pool: Pool, olderThanMs = 10 * 60 * 1000): Promise<string[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT DISTINCT ballot_id FROM governance_executor_pending WHERE cleared_at IS NULL AND claimed_at < ? " +
+    "SELECT DISTINCT ballot_id FROM governance_executor_pending WHERE cleared_at IS NULL AND claimed_at <= ? " +
       "ORDER BY ballot_id",
     [sqlInstant(new Date(Date.now() - olderThanMs))],
   );
