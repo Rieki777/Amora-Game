@@ -464,6 +464,33 @@ first.** Everything above was measured against a scratch database and a built
 server driven by a harness. No member has ever used any of it. Section 11 item 3
 is the open question about what would change that.
 
+### The dry run reads this economy once, and reads it read only
+
+A member previewing a decision runs a simulation, and a simulation that could
+write would be a way to change the village by asking it a question. So the
+economy is handed to the preview as plain data, read once by
+`server/lib/dryRunEconomyReader.ts` off a connection the caller has already
+fenced with `SET TRANSACTION READ ONLY`. Every statement in that file is a
+SELECT, it opens no transaction of its own, and it takes a single connection and
+never a pool, so nothing it does can escape the fence; the database itself
+refuses a write inside one with error 1792, and its tests prove all of that
+including the fence. It answers four things: the token registry with each
+token's decimals, faucet and sinks; every balance in minor units as a `bigint`,
+faucets and their negatives included, so conservation can be checked from the
+snapshot alone; every mint rule, disabled ones as well, carrying both the scaled
+minor units and the `decimal(18,4)` column's own text, because a rule written at
+0.0004 on a whole-unit token rounds to zero and only the text can say that was
+not somebody's decision; and every game variable, the village's stored value
+where it has one and the platform default everywhere else. **A founder can open
+a preview before the economy has been seeded, and an empty table is not a
+measurement.** So the fallback is per section: an empty `tokens` or `mint_rules`
+falls back to what `economySeed.ts` would write at the village's first boot,
+which is a mock, and `economyProvenance` says which sections were measured and
+which were filled in so a mock is never read as a measurement. Balances and
+variables never fall back. A village with no balance rows really is at zero, and
+`game_variables` stores deltas only, so an empty one is a village on the platform
+defaults; both of those are things the reader looked at and found.
+
 ---
 
 ## 10. Known defects, with their measurements
