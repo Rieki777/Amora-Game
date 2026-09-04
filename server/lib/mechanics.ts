@@ -831,6 +831,15 @@ export interface ProposalRow {
   hyphaProposalUrl: string | null;
   /** Whether the (marker, proposalId) link has reached the ReGen hub. */
   hubLinkSynced: boolean;
+  /**
+   * The proposal this one comes back from, and the word the proposer used for
+   * how it relates to it (renews | overrides | replaces). The relation is what
+   * the veto override reads: pointing at a stopped row is not by itself the
+   * village answering the objection at its highest bar, and a renewal and a
+   * rewrite point at exactly the same column.
+   */
+  supersedesProposalId: string | null;
+  supersedesRelation: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -849,6 +858,8 @@ export function rowToProposal(r: RowDataPacket): ProposalRow {
     hyphaProposalId: r.hypha_proposal_id ?? null,
     hyphaProposalUrl: r.hypha_proposal_url ?? null,
     hubLinkSynced: Boolean(r.hub_link_synced),
+    supersedesProposalId: r.supersedes_proposal_id ?? null,
+    supersedesRelation: r.supersedes_relation ?? null,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
   };

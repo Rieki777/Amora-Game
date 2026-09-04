@@ -61,7 +61,7 @@ import { register as registerGovernanceLandingRoutes } from "./routes/governance
 // The dispatcher lane: the landing path, the change-set executor and the roll notice.
 import { applyDueGovernance, autoSettleExpired, digestComposerFor, itemKindsOf, markNotApplicable, overrideDials, routeOutcome, runVetoWatch, vetoWindowOn, type CloseRouting, type LandingDeps, type SubjectCloser } from "./lib/applyDue";
 import { register as registerGovernanceModeRoutes } from "./routes/governanceMode";
-import { changeSetKinds, comingBackFrom, seasonEndInstant, setSeasonWindowReader } from "./lib/governanceWindows";
+import { changeSetKinds, comingBackFrom, relationProblem, seasonEndInstant, setSeasonWindowReader, supersedeColumns } from "./lib/governanceWindows";
 import { applyChangeSet, applyMechanicsProposal as applyChangeSetForProposal, changeSetSnapsToBoundary, changeSetWaitsForCycleClose, recordMechanicsChangeRow, UntypedElementError, type ApplySetResult, type ChangesetDeps } from "./lib/changeset";
 import { landingRow } from "./lib/applyDue";
 import { notifyRollRows, type RollNotice } from "./lib/ballotNotices";
@@ -22511,14 +22511,14 @@ ${inner}
       cooldown,
       readMintRulesForChangeSet,
     );
-    if (problems.length) return res.status(400).json({ error: "The change-set has problems", problems });
+    const badRelation = relationProblem(req.body?.supersedesRelation);
+    if (problems.length || badRelation) return res.status(400).json({ error: badRelation ?? "The change-set has problems", problems });
     const id = `gmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const status = standing.qualified ? "open" : "draft";
-    // The proposer's timing (0135), frozen onto the ballot at open. Absent
-    // means next_moon, the founder's default.
+    // The proposer's timing (0135; absent means next_moon) and the relation a resubmission states (19E; an unknown word was refused above), both frozen at open.
     await getPool().query(
-      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status, timing, supersedes_proposal_id) VALUES (?,?,?,?,?,?,?,?)",
-      [id, title, rationale, JSON.stringify(normalized), user.id, status, timingOf(req.body?.timing), String(req.body?.supersedesProposalId ?? "").trim().slice(0, 64) || null],
+      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status, timing, supersedes_proposal_id, supersedes_relation) VALUES (?,?,?,?,?,?,?,?,?)",
+      [id, title, rationale, JSON.stringify(normalized), user.id, status, timingOf(req.body?.timing), ...supersedeColumns(req.body)],
     );
     if (status === "open") {
       await addActivity("governance", `${firstName(user.name)} proposed a change to the game's rules: ${title}`, {
@@ -24722,7 +24722,7 @@ ${inner}
       // decided on the ballot, so an edit after the vote opened cannot move the
       // instant the village was shown. Absent means next_moon.
       timing: timingOf((p as { timing?: unknown }).timing),
-      window: { elements: changeSetKinds(p.changeSet), comingBackFrom: await comingBackFrom(getPool(), p.id) }, // windows lane (19E): the strictest element decides, and anything coming back gets its grace
+      window: { elements: changeSetKinds(p.changeSet), comingBackFrom: await comingBackFrom(getPool(), p.id), relation: p.supersedesRelation }, // windows lane (19E): the strictest element decides, anything coming back gets its grace, and the stated relation is read once more before the vote opens
       onOpen: async (conn, ballotId) => {
         const [r] = await conn.query<any>(
           "UPDATE mechanics_proposals SET status = 'onsite_vote', ballot_id = ? WHERE id = ? AND status = 'open'",

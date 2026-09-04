@@ -424,6 +424,26 @@ export function relationProblem(raw: unknown): string | null {
 }
 
 /**
+ * THE TWO COLUMNS A RESUBMISSION WRITES, in the order the INSERT names them.
+ *
+ * The relation is a sentence the proposer says: it is what separates the
+ * village answering a veto at its highest bar (19E) from a renewal or a
+ * withdraw-and-rewrite clone, and `isOverride` reads it for exactly the word
+ * "overrides". It lived only in test fixtures until the publish route carried
+ * it, which made the override inert in every real village. Validate with
+ * `relationProblem` FIRST: an unknown word must be refused, never stored.
+ *
+ * A relation with nothing to point at is dropped, so no row claims to come
+ * back from a proposal it does not name.
+ */
+export function supersedeColumns(body: unknown): [string | null, string | null] {
+  const b = (body ?? {}) as { supersedesProposalId?: unknown; supersedesRelation?: unknown };
+  const of = String(b.supersedesProposalId ?? "").trim().slice(0, 64) || null;
+  const relation = String(b.supersedesRelation ?? "").trim().toLowerCase() || null;
+  return [of, of ? relation : null];
+}
+
+/**
  * When the decision this proposal comes back from closed, or null.
  *
  * The grace is measured from the CLOSE of the original ballot, so it starts

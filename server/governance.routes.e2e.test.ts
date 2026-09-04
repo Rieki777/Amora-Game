@@ -36,6 +36,7 @@ import mysql from "mysql2/promise";
 import { spawn, type ChildProcess } from "child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { provisionTestDb, testDbConfigured, type TestDb, E2E_BOOT_DEADLINE_MS, waitForPortFree } from "./db/testDb";
+import { isOverride } from "./lib/applyDue";
 
 const DB_CONFIGURED = testDbConfigured();
 if (!DB_CONFIGURED) {
@@ -503,5 +504,74 @@ describe.skipIf(!DB_CONFIGURED)("the governance engine, driven", () => {
     expect(recon.status).toBe(200);
     expect(recon.json?.invariants?.problems).toEqual([]);
     expect(recon.json?.invariants?.ok).toBe(true);
+  });
+
+  /**
+   * THE RELATION A RESUBMISSION STATES REACHES THE ROW (19E).
+   *
+   * The veto override lands a proposal whatever any steward says, and
+   * `isOverride` grants it only to a row whose `supersedes_relation` reads
+   * exactly "overrides". The publish route wrote `supersedes_proposal_id` and
+   * left the relation NULL, so the only rows in the world that could ever
+   * override were two written by test fixtures: a village that brought a
+   * stopped change back and passed it at its highest bar was vetoed a second
+   * time with nothing to answer. The relation is a sentence the proposer says
+   * out loud, so the route that takes the proposal has to carry it.
+   *
+   * Driven over HTTP on purpose. A unit test on the helper would have passed
+   * on the broken tree, because the helper was never the part that was wrong.
+   */
+  it("A RESUBMISSION CARRIES ITS STATED RELATION INTO THE ROW, and the override can then see it", async () => {
+    const back = await call("POST", "/api/game/mechanics/proposals", {
+      body: {
+        title: "The gratitude budget again, at the highest bar we have set",
+        rationale: "A steward stopped this one, and the village would rather answer that out loud than let it go quiet.",
+        changes: [{ key: "gratitude.base_budget", to: "133" }],
+        supersedesProposalId: proposalId,
+        supersedesRelation: "overrides",
+      },
+    });
+    expect(back.status, JSON.stringify(back.json)).toBe(200);
+    const againId = String(back.json?.id ?? "");
+    expect(againId).toBeTruthy();
+
+    const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT supersedes_proposal_id AS sup, supersedes_relation AS rel FROM mechanics_proposals WHERE id = ?",
+      [againId],
+    );
+    expect(String(rows[0]?.sup ?? "")).toBe(proposalId);
+    expect(
+      String(rows[0]?.rel ?? ""),
+      "the proposer's stated relation must reach the column the override reads",
+    ).toBe("overrides");
+
+    // The steward's objection, put on the row this one comes back from, so the
+    // override has something real to answer. Fixture SQL because a seated
+    // steward vetoing is `steward.routes.e2e.test.ts`'s subject, not this
+    // file's: what is under test here is whether the relation survived the
+    // route.
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "UPDATE ballots SET vetoed_at = NOW() WHERE subject_type = 'mechanics' AND subject_ref = ?",
+      [proposalId],
+    );
+    expect(await isOverride(pool, "mechanics", againId)).toEqual({ of: proposalId });
+  });
+
+  it("...and a relation this build does not know is refused at the door, before any ballot opens", async () => {
+    const bad = await call("POST", "/api/game/mechanics/proposals", {
+      body: {
+        title: "The gratitude budget once more, with a word nobody defined",
+        rationale: "A relation the build cannot read would be stored and then quietly mean nothing, which is worse than a refusal.",
+        changes: [{ key: "gratitude.base_budget", to: "134" }],
+        supersedesProposalId: proposalId,
+        supersedesRelation: "supersedes",
+      },
+    });
+    expect(bad.status, JSON.stringify(bad.json)).toBe(400);
+    expect(String(bad.json?.error ?? "")).toContain("renews, overrides, replaces");
+    const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT COUNT(*) AS n FROM mechanics_proposals WHERE supersedes_relation = 'supersedes'",
+    );
+    expect(Number(rows[0]?.n ?? 0), "a refused relation must not be stored").toBe(0);
   });
 });
