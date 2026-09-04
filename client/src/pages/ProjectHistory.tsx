@@ -715,16 +715,12 @@ export default function ProjectHistory() {
   const [newTopic, setNewTopic] = useState("");
 
   useEffect(() => {
-    // Read separately now. One corrupted value used to skip the other, since
-    // the throw left the second read unreached.
+    // Read separately: one corrupted value used to skip the other.
     const overrides = readStoredJson("local", "amora-timeline-overrides");
-    if (overrides.status === "value" && overrides.value && typeof overrides.value === "object") {
-      setStatusOverrides(overrides.value as Record<string, DeliveryStatus>);
-    }
     const disc = readStoredJson("local", "amora-discussions");
-    if (disc.status === "value" && Array.isArray(disc.value)) {
-      setDiscussions(disc.value as DiscussionTopic[]);
-    }
+    const ov = overrides.status === "value" ? overrides.value : null;
+    if (ov && typeof ov === "object") setStatusOverrides(ov as Record<string, DeliveryStatus>);
+    if (disc.status === "value" && Array.isArray(disc.value)) setDiscussions(disc.value as DiscussionTopic[]);
   }, []);
 
   const setItemStatus = (id: string, status: DeliveryStatus) => {

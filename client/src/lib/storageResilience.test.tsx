@@ -214,7 +214,10 @@ describe("signing in", () => {
     expect(store.getItem(TOKEN_KEY)).toBe("tok-123");
     expect(fetchCalls).toContain("/api/auth/login");
     // The probe leaves nothing of its own in the store beside the session.
-    expect([...store._map.keys()]).toEqual([TOKEN_KEY]);
+    // Array.from, never a spread: tsconfig.json excludes "**/*.test.ts" and
+    // NOT ".test.tsx", so `pnpm check` typechecks this file at its ES5
+    // default target and a spread of a Map iterator is TS2802 there.
+    expect(Array.from(store._map.keys())).toEqual([TOKEN_KEY]);
   });
 });
 

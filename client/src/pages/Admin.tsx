@@ -10487,9 +10487,7 @@ export default function Admin() {
     if (saved !== null) return saved === "1";
     return window.innerWidth >= 1024;
   });
-  useEffect(() => {
-    writeStored("local", "admin.navOpen", navOpen ? "1" : "0");
-  }, [navOpen]);
+  useEffect(() => { writeStored("local", "admin.navOpen", navOpen ? "1" : "0"); }, [navOpen]);
 
   useEffect(() => {
     if (!password) return;
