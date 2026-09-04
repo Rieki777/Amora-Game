@@ -56,7 +56,10 @@ import { GAME_CONFIG } from "../../shared/gameConfig";
 import { cycleBoundsByNumber, cycleBoundsFor } from "../../shared/lunar";
 import { formatCycleId } from "./gratitude-cycles";
 import { cyclePoolProblem } from "./cyclePool";
-import { ceilingOutcome, decimalsFor, faucetFor, humanAtScale, toLedgerUnits, VILLAGE_VOICE } from "./economy";
+// `toLedgerUnits` is gone from this list on purpose: the conversion happens
+// inside `ceilingOutcome` now, so this module converts nothing of its own and
+// cannot come to disagree with the engine about the scale it converted at.
+import { ceilingOutcome, decimalsFor, faucetFor, humanAtScale, VILLAGE_VOICE } from "./economy";
 import { shareCapFor } from "./gratitude";
 import { tokenDef } from "./ledger";
 import { numberVar, stringVar } from "./variables";
