@@ -473,6 +473,16 @@ export interface MintInput {
   /** Who receives it. */
   toUserId: string;
   tokenSlug: string;
+  /**
+   * MINOR UNITS, which is the contract `postTransfer` states, and `mint` hands
+   * this straight through without touching it. Convert where the human number
+   * LEAVES ITS SOURCE TABLE and never here: both production callers already do
+   * (`mintForConfirmedClaim` and `runSettlement`, over `mint_rules.amount`, a
+   * `decimal(18,4)` carrying the rule's own human figure), so a conversion
+   * inside this function would multiply theirs a second time. Same wording as
+   * `ReverseOpts.amount` above, which states the same contract for the same
+   * reason: this file's primitives are minor-only on purpose.
+   */
   amount: number;
   /** The faucet this token issues from. */
   from: string;
@@ -484,6 +494,14 @@ export interface MintInput {
   idempotencyKey: string;
 }
 
+/**
+ * `balance` is the recipient's balance in the token's MINOR units, straight off
+ * the recompute `postTransfer` runs. A caller showing it to a member divides
+ * with `fromLedgerUnits` first, and a caller weighing it against a game
+ * variable has to know which unit that variable is declared in before it
+ * compares anything: `governance.hypha_threshold` is declared in Gratitude, and
+ * a threshold read against a raw minor balance is wrong by `10 ** decimals`.
+ */
 export type MintOutcome =
   | { ok: true; duplicate: boolean; balance: number }
   | { ok: false; error: string };
@@ -1547,11 +1565,27 @@ function reportUnpayable(context: string, unpayable: Array<{ token: string; reas
  * It never throws into the consent route. A quest that was witnessed and
  * credited must not fail because a secondary mint had a bad day, so the
  * failure is returned and logged and the claim stands.
+ *
+ * UNITS, because the sweep points other callers at this function as the worked
+ * example. The human number leaves `mint_rules.amount`, a `decimal(18,4)`; the
+ * ceiling is applied in that same human unit because `mint_rules.ceiling`
+ * shares the row; `toLedgerUnits` converts once; and a rule whose amount rounds
+ * below the token's own resolution is refused out loud rather than paid as
+ * zero. Nothing below that line converts again. NO BEHAVIOUR CHANGED HERE in
+ * the decimals sweep, and that is the finding: this path was already right.
  */
 export async function mintForConfirmedClaim(
   pool: Pool,
   claim: { id: string; questId: string; userId: string; confirmedAt?: Date | string | null },
 ): Promise<{
+  /**
+   * What was issued, in each token's HUMAN units, which is the unit of the rule
+   * row it came from and the unit `publicRules` publishes. The ledger holds the
+   * minor figure. NOTE that `SettlementResult.minted` carries the same idea in
+   * the OTHER unit and says so in its field name (`units`): the two are not
+   * interchangeable, and reading either as the other is wrong by
+   * `10 ** decimals`.
+   */
   minted: Array<{ token: string; amount: number }>;
   skipped?: string;
   /**
@@ -1715,6 +1749,15 @@ export async function checkinCount(pool: Pool, userId: string): Promise<number> 
 export interface SettlementResult {
   cycleKey: string;
   stewardsThanked: number;
+  /**
+   * What each `role.cycle` rule paid, in the token's MINOR units, which is why
+   * this field is `units` and not `amount`. The conversion happens once per
+   * rule, immediately before `mint`, in the loop below.
+   * `mintForConfirmedClaim` reports the same idea in HUMAN units under the name
+   * `amount`; the two names are the only thing telling them apart, so a reader
+   * copying one call site's handling onto the other is wrong by
+   * `10 ** decimals`.
+   */
   minted: Array<{ token: string; units: number }>;
   alreadyRun: boolean;
   /**
@@ -2010,6 +2053,13 @@ export async function decayVoice(
  * although the design said it was. `decayVoice` reads the launch fact itself,
  * for the reason written at that line: seeded rules are enabled at boot, so
  * `economyReady` is true long before any ballot carries.
+ *
+ * UNITS. Every seat payment starts HUMAN, out of `mint_rules.amount`, and is
+ * converted once with `toLedgerUnits` per rule immediately before `mint`, which
+ * converts nothing itself. The waning step needs no conversion at all: it takes
+ * a percentage of a balance the ledger already holds, and a percentage of a
+ * number is in that number's unit. NO BEHAVIOUR CHANGED HERE in the decimals
+ * sweep; this paragraph records why nothing had to.
  */
 export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<SettlementResult> {
   const { key: cycleKey } = cycleWindow(at);
