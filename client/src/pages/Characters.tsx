@@ -38,6 +38,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authToken } from "@/lib/gameApi";
 import { announceProfileChange } from "@/lib/profileRefresh";
 import { Star, X } from "lucide-react";
+import PortraitStudio, { type StudioPayload } from "@/components/characters/PortraitStudio";
 
 const headers = (): Record<string, string> => {
   const t = authToken();
@@ -59,7 +60,11 @@ interface Character {
   archetypeKey: string;
   presentation: "f" | "m";
   tone: "deep" | "olive" | "light";
+  /** The member's own portrait when they have one, and the stock art otherwise. */
   avatar: string | null;
+  /** The stock art on its own, so a surface can still show the village face. */
+  stockAvatar: string | null;
+  portrait: { source: "forged" | "uploaded"; published: boolean } | null;
   isPrimary: boolean;
 }
 
@@ -139,6 +144,7 @@ export default function Characters() {
   const [said, setSaid] = useState("");
   /** The character whose Leave is armed, if any. An unconfirmed DELETE. */
   const [leaving, setLeaving] = useState<string | null>(null);
+  const [studio, setStudio] = useState<StudioPayload | null>(null);
 
   const firstRun = useMemo(
     () => new URLSearchParams(window.location.search).get("first") === "1",
@@ -192,6 +198,21 @@ export default function Characters() {
       })
       .catch(() => setPathsStatus("failed"));
   };
+  /*
+   * The studio is its own read and not part of the party payload.
+   *
+   * The party is what a class LOOKS like and is fetched on four other
+   * surfaces; the budget is a fact about this member's gifts and belongs to
+   * this page alone. Putting the counters on the party would have shipped them
+   * to every profile that renders a party rail, including a stranger's.
+   */
+  useEffect(() => {
+    if (!user) return;
+    fetch("/api/me/portraits", { headers: headers() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setStudio(d as StudioPayload))
+      .catch(() => {});
+  }, [user?.id]);
 
   useEffect(() => {
     if (!activeKey) return;
@@ -205,11 +226,21 @@ export default function Characters() {
 
   const active = useMemo(() => archetypes.find((a) => a.key === activeKey) ?? null, [archetypes, activeKey]);
   const playing = useMemo(() => party.some((c) => c.archetypeKey === activeKey), [party, activeKey]);
-  const heroSrc = activeKey ? art(activeKey, presentation, tone) : "";
-  const heroBroken = broken[`${activeKey}-${presentation}-${tone}`];
+  const stockSrc = activeKey ? art(activeKey, presentation, tone) : "";
+  /*
+   * A member who has made their own face for this class sees THEIR face on the
+   * stage, not the village's. The presentation and tone controls below still
+   * drive the stock art, which is what they are for, and the two swatch rows
+   * keep working for every class with no portrait.
+   */
+  const ownPortrait = studio?.portraits.find((p) => p.archetypeKey === activeKey)?.url ?? null;
+  const heroSrc = ownPortrait ?? stockSrc;
+  const heroBroken = broken[`${activeKey}-${presentation}-${tone}`] && !ownPortrait;
 
-  /** A class's face for the rail: the one you play, or a default to meet. */
+  /** A class's face for the rail: yours if you made one, the one you play, or a default to meet. */
   const faceFor = (key: string) => {
+    const own = studio?.portraits.find((p) => p.archetypeKey === key)?.url;
+    if (own) return own;
     const mine = party.find((c) => c.archetypeKey === key);
     return mine?.avatar ?? art(key, "f", "olive");
   };
@@ -603,7 +634,28 @@ export default function Characters() {
             </aside>
           </div>
 
-          {/*
+          {/* Your own face for this class. Below the stage, because the class
+              is what you came here to choose and the portrait is what you do
+              once you have chosen one. */}
+          {active ? (
+            <PortraitStudio
+              archetypeKey={active.key}
+              archetypeName={active.name}
+              presentation={presentation}
+              tone={tone}
+              stockArt={stockSrc}
+              studio={studio}
+              onChanged={(next) => {
+                setStudio(next);
+                // The party carries the portrait too, so a change here changes
+                // what the rail and the party row draw.
+                loadParty();
+              }}
+              authHeaders={headers}
+            />
+          ) : null}
+
+                    {/*
             Your party.
 
             The section is drawn whenever the read landed OR failed, because

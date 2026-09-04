@@ -256,6 +256,25 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   gates green, `check-migration-compat` applied all 113 previous-release migrations against a
   populated database, seeded rows in all three tables these files name, applied the four, and
   confirmed a second run applies zero.
+- **Migration numbers. This list holds HOLDERS, never a "next free" figure.** The two lines
+  that used to say "next free" were both stale within a day of being written (the entry below
+  said 0123 while 0146 was already on disk), and a stale next-free reads exactly like a fresh
+  one. Gaps at 0111 and 0115-0119 are BURNED, never reuse them (the applied-ledger keys on
+  filename and would replay).
+- **Claim a number here before creating the file.** Sweep FOUR ways first, because no single
+  one of them sees the others: `git ls-tree` over every ref from `git for-each-ref refs/heads
+  refs/remotes`; `ls drizzle/` in every path from `git worktree list --porcelain`; and `find`
+  for `0*.sql` under `*drizzle*` across Desktop\Amora and other sessions' temp scratchpads.
+  `check-migration-numbers.mjs --next` reads ONE worktree against origin/main and cannot see a
+  sibling branch, so its green is not evidence.
+- **portraits lane, 2026-09-03: claims 0147 for `drizzle/0147_character_portraits.sql`.** One
+  new table, `character_portraits`, one row per (village, member, class), plus one new
+  `portrait_grants` table holding the forge budget. Four-way sweep at claim time put the
+  ceiling at 0146 (`0146_a_member_opens_a_venture.sql`, path-data lane, on `wt/path-data-models`
+  and on disk in `wt-pathdata`); 0144 and 0145 belong to the same lane. Nothing anywhere held
+  0147 or above: refs, worktrees, Desktop\Amora and every temp scratchpad all agreed.
+  CREATE TABLE IF NOT EXISTS only, no ALTER on an existing table, so it adds and takes nothing
+  away.
 - **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
   new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
   makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the
