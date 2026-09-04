@@ -251,8 +251,9 @@ describe.skipIf(!configured)("a departure on the shipped Exit defaults", () => {
 
   it("a second sweep on the same exit posts nothing, whatever the dials say later", async () => {
     // The idempotency key carries no policy, so a re-run is the same key and
-    // the same no-op. That is the property the settlement lane has to keep
-    // when it starts splitting the amount.
+    // the same no-op, and that property survived the split: with nothing kept
+    // the account is empty, so this run finds no balance rather than a
+    // duplicate key. A village keeping a share meets the duplicate instead.
     const before = await sweepRowsFor(pool, exitId);
     const again = await sweepBalances(pool, { exitId, userId: USER });
     expect(again.swept).toEqual({});

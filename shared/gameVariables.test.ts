@@ -295,19 +295,20 @@ describe("the Exit levers (R4), whose whole job is to change nothing on the day 
   /*
    * THE ONE PROPERTY THIS BLOCK EXISTS FOR.
    *
-   * `server/lib/exit.ts` reads no game variable. `sweepBalances` posts EVERY
-   * positive balance, in full, to `sys:exit-settlement`, and the settlement
-   * lane that teaches it to read these dials comes after this one. So the
-   * defaults are not a taste question: each one has to be the value that
-   * reproduces that sentence exactly, and each is asserted here BY NAME
-   * against the behaviour it reproduces, so a later lane cannot quietly
+   * `sweepBalances` (`server/lib/exit.ts`) READS these dials now, and on the
+   * values below it does what it always did: every positive balance goes, in
+   * full, to `sys:exit-settlement`, with nothing kept and no date gating the
+   * settle. So the defaults are not a taste question: each one has to be the
+   * value that reproduces that sentence exactly, and each is asserted here BY
+   * NAME against the behaviour it reproduces, so a later lane cannot quietly
    * change what an untouched village does by editing a default.
    *
    * `server/lib/exitDefaults.test.ts` is the other half of this claim: it
    * runs a real exit against a scratch schema on these defaults and compares
    * the token_ledger rows to the ones origin/main's `sweepBalances` writes.
    * A default asserted here and a posting measured there are two different
-   * kinds of evidence for one sentence.
+   * kinds of evidence for one sentence. `server/lib/exitSplit.test.ts` is the
+   * mirror: what a village that MOVES one of these gets instead.
    */
   const def = (key: string) => {
     const d = VARIABLES_BY_KEY[key];
