@@ -853,18 +853,32 @@ Conservation is checked against `token_balances`, which is a CACHE, and the cach
 
 - **The database has ZERO foreign keys**, and one check constraint
   (`token_ledger_amount_positive`, in `drizzle/0009_ledger_accounts_and_transfers.sql`).
-  Verified at `45869ad`: every `FOREIGN KEY` string in `drizzle/` is inside a
-  comment saying why there is not one. Every relational invariant here lives in
+  Re-verified 2026-09-04 at `1861f7d`, over 122 files: `grep -rn "FOREIGN KEY"
+  drizzle/` returns exactly three lines and all three are `--` comments saying why
+  there is not one (0140, 0149, 0150), and `grep -rn "CHECK (" drizzle/*.sql`
+  returns the one constraint above. Every relational invariant here lives in
   application code, which is why the slug freeze had to be a code refusal.
-- The 29 unconverted `postTransfer` callers in section 7, and the admin mint's
-  disagreement with the rule engine about what "10 voice" means.
+- **The units contract at each posting call site.** This bullet used to read "the
+  29 unconverted `postTransfer` callers in section 7, and the admin mint's
+  disagreement with the rule engine about what 10 voice means", and both halves
+  are gone. The sweeps closed the 29 and both admin mint doors convert. What
+  remains as convention is that whether a site converts is a decision recorded in
+  a comment beside it and in section 7, with nothing mechanical holding it:
+  21 of the 36 posting sites convert with `toLedgerUnits` and 15 are already
+  minor, and only a test per path tells the two apart.
 - A rule can be saved for an amount smaller than its token's resolution.
 - Faucets may go negative, and member accounts may too, by ruling. Nothing in the
   schema distinguishes an intended negative from a bug; the boot invariant reads
   the SOURCE of a debit to tell them apart, which is a convention about source
   strings rather than a constraint.
-- **`spendSinkFor` has exactly one caller.** `server/lib/stays.ts` uses it; the
-  library and the seat paths name their own accounts directly. See section 12.
+- **`spendSinkFor` has exactly one POSTING caller and two callers.** Re-measured
+  2026-09-04 at `1861f7d`: `server/lib/stays.ts:321` is the only one that posts
+  anything, and `server/lib/dryRunEconomyReader.ts:209` reads it to describe a
+  token's sinks and moves nothing. `shared/dryRun/economicsModel.ts:152` holds a
+  mirrored copy of the same rule for the simulation engine, which is a third
+  place the answer is spelled. The library and the seat paths name their own
+  accounts directly. Line numbers are a reading and not a contract; grep the
+  identifier. See section 12, which says the same thing at more length.
 
 ---
 
@@ -2067,15 +2081,31 @@ carries both as questions.
    is zero before changing its decimals, and if it is not, either rescale in the
    same transaction or stop and name the village. A fork that has been running for a
    month is where this quietly becomes a thousandfold gift.
-2. **Whether an audit event is a guarantee.** 62 `void recordEvent` calls post the
-   audit trail without awaiting it, so a member who acts and immediately opens the
-   audit feed can miss their own action. Fine as best effort, wrong if the feed is
-   a control.
+   **And if the registry and the stored column cannot move in one transaction, the
+   REGISTRY MOVES LAST.** A stale registry over rescaled data reads too SMALL; a
+   fresh registry over unscaled data reads too LARGE. Only one of those is acted
+   on. A member whose balance reads a thousand times high spends it, claims it or
+   swaps it, and the repair afterwards is a clawback against somebody who did
+   nothing wrong. Section 7 opens with this, because that is where a reader who is
+   about to make the change will be standing.
+2. **Whether an audit event is a guarantee.** **74** `void recordEvent` calls post
+   the audit trail without awaiting it, so a member who acts and immediately opens
+   the audit feed can miss their own action. Fine as best effort, wrong if the feed
+   is a control. This entry said 62; re-counted 2026-09-04 at `1861f7d` by
+   `grep -rn "void recordEvent" server/ --include=*.ts` dropping tests, which
+   answers 74 with none of them on a comment line, in `server/index.ts` (57) and
+   nine route and library files. The same grep for `await recordEvent(` answers 46,
+   so about three in five of this build's audit writes are fire and forget.
 3. **What proves this engine.** Nothing short of one real cycle in a real village,
    with several members acting at once, separates "proven by its tests" from
    "proven". See `PLAN_TO_A.md`.
-4. **What a village owes a departing member.** Section 14. The code deliberately
-   declines to decide, and says so on the member's screen.
+4. **What a village owes a departing member.** Section 14. **Narrower than it was,
+   and still open.** R4's ten levers decide how a settlement EXECUTES, and a
+   village votes them, so the shape of a departure is now the village's own. What
+   is undecided is the valuation: `DEFAULT_EXIT_POLICY` still ships
+   `placeholder: true`, `/exit-policy` still prints the caution card, and no dial
+   answers what contributed value is honoured at. The code declines to decide that
+   and says so on the member's screen.
 
 ---
 
@@ -2301,18 +2331,31 @@ display name as the member sees it.
 The list above is what the code returns. This is what that feels like from the
 other side of the screen, which is not the same thing.
 
+**Four rows of this table used to describe defects that are now fixed, in the
+present tense, which is the worst direction for a table headed "as a member meets
+them": it made a repaired build read as a broken one. Every row re-measured
+2026-09-04 at `1861f7d`, and the four are moved out below.**
+
 | What a member does | What they see | What is actually true |
 |---|---|---|
-| Thanks somebody while another member is thanking somebody | A 400 carrying raw MySQL driver text, or nothing at all if the throw escaped | 10.1: the whole village shares one lock. At 12 concurrent givers, 10 fail |
-| Thanks somebody and it appears to work | The gratitude wall shows the note, and the recipient's balance does not move | 10.2: the note commits and spends the allowance, then the ledger post fails outside the lock. Nothing tells either person |
-| Opens their wallet holding 10 Village Voice | **10000** | 10.3: the wallet prints minor units. The profile chip prints 10. Both are the same balance |
 | Tries to give a fifth member 30 when the cap is 25 | `25 is the most you can give one person this moon, and you have given them 0. That leaves 25 for them` | Correct, and deliberately worded to say what is left rather than only what is refused |
 | Has not created a profile yet and tries to give | `Your sending budget unlocks as you progress on the path` | Correct. A Visitor's stage multiplier is 0, so their allowance is 0 |
 | Tries to send Gratitude to another member | `Gratitude is recognition, and recognition is a record of what happened. It is given, never handed over` | Correct, and enforced in three places: the send refusal, the boot invariant, and the registry flag |
 | Is refused a give because the village has not launched | The launch refusal from `issuanceRefusal` | Correct, and it is asked LAST so a member over their budget hears about the budget instead |
 | Taps a heart twice on the same post | `You have already acknowledged this` | Correct. A unique index, not a check |
-| Is granted 10 Village Voice by a steward | Their balance rises by 10 minor units, which is 0.010 voice | Section 7. The steward believes they granted 10 |
+| Consents a claim a second time, on a village with the submission guard off | `This claim was already consented, so it was not consented again. The member was paid once.` as a 409 | Correct since 10.34: the status test moved inside `claimsRepo.update`'s row lock, so the claim's amount and the ledger row agree |
 | Asks to leave while holding an unsettled library loan | `Open state must settle through its own domain first`, with the blocking domains named | Correct. See section 14 |
+| Opens their wallet holding 10 Village Voice | **10** | Correct. `formatTokenAmount` divides by the scale the payload carries. It printed 10000 until 10.3 closed |
+
+**The four that no longer happen, kept here because deleting them would lose what
+a member used to meet and what closed it.**
+
+| What a member did | What they saw | Closed by |
+|---|---|---|
+| Thanked somebody while another member was thanking somebody | A 400 carrying raw MySQL driver text, or nothing at all if the throw escaped | 10.1. The row runs at REPEATABLE READ now and the `FOR UPDATE` on the giver's own row is what serialises a member against themselves |
+| Thanked somebody and it appeared to work | The gratitude wall showed the note, and the recipient's balance did not move | 10.2. The note and its credit commit in one transaction through `postTransferOn`, both or neither |
+| Opened their wallet holding 10 Village Voice | **10000** | 10.3. Nine surfaces render through `formatTokenAmount` and the scale rides in the payload |
+| Was granted 10 Village Voice by a steward | A balance rising by 10 minor units, which is 0.010 voice | Section 7. The hand-mint route posts `toLedgerUnits(slug, amt)` at both its doors, so 10 typed is 10 granted |
 
 ---
 
