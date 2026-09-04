@@ -623,6 +623,43 @@ describe.skipIf(!configured)("the override, on a decision with no proposal row",
     expect((await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a")).outcome).toBe("failed");
   });
 
+  /*
+   * THE SAME HOLE, ON THE PATH A VILLAGE CAN WALK TODAY.
+   *
+   * A change set whose element is a token send is priced and timed as a token
+   * send (`kindOfSet`), so a steward's no fails it at the close exactly as it
+   * fails a bare payout. That ballot DOES have a proposal row, so the pointer
+   * was never the missing half here: the no-vote door simply never asked. This
+   * is the case that reaches the steward's no through the mechanics routes.
+   */
+  it("lands a change set of payouts brought back at the highest tier", async () => {
+    await seatSteward("u-steward");
+    const items = ["token_send"] as const;
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status) " +
+        "VALUES ('gmp-pay-1','Pay the builders','because','[]','u-proposer','onsite_vote')",
+    );
+    const first = await openOne({
+      subjectRef: "gmp-pay-1", timing: "at_acceptance", weightMode: "custom", electorate: WEIGHED_ROLL,
+    });
+    const closedFirst = await carry(first, withStewardNo("The treasury cannot carry this yet."));
+    const blocked = await routeOutcome(deps(), closedFirst.ballot!, "passed", "carried", "u-a", items);
+    expect(blocked.outcome).toBe("failed");
+    expect(writes).toEqual([]);
+
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status, supersedes_proposal_id, supersedes_relation) " +
+        "VALUES ('gmp-pay-2','Pay the builders, again','because','[]','u-proposer','onsite_vote','gmp-pay-1','overrides')",
+    );
+    const again = await openOne({
+      subjectRef: "gmp-pay-2", timing: "at_acceptance", weightMode: "custom", electorate: WEIGHED_ROLL, ...TOP_TIER,
+    });
+    const closedAgain = await carry(again, withStewardNo("Still no."));
+    const routing = await routeOutcome(deps(), closedAgain.ballot!, "passed", "carried", "u-a", items);
+    expect(routing.outcome).toBe("passed");
+    expect(writes).toContain(`landed:${again.id}`);
+  });
+
   it("refuses a relation this build cannot read, before the ballot exists", async () => {
     const result = await openBallot(pool, {
       subjectType: "token_send",
