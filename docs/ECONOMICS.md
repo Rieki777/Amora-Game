@@ -1158,7 +1158,7 @@ own segment`, `keeps two ids that differ only in case apart under a
 case-insensitive index` and `still recognises an already-posted legacy-shaped key
 as a duplicate`.
 
-### 10.17 The clamp was sound and the unit it answered in was not. Fixed on `wt/econ-mintfix`, measured.
+### 10.25 The clamp was sound and the unit it answered in was not. Fixed on `wt/econ-mintfix`, measured.
 
 An adversarial pass over the mint ceiling found the pure function correct for
 every input it could reach, both mint paths calling it, and the failure closing.
@@ -1185,15 +1185,25 @@ floors the ceiling into minor units with an ulp guard, because `0.29 * 100` is
 28.999999999999996 and a bare floor would read a village's 29 hundredths as 28.
 `ceilingOutcome` now takes the scale as an ARGUMENT and never looks it up (R31),
 and answers `units` in the token's minor units; `clampToCeiling` follows, and
-`CeilingRuleLike` is the three fields the decision reads. The defect disappears
-at four decimals, so the registry flip closes it on its own, and the fix does not
-wait for the flip and does not depend on it. Proven by seven rows driven through
-`mintForConfirmedClaim` at 0, 3 and 4 decimals and read back off `token_ledger`.
+`CeilingRuleLike` is the three fields the decision reads.
+
+**This was measured while the build expected four decimals everywhere, and the
+reading changed under it.** At four decimals the defect cannot occur, because
+nothing `decimal(18,4)` can write is below what the token can hold, so the
+original finding was a today problem that the flip would have closed. Rye settled
+the question the other way on 2026-09-04, and section 11's decimals item on
+`wt/econ` carries his words: whole numbers, every token at 0 decimals, the ledger
+rescale cancelled. So this is not a today problem. It is
+the permanent shape of the build: a cap column with four places over tokens with
+none, on every village, for as long as both hold. Proven by seven rows driven
+through `mintForConfirmedClaim` at 0, 3 and 4 decimals and read back off
+`token_ledger`, and the 3 and 4 rows stay because `tokens.decimals` is an int a
+village writes and `registerToken` takes whatever it is given.
 A ceiling above zero that falls to nothing at the token's scale is a new refusal
 with its own sentence, because it is a ceiling fact and an "amount too small"
 reading would send the founder to the number that is fine.
 
-### 10.18 Three surfaces published a payout the engine would not make. Fixed on `wt/econ-mintfix`, measured.
+### 10.26 Three surfaces published a payout the engine would not make. Fixed on `wt/econ-mintfix`, measured.
 
 With a rule at `amount 25, ceiling 5`, the Mint panel's settlement preview, the
 unauthenticated public rules feed and the dry run all said 25 and the engine paid
@@ -1212,13 +1222,18 @@ The Mint panel prints the clamp and the cap on every rule card, and a rule the
 engine will not honour wears "Paying nobody" where it used to wear a green
 "Paying" badge with no ceiling anywhere on the card.
 
-### 10.19 The mint feed handed the client minor units with no scale. Fixed on `wt/econ-mintfix`, measured.
+### 10.27 The mint feed handed the client minor units with no scale. Fixed on `wt/econ-mintfix`, measured.
 
 `mintView.settlementPreview.mints[].units` was `toLedgerUnits(...)`,
 `client/src/pages/Mint.tsx` rendered it directly, and the payload type carried no
 decimals field, so the client could not have converted it if it had tried. At 0
 decimals the panel printed 25 and at 4 it printed 250000 where 25 was meant, and
-this blocked the decimals flip. R31 is applied: a money field in a payload is the
+this was named as the thing blocking the decimals flip. The flip is cancelled and
+the fix stands anyway, in the settling ruling's own words: the caller sweep is
+kept because scale-aware payloads and one conversion helper are what stop a
+display and an input disagreeing at any scale, and Village Voice is at 3 today
+and printing 50000 where 50 is meant until it is lowered. R31 is applied: a money
+field in a payload is the
 integer in minor units, the scale it is in, and the slug it is of, and the scale
 travels in the payload and is never looked up from a registry on the client. Each
 preview row carries `decimals`; each rule carries
@@ -1229,7 +1244,7 @@ should be beside the ledger and the registry, with a source walk asserting no
 other amount formatting anywhere; moving it touches every client surface that
 already imports it and belongs to the wave that owns them.
 
-### 10.20 The claim mint returned a number no row held. Fixed on `wt/econ-mintfix`, measured.
+### 10.28 The claim mint returned a number no row held. Fixed on `wt/econ-mintfix`, measured.
 
 `mintForConfirmedClaim` reported `{ token, amount }` where `amount` was the
 clamp's answer taken BEFORE `toLedgerUnits` ran, while the row held the rounded
@@ -1241,7 +1256,7 @@ under the same names; before this the two mint paths reported the same idea in
 different units and only a field name said so, which the file's own comment
 called out as a trap and left standing.
 
-### 10.21 A settlement that could pay nothing reported a completed moon. Fixed on `wt/econ-mintfix`, measured.
+### 10.29 A settlement that could pay nothing reported a completed moon. Fixed on `wt/econ-mintfix`, measured.
 
 A `role.cycle` rule whose amount reads from the work passed the payable filter,
 because `r.amount ?? 0` read null as zero and the ceiling check was guarded on
@@ -1256,7 +1271,7 @@ have made, which re-asks the clamp because a rule can be payable and still answe
 zero, and asks the seat count because a payment needs somebody to receive it.
 Both directions of the mistake are one-sided and this is the safe side.
 
-### 10.22 A ballot could vote a rule into an off switch. Fixed on `wt/econ-mintfix`, measured.
+### 10.30 A ballot could vote a rule into an off switch. Fixed on `wt/econ-mintfix`, measured.
 
 `mintRuleValueProblem` checked finiteness and sign and nothing else, and both
 mint-rule columns are `decimal(18,4)`. So a ceiling of 0.00001 stored as 0.0000,
@@ -1285,7 +1300,7 @@ change to the governance side's own files and its own decision. It is said out
 loud in the function's docstring so the day that channel lands, this is the case
 to move onto it.
 
-### 10.23 The dry-run model rounds its ceiling the same way, and is not fixed here.
+### 10.31 The dry-run model rounds its ceiling the same way, and is not fixed here.
 
 `shared/dryRun/economicsModel.ts` clamps in minor units already and its
 `ceilingOutcomeMinor` docstring states the monotonicity argument correctly, so

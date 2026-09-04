@@ -2499,9 +2499,12 @@ describe.skipIf(!configured)("the village economy engine", () => {
       { decimals: 0, amount: 25.5, ceiling: 25.5, units: 25 },
       { decimals: 3, amount: 0.0006, ceiling: 0.0005, units: 0 },
       { decimals: 3, amount: 0.0015, ceiling: 0.0015, units: 1 },
-      // The scale the registry flip moves every token to. Nothing the column
-      // can write is below what the token can hold here, so the clamp is the
-      // plain one and this row is the regression guard on the flip.
+      // Four, where nothing the column can write is below what the token can
+      // hold, so the clamp is the plain one and neither refusal fires. No
+      // shipped token carries this scale and none is going to: Rye settled the
+      // question on whole numbers (section 11.1). It is here because
+      // `tokens.decimals` is an int a village writes and `registerToken` takes
+      // whatever it is given, so a fork can reach this column any day.
       { decimals: 4, amount: 0.6, ceiling: 0.5, units: 5000 },
       { decimals: 4, amount: 0.4, ceiling: 0.5, units: 4000 },
     ];
@@ -2601,6 +2604,31 @@ describe.skipIf(!configured)("the village economy engine", () => {
       // stop putting a green badge over a rule that pays nobody.
       expect(card?.problem).toMatch(/ceiling is 0/);
       expect(card?.pays).toEqual({ units: 0, ceilingUnits: 0, decimals: 0 });
+    });
+
+    it("carries the scale for the one shipped token that has one, which is live today", async () => {
+      /*
+       * NOT A HYPOTHETICAL AND NOT ABOUT THE CANCELLED FLIP. Village Voice
+       * carries 3 decimals in the registry as this ships, and the seeded seat
+       * rule pays 50 of it. The preview therefore carried 50000 with no scale
+       * anywhere in the payload and the panel printed "50000 of village-voice"
+       * for a village that had promised 50.
+       */
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`, `effective_from_cycle`) " +
+          "VALUES ('rule-mx-voice',?,'role.cycle',?,50,200,'holder',1,0) " +
+          "ON DUPLICATE KEY UPDATE `amount` = 50, `ceiling` = 200, `enabled` = 1, `effective_from_cycle` = 0",
+        [villageId(), VILLAGE_VOICE],
+      );
+      const view = await mintView(pool);
+      const seats = view.settlementPreview.seats;
+      const voice = view.settlementPreview.mints.find((m) => m.token === VILLAGE_VOICE);
+      // The scale off the registry, never a literal here: the assertion holds
+      // whatever a village has set this token to.
+      const scale = await scaleOf(pool, VILLAGE_VOICE);
+      expect(voice).toEqual({ token: VILLAGE_VOICE, units: 50 * scale * seats, decimals: Math.log10(scale) });
+      expect(voice!.units).toBeGreaterThan(50 * seats);
+      await pool.query("DELETE FROM `mint_rules` WHERE `id` = 'rule-mx-voice'");
     });
 
     it("does not call a settlement that could pay nothing an already settled moon", async () => {
