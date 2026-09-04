@@ -18469,7 +18469,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     { key: "assistant_api_key", title: "Anthropic, the AI guide", unlocks: "The AI guide: proposal intake, the launch journey, and call synthesis. Blank means every form still works, with no guide on them.", getAt: "console.anthropic.com", placeholder: "sk-ant-…" },
     { key: "riverside_webhook_secret", title: "Riverside recording deliveries", unlocks: "Call automation's inbound deliveries. It fails closed: with no secret set, every payload is discarded with an inert 200 and nobody is told why.", getAt: "Riverside → webhook settings → send this same value as the x-riverside-secret header", placeholder: "a long random string you choose" },
     { key: "governance_hub_secret", title: "Governance hub deliveries", unlocks: "How a Hypha vote's executed outcome comes home. Fails closed the same way. Until it is set, outcomes are reported by the proposer and applied by an admin.", getAt: "Issued when your fork is registered with the hub", placeholder: "the value the hub issued you" },
-    { key: "basescan_api_key", title: "Basescan token lookup", unlocks: "Game Mechanics → Integrate DAO finds your token's contract address on Base by name. Without it that lookup answers 409 and addresses can still be pasted by hand.", getAt: "etherscan.io → API keys (one free key serves Base)", placeholder: "your Etherscan API key" },
+    { key: "basescan_api_key", title: "Basescan token lookup", unlocks: "Game Mechanics, Hypha Bridge lists the token contracts your founder account holds on Base. Without it that lookup answers 409 and addresses can still be pasted by hand.", getAt: "etherscan.io → API keys (one free key serves Base)", placeholder: "your Etherscan API key" },
   ];
 
   interface IntegrationCard {
@@ -21841,90 +21841,22 @@ ${inner}
    * allowed. Setting a value back to its default clears the override, which is
    * how a village keeps inheriting future platform defaults.
    */
-  /**
-   * Integrate DAO: discover a token's contract address on Base from the
-   * founder's account. The founder issues themselves even a tiny amount of
-   * each token (Hypha requires an issuance for the DAO to create the
-   * contract on-chain), then this looks the contract up.
-   *
-   * THE LOOKUP MOVED OUT (Hypha module, R58 upgrade 1). Two sources, an
-   * Alchemy Token API path and an Etherscan V2 path, now live in
-   * `server/lib/hypha/discovery.ts` so this route and the module's own
-   * pick-list run ONE implementation. They also now dial through the pinned
-   * guard instead of bare fetch.
-   *
-   * This route keeps its shape on purpose. It predates the module, the
-   * Integrate DAO panel calls it today, and a village that has not turned the
-   * module on must still reach it, so it is deliberately NOT behind
-   * requireModule. What changed underneath is that it can no longer report a
-   * single confident match: `candidates` comes back on every answer, because a
-   * founder's wallet holds airdropped junk and a scam token's whole trick is to
-   * pass an exact-name test.
-   *
-   * Read-only: the admin assigns the found address through the normal
-   * variables route, so the audit trail is the same one every variable
-   * change gets.
-   */
-  app.post("/api/admin/hypha/find-token", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-    const tokenName = String(req.body?.tokenName ?? "").trim();
-    if (!tokenName) return res.status(400).json({ error: "Enter the token's exact on-chain name" });
-    const founderAddress = stringVar("hypha.founder_base_address").trim();
-    if (!/^0x[0-9a-fA-F]{40}$/.test(founderAddress)) {
-      return res.status(409).json({ error: "Set the founder Base account address first (Hypha, Founder Base account address)" });
-    }
-    try {
-      const found = await discoverCandidates({
-        baseRpcUrl: stringVar("tokens.base_rpc_url").trim(),
-        founderAddress,
-        nameHint: tokenName,
-      });
-      const matches = found.candidates.filter((c) => c.nameMatches);
-      if (matches.length === 1) {
-        return res.json({
-          found: true,
-          token: matches[0],
-          // The full list rides along even on a clean single match. Confirming
-          // is a human act and a human confirming needs to see what else was
-          // there; a lone row with nothing beside it reads as verified.
-          candidates: found.candidates,
-          source: found.source,
-        });
-      }
-      if (matches.length > 1) {
-        return res.json({
-          found: false,
-          ambiguous: true,
-          matches,
-          candidates: found.candidates,
-          error: `${matches.length} contracts share that name. Pick the address by hand from the list.`,
-        });
-      }
-      return res.json({
-        found: false,
-        candidates: found.candidates,
-        error:
-          found.candidates.length === 0
-            ? "No tokens found on that account yet. Issue yourself some of the token on Hypha first (any amount), then try again."
-            : `No token named "${tokenName}" on this account. The name must match the on-chain name exactly. ${found.candidates.length} other token(s) were seen.`,
-      });
-    } catch (err: any) {
-      if (err instanceof DiscoveryUnavailable) return res.status(409).json({ error: err.message });
-      return res.status(502).json({ error: `Token lookup failed: ${String(err?.message ?? err).slice(0, 120)}` });
-    }
-  });
 
   // ── The Hypha Bridge module (R58) ─────────────────────────────────────────
   //
   // Everything below is the module's own surface and mounts behind
   // requireModule("hypha"), which ships OFF. The read-only deep links in
-  // shared/hypha.ts, the mechanics handoff in hypha-bridge.ts and the
-  // find-token route above all predate it and keep working untouched while it
-  // is off, which is what "off changes nothing" has to mean for a module
-  // landing on top of a shipped loop.
+  // shared/hypha.ts and the mechanics handoff in hypha-bridge.ts predate it
+  // and keep working untouched while it is off, which is what "off changes
+  // nothing" has to mean for a module landing on top of a shipped loop.
   //
-  // The admin routes sit under /api/admin/hypha per route instead of behind a
-  // wholesale app.use, because that prefix already carries find-token.
+  // The admin routes sit under /api/admin/hypha PER ROUTE instead of behind a
+  // wholesale app.use, and that shape is now load-bearing for a different
+  // reason than it used to be. It carried an ungated find-token lookup; that
+  // route is gone, and /candidates inherited its job, so /candidates is the
+  // one that stays ungated. A wholesale app.use here would re-gate it and put
+  // a founder back where they started: unable to find their own contracts
+  // until they switch on the module they need the contracts to configure.
 
   /** The posture, read from what this village holds. Never a toggle (R58a). */
   const hyphaListener = () =>
@@ -22014,12 +21946,24 @@ ${inner}
    * and nothing chosen. The founder confirms one through /bind below, which is
    * the only route that writes a binding.
    */
-  app.post("/api/admin/hypha/candidates", requireModule("hypha"), async (req, res) => {
+  /*
+   * UNGATED, deliberately, and it is the only route in this block that is.
+   *
+   * It reads what an account holds on Base and writes nothing. It also took
+   * over the job of the find-token lookup, which was ungated for a stated
+   * reason: a founder integrates their DAO BEFORE the Bridge is on, because
+   * the addresses this finds are what the Bridge is configured with. Gating
+   * it would mean a founder has to turn on a module to discover the values
+   * that module needs. It answers 409 with the first steps when no founder
+   * address is set, which is the honest answer for a village that has not
+   * started.
+   */
+  app.post("/api/admin/hypha/candidates", async (req, res) => {
     if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
     const founderAddress = stringVar("hypha.founder_base_address").trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(founderAddress)) {
       return res.status(409).json({
-        error: "Set the founder Base account address first, under Hypha in Game Mechanics.",
+        error: "Set the founder Base account address first. The field is at the top of this panel.",
         firstSteps: HYPHA_FIRST_STEPS,
       });
     }

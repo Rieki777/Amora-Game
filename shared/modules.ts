@@ -1033,8 +1033,8 @@ export const MODULES: ModuleDef[] = [
     // would take a village's Hypha links away the moment this shipped.
     variableKeys: ["hypha.treasury_address"],
     // `/api/hypha` is mounted whole behind requireModule. `/api/admin/hypha`
-    // carries a route that PREDATES this module (the shipped find-token
-    // lookup), which every village reaches from the Integrate DAO panel today,
+    // carries a route that PREDATES this module (the contract lookup, now
+    // /candidates, which took over from the retired find-token route),
     // so that prefix is gated per route instead of wholesale. Mounting it whole
     // would 404 a working founder surface on the deploy that added this module.
     apiPrefixes: ["/api/hypha", "/api/admin/hypha"],
