@@ -2120,8 +2120,8 @@ function UploadedFilesTab({ password }: { password: string }) {
     setBusy(false);
   };
 
-  const orphans = report?.findings.filter((f) => f.verdict === "orphan") ?? [];
-  const unknowns = report?.findings.filter((f) => f.verdict === "unknown") ?? [];
+  const orphans = report?.findings?.filter((f) => f.verdict === "orphan") ?? [];
+  const unknowns = report?.findings?.filter((f) => f.verdict === "unknown") ?? [];
 
   return (
     <div>

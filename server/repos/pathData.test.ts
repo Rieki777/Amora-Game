@@ -1,5 +1,5 @@
 /**
- * The three per-member data models the per-path ladders read (0144, 0145, 0146).
+ * The three per-member data models the per-path ladders read (0151, 0145, 0146).
  *
  * The assertions worth having here are not "a row can be written". They are
  * the two properties the whole design rests on, and both of them are the kind
@@ -105,11 +105,11 @@ describe.skipIf(!configured)("per-path member data models", () => {
     });
 
     /*
-     * 0144's whole content. Asserted against information_schema because the
+     * 0151's whole content. Asserted against information_schema because the
      * migration is the only thing that creates it and a query works either
      * way: without the index this read is a full scan that nothing reports.
      */
-    it("has the member index 0144 adds", async () => {
+    it("has the member index 0151 adds", async () => {
       const [rows]: any = await pool.query( // module-review-ok: reading the scratch schema this suite provisioned
         "SELECT COLUMN_NAME FROM information_schema.STATISTICS " +
           "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'housing_reservations' " +

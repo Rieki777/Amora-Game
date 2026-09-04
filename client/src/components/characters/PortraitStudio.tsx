@@ -107,7 +107,7 @@ export default function PortraitStudio({
   const [preview, setPreview] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
-  const mine = studio?.portraits.find((p) => p.archetypeKey === archetypeKey) ?? null;
+  const mine = studio?.portraits?.find((p) => p.archetypeKey === archetypeKey) ?? null;
   const budget = studio?.budget ?? null;
   const held = budget?.total ?? 0;
 

@@ -233,13 +233,13 @@ export default function Characters() {
    * drive the stock art, which is what they are for, and the two swatch rows
    * keep working for every class with no portrait.
    */
-  const ownPortrait = studio?.portraits.find((p) => p.archetypeKey === activeKey)?.url ?? null;
+  const ownPortrait = studio?.portraits?.find((p) => p.archetypeKey === activeKey)?.url ?? null;
   const heroSrc = ownPortrait ?? stockSrc;
   const heroBroken = broken[`${activeKey}-${presentation}-${tone}`] && !ownPortrait;
 
   /** A class's face for the rail: yours if you made one, the one you play, or a default to meet. */
   const faceFor = (key: string) => {
-    const own = studio?.portraits.find((p) => p.archetypeKey === key)?.url;
+    const own = studio?.portraits?.find((p) => p.archetypeKey === key)?.url;
     if (own) return own;
     const mine = party.find((c) => c.archetypeKey === key);
     return mine?.avatar ?? art(key, "f", "olive");

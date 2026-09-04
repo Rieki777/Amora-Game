@@ -360,7 +360,17 @@ export function useSeason(): SeasonState | null {
 }
 
 export function authToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  // A browser with site data blocked has no usable localStorage, and reading it
+  // THROWS rather than returning null. Unguarded, that throw escaped into every
+  // gameFetch in the product: a member with cookies off got a crash where they
+  // should have got a signed-out page. It surfaced when a portrait control that
+  // asks for headers during render met a test jsdom with the same shape.
+  // No token and no storage are the same answer to the caller, so say it once.
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 /**

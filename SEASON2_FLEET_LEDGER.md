@@ -198,7 +198,7 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   local ref, and every `drizzle/*.sql` on disk across the worktrees), then
   `node scripts/check-migration-numbers.mjs --next` to confirm.
 - **path-data lane, 2026-09-03: claims 0144, 0145 and 0146** for
-  `drizzle/0144_a_member_finds_their_own_reservation.sql` (one non-unique index on
+  `drizzle/0151_a_member_finds_their_own_reservation.sql` (one non-unique index on
   `housing_reservations`, no new table),
   `drizzle/0145_an_investor_path_records_facts_not_money.sql` (new table
   `investor_path_facts`) and `drizzle/0146_a_member_opens_a_venture.sql` (new table
