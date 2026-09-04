@@ -322,6 +322,18 @@ export async function stewardNoVote(
     council: deps.stewardCouncil(),
   });
   if (!verdict.blocks) return null;
+  /*
+   * AN OVERRIDE IS NOT BLOCKED A SECOND TIME, AT THIS DOOR EITHER.
+   *
+   * The village heard the objection, brought the payout back and passed it at
+   * the highest bar it has set for itself. 19E says it lands whatever any
+   * steward says, and the no vote is the door a payout actually dies at, so an
+   * override that answered only the window's veto would have answered nothing:
+   * `at_acceptance` is the default timing for a token send and such a row never
+   * reaches a window at all. The steward's no still stands on the record as a
+   * vote, with its weight counted in the tally like anybody's.
+   */
+  if (await overrideStands(deps.pool, b)) return null;
   return { stewardIds: verdict.stewardIds, reason: verdict.reason, seated: verdict.seated };
 }
 
@@ -393,7 +405,7 @@ export async function recordVeto(
    * passed it at the highest bar it has set for itself. A second veto would
    * make that bar mean nothing and leave the seat holding the village.
    */
-  const override = await isOverride(deps.pool, b.subjectType, b.subjectRef);
+  const override = await overrideStands(deps.pool, b);
   if (override) {
     return {
       ok: false,
@@ -1367,6 +1379,79 @@ export async function isOverride(pool: Pool, subjectType: string, subjectRef: st
   if (!r?.sup || String(r.rel ?? "") !== "overrides") return null;
   if (!(await wasVetoed(pool, String(r.sup)))) return null;
   return { of: String(r.sup) };
+}
+
+/**
+ * DOES THIS BALLOT STAND AS AN OVERRIDE? The one answer both of the steward's
+ * doors read, on every subject type.
+ *
+ * ── THE HOLE THIS CLOSES ───────────────────────────────────────────────────
+ *
+ * `isOverride` above asks a proposal row, and its first line is "does this
+ * subject have one?". A `token_send`, a `quest_payout` and a
+ * `founding_allocation` do not, and those three are precisely the subjects
+ * 19D lets a steward FAIL with a no vote. So the override, which 19E promises
+ * lands a resubmission whatever any steward says, could never be asked about
+ * the only decisions the steward's no can kill. Worse, the no-vote door never
+ * asked at all: `routeOutcome` read `stewardNoVote` and stopped there, so even
+ * a resubmitted Game change priced at the top tier died on the same steward's
+ * no a second time. A payout a steward stopped had no door at any tier.
+ *
+ * ── WHAT DECIDES IT ────────────────────────────────────────────────────────
+ *
+ *  1. THE POINTER, on the ballot (0163) or on the proposal row for the two
+ *     subjects that have one. Both carry the same three words and the relation
+ *     must read exactly "overrides": a renewal and a withdraw-and-rewrite clone
+ *     point backwards too, and neither is the village answering a veto.
+ *  2. THE THING IT ANSWERS WAS ACTUALLY STOPPED. An override of a decision
+ *     nobody vetoed is a resubmission like any other.
+ *  3. THE BALLOT WAS PRICED AT THE VILLAGE'S HIGHEST SET TIER. 19E's whole
+ *     sentence: "a resubmission ... whose ballot was actually PRICED at the
+ *     village's highest set tier lands regardless of any steward". The dials
+ *     are frozen on the ballot at open, so this reads the vote that happened
+ *     rather than the intention behind it, and a column pointing somewhere
+ *     buys nothing on its own.
+ *
+ * It lives here, beside both doors, rather than inside `stewardNoBlocks`:
+ * `recordVeto` does not go through that rule and would otherwise need a second
+ * copy of this one, which is how the steward's two doors came to disagree
+ * before.
+ */
+export async function overrideStands(
+  pool: Pool,
+  b: BallotRow,
+  settings: ThresholdSettings = villageThresholds(),
+): Promise<{ of: string } | null> {
+  const answers = await comesBackAsOverride(pool, b);
+  if (!answers) return null;
+  if (!ballotPricedAtOrAbove(b, settings.highest, settings)) return null;
+  return answers;
+}
+
+/** The pointer half: what this decision comes back from, stopped, as an override. */
+async function comesBackAsOverride(pool: Pool, b: BallotRow): Promise<{ of: string } | null> {
+  const of = b.supersedesBallotId;
+  if (of && String(b.supersedesRelation ?? "") === "overrides") {
+    return (await ballotWasVetoed(pool, of)) ? { of } : null;
+  }
+  return isOverride(pool, b.subjectType, b.subjectRef);
+}
+
+/** The village's own floors and its highest set tier, read through one door. */
+function villageThresholds(): ThresholdSettings {
+  return thresholdSettingsFrom(
+    (key) => Number(numberVar(key)),
+    (key) => String(stringVar(key)),
+  );
+}
+
+/** Was THIS ballot stopped by a steward, at either of the two doors? */
+export async function ballotWasVetoed(pool: Pool, ballotId: string): Promise<boolean> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS n FROM ballots WHERE id = ? AND vetoed_at IS NOT NULL",
+    [ballotId],
+  );
+  return Number(rows[0]?.n ?? 0) > 0;
 }
 
 /** Was any ballot ever held on this proposal stopped by a steward? */

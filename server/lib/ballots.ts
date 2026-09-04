@@ -80,7 +80,7 @@ import { numberVar, stringVar } from "./variables";
 // Dispatcher lane: the proposal timing 0135 freezes onto the ballot at open.
 import { defaultTimingFor, kindOfSubject, noCloserRefusal, timingOf, type ProposalTiming } from "../../shared/governanceKinds";
 // Windows lane: the open path is gated, and only the open path (19E).
-import { openingRefusal } from "./governanceWindows";
+import { openingRefusal, relationProblem } from "./governanceWindows";
 import type { WeightMode } from "./governanceWeights";
 
 export interface BallotRow {
@@ -103,6 +103,18 @@ export interface BallotRow {
   status: "open" | "passed" | "failed" | "no_quorum" | "withdrawn";
   /** Dispatcher lane, 0135: the timing FROZEN at open, like the dials. */
   timing: ProposalTiming;
+  /**
+   * Dispatcher lane, 0163: the decision this one comes back from, if any, and
+   * how it relates to it (renews | overrides | replaces).
+   *
+   * On the BALLOT because every subject type has one. The same pair lives on
+   * `mechanics_proposals` and answers the same question for the two subjects
+   * that have a proposal row; a token send, a quest payout and a founding
+   * allocation have none, and they are exactly the subjects a steward's no vote
+   * can fail. See `overrideStands` in server/lib/applyDue.ts.
+   */
+  supersedesBallotId: string | null;
+  supersedesRelation: string | null;
   outcomeNote: string | null;
   closedBy: string | null;
   closedAt: string | null;
@@ -131,6 +143,8 @@ export function rowToBallot(r: RowDataPacket): BallotRow {
     closesAt: iso(r.closes_at),
     status: r.status,
     timing: timingOf(r.timing),
+    supersedesBallotId: r.supersedes_ballot_id ?? null,
+    supersedesRelation: r.supersedes_relation ?? null,
     outcomeNote: r.outcome_note ?? null,
     closedBy: r.closed_by ?? null,
     closedAt: r.closed_at === null || r.closed_at === undefined ? null : iso(r.closed_at),
@@ -245,6 +259,31 @@ export interface OpenBallotInput {
     comingBackFrom?: Date | null;
     relation?: string | null;
   };
+  /**
+   * WHAT THIS DECISION COMES BACK FROM (19E, 0163), named as a BALLOT.
+   *
+   * The override key every subject type can carry. A proposal-backed subject
+   * says the same thing on its proposal row and `overrideStands` reads either,
+   * so a village that answers a stopped payout at its highest tier has the same
+   * door a village answering a stopped Game change has always had.
+   */
+  supersedes?: { ballotId?: string | null; relation?: string | null };
+}
+
+/**
+ * THE TWO COLUMNS A RESUBMITTED BALLOT WRITES, in the order the INSERT names
+ * them: the pointer, and the relation the proposer stated.
+ *
+ * A relation with nothing to point at is dropped, so no ballot claims to come
+ * back from a decision it does not name. The mirror of `supersedeColumns` in
+ * governanceWindows.ts, which does the same for the proposal row.
+ */
+export function ballotSupersedeColumns(
+  input: OpenBallotInput["supersedes"],
+): [string | null, string | null] {
+  const of = String(input?.ballotId ?? "").trim().slice(0, 64) || null;
+  const relation = String(input?.relation ?? "").trim().toLowerCase() || null;
+  return [of, of ? relation : null];
 }
 
 export type OpenBallotResult =
@@ -274,6 +313,17 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
   if (!(totalWeight > 0)) {
     return { ok: false, error: "The electorate's total voting weight is zero, so no vote could ever count. Allocate weight before opening a ballot" };
   }
+  /*
+   * A WORD THIS BUILD CANNOT READ IS REFUSED BEFORE THE BALLOT EXISTS.
+   *
+   * `overrideStands` reads `supersedes_relation` for exactly the word
+   * "overrides", so a misspelling stored quietly would be a village believing
+   * it had opened an override and finding out at the close that it had not.
+   * The proposal path refuses the same word at publish, for the same reason.
+   */
+  const [supersedesOf, supersedesRelation] = ballotSupersedeColumns(input.supersedes);
+  const badRelation = relationProblem(supersedesRelation);
+  if (badRelation) return { ok: false, error: badRelation };
   const days = Math.max(1, Math.min(90, Math.trunc(input.durationDays) || 1));
   const id = `bal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const openKey = `${input.subjectType}:${input.subjectRef}`;
@@ -322,7 +372,10 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
     durationDays: days,
     at: opensAt,
     comingBackFrom: input.window?.comingBackFrom ?? null,
-    relation: input.window?.relation ?? null,
+    // A subject with no proposal row states its relation on the ballot, and the
+    // window gate reads the same word either way: anything coming back gets the
+    // grace, whatever table it happens to be keyed on.
+    relation: input.window?.relation ?? supersedesRelation,
   });
   if (closed) return { ok: false, error: closed };
   const closesAt = new Date(opensAt.getTime() + days * 24 * 60 * 60 * 1000);
@@ -332,8 +385,8 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
     await conn.query( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
       "INSERT INTO ballots (id, subject_type, subject_ref, open_key, title, doc_markdown, method, " +
         "weight_mode, weight_token, unity_pct, quorum_pct, total_weight, electorate_count, opened_by, " +
-        "opens_at, closes_at, timing, status) " +
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, 'open')",
+        "opens_at, closes_at, timing, supersedes_ballot_id, supersedes_relation, status) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?, 'open')",
       [
         id,
         input.subjectType,
@@ -352,6 +405,8 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
         opensAt,
         closesAt,
         input.timing ?? defaultTimingFor(kindOfSubject(input.subjectType)),
+        supersedesOf,
+        supersedesRelation,
       ],
     );
     for (const e of electorate) {

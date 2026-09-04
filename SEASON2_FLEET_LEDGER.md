@@ -203,6 +203,16 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   section exists to catch.
 - **governance build, 2026-09-02: RESERVES 0132 to 0139.** A reservation that lives only in one
   session's head is not a reservation, so it is written down here.
+- **governance build, dispatcher lane, 2026-09-04: claims 0163** for
+  `drizzle/0163_an_override_names_the_ballot_it_answers.sql`. Two nullable columns and one
+  non-unique index on `ballots`: `supersedes_ballot_id` and `supersedes_relation`, the pair
+  that lets the veto override be keyed on a ballot rather than on a proposal row a payout does
+  not have. Additive only, so a release rolled back over it reads and writes as before.
+  Measured all three ways before claiming: the directory, `git ls-tree` over every local and
+  remote ref (0162 was the ceiling, held by the credits lane) and every `drizzle/*.sql` on disk
+  across the worktrees. `check-migration-numbers.mjs` does not flag it; that gate is red on this
+  branch for the nine governance files below `origin/main`'s ceiling, and was red the same way
+  before this file existed.
 - **bridge-primitives lane, 2026-09-02: claims 0140, 0141, 0142 and 0143** for the platform
   primitives under the Amora x Saberra integration. All four are additive only.
   `0140_external_proposals.sql` adds `external_proposals` (the vendor proposal queue, with a

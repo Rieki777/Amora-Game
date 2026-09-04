@@ -25,7 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import mysql from "mysql2/promise";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
-import { castVote, closeBallot, openBallot, setSubjectCloserCheck, type BallotRow, type OpenBallotInput } from "./ballots";
+import { ballotSupersedeColumns, castVote, closeBallot, openBallot, setSubjectCloserCheck, type BallotRow, type OpenBallotInput } from "./ballots";
 import {
   applyDueGovernance,
   autoSettleExpired,
@@ -168,6 +168,27 @@ const openOne = async (over: Partial<OpenBallotInput> = {}): Promise<BallotRow> 
   if (!result.ok) throw new Error(`ballot refused to open: ${result.error}`);
   return result.ballot;
 };
+
+/**
+ * THE PRICE AN OVERRIDE HAS TO CARRY AT: the constitutional floor, which is what
+ * `governance.highest_tier` names by default. A resubmission priced below this
+ * is an ordinary resubmission, whatever it points at (19E).
+ */
+const TOP_TIER = { unityPct: 97, quorumPct: 97 };
+
+/**
+ * A WEIGHTED ROLL, so an override can exist at all.
+ *
+ * A ballot priced at 97% unity cannot carry if a steward holding a fifth of the
+ * weight votes no, and then there is nothing to override: the ballot failed on
+ * the numbers. Here the steward holds 4 of 204, so the vote carries at 98%
+ * unity and the only thing that could stop it is the steward's no itself.
+ */
+const WEIGHED_ROLL = [
+  { userId: "u-a", weight: 100 },
+  { userId: "u-b", weight: 100 },
+  { userId: "u-steward", weight: 4 },
+];
 
 /** Move a ballot's frozen window into the past so it can be closed honestly. */
 const expire = async (b: BallotRow, agoMs = 60_000) => {
@@ -456,13 +477,23 @@ describe.skipIf(!configured)("the veto inside and outside the window", () => {
       ballotId: first.id, stewardId: "u-steward", reason: "The village had not been shown the numbers yet.",
     });
     expect(firstStopped.ok, JSON.stringify(firstStopped)).toBe(true);
-    // The resubmission, pointing at it as an OVERRIDE, passed again at the highest bar.
-    const again = await openOne({ subjectRef: "gmp-override-1" });
+    /*
+     * The resubmission, pointing at it as an OVERRIDE, passed again at the
+     * highest bar. The bar is STATED here now: it used to say "at the highest
+     * bar" in a comment and open at 60/20, and the override was granted on the
+     * pointer alone. `overrideStands` reads the price the ballot actually
+     * carried, so the fixture has to carry it.
+     */
+    const again = await openOne({ subjectRef: "gmp-override-1", ...TOP_TIER });
     await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
       "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status, supersedes_proposal_id, supersedes_relation) " +
         "VALUES ('gmp-override-1','The same ask, again','because','[]','u-proposer','onsite_vote','gmp-vetoed-1','overrides')",
     );
-    const closedAgain = await carry(again);
+    // Everybody on the roll, because 97% quorum asks for very nearly everybody.
+    const closedAgain = await carry(again, [
+      ["u-a", "yes"], ["u-b", "yes"], ["u-steward", "yes"], ["u-steward2", "yes"], ["u-steward3", "yes"],
+    ]);
+    expect(closedAgain.outcome, "the resubmission carried at the highest bar").toBe("passed");
     await routeOutcome(deps(), closedAgain.ballot!, "passed", "carried", "u-a");
 
     const stopped = await recordVeto({ pool }, { ballotId: again.id, stewardId: "u-steward", reason: "still no" });
@@ -480,6 +511,134 @@ describe.skipIf(!configured)("the veto inside and outside the window", () => {
     await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
     const out = await recordVeto({ pool }, { ballotId: b.id, stewardId: "u-steward", reason: "undo it" });
     expect(out.ok).toBe(false);
+  });
+});
+
+/**
+ * THE OVERRIDE ON A SUBJECT WITH NO PROPOSAL ROW (19D and 19E together).
+ *
+ * 19D lets a seated steward fail a TOKEN SEND with a no vote at the close.
+ * 19E says the village may bring the same decision back, pass it at the highest
+ * tier it has set, and land it whatever any steward says. The two sentences met
+ * nowhere: the override was keyed on `mechanics_proposals`, which a payout has
+ * no row in, and the no-vote door never asked the question at all. A payout a
+ * steward stopped had no door at any tier, which is what this pins.
+ */
+describe("the two columns a resubmitted ballot writes", () => {
+  it("drops a relation with nothing to point at", () => {
+    // A ballot saying "overrides" and naming nothing would read as an override
+    // of the last thing anybody looked at. Absent is the honest answer.
+    expect(ballotSupersedeColumns({ relation: "overrides" })).toEqual([null, null]);
+    expect(ballotSupersedeColumns(undefined)).toEqual([null, null]);
+  });
+
+  it("keeps the pointer and normalises the word", () => {
+    expect(ballotSupersedeColumns({ ballotId: " bal-1 ", relation: "Overrides" })).toEqual(["bal-1", "overrides"]);
+  });
+});
+
+describe.skipIf(!configured)("the override, on a decision with no proposal row", () => {
+  const payout = async (over: Partial<OpenBallotInput> = {}): Promise<BallotRow> =>
+    openOne({
+      subjectType: "token_send",
+      timing: "at_acceptance",
+      subjectRef: `pay-${++n}`,
+      weightMode: "custom",
+      electorate: WEIGHED_ROLL,
+      ...over,
+    });
+
+  const withStewardNo = (reason: string): Array<[string, "yes" | "no", string?]> => [
+    ["u-a", "yes"],
+    ["u-b", "yes"],
+    ["u-steward", "no", reason],
+  ];
+
+  /** A payout the steward stopped at the close, so there is something to answer. */
+  const stopped = async (): Promise<BallotRow> => {
+    const first = await payout();
+    const closed = await carry(first, withStewardNo("The treasury cannot carry this yet."));
+    expect(closed.outcome, "the payout carried on the numbers before the steward's no").toBe("passed");
+    const routing = await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    expect(routing.outcome).toBe("failed");
+    expect(writes, "nothing is paid out of a payout a steward stopped").toEqual([]);
+    return first;
+  };
+
+  it("lands a payout brought back at the highest tier, over the same steward's no", async () => {
+    await seatSteward("u-steward");
+    const first = await stopped();
+
+    const again = await payout({
+      ...TOP_TIER,
+      supersedes: { ballotId: first.id, relation: "overrides" },
+    });
+    const closed = await carry(again, withStewardNo("Still no."));
+    expect(closed.outcome, "98% unity clears the 97% it was priced at").toBe("passed");
+
+    const routing = await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    expect(routing.outcome).toBe("passed");
+    expect(writes, "the override lands whatever any steward says").toContain(`paid:${again.id}`);
+  });
+
+  it("refuses a second veto on one, inside the window it waits out", async () => {
+    await seatSteward("u-steward");
+    const first = await stopped();
+
+    // next_moon, so it is stamped and waits: the door `recordVeto` guards, which
+    // an at_acceptance payout never reaches.
+    const again = await payout({
+      ...TOP_TIER,
+      timing: "next_moon",
+      supersedes: { ballotId: first.id, relation: "overrides" },
+    });
+    const closed = await carry(again, withStewardNo("Still no."));
+    await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    expect((await landingRow(pool, again.id))!.landsAt, "it waits, so there is a window to try").not.toBeNull();
+
+    const veto = await recordVeto(deps(), { ballotId: again.id, stewardId: "u-steward", reason: "still no" });
+    expect(veto.ok).toBe(false);
+    expect(veto.ok === false && veto.error).toContain("highest bar");
+  });
+
+  it("hands nothing to a resubmission priced at an ordinary bar", async () => {
+    await seatSteward("u-steward");
+    const first = await stopped();
+
+    // The pointer and the word are both right; the price is not. 19E buys the
+    // steward-proof landing with the highest tier the village has set, so a
+    // column pointing backwards is worth nothing on its own.
+    const again = await payout({ supersedes: { ballotId: first.id, relation: "overrides" } });
+    const closed = await carry(again, withStewardNo("Still no."));
+    const routing = await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a");
+    expect(routing.outcome).toBe("failed");
+    expect(writes).toEqual([]);
+  });
+
+  it("hands nothing to a resubmission that renews rather than overrides", async () => {
+    await seatSteward("u-steward");
+    const first = await stopped();
+    const again = await payout({ ...TOP_TIER, supersedes: { ballotId: first.id, relation: "renews" } });
+    const closed = await carry(again, withStewardNo("Still no."));
+    expect((await routeOutcome(deps(), closed.ballot!, "passed", "carried", "u-a")).outcome).toBe("failed");
+  });
+
+  it("refuses a relation this build cannot read, before the ballot exists", async () => {
+    const result = await openBallot(pool, {
+      subjectType: "token_send",
+      subjectRef: `pay-${++n}`,
+      title: "A payout coming back",
+      docMarkdown: "# The document as checked",
+      method: "custom",
+      weightMode: "custom",
+      ...TOP_TIER,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: WEIGHED_ROLL,
+      supersedes: { ballotId: "bal-nothing", relation: "overrules" },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain("renews, overrides, replaces");
   });
 });
 
