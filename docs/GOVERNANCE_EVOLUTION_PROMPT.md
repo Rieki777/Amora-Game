@@ -2359,6 +2359,35 @@ constitutional; their ratchet argument is preserved exactly where it bites (a vi
 ordinary vote to make future moves cheaper) while ordinary evolution stays cheap enough to happen,
 which is what the founder asked for.
 
+**THE TWO-STEP HOLE IN THE SPLIT, AND ITS FIX (Saberra session, adopted 2026-09-04).** Pricing a
+move by the power's criticality moves the ratchet up a level rather than closing it, because the
+price is now a property of the CLASSIFICATION rather than of the move, and an attribute is a softer
+target than the thing it describes. The attack is two ordinary votes and nobody does anything wrong
+at either step: first lower a power's criticality, or move the capability from a constitutional
+bundle into a routine one; then move the now-routine power. A steward's veto relocates for the price
+of two routine decisions, and neither step is a move of the meta-power, so the meta-power pin does
+not see it.
+
+The fix is the founder's own rule from 19B, that a threshold changes only at its own current bar,
+applied to classification:
+
+> **Changing a power's criticality, or moving a capability between bundles, is priced at the HIGHER
+> of the two criticalities involved.**
+
+Downgrading a constitutional power to routine is therefore a constitutional act. Upgrading a routine
+one is routine, which is the right asymmetry: making something harder to change must never itself be
+hard. This costs none of the flexibility the founder asked for, because ordinary powers stay ordinary
+and reclassifying upward stays cheap; it removes only the cheap path DOWN, which is the only
+direction the attack runs. A bundle's criticality remains the highest among its keys, so the same
+rule prices a key leaving a high bundle. **Coordinator's reading, flagged for him: this is an
+application of a principle he has already ruled rather than a new one, so the build proceeds on it.**
+
+**WHO MAY CHANGE A DECLARED HOME.** The platform declares a bundle only for a capability it is
+INTRODUCING, and may never move one a village has already placed; a village moving a placed
+capability is a classification change and is priced by the rule above. Otherwise an upgrade could
+silently reclassify an existing power by moving its bundle, which is the same attack with the
+platform as the actor.
+
 **Guards that travel with it, from the Saberra session and kept.**
 
 - `capabilities` joins `represents_circle` in `SEAT_FIELDS` (`server/lib/orgDrafts.ts`), so a MACHINE
