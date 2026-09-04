@@ -481,6 +481,15 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // Exactly 5, the amount just sent, to a peer registered three lines above
     // with no other source of recognition. A floor here passes on a double
     // credit, which is the one arithmetic error that matters on a balance.
+    //
+    // 5 LEDGER UNITS, which is 5 Gratitude only while that token carries
+    // `decimals 0`, and this suite runs the seeded registry so it does. The
+    // number is deliberately NOT derived here: `toLedgerUnits` imported into
+    // this file would read the registry of the TEST process, which is cold and
+    // is not the registry the server subprocess loaded, so a derivation would
+    // be a confident statement about the wrong process. The suite that asks
+    // this question at four decimals is `server/economy.test.ts`, against the
+    // engine directly. (sweep lane F)
     expect(peerProfile.json.recognitionBalance, "exactly what was sent, once").toBe(5);
   });
 
@@ -2165,6 +2174,10 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     const selfHeart = await api("POST", `/api/feed/threads/${micro.json.id}/heart`, {}, peerToken);
     expect(selfHeart.status).toBe(400);
     // The value is real: the peer's ledger carries a heart_received transfer.
+    // `amount` is the LEDGER's own unit; `feed.heart_amount` is 1 Gratitude and
+    // the row reads 1 because the token carries `decimals 0` here. See the note
+    // at the acknowledgement assertion above for why this is not derived.
+    // (sweep lane F)
     const peerLedger = await api("GET", "/api/game/ledger", undefined, peerToken);
     expect(peerLedger.json.entries.some((e: any) => e.source === "heart_received" && e.amount === 1)).toBe(true);
     const refreshed = await api("GET", "/api/feed", undefined, doerToken);

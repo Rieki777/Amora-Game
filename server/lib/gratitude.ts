@@ -15,8 +15,8 @@ import { boolVar, numberVar } from "./variables";
 import { cycleIdFor, parseCycleId } from "./gratitude-cycles";
 import { isExampleUser } from "./examples";
 import { issuanceRefusal } from "./gameStart";
-import { memberAccount, postTransfer, RECOGNITION_FAUCET } from "./ledger";
-import { writeGratitudeRow, shareCapFor, recognitionName } from "./economy";
+import { PLATFORM_TOKEN, memberAccount, postTransfer, RECOGNITION_FAUCET } from "./ledger";
+import { writeGratitudeRow, shareCapFor, recognitionName, toLedgerUnits } from "./economy";
 import type { GratitudeLogRepo, GratitudeEntry } from "../repos/gratitude";
 import type { UsersRepo } from "../repos/users";
 
@@ -35,6 +35,13 @@ export interface GratitudeDeps {
   stageMultiplierFor(user: any): Promise<number>;
 }
 
+/**
+ * HUMAN units, every number. `gratitude.base_budget` is declared in Gratitude
+ * and `spent` is a SUM over `gratitude_log.amount`, the column that holds what
+ * a member typed. This is the second reader of the same figures `Allowance`
+ * carries in server/lib/economy.ts, and the two must never disagree about the
+ * unit: they are summed from one table and weighed against one dial.
+ */
 export interface GratitudeBudget {
   total: number;
   spent: number;
@@ -86,6 +93,12 @@ export type SendOutcome =
 export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Promise<SendOutcome> {
   const user = input.fromUser;
   const kind = input.kind ?? "gratitude";
+  // HUMAN, and floored rather than refused, which is this door's own answer to
+  // the question `checkGive` answers with a sentence. Flooring FIRST keeps the
+  // log and the ledger describing one number, so a fraction here costs a
+  // member part of their gift and never splits the two records apart. The two
+  // gratitude doors differ on this, and that is worth knowing rather than
+  // changing under a units sweep.
   const amt = Math.floor(Number(input.amount) || 0);
   if ((!input.toEmail && !input.toId) || amt <= 0) {
     return { ok: false, status: 400, error: "Recipient and a positive amount are required" };
@@ -271,7 +284,25 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
   const credit = await postTransfer(deps.pool, {
     from: RECOGNITION_FAUCET,
     to: memberAccount(recipient.id),
-    amount: amt,
+    /*
+     * NAMED, NOT INHERITED (sweep lane F). Left off, this fell through to
+     * `validateLeg`'s `input.tokenType ?? PLATFORM_TOKEN` in
+     * server/lib/ledger.ts, while the line below reads the SAME token's
+     * decimals through the registry fallback inside `toLedgerUnits` in
+     * server/lib/economy.ts. Two defaults, in two files, answering one
+     * question, and a decimals change is exactly the edit that can move one of
+     * them and leave the other: a conversion done for one token and a posting
+     * made in another is a wrong amount with nothing to compare it against.
+     * Both now read the same constant on two adjacent lines.
+     */
+    tokenType: PLATFORM_TOKEN,
+    /*
+     * `amt` is HUMAN and stays human everywhere else in this function: it is
+     * weighed against the budget, written to `gratitude_log.amount`, printed
+     * in the refusals, and carried out in `entry.amount`. `postTransfer` takes
+     * MINOR units, so the conversion happens here and only here.
+     */
+    amount: toLedgerUnits(PLATFORM_TOKEN, amt),
     source: kind === "heart" ? "heart_received" : "gratitude_received",
     sourceRef: entry.id,
     description: `${recognitionName()} from ${String(user.name ?? "").split(" ")[0]}`,
@@ -281,6 +312,15 @@ export async function sendGratitude(deps: GratitudeDeps, input: SendInput): Prom
     return { ok: false, status: 500, error: credit.error ?? "ledger refused the credit" };
   }
   await deps.members.update(recipient.id, (u: any) => {
+    // MINOR UNITS, and three readers take it raw. Two are display
+    // (client/src/pages/Profile.tsx, server/routes/players.ts) and the third
+    // is a GATE: server/index.ts weighs `Number(user.recognitionBalance)`
+    // against `governance.hypha_threshold`, a dial declared in Gratitude. At
+    // decimals 0 the two units coincide and the gate is right by accident;
+    // above zero it is not. The repair belongs with those readers and not
+    // here, because a cache of the ledger holding anything but the ledger's
+    // own number would be a second unit for one fact. Filed for the index and
+    // read-side lanes.
     u.recognitionBalance = credit.toBalance;
   });
 
