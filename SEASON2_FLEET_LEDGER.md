@@ -2734,11 +2734,18 @@ that may belong to a session that is mid-edit right now. That is what was done, 
 clean with the work preserved. **Recover a rescue stash with `git stash apply` by SHA, never `pop`,**
 so a second lane reading the same stash cannot consume it out from under the first.
 
-**`git log --author` DOES NOT identify which session did something.** Every lane on this machine
-commits under the same git identity, so an authorship search returns your own commits from an
-unrelated branch and reads as evidence that you were there. Authorship tells you the human. **The
-discriminator is `git worktree list`,** which says which tree each session actually holds, and it is
-how two lanes ruled themselves out of the ECON question in one command each.
+**`git log --author` DOES NOT identify which session did something, and it fails in the worst
+possible direction.** Every lane on this machine commits under the same git identity, so an
+authorship search returns the newest commits in the REPOSITORY, not the ones touching the tree you
+are asking about. **It therefore points at the most recently active lane, and the harder a session
+has been working the more it looks like the culprit.** Verified while writing this: the last forty
+commits on main carry two author identities for eight or more live sessions, and an author query run
+right now returns this lane's own merge at the top, then the merge before it. Whoever last landed
+work is always the top hit, about a tree they may never have opened.
+
+Authorship tells you the human. **The discriminator is `git worktree list`,** which says which tree
+each session actually holds, and it is how two lanes ruled themselves out of the ECON question in
+one command each. Say "not mine" with that output, never with an author search.
 
 **A large deletion-heavy diff is usually a STALE BASE, not a change.** 4736 insertions against
 13665 deletions, including a revert of a fix nobody would deliberately revert, is what a tree looks
