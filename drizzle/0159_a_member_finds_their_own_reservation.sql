@@ -1,4 +1,4 @@
--- 0144: the resident path's ladder reads a member's own reservations, and
+-- 0159: the resident path's ladder reads a member's own reservations, and
 -- until now that read was a full table scan.
 --
 -- ── WHAT WAS ALREADY TRUE, AND WHAT THIS BRIEF GOT WRONG ─────────────────

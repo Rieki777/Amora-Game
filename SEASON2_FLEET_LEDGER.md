@@ -197,6 +197,22 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   under-reports, so run all three scans (the directory, `git ls-tree` over every remote AND
   local ref, and every `drizzle/*.sql` on disk across the worktrees), then
   `node scripts/check-migration-numbers.mjs --next` to confirm.
+- **profile-rebase integration, 2026-09-04: RENUMBERED to 0156, 0157, 0158, 0159.** The four
+  entries below (path-data's 0144/0145/0146, portraits' 0147, and the 0144-to-0151 move made
+  earlier the same day) are HISTORY now, not allocation. Main reached 0153 while the branch
+  was in review, so every one of them sat at or below a ceiling that had already passed them
+  and `check-migration-numbers.mjs` refused the branch. New numbers, same bodies:
+  `0156_an_investor_path_records_facts_not_money.sql`, `0157_a_member_opens_a_venture.sql`,
+  `0158_character_portraits.sql`, `0159_a_member_finds_their_own_reservation.sql`.
+  **Renaming is only safe because not one of these has ever been merged**, so no
+  `_migrations_applied` row anywhere holds an old name and nothing replays. Three of the four
+  are `CREATE TABLE IF NOT EXISTS` and would survive a replay regardless; 0159 is a bare
+  `CREATE INDEX`, which MySQL gives no `IF NOT EXISTS`, so that one would fail loud on a second
+  run. If any of these had shipped, the fix would have been a NEW file, never a rename.
+  Ceiling read at 2026-09-04T20:4xZ by two scans run SEPARATELY, never chained: every ref in
+  the shared object store reached 0155, and `drizzle/` on disk across 250 sibling worktrees
+  reached 0155 (`ECON-redeem`). Chaining the two produces a truncated first scan whose empty
+  output is indistinguishable from a clean one.
 - **path-data lane, 2026-09-03: claims 0144, 0145 and 0146** for
   `drizzle/0151_a_member_finds_their_own_reservation.sql` (one non-unique index on
   `housing_reservations`, no new table),

@@ -1,5 +1,5 @@
 /**
- * Where a member stands on the investor path (0145), recorded as dated facts.
+ * Where a member stands on the investor path (0156), recorded as dated facts.
  *
  * ── THIS MODULE HOLDS NO MONEY, AND THAT IS ENFORCED BY THE SCHEMA ───────
  * `investor_path_facts` has no numeric column. Not an amount, not a unit

@@ -551,7 +551,7 @@ export async function listReservations(pool: Pool, limit = 200): Promise<Reserva
  * `user_id` has been on this table since 0077's first commit and the public
  * POST has always filled it from `authedUser(req)` when somebody is signed
  * in, so no backfill is involved and nothing changes for the anonymous leads
- * this form exists to accept. What 0151 adds is the index that makes this
+ * this form exists to accept. What 0159 adds is the index that makes this
  * query a prefix lookup instead of a scan.
  *
  * NO ladder position is computed here, and that is deliberate. A rung is a

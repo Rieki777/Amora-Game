@@ -1,4 +1,4 @@
--- 0147: a member's OWN portrait for a class, from two sources, private by default.
+-- 0158: a member's OWN portrait for a class, from two sources, private by default.
 --
 -- ── WHAT THIS DELIBERATELY LOOSENS, AND HOW IT PAYS FOR IT ───────────────
 --

@@ -1,4 +1,4 @@
--- 0146: the thing a prosperity creator actually creates, recorded once, with
+-- 0157: the thing a prosperity creator actually creates, recorded once, with
 -- the dates that make a ladder position derivable from it.
 --
 -- ── WHY THIS IS PLATFORM AND NOT A NEW MODULE ────────────────────────────
@@ -19,7 +19,7 @@
 --     of the four paths behind a module and a village that never turns it on
 --     has three ladders and a hole where the fourth belongs, on a profile
 --     page that promises four. The other three ladders read
---     org_role_assignments, housing_reservations and the table 0145 adds,
+--     org_role_assignments, housing_reservations and the table 0156 adds,
 --     none of which is behind a module either.
 --  3. PROFILES IS CORE, WHICH IS EXACTLY THE RIGHT HOME. It is one of the
 --     four modules that are always public and cannot be disabled, and a
@@ -60,7 +60,7 @@
 -- membership and training every time instead of storing a stage. Nothing
 -- here stores a position, so nothing here can lie about one.
 --
--- History survives a close for the same reason it does in 0145 and in
+-- History survives a close for the same reason it does in 0156 and in
 -- org_role_assignments (0049): the row stays, carrying its dates and its
 -- reason. A closed venture is still a thing a member did, and reading it
 -- back means reading this table without the live filter. That is why there
@@ -78,7 +78,7 @@
 -- produces the cross-era collation mismatch. 0049, 0122 and 0123 inherit for
 -- the same reason.
 --
--- No money column, and the reason is 0145's reason applied here: revenue,
+-- No money column, and the reason is 0156's reason applied here: revenue,
 -- valuation and any figure about what a venture is worth belong to whatever
 -- system actually holds them, and a member-editable number about value
 -- sitting on a profile is a claim the platform cannot stand behind.
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS `member_ventures` (
   `closed_at` timestamp NULL,
   `closed_reason` varchar(160) NULL,
   -- Standing-example row: display only, never counted by a ladder. Same
-  -- column and same hazard as org_role_assignments and 0145.
+  -- column and same hazard as org_role_assignments and 0156.
   `is_example` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at` timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),

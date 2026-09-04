@@ -1,4 +1,4 @@
--- 0145: where a member stands on the investor path, recorded as dated facts
+-- 0156: where a member stands on the investor path, recorded as dated facts
 -- and carrying no figure of any kind.
 --
 -- ── WHAT EXISTED BEFORE THIS, AND WHY NONE OF IT IS A MEMBER RECORD ──────
@@ -18,7 +18,7 @@
 --                         says an email asked, and not that a member did.
 --
 -- So the investor path is the one path of the four with no per-member fact
--- anywhere, which is why this table exists and the resident one (0144) did
+-- anywhere, which is why this table exists and the resident one (0159) did
 -- not need to.
 --
 -- ── THIS IS NOT A LEDGER, AND HERE IS THE MECHANICAL GUARANTEE ───────────

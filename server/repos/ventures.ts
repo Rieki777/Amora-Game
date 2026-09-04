@@ -1,5 +1,5 @@
 /**
- * The thing a prosperity creator creates (0146), and the dates that let a
+ * The thing a prosperity creator creates (0157), and the dates that let a
  * ladder position be derived from it.
  *
  * ── PLATFORM, NOT A MODULE. SETTLED, NOT OBSERVED. ───────────────────────
@@ -10,7 +10,7 @@
  * against and not a gap somebody should feel invited to fill: a later session
  * finding "no prosperity module" in the registry is looking at the intended
  * state. The full argument for keeping it platform lives in the head of
- * drizzle/0146. The short form is
+ * drizzle/0157. The short form is
  * that all four paths are identity in `GAME_CONFIG.paths`, a non-core module
  * ships OFF so one path would go missing on a profile that promises four, and
  * `profiles` is core and cannot be disabled, which makes it the right owner.

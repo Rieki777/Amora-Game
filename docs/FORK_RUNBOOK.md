@@ -293,7 +293,7 @@ two from the admin panel and almost never touches the first.
   file already small, a browser whose canvas ignores the WebP mime and hands
   back PNG). That turns an 8 MB phone photo into a few hundred KB before it
   reaches the wire, which is minutes on the links this platform is built for.
-- **Character portraits also live in the volume** (0147). A member may keep one
+- **Character portraits also live in the volume** (0158). A member may keep one
   picture per character class, from an upload or from a forge, stored as
   `portrait-*.webp` by `server/lib/characterPortraits.ts` and served from
   `/api/uploads/`. Every one is cropped to a fixed 3:4 at 900x1200 and
@@ -1703,7 +1703,7 @@ rule, with the table of what is safe to land and what is not, is in `CLAUDE.md`
 under "Writing a migration", and `node scripts/check-migration-compat.mjs`
 enforces it.
 
-## Where a member stands on each path (0144, 0145, 0146)
+## Where a member stands on each path (0159, 0156, 0157)
 
 Your fork ships four member paths, declared in `shared/gameConfig.ts` under
 `paths`. A member's position on one of them is DERIVED from facts that are true
@@ -1721,11 +1721,11 @@ here, the same way the dist budget is read and never quoted.
 | Path | Where its facts live | What makes a position fall |
 |---|---|---|
 | steward | `org_role_assignments` (0049) | a seating ends, or its season lapses |
-| resident | `housing_reservations` (0077, indexed for this in 0144) | the reservation status moves to `withdrawn` |
-| investor | `investor_path_facts` (0145) | a fact gets an `ended_at` |
-| prosperity creator | `member_ventures` (0146) | the venture gets a `closed_at`, or is unlisted |
+| resident | `housing_reservations` (0077, indexed for this in 0159) | the reservation status moves to `withdrawn` |
+| investor | `investor_path_facts` (0156) | a fact gets an `ended_at` |
+| prosperity creator | `member_ventures` (0157) | the venture gets a `closed_at`, or is unlisted |
 
-The server-side readers are `reservationsForMember` in `server/lib/housing.ts`,
+The server-side readers are `reservationsForMember` in `server/repos/housing.ts`,
 `server/repos/investorPath.ts` and `server/repos/ventures.ts`.
 
 **`investor_path_facts` holds no money, and that is not a style preference.**

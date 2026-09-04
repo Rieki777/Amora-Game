@@ -27,7 +27,7 @@ const VILLAGE = "local";
 /**
  * Every reservation a member has made, newest first.
  *
- * Served by migration 0151's `housing_res_member_idx (village_id, user_id,
+ * Served by migration 0159's `housing_res_member_idx (village_id, user_id,
  * status)`. Without it this is a full scan: 0077 indexed the table for the
  * hamlet view and for the email lookup, and neither is reachable from a user
  * id.
