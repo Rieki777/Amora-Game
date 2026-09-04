@@ -350,16 +350,33 @@ allowance. At an allowance of 100 that cap is 25. `shareCapFor` floors it at 1,
 because 1 percent of 50 rounds to zero and a zero there would refuse every send
 in the village while both dials still read as sane numbers.
 
-**The refund arm of that calculation is unreachable today.** `allowanceFor`
-subtracts reversals whose `source_ref` matches `gratitude.given:<village>:%`, so
-reversing a gift hands the allowance back with nothing to remember to do. Only
+**The refund arm of that calculation has no caller today.** Only
 `server/lib/voiceClaim.ts` calls `reverse()`, in two places, both for voice, so
-no gratitude posting is ever reversed and that subtraction has never returned
-anything but zero. It is correct code with no caller, which is different from
-correct code that works. Worse, the two gratitude doors write two different key
-shapes: `give()` writes `gratitude.given:<village>:<noteId>` and matches the
-pattern, while `sendGratitude()` writes `gratitude_received:<entryId>` and would
-not, so the day something does reverse a heart the allowance will not come back.
+no gratitude posting is ever reversed in this build and that subtraction has
+never returned anything but zero in production. It is correct code with no
+caller, which is different from correct code that works. The two gratitude doors
+also write two different key shapes: `give()` writes
+`gratitude.given:<village>:<noteId>` and the subtraction finds it, while
+`sendGratitude()` writes `gratitude_received:<entryId>` and it does not, so the
+day something reverses a heart sent through the acknowledgement door the
+allowance will not come back. That half is still open.
+
+### Whose allowance a reversal returns (D30, lane AF)
+
+**The giver's, and only the giver's.** The subtraction used to select every
+reversal in the cycle whose `source_ref` began `gratitude.given:<village>:`,
+which names the gift and never the person who gave it, so one member's undo was
+handed back to every member's allowance at once: measured at exactly five units
+off two unrelated cases, at 0 decimals and at 4. The giver needed no new column
+to recover. A reversal debits the RECIPIENT and credits the faucet, so neither
+account on the mirror row is the giver, but the mirror carries the gift's
+occurrence key, that key is built from the note id, and `gratitude_log` holds
+`from_id` beside it. `gratitudeGivenInCycle` reads the notes this member wrote in
+the window, builds the keys they were posted under with the same builder `give`
+posts them under, and counts only the mirrors that match one. The per-recipient
+share is unwound by the same read, because a reversal that returned the budget
+and not the headroom left a member unable to spend it on the person it came back
+from.
 
 Every gratitude write holds one lock, so a member cannot race themselves into
 spending the same allowance twice. That guard is real and proven (section 9). It
