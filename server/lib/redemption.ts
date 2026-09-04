@@ -91,6 +91,7 @@
  * live in `server/lib/redemptionStore.ts`.
  */
 import { tokenDef, type TokenDef } from "./ledger";
+import { fromLedgerUnits } from "./economy";
 import { MODULE_VOUCHERS, isPriceableToken } from "./spending";
 import { stringVar } from "./variables";
 
@@ -324,9 +325,20 @@ export function redemptionRefusal(ask: RedeemAsk): string | null {
     return `Ask for ${def.name} in whole positive amounts`;
   }
   if (ask.amountUnits > ask.balanceUnits) {
+    /*
+     * HUMAN, and this is the one place in this file that converts.
+     *
+     * Everything above is minor units, and these two numbers go into a sentence
+     * a person reads. Interpolating `ask.balanceUnits` here is invisible at 0
+     * decimals and tells a member they hold ten thousand times what they hold
+     * the day a village moves to 4, which is the same fork hazard the wallet
+     * shipped once already (docs/ECONOMICS.md 10.3).
+     */
+    const free = fromLedgerUnits(ask.slug, ask.balanceUnits);
+    const held = fromLedgerUnits(ask.slug, ask.heldUnits);
     return ask.heldUnits > 0
-      ? `You hold ${ask.balanceUnits} ${def.name} that is free, and ${ask.heldUnits} more is already held against a redemption you have open`
-      : `You hold ${ask.balanceUnits} ${def.name}, and that is what there is to redeem`;
+      ? `You hold ${free} ${def.name} that is free, and ${held} more is already held against a redemption you have open`
+      : `You hold ${free} ${def.name}, and that is what there is to redeem`;
   }
   if (!ask.askedFor.trim()) {
     return "Say what you would like these turned into. A steward has to be able to agree to something";
@@ -334,10 +346,18 @@ export function redemptionRefusal(ask: RedeemAsk): string | null {
   return null;
 }
 
-/** What a confirmer is asking, as facts read off the row and the registry. */
+/**
+ * What a confirmer is asking, as facts read off the row and the registry.
+ *
+ * NO STATE AND NO DESTINATION, and that is deliberate rather than an omission.
+ * Whether the ROW may move is `canSettleRedemption`'s question and it is asked
+ * first, by the caller; this answers whether this PERSON may decide it and
+ * whether they said why. Folding the two together would put a second spelling
+ * of every state-machine sentence in this function, and it would also make the
+ * sentences unquotable: the economics document's reader resolves literals only,
+ * so `return verdict.error ?? "..."` throws there rather than printing.
+ */
 export interface ConfirmAsk {
-  state: RedemptionState;
-  to: RedemptionState;
   /** The member whose redemption this is. */
   memberUserId: string;
   /** Whoever is pressing the button. */
@@ -368,13 +388,13 @@ export interface ConfirmAsk {
  * value they have already taken, so it follows the mint.
  *
  * Same function-declaration and literals-only contract as `redemptionRefusal`.
+ * The caller asks `canSettleRedemption` before this, so a row that cannot move
+ * is refused with the state machine's own sentence and never with "say why".
  */
 export function confirmRefusal(ask: ConfirmAsk): string | null {
   if (ask.actorUserId === ask.memberUserId) {
     return "This is your own redemption. Someone else confirms it";
   }
-  const verdict = canSettleRedemption(ask.state, ask.to);
-  if (!verdict.ok) return verdict.error ?? "that redemption cannot move";
   if (!ask.tokenStillReal) {
     return `${ask.tokenName} has been retired from the registry since this was asked for`;
   }

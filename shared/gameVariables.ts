@@ -221,7 +221,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Ledger",
     label: "A redemption expires after",
     description:
-      "How long a redemption waits for an answer before it expires on its own and the held tokens go back to the member in full. This exists so a request nobody answers ends by itself, rather than holding somebody's balance for as long as the village is busy. Set it to 0 and a redemption waits forever, which is a real choice for a village that would sooner answer late than expire something.",
+      "How long a redemption waits for an answer before it expires on its own and the held tokens go back to the member in full. It is here so a request nobody answers ends by itself instead of holding somebody's balance for as long as the village stays busy. Set it to 0 and a redemption waits forever, which is a real choice for a village that would sooner answer late than expire something.",
     type: "integer",
     default: "30",
     min: 0,

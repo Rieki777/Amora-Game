@@ -58,6 +58,7 @@ import { cycleWindow, fromLedgerUnits, toLedgerUnits } from "../lib/economy";
 import { isListedForTrade } from "../lib/exchange";
 import { openExitFor } from "../lib/exit";
 import {
+  canSettleRedemption,
   confirmRefusal,
   redeemableTokens,
   redemptionWarnings,
@@ -170,12 +171,26 @@ export function register(app: Express, deps: Deps): void {
     const asked = Number(body.amount);
     if (!slug) return res.status(400).json({ error: "Name the token you would like to redeem." });
     if (!Number.isFinite(asked)) return res.status(400).json({ error: "Say how much." });
+    /*
+     * A FINER NUMBER THAN THE TOKEN CARRIES IS REFUSED, NOT ROUNDED.
+     * `toLedgerUnits` rounds, deliberately and for a good reason (0.1 * 1000 is
+     * not 100 in binary), so at 0 decimals a member asking for 1.5 credits
+     * would silently redeem 2 and be told nothing. Converting and converting
+     * back is the cheap exact test, and it costs the member one sentence
+     * instead of half a token.
+     */
+    const units = toLedgerUnits(slug, asked);
+    if (tokenDef(slug) && fromLedgerUnits(slug, units) !== asked) {
+      return res.status(400).json({
+        error: `Ask for ${tokenDef(slug)?.name ?? slug} in whole positive amounts.`,
+      });
+    }
     const pool = getPool();
     const exit = await openExitFor(pool, user.id);
     const out = await requestRedemption(pool, {
       userId: user.id,
       tokenSlug: slug,
-      amountUnits: toLedgerUnits(slug, asked),
+      amountUnits: units,
       askedFor: String(body.askedFor ?? ""),
       exitOpen: !!exit,
       cycleStart: cycleWindow().startsAt,
@@ -265,11 +280,15 @@ export function register(app: Express, deps: Deps): void {
     const pool = getPool();
     const row = await redemptionById(pool, String(req.params.id));
     if (!row) return res.status(404).json({ error: "no such redemption" });
+    // THE ROW'S OWN QUESTION FIRST. Whether this redemption may move at all is
+    // the state machine's answer, and asking it before the person's question
+    // means somebody pressing on a decision that has already been made is told
+    // that, instead of being asked for a reason nobody needs.
+    const movable = canSettleRedemption(row.state, to);
+    if (!movable.ok) return res.status(409).json({ error: movable.error });
     const def = tokenDef(row.tokenSlug);
     const person = await members.byId(row.userId).catch(() => null);
     const ask: ConfirmAsk = {
-      state: row.state,
-      to,
       memberUserId: row.userId,
       actorUserId: actor.id,
       tokenStillReal: !!def && def.active,

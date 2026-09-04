@@ -111,6 +111,8 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `keys.transfer` | `transfer:<esc(v)>:<esc(transferRowId)>` |
 | `keys.reversal` | `reversal:<esc(v)>:<eventKey>` |
 | `keys.voiceClaim` | `voice-claim:<esc(v)>:<esc(claimRowId)>` |
+| `keys.redemptionHold` | `redemption:<esc(v)>:<esc(redemptionId)>:hold` |
+| `keys.redemptionBurn` | `redemption:<esc(v)>:<esc(redemptionId)>:burn` |
 
 **A builder's output is not always the key.** The token slug used to be appended to it at the two mint call sites rather than built in, which printed a shape here that the ledger never held; it is a builder parameter now, and both tables agree because of it. Most of the economy still does not use a builder at all. So the table below is read from the CALL SITES: every `idempotencyKey` written under `server/`, resolved through templates, builders, conditionals, local constants and local helpers into the string the ledger receives.
 
@@ -151,6 +153,7 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `quest_consent:<id>` | `server/index.ts` |
 | `quest.completed:<esc(v)>:<esc(questId)>:<esc(claimId)>:<esc(userId)>:<esc(tokenSlug)>` | `server/lib/economy.ts` |
 | `queststay:<id>` | `server/index.ts` |
+| `redemption:<esc(v)>:<esc(redemptionId)>:hold` | `server/lib/redemptionStore.ts` |
 | `reversal:<esc(v)>:<eventKey>` | `server/lib/economy.ts` |
 | `role.cycle:<esc(v)>:<esc(cycleKey)>:<esc(seatId)>:<esc(userId)>:<esc(tokenSlug)>` | `server/lib/economy.ts` |
 | `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:keep` | `server/lib/eventSeats.ts` |
@@ -164,7 +167,7 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `xstock-<Date.now()>-<Math.random().toString(36).slice(2, 8)>` | `server/index.ts` |
 | `xstock:<slug>:<body>` | `server/index.ts` |
 
-47 distinct shapes across 51 posting site(s), plus 2 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
+48 distinct shapes across 52 posting site(s), plus 3 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
 <!-- generated:triggers end -->
 
 ---
@@ -1592,6 +1595,105 @@ rule and not as a refusal of small caps.
 
 ---
 
+### 10.33 The founder's redemption sequence could not be executed on this code. Closed on `wt/econ`, measured.
+
+**His words, and they are the requirement.** *"On platform all we need is a
+'redemption' process that destroys currency that is redeemed... a member makes a
+proposal to redeem X tokens for Y (services, cash, equity, etc something out of
+the platform); when this redemption is confirmed by a steward or a vote then at
+confirmation they are destroyed, but this confirmation is only meant to happen
+after the redemption has occurred off platform."*
+
+The ordering is the point: the village pays first and this software destroys
+second. Nothing here changes that. What the sequence does not say is what holds
+between the two, and the answer in this ledger was nothing.
+
+**The measurement.** Wren holds 500 credits and asks to redeem all 500 for a
+bicycle. A steward hands over the bicycle on Tuesday. On Wednesday, before
+anybody opens the panel, Wren sends 500 credits to Ash through
+`POST /api/wallet/send`, which has no guard, no reservation read and no refusal.
+On Thursday the steward confirms. The burn has exactly two possible endings and
+both are wrong:
+
+- **Refused.** `postTransferOn` recomputes Wren's balance inside the transaction
+  and answers `insufficient credits: "mem:wren" holds 0 and cannot overdraft`.
+  The village has bought a bicycle and destroyed nothing, and the redemption is
+  stuck open forever.
+- **Allowed to go negative.** That needs a fourth entry in
+  `ALLOW_NEGATIVE_SOURCES`, and invariant 5 then raises that member's lawful debt
+  floor by the redeemed amount permanently (10.9 is the record of what widening
+  that bound costs). A negative balance also blocks exit resolve, so Wren could
+  never leave.
+
+This was measured and not argued: the end-to-end case in
+`server/redemption.test.ts` was run with the hold turned off, and the Wednesday
+send SUCCEEDS. Ten of that file's cases go red in that configuration.
+
+**The fix: proposing HOLDS.** Asking posts `mem:<user>` to `sys:redemption-hold`;
+confirming posts that account on to `sys:redeemed`; a refusal, a withdrawal and
+an expiry each REVERSE the hold. Nothing is destroyed before the village has
+paid, which is his requirement, and nothing can be spent twice, which is the gap.
+
+**Why an escrow account and not a reservation, on evidence.** `token_balances` is
+a cache recomputed from `token_ledger` inside every posting's transaction, so a
+reservation column written there is erased by the next recompute and fails
+invariant 4's cache-drift check in the meantime, which is R3's argument for why
+Voice decay had to be a posting. A reservation read at each spend site would have
+to be read at FOURTEEN of them: the enumeration is in the header of
+`server/redemption.test.ts`, closed by finding the only two statements in the
+repository that write `token_ledger` and reading every non-test call site of the
+seven public doors that reach them. Exactly one of those fourteen passes a ledger
+guard today. The escrow binds all fourteen with no edit to any of them, because
+the tokens are not in the member's account to be found, and it is what this
+codebase already does three times out of three (`sys:event-escrow`,
+`sys:library-escrow`, `sys:voice-bridge`), each with a reconciliation function
+beside it. `holdReconciliation` is redemption's, and its invariant is that
+`balance(sys:redemption-hold, token)` equals the sum of every open row's amount.
+
+**Nine of the fourteen cannot reach a redeemed token at all**, and that is the
+token firewall and not the lock: only credit-kind, platform-governed,
+non-voucher tokens are redeemable, so every stay-credit, library-credit and
+Voice path is out of reach by construction. Five can, and four of them are driven
+for real in the suite (the member send, the seat fee through `chargeForPlace`,
+the exit sweep through `sweepBalances`, and the clawback through `reverse`, which
+is the one that is supposed to succeed and must not touch the hold), plus the
+ledger's own overdraft test, which is the single point all sixteen call sites
+arrive at.
+
+**Destroying posts to a sink and never to the token's faucet.** `spendSinkFor`
+already refuses a faucet burn for `credits` in writing, because it redefines that
+faucet's negative balance from released-to-date into outstanding, and three
+supply surfaces read those balances three different ways (10.32's closing note is
+about the same three). `sys:redeemed` is not a faucet, exactly like
+`sys:voice-decay`. **The consequence, stated because a supply figure that hides
+it is a lie by omission: ISSUED SUPPLY DOES NOT FALL.** Every faucet's negative
+balance still says exactly what it said before, and a case in the suite proves
+both the balance-based reading and the row-based one unmoved by a confirmed
+redemption. `GET /api/admin/tokens` now carries `retired` per token beside
+`issuedBy`, printed side by side and never netted. `GET /api/economy/supply`
+publishes `circulating` as issued minus waned and does NOT yet subtract retired:
+that is one term wider on one line in `publicSupply`, left to the lane holding
+that function open, and until it lands the public feed's `circulating` overstates
+by the retired total.
+
+**Removing the hold is a dial and three call sites.** `redemption.holds_on_propose`
+is founder-ring and defaults on. The confirm path never asks the dial, it asks
+the ROW: `held_account` is written at request time and the burn reads its FROM
+account off that column, so a dial moved while a redemption is open still settles
+the way it was opened. That is the `ballots` snapshot law applied to one more
+thing, and a case in the suite turns the dial mid-flight and proves it.
+
+**Two things a village decides are deliberately not settled here.**
+`redemption.tokens` can only ever NARROW: equity, Voice, recognition, standing
+examples and module vouchers are refused by the firewall whatever a village types
+into it, so nothing on that dial can make this platform the source of truth for a
+cap table, and the standing ruling that all tokens are buyable is not answered by
+a side effect. And `redemption.confirmed_by` carries both of the founder's
+choices, with the vote path refusing at the door while it is unbuilt
+(`VOTE_PATH_BUILT`, the same shape as `BRIDGE_DISPATCH_BUILT`), so a village on
+that setting is told instead of being left with a stranded hold. Section 16
+carries both as questions.
+
 ## 11. Open decisions
 
 1. **Decimals. SETTLED 2026-09-04, and the other way.** Rye had ruled 4 across
@@ -1643,15 +1745,27 @@ Kinds a member may hand to another member (`SENDABLE_KINDS`): `credit`. Held out
 
 ### What a member can actually buy today
 
-Four surfaces move value out of a member's hands. Only one of them asks
-`spendSinkFor` where the value should land.
+Five surfaces move value out of a member's hands where a MEMBER chose to spend
+it. Only one of them asks `spendSinkFor` where the value should land.
+
+**This table is the member-facing half and it is not the whole list.** Every path
+that debits a member, counting the ones no member chose, is FOURTEEN, and the
+enumeration is in the header of `server/redemption.test.ts`, closed by reading
+every non-test call site of the seven public doors that reach the only two
+statements in this repository that write `token_ledger`. This table said "four"
+while carrying four rows and omitting exchange swaps, voice claims, voice waning,
+the exit sweep, every reversal, the two admin negative-adjustment routes and the
+three Stripe reversal handlers. It also named `chargeSeat`, which is not a
+function that exists (`chargeForPlace`, `server/lib/eventSeats.ts`). Both are
+corrected below.
 
 | Surface | Posting | Source | Idempotency key | Sink |
 |---|---|---|---|---|
 | A night of a stay | `postNightsForStay`, `server/lib/stays.ts` | `stay_night` | `stay:<stayId>:night:<date>` | `spendSinkFor(token)`, so `sys:mint` for stay credits |
-| A seat at a gathering | `chargeSeat`, `server/lib/eventSeats.ts` | `event_seat_fee` | `seat:<eventId>:<occurrenceKey>:<userId>:<seq>:pay` | `sys:event-escrow`, then `sys:treasury` when the gathering is held |
+| A seat at a gathering | `chargeForPlace`, `server/lib/eventSeats.ts` | `event_seat_fee` | `seat:<eventId>:<occurrenceKey>:<userId>:<seq>:pay` | `sys:event-escrow`, then `sys:treasury` when the gathering is held |
 | A library loan deposit | `server/lib/library.ts` | `library_escrow` | `loan:<loanId>:escrow` | `sys:library-escrow`, then split between `sys:library-pool` and the member at settle |
 | Sending credits to another member | the member send route | `member_send` | `send:<userId>:<clientNonce>` | the other member, no sink at all |
+| Redeeming for something real | `requestRedemption` / `settleRedemption`, `server/lib/redemptionStore.ts` | `redemption_hold`, then `redemption_burn` | `redemption:<v>:<id>:hold`, then `redemption:<v>:<id>:burn` | `sys:redemption-hold` while it is open, then `sys:redeemed` at confirmation, and back to the member on every other ending |
 
 Two things follow from that table and both are easy to misread.
 
@@ -1722,6 +1836,32 @@ display name as the member sees it.
 - `Send <recognitionName()> to others`
 - `You can still give <remaining> this moon`
 - `<cap> is the most you can give one person this moon, and you have given them <alreadyToThisPerson>. That leaves <left> for them`
+
+**Asking to redeem tokens for something real** (`redemptionRefusal`, `server/lib/redemption.ts`):
+
+- `"<slug>" is not a token this village issues`
+- `<name> lives on Base and is only read here. What it is worth is settled where it is governed`
+- `<name> is not in circulation right now`
+- `<name> is a standing example. Create your own token first`
+- `<name> is recognition, and recognition is a record of what happened. There is nothing in it to redeem`
+- `<name> is a record of standing in this village, and standing is not value to be cashed`
+- `<name> buys one thing from the village, and that thing is what it is worth`
+- `<name> is not one of the tokens this village redeems. A steward can change that in the village's dials`
+- `This village is not taking redemptions just now. A steward can open them in the village's dials`
+- `This village has chosen that redemptions go to a village vote, and that path is still being finished. A steward can move it back to a steward confirming in the village's dials`
+- `You have a departure open, and what happens to your balance is being settled there`
+- `You have opened <openedThisCycle> redemptions this moon, which is what this village allows. The count starts again at the new moon`
+- `Ask for <name> in whole positive amounts`
+- `You hold <free> <name> that is free, and <held> more is already held against a redemption you have open`
+- `You hold <free> <name>, and that is what there is to redeem`
+- `Say what you would like these turned into. A steward has to be able to agree to something`
+
+**Confirming or refusing somebody's redemption** (`confirmRefusal`, `server/lib/redemption.ts`):
+
+- `This is your own redemption. Someone else confirms it`
+- `<tokenName> has been retired from the registry since this was asked for`
+- `The member who asked for this has left the village`
+- `Say why, in a sentence. A decision with no stated reason is not a record`
 <!-- generated:refusals end -->
 
 ### The failure modes, as a member meets them
@@ -1932,6 +2072,68 @@ the date their own exit row promised, because the settle date is capped at
 `notice_ends_at`. A repair is a named Phase 2 task for the governance lane: a
 `document` item kind covering exit-policy, that route behind the post-Birthing
 refuse-and-redirect, and these two exit levers in the set-level predicates.
+
+### Redemption is this act for a member who stays, and the two share a shape and no code
+
+The exit path moves value out of a member's hands when they leave. A redemption
+does the same thing for somebody who is staying. They were deliberately kept
+apart, and the reason is one row of a table rather than a preference.
+
+**What is genuinely the same.** Both take a positive balance and move it
+somewhere it does not come back from. Both are governed by village dials that
+have to be snapshotted, for the reason `capturedSplit` states: the amount changes
+with the dials and the idempotency key does not. Both need a destination for
+value that is being retired. Both must be idempotent per process and per token,
+and both learned it the same way.
+
+**What is not the same, and it decides the question.**
+
+| | Exit | Redemption |
+|---|---|---|
+| Scope | EVERY token the account holds. `sweepBalances` walks `balancesFor(mem:<user>)` and takes them all | ONE token, ONE amount the member chose |
+| Who decides the amount | the village's dials, applied to whatever is there | the member, in the request |
+| What the member gets | nothing is decided. `DEFAULT_EXIT_POLICY` ships `placeholder: true` and the code declines to say | a named thing, off platform, agreed before confirmation |
+| Consent | can be INVOLUNTARY: `POST /api/admin/exits` opens one for somebody else | always the member's own act |
+| Afterwards | resolution anonymises the member and vacates their seats. Terminal for the person | the member stays, and will do it again next moon |
+| A refused posting | the sweep collects the error and CONTINUES, because one bad token must not strand the rest | stops everything and rolls the state claim back. There is one posting and it is the whole act |
+
+**That last row alone forbids shared code.** `sweepBalances`' error discipline is
+correct for a sweep and wrong for a redemption, and a function serving both would
+have to branch on which caller it had, which is two functions wearing a
+parameter. So: the two share a SHAPE, three named disciplines, and no code.
+
+The three disciplines redemption took from the exit path rather than reinventing:
+the dial that decided is written onto the row that moved; the amount is minor
+units read straight off the balance cache and handed to the ledger unconverted,
+with `sweepBalances` and `requestVoiceClaim` named as the other two witnesses of
+the same shape; and a retried settlement is a duplicate that posts nothing, so
+the reader is told the split that HAPPENED.
+
+**One thing was NOT lifted, and it is worth saying why.** `destinationFor` in
+`server/lib/exit.ts` already computes where a retired token goes, including the
+`burn` case, and one exported function answering that for the whole codebase
+would be a real improvement. It was left alone because that file is a live lane's
+and because redemption's answer is a constant (`sys:redeemed`) rather than a
+choice. The merge is a small change for whoever holds `exit.ts` next.
+
+**Where the two paths actually touch, and what is still open.** The escrow shape
+gives one direction for free: tokens sitting in `sys:redemption-hold` are not in
+`balancesFor(mem:<user>)`, so the exit sweep cannot take them, and a case in
+`server/redemption.test.ts` drives `sweepBalances` itself to prove it. Under a
+reservation design the sweep would have taken reserved tokens and nothing in
+`sweepBalances` would have known, which is a third argument for the account.
+
+The other direction is HALF DONE and the half that is missing is named here
+rather than left to be discovered. Opening a redemption while an exit is open is
+refused, in the same words and for the same reason `decayVoice` skips a member
+with an open exit: their balances are already on the way to `sys:exit-settlement`
+and a notice period has been quoted to them. The reciprocal, an open redemption
+BLOCKING an exit resolve the way an unsettled library loan does, is not wired.
+`openRedemptionCount` in `server/lib/redemptionStore.ts` exists for exactly that
+call and is one line in `exitOpenState`, which belongs to the exit lane and was
+live while this landed. Until it is wired, a member can resolve an exit with
+tokens still held against a redemption nobody answered, and the hold then points
+at somebody who has been anonymised.
 
 ---
 
@@ -2156,6 +2358,30 @@ only collide when a village points its weight at a voice token AND voice becomes
 purchasable. Whoever builds R5 has to answer that guard rather than route around
 it, because buying governance weight with money is exactly what it was written to
 stop.
+
+**R5, the redemption half.** Redemption ships for credit-kind tokens only, and it
+does NOT answer R5. `redeemableToken` is `isPriceableToken` minus
+`MODULE_VOUCHERS`, so Voice is refused by kind and no value on
+`redemption.tokens` can widen it. That is deliberate: if Voice can be bought, the
+symmetric question is whether it can be redeemed, and answering yes would settle
+the collision above as a side effect of shipping something else.
+`governanceWeights` refuses a purchasable token as the vote weight, and a token
+that can be sold back to the village is the mirror image of that refusal. **The
+question for the founder is one sentence: are all tokens REDEEMABLE, or only the
+credits a village prices in?**
+
+**Redemption's own open question: what "destroyed" means on the panel.** A
+confirmed redemption posts to `sys:redeemed`, which is not a faucet, so issued
+supply does not fall and the retired total is a balance beside it. The other
+shape would post to the token's own faucet, which lowers issued supply and, in
+`spendSinkFor`'s own words, redefines that faucet's negative balance from
+released-to-date into outstanding, which several surfaces read. The sink was
+chosen because it touches no faucet and is therefore neutral to the mint cap in
+both its present and its proposed form, which is what let redemption ship while
+that counter was being changed by another lane. **The question is one sentence:
+after a redemption, should the Mint panel say the village has issued LESS, or
+that it has issued the same and RETIRED some?** The panel says the second today
+and says it in those words.
 
 **R9.** [unspent gratitude that expires at cycle close is shown as
 underutilisation]

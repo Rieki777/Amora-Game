@@ -96,6 +96,7 @@ export const SOURCES = [
   "server/lib/spending.ts",
   "server/lib/exit.ts",
   "server/lib/voiceClaim.ts",
+  "server/lib/redemption.ts",
   "shared/gameVariables.ts",
 ];
 
@@ -1092,6 +1093,16 @@ export const REGIONS = {
         title: "Giving gratitude",
         where: "`checkGive`, `server/lib/economy.ts`",
         lines: refusalsFrom(root, "server/lib/economy.ts", "checkGive"),
+      },
+      {
+        title: "Asking to redeem tokens for something real",
+        where: "`redemptionRefusal`, `server/lib/redemption.ts`",
+        lines: refusalsFrom(root, "server/lib/redemption.ts", "redemptionRefusal"),
+      },
+      {
+        title: "Confirming or refusing somebody's redemption",
+        where: "`confirmRefusal`, `server/lib/redemption.ts`",
+        lines: refusalsFrom(root, "server/lib/redemption.ts", "confirmRefusal"),
       },
     ];
     const out = [];

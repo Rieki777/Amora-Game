@@ -13,6 +13,8 @@
 import Layout from "@/components/Layout";
 import ModuleGate from "@/components/modules/ModuleGate";
 import SwapCard from "@/components/SwapCard";
+import RedemptionPanel from "@/components/RedemptionPanel";
+import RedemptionQueue from "@/components/RedemptionQueue";
 import { useEffect, useState } from "react";
 import { useModule, useModules, useHypha } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
@@ -229,6 +231,23 @@ export default function Wallet() {
               )}
             </div>
           )}
+
+          {/*
+            * REDEEMING SITS UNDER THE BALANCES AND ABOVE BUYING, and the order
+            * is the point: a member whose balance reads short because tokens
+            * are held against a redemption meets the sentence that explains it
+            * in the next card down.
+            *
+            * WHAT THIS PAGE COSTS THE FEATURE, said rather than hidden: the
+            * whole page is behind `ModuleGate moduleId="exchange"`, so a
+            * village running with the exchange module off has no member-facing
+            * door onto redemption even though the routes and the ledger work.
+            * The fix is one line in whichever page a fork puts balances on, and
+            * the profile's own Wallet section is the natural second home. It
+            * was left alone here because another lane is in that file.
+            */}
+          {user && <RedemptionPanel />}
+          <RedemptionQueue />
 
           <div className="bg-card border border-border rounded-xl p-5">
             <div className="flex items-center gap-2 mb-3">

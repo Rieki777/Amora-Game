@@ -32,7 +32,7 @@
  */
 import type { Pool, RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { balanceOf, memberAccount, postTransfer, tokenDef } from "./ledger";
-import { keys, reverse, villageId } from "./economy";
+import { fromLedgerUnits, keys, reverse, villageId } from "./economy";
 import { numberVar, stringVar, boolVar } from "./variables";
 import {
   BURN_SOURCE,
@@ -249,7 +249,10 @@ export async function requestRedemption(pool: Pool, input: RedeemInput): Promise
     const lockedUnits = Number(bal[0]?.balance ?? 0);
     if (ask.amountUnits > lockedUnits) {
       await conn.rollback();
-      return { ok: false, status: 409, error: `You hold ${lockedUnits} ${def?.name ?? slug}, and that is what there is to redeem` };
+      // HUMAN in the sentence, minor in the comparison above. Same rule as
+      // `redemptionRefusal`'s own conversion.
+      const free = fromLedgerUnits(slug, lockedUnits);
+      return { ok: false, status: 409, error: `You hold ${free} ${def?.name ?? slug}, and that is what there is to redeem` };
     }
 
     const expires = expiresAfter();
@@ -343,6 +346,39 @@ export interface SettleInput {
 }
 
 /**
+ * Send the held tokens where they can never come back from.
+ *
+ * A FUNCTION RATHER THAN FOUR LINES INSIDE `settleRedemption`, for two reasons
+ * that both matter. The FROM account is read off the ROW and never computed
+ * from the live dial, so a village that turned the hold off while this was open
+ * still burns from the account the tokens are actually in; taking the row as a
+ * parameter is what makes that impossible to get wrong from a caller. And the
+ * economics document's key reader follows a key rooted in a PARAMETER and
+ * refuses one rooted in a local, so this shape is also what keeps
+ * `scripts/check-economics-doc.mjs` able to read the site at all.
+ */
+async function postBurn(pool: Pool, row: RedemptionRow) {
+  return postTransfer(pool, {
+    from: row.heldAccount ?? memberAccount(row.userId),
+    to: REDEEMED,
+    tokenType: row.tokenSlug,
+    // ALREADY MINOR. DO NOT CONVERT. `redemptions`.`amount` is `bigint` of
+    // minor units, written once from the route boundary's single conversion.
+    // Same shape as the hold above, as `sweepBalances` in server/lib/exit.ts
+    // and as `requestVoiceClaim` in server/lib/voiceClaim.ts.
+    amount: row.amountUnits,
+    source: BURN_SOURCE,
+    sourceRef: row.id,
+    description: `Redeemed and retired: ${row.id}`,
+    // THE ROW OWNS THE KEY, derived at INSERT and stored. `token_ledger`'s
+    // `idempotency_key` is UNIQUE, so a second confirmation that somehow raced
+    // past the compare-and-set writes no second ledger row and comes back as a
+    // duplicate. This is `admin_mint:req:<id>` with a different prefix.
+    idempotencyKey: row.burnKey,
+  });
+}
+
+/**
  * End a redemption: destroy the tokens, or give them back.
  *
  * THE STATE MOVES FIRST, AS A COMPARE-AND-SET, AND THE POSTING FOLLOWS IT.
@@ -403,25 +439,9 @@ export async function settleRedemption(
      * empty, or out of a member who has already been debited, depending on
      * which way somebody turned it.
      */
-    const from = row.heldAccount ?? memberAccount(row.userId);
     let burn: { ok: boolean; duplicate: boolean; error?: string };
     try {
-      burn = await postTransfer(pool, {
-        from,
-        to: REDEEMED,
-        tokenType: row.tokenSlug,
-        // ALREADY MINOR. DO NOT CONVERT. `redemptions`.`amount` is `bigint` of
-        // minor units, written once from the route boundary's single
-        // conversion. Same shape as the hold above and as `sweepBalances`.
-        amount: row.amountUnits,
-        source: BURN_SOURCE,
-        sourceRef: row.id,
-        description: `Redeemed and retired: ${row.id}`,
-        // THE ROW OWNS THE KEY. `token_ledger`.`idempotency_key` is UNIQUE, so
-        // a second confirmation that somehow raced past the compare-and-set
-        // above writes no second ledger row and comes back as a duplicate.
-        idempotencyKey: row.burnKey,
-      });
+      burn = await postBurn(pool, row);
     } catch (err: any) {
       burn = { ok: false, duplicate: false, error: String(err?.message ?? err) };
     }
