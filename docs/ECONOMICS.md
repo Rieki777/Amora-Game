@@ -945,6 +945,51 @@ So the state today is exact: **a departing member's positive balances move to
 values them, or returns them. `sys:exit-settlement` is not a faucet, so what it
 holds is real and traceable, and the village has to decide what happens to it.
 That decision is item 4 in section 11 and R4 in section 16.
+### The levers a village can set, and what they do not yet do (R4)
+
+Ten dials now describe an exit policy, in the `Exit` category of
+`shared/gameVariables.ts`: a keep share per token KIND (`exit.keep_pct.credit`,
+`.voice`, `.recognition`, `.equity`), where the remainder goes
+(`exit.remainder_account`, one of `settlement`, `treasury`, `cycle-pool`,
+`burn`), a cooling period before a balance may settle (`exit.cooling_days`),
+what happens to Voice specifically (`exit.voice_on_exit` and
+`exit.voice_convert_rate`), the value above which a departure would need the
+village to agree (`exit.vote_over`), and whether a leaver may sell kept credits
+back (`exit.sellback_enabled`). Every one of them is Ring 2 by derivation, so a
+village governs its own exit terms, and every default reproduces the paragraph
+above exactly: shares at 0, remainder to `sys:exit-settlement`, cooling at 0,
+Voice forfeit, no vote, no sellback.
+
+**The dials are set, and the sweep does not read them.** `sweepBalances` still
+posts every positive balance in full to `sys:exit-settlement`, and no code in
+`server/lib/exit.ts` touches the registry. That is measured and not assumed:
+`server/lib/exitDefaults.test.ts` runs a whole departure on the inherited
+defaults, against a schema holding no `exit.%` row at all, and compares every
+field of every `token_ledger` row to the rows `origin/main`'s `sweepBalances`
+writes. The two dumps are identical. Until the settlement lane teaches the sweep
+to split, moving one of these dials changes what the village has SAID and
+nothing about what a departure DOES, and each dial's own description says so on
+the panel.
+
+What already acts is the save-time guard. `exitLeverProblem` in
+`server/lib/exitPolicy.ts` refuses six combinations no engine could honour, and
+the variables write route calls it before `setVariable` commits: a share of
+recognition, a share of equity, burning back to a faucet that does not exist for
+a token this village issues, converting Voice at a rate of zero, keeping Voice
+while resolve turns the account into a tombstone, and a cooling period longer
+than the notice the published policy prints. Each refusal is one sentence naming
+what is wrong and what to do instead, and the cooling one names both numbers. A
+seventh combination is a WARNING and never a refusal: a full credit keep with no
+vote, on a token somebody can buy today, is a withdrawal window wearing an exit,
+and a village may genuinely mean that, so the save goes through and the test run
+is where it is said out loud.
+
+Two things the guard cannot see, stated here because nothing else will say them.
+It runs at the variables write route alone, and the governance apply path writes
+through `setVariable` directly, so a passed proposal can still land a refused
+combination. And it reads the published notice period at the moment a DIAL is
+written, so editing the published policy down to a shorter notice afterwards
+leaves an already-saved cooling period standing above it.
 
 ---
 
