@@ -955,16 +955,40 @@ note and its credit now commit together, both or neither, which is what
 `postTransferPair` has always done for a swap's two legs. Proven by its tests;
 not yet proven in production.
 
-### 10.3 The wallet is wrong by a factor of a thousand
+### 10.3 The wallet was wrong by a factor of a thousand. Fixed on `wt/econ`, measured.
 
-`fromLedgerUnits` has non-test callers in exactly **one** file
+**As written:** `fromLedgerUnits` had non-test callers in exactly one file
 (`server/lib/voiceClaim.ts`, three call sites, verified at `45869ad`). Every other
-surface prints the raw minor units. A member holding 10 Village Voice reads **10**
-on their profile chip and **10000** on their wallet. The wallet is the one they
+surface printed the raw minor units. A member holding 10 Village Voice read **10**
+on their profile chip and **10000** on their wallet, and the wallet is the one they
 will believe.
 
-This must be fixed BEFORE the 4-decimals sweep. Today one token is wrong;
-afterwards every token is wrong by 10,000x on every surface that does not divide.
+**Re-measured 2026-09-04 at `1861f7d`, and both halves are closed.** The count
+first, by the same handle: `grep -rn "fromLedgerUnits(" server/ shared/ client/
+--include=*.ts --include=*.tsx`, dropping tests, comment lines, the import
+clauses and the definition itself, is **41 call sites in 10 files**
+(`server/index.ts` 12, `server/lib/exit.ts` 8, `server/lib/library.ts` 6,
+`server/lib/exchange.ts` 4, `server/lib/voiceClaim.ts` 3, `server/lib/eventSeats.ts`
+2, `server/lib/mintCap.ts` 2, `server/routes/stays.ts` 2, `server/lib/economy.ts` 1,
+`server/lib/stays.ts` 1). One file and three sites is now ten files and forty-one.
+
+The wallet itself divides. `client/src/lib/tokenAmount.ts` holds
+`formatTokenAmount(units, decimals)`, which is the one place minor units become a
+number a member reads, and `decimalsOf` reads the scale out of the payload rather
+than guessing it from a slug. `client/src/pages/Wallet.tsx` renders
+`formatTokenAmount(Number(bal), decimalsOf(tokenDecimals, slug))`, and so do the
+profile wallet card, the profile sheet, the public profile, the send card, the
+game dashboard, the library balance, the stay balance and the Mint panel. The
+scale travels with the amount: `server/index.ts` puts a `tokenDecimals` map beside
+the balances on the wallet payload, on the tokens payload and on the member's own
+data export, each built from `tokenDef(slug).decimals`.
+
+**What is left is not this defect and is worth naming so nobody re-opens it as
+one.** Village Voice still carries 3 decimals, so its wallet figure is a real
+0.010 whenever a posting was small, and section 11 item 1 is the decision that
+lowers it to 0. Lowering it is the DOWNWARD scale change section 7 opens with,
+and the wallet dividing correctly is exactly what makes that change visible to a
+member the moment it lands.
 
 ### 10.4 `reverse()` took its amount from the caller. Fixed on `wt/econ`, measured.
 
@@ -1103,12 +1127,25 @@ issues exactly three `DebtProof` values, `GRACE_NIGHT_DEBT`,
 `PAYMENT_REVERSAL_DEBT` and `CLAWBACK_DEBT`, each naming the one source it
 licenses; `validateLeg` checks them by IDENTITY before any transaction opens, so
 an object literal of the right shape is refused as firmly as `true` is, and a
-proof issued for a grace night cannot be spent on a clawback. The whole set of
-callers that can create debt is now `grep -rn "_DEBT" server/`: five call sites
-in four files, and the compiler enumerated every one of them when the type
-changed. Proven by `refuses \`allowNegative: true\`, which used to take an account
-holding 10 down to -990` and `refuses a forged proof, and a real proof spent on
-the wrong source`.
+proof issued for a grace night cannot be spent on a clawback. Proven by
+`refuses \`allowNegative: true\`, which used to take an account holding 10 down to
+-990` and `refuses a forged proof, and a real proof spent on the wrong source`.
+
+**THE HANDLE THIS ENTRY GAVE IS SUPERSEDED, and following it today reports the
+opposite of the truth.** It said the whole set of callers that can create debt is
+`grep -rn "_DEBT" server/`, five call sites in four files. 10.20 made the three
+proofs module-private, so that grep now answers only `server/lib/ledger.ts` and
+two comment lines: the set of modules that can create debt looks empty when it is
+not. Re-measured 2026-09-04 at `1861f7d`, the handle is the four narrow
+operations the ledger exports in their place,
+`grep -rn "postGraceNightBurn(\|postPaymentReversalLeg(\|postClawbackMirror(\|postClawbackMirrorPair(" server/`,
+which answers six call sites in three files, dropping tests and the ledger module
+itself: `server/lib/stays.ts:343` (the grace night burn), `server/index.ts` at
+6505, 6593 and 6655 (three payment reversal legs) and `server/lib/economy.ts` at
+1135 and 1248 (the clawback mirror, and the pair form). **Five of those six can
+create debt.** The sixth is `postClawbackMirrorPair`, which goes through
+`postTransferPair` and so refuses `allowNegative` outright (10.13). Section 12
+counts the same five from the other end.
 
 ### 10.11 The two gates on `source` used two different equalities. Fixed on `wt/econ`, measured.
 
@@ -1550,9 +1587,21 @@ decimals is 1 minor unit and its simulation pays what the engine used to pay. Th
 model is a mirror by table and may not import anything under `server/`, so
 closing this means flooring the ceiling in the reader and adding the three rows
 above to the mirror table in `shared/dryRun/economicsModel.test.ts`. Both files
-are outside this lane's zone and neither is edited here. The engine and the model
-therefore DISAGREE at every ceiling the column can hold and the token cannot,
-with the engine now correct, until that lane runs.
+were outside that lane's zone and neither was edited there.
+
+**THAT LANE RAN, AND THIS IS CLOSED. Re-measured 2026-09-04 at `1861f7d`.** The
+fix landed in the model instead of the reader, which is where it belongs and is
+why this entry's own prescription is worth reading against the code rather than
+following. `WrittenAmount` in `shared/dryRun/economicsModel.ts` carries a
+`floored` reading beside its `rounded` one, `writtenCeiling` fills both, and
+`ceilingOutcomeMinor` takes `const cap = written.floored` with a comment naming
+this defect: a cap of 0.5 on a whole-unit token arrived as 1 and the model
+previewed twice the cap the village wrote. The reader still scales through
+`writtenAmount` and still hands back `rounded`, which is correct for an AMOUNT,
+because the nearest payable figure is what a payment means. The engine floors a
+bound in `ceilingAtScale` and the model floors the same bound in
+`ceilingOutcomeMinor`, so the preview and the run answer alike and the sentence
+above about them DISAGREEING is no longer true of any ceiling.
 
 **None of these had hurt anyone, because production has zero ledger rows. All
 of them would have landed on the first day more than one person used the thing.**
