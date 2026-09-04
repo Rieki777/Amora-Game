@@ -18,9 +18,11 @@ import {
   canConfirm,
   canSettleClaim,
   checkGive,
+  ceilingAtScale,
   ceilingOutcome,
   clampToCeiling,
   claimRefunds,
+  publicRules,
   CREDITS,
   cycleWindow,
   decayVoice,
@@ -241,12 +243,19 @@ describe.skipIf(!configured)("the village economy engine", () => {
   });
 
   it("clamps a from_source amount to the rule's ceiling", () => {
-    expect(clampToCeiling(40, rule({ ceiling: 100 }))).toBe(40);
-    expect(clampToCeiling(4000, rule({ ceiling: 100 }))).toBe(100);
+    // The third argument is the SCALE the answer comes back in, passed and
+    // never looked up: the clamp now answers in the token's minor units,
+    // because the ledger row is what a ceiling has to bind. Gratitude carries
+    // 0 decimals today, so every number below is unchanged by that.
+    expect(clampToCeiling(40, rule({ ceiling: 100 }), 0)).toBe(40);
+    expect(clampToCeiling(4000, rule({ ceiling: 100 }), 0)).toBe(100);
     // A fixed amount ignores what the source posted entirely.
-    expect(clampToCeiling(4000, rule({ amount: 20, ceiling: 100 }))).toBe(20);
+    expect(clampToCeiling(4000, rule({ amount: 20, ceiling: 100 }), 0)).toBe(20);
     // Fail closed: 0 means zero, never unlimited.
-    expect(clampToCeiling(50, rule({ ceiling: 0 }))).toBe(0);
+    expect(clampToCeiling(50, rule({ ceiling: 0 }), 0)).toBe(0);
+    // And at a scale, which is what the answer is now in: the same rule on a
+    // token at 3 decimals answers in thousandths.
+    expect(clampToCeiling(40, rule({ ceiling: 100 }), 3)).toBe(40000);
   });
 
   // ── Gratitude ────────────────────────────────────────────────────────────
@@ -1222,7 +1231,7 @@ describe.skipIf(!configured)("the village economy engine", () => {
       expect(await posted(memberAccount(u))).toEqual({ rows: 1, units: 5 });
       // And the caller is told what it actually paid, so a route logging the
       // result does not tell the member 25.
-      expect(out.minted.find((m) => m.token === TOKEN)?.amount).toBe(5);
+      expect(out.minted.find((m) => m.token === TOKEN)).toEqual({ token: TOKEN, units: 5, decimals: 0 });
       expect((await checkLedgerInvariants(pool)).problems).toEqual([]);
     });
 
@@ -1399,12 +1408,12 @@ describe.skipIf(!configured)("the village economy engine", () => {
       // and `runSettlement` reads `r.amount ?? 0` and skips. So the branch the
       // column was written for has no live caller to measure, and the two
       // paths above are where the column now actually binds.
-      expect(clampToCeiling(40, rule({ ceiling: 100 }))).toBe(40);
-      expect(clampToCeiling(4000, rule({ ceiling: 100 }))).toBe(100);
+      expect(clampToCeiling(40, rule({ ceiling: 100 }), 0)).toBe(40);
+      expect(clampToCeiling(4000, rule({ ceiling: 100 }), 0)).toBe(100);
       // And the branch this change added: a fixed amount is bounded too.
-      expect(clampToCeiling(0, rule({ amount: 25, ceiling: 5 }))).toBe(5);
-      expect(clampToCeiling(0, rule({ amount: 25, ceiling: 250 }))).toBe(25);
-      expect(clampToCeiling(0, rule({ amount: 25, ceiling: 0 }))).toBe(0);
+      expect(clampToCeiling(0, rule({ amount: 25, ceiling: 5 }), 0)).toBe(5);
+      expect(clampToCeiling(0, rule({ amount: 25, ceiling: 250 }), 0)).toBe(25);
+      expect(clampToCeiling(0, rule({ amount: 25, ceiling: 0 }), 0)).toBe(0);
     });
 
     it("answers the whole ceiling decision in one pure call, every case", () => {
@@ -1415,7 +1424,11 @@ describe.skipIf(!configured)("the village economy engine", () => {
       // deliberately no "issued so far this cycle" column in it: the ceiling
       // bounds an occurrence, so a running total is not an input.
       const cases: Array<[Partial<MintRule>, number, number, boolean]> = [
-        // rule                          posted  paid  refused
+        // Read at 0 decimals, so `units` reads as the human figure and every
+        // row below is the row it always was. The scale is an ARGUMENT now and
+        // never a lookup (R31), and the two rows at the bottom are what the
+        // argument bought: a ceiling the column can hold and the token cannot.
+        // rule                          posted  units  refused
         [{ amount: 25, ceiling: 250 },        0,   25,  false],
         [{ amount: 25, ceiling: 5 },          0,    5,  false],
         [{ amount: 25, ceiling: 25 },         0,   25,  false], // exactly at it pays
@@ -1424,15 +1437,27 @@ describe.skipIf(!configured)("the village economy engine", () => {
         [{ amount: null, ceiling: 100 },     40,   40,  false],
         [{ amount: null, ceiling: 100 },   4000,  100,  false],
         [{ amount: null, ceiling: 0 },       40,    0,   true],
+        [{ amount: 25, ceiling: 0.5 },        0,    0,   true], // below what a whole unit can hold
+        [{ amount: 0.6, ceiling: 0.5 },       0,    0,   true], // and it stops the amount too
       ];
-      for (const [over, posted, paid, refused] of cases) {
-        const out = ceilingOutcome(rule(over), posted, "Village Credits");
-        expect({ paid: out.paid, refused: out.refusal !== null }).toEqual({ paid, refused });
+      for (const [over, posted, units, refused] of cases) {
+        const out = ceilingOutcome(rule(over), posted, 0, "Village Credits");
+        expect({ units: out.units, refused: out.refusal !== null }).toEqual({ units, refused });
       }
+      // The same table at 4 decimals, where nothing the column can write is
+      // below what the token can hold, so the last two rows stop refusing.
+      expect(ceilingOutcome(rule({ amount: 0.6, ceiling: 0.5 }), 0, 4).units).toBe(5000);
+      expect(ceilingOutcome(rule({ amount: 0.6, ceiling: 0.5 }), 0, 4).refusal).toBeNull();
       // The sentence itself, once, because a founder reads it and a route logs
       // it. It names the number that stopped the payment and what to do.
-      expect(ceilingOutcome(rule({ amount: 25, ceiling: 0 }), 0, "Village Credits").refusal).toBe(
+      expect(ceilingOutcome(rule({ amount: 25, ceiling: 0 }), 0, 0, "Village Credits").refusal).toBe(
         "this rule's ceiling is 0, so it can pay no Village Credits at all. Raise the ceiling or pause the rule",
+      );
+      // And the second one, which is a different number to change: the ceiling
+      // is real and the token cannot express it.
+      expect(ceilingOutcome(rule({ amount: 25, ceiling: 0.5 }), 0, 0, "Village Credits").refusal).toBe(
+        "this rule's ceiling is 0.5, which is below the smallest amount of Village Credits this " +
+          "village can post, so it can pay none at all. Raise the ceiling or pause the rule",
       );
     });
   });
@@ -2372,6 +2397,336 @@ describe.skipIf(!configured)("the village economy engine", () => {
       const after = (await publicSupply(dpool)).tokens.find((t) => t.token === "Village Voice");
       expect(after).toMatchObject({ issued: 5000, waned: 50, circulating: 4950 });
       expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(4950);
+    });
+  });
+
+  /*
+   * ── THE CEILING BINDS THE NUMBER THAT IS ACTUALLY POSTED (MX) ─────────────
+   *
+   * The block far above proves the clamp answers correctly in the rule's own
+   * human units. This one is about the UNIT it handed that answer to.
+   * `mint_rules.ceiling` is `decimal(18,4)` and six of the seven shipped
+   * tokens carry 0 decimals, so the column holds places the token cannot, and
+   * `toLedgerUnits` ROUNDS. Both mint paths compared exactly and then rounded,
+   * and the rounding was bounded by nothing.
+   *
+   * Measured on this build before the fix, read off `token_ledger`:
+   *
+   *   decimals 0   amount 0.6    ceiling 0.5     posted 1     200% of the cap
+   *   decimals 0   amount 1.5    ceiling 1.5     posted 2
+   *   decimals 0   amount 25.5   ceiling 25.5    posted 26
+   *   decimals 3   amount 0.0006 ceiling 0.0005  posted 1 thousandth
+   *
+   * MOVING THE CLAMP INTO MINOR UNITS WOULD HAVE CHANGED NOTHING, and that is
+   * the part worth writing down. Rounding is monotone, so
+   * `round(min(a, c) * s)` and `min(round(a * s), round(c * s))` are the same
+   * number for every input on this table. The fix is the DIRECTION: an amount
+   * rounds to the nearest payable figure, and a bound may only ever fall.
+   */
+  describe("the ceiling binds the number that is posted", () => {
+    // `library-credit` because it has a faucet (`sys:library-mint`), so the
+    // engine can actually pay it, and because no other block in this file
+    // holds a `quest.completed` rule on it. A token with no faucet would be
+    // refused by `ruleCannotPay` and the ceiling would never be reached.
+    const TOKEN = "library-credit";
+    const RULE = "rule-mx-ceiling";
+    const SEAT_RULE = "rule-mx-seat";
+    const SEAT = "seat-mx-ceiling";
+
+    /**
+     * Re-denominate the test token and reload the registry that reads it.
+     *
+     * `registerToken` deliberately never moves `decimals` on an existing row,
+     * because rescaling a token that holds balances multiplies everyone's
+     * holdings and no invariant would notice. This suite writes the column
+     * directly to walk one token across the scales the flip will walk it.
+     */
+    async function atScale(decimals: number): Promise<void> {
+      await pool.query("UPDATE `tokens` SET `decimals` = ? WHERE `slug` = ?", [decimals, TOKEN]);
+      await loadTokenRegistry(pool);
+    }
+
+    async function setRule(amount: number | null, ceiling: number): Promise<void> {
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`, `effective_from_cycle`) " +
+          "VALUES (?,?,'quest.completed',?,?,?,'claimant',1,0) " +
+          "ON DUPLICATE KEY UPDATE `amount` = VALUES(`amount`), `ceiling` = VALUES(`ceiling`), " +
+          "`enabled` = 1, `effective_from_cycle` = 0, `pending_from_cycle` = NULL",
+        [RULE, villageId(), TOKEN, amount, ceiling],
+      );
+    }
+
+    async function setSeatRule(amount: number | null, ceiling: number): Promise<void> {
+      await pool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`, `effective_from_cycle`) " +
+          "VALUES (?,?,'role.cycle',?,?,?,'holder',1,0) " +
+          "ON DUPLICATE KEY UPDATE `amount` = VALUES(`amount`), `ceiling` = VALUES(`ceiling`), " +
+          "`enabled` = 1, `effective_from_cycle` = 0, `pending_from_cycle` = NULL",
+        [SEAT_RULE, villageId(), TOKEN, amount, ceiling],
+      );
+    }
+
+    /** What the ledger holds for one member in this token, off the rows. */
+    async function heldBy(userId: string): Promise<number> {
+      const [rows] = await pool.query<any[]>(
+        "SELECT COALESCE(SUM(`amount`), 0) AS units FROM `token_ledger` " +
+          "WHERE `to_account` = ? AND `token_type` = ?",
+        [memberAccount(userId), TOKEN],
+      );
+      return Number(rows[0]?.units ?? 0);
+    }
+
+    beforeAll(async () => {
+      await registerToken(pool, {
+        slug: TOKEN, name: "Library Credit", kind: "credit",
+        governance: "platform", transferable: false, decimals: 0,
+      });
+      await atScale(0);
+    });
+
+    afterAll(async () => {
+      await pool.query("DELETE FROM `mint_rules` WHERE `id` IN (?,?)", [RULE, SEAT_RULE]);
+      await pool.query("DELETE FROM `org_role_assignments` WHERE `id` = ?", [SEAT]);
+      await atScale(0);
+    });
+
+    // The adversary's table, driven through the real mint path and read back
+    // off `token_ledger`, never off a return value: a mint that reported 0.5
+    // and posted 1 would pass an assertion on what it said it did.
+    const table: Array<{ decimals: number; amount: number; ceiling: number; units: number }> = [
+      { decimals: 0, amount: 0.6, ceiling: 0.5, units: 0 },
+      { decimals: 0, amount: 1.5, ceiling: 1.5, units: 1 },
+      { decimals: 0, amount: 25.5, ceiling: 25.5, units: 25 },
+      { decimals: 3, amount: 0.0006, ceiling: 0.0005, units: 0 },
+      { decimals: 3, amount: 0.0015, ceiling: 0.0015, units: 1 },
+      // The scale the registry flip moves every token to. Nothing the column
+      // can write is below what the token can hold here, so the clamp is the
+      // plain one and this row is the regression guard on the flip.
+      { decimals: 4, amount: 0.6, ceiling: 0.5, units: 5000 },
+      { decimals: 4, amount: 0.4, ceiling: 0.5, units: 4000 },
+    ];
+    for (const row of table) {
+      const tag = `${row.decimals}-${String(row.amount).replace(".", "p")}`;
+      it(`posts at or below a ceiling of ${row.ceiling} at ${row.decimals} decimals`, async () => {
+        await atScale(row.decimals);
+        await setRule(row.amount, row.ceiling);
+        const u = await makeMember(`mx-ceil-${tag}`);
+        await mintForConfirmedClaim(pool, {
+          id: `claim-mx-${tag}`, questId: "q-mx", userId: u, confirmedAt: new Date(),
+        });
+        const units = await heldBy(u);
+        expect(units).toBe(row.units);
+        // The property, in the ceiling's own units and independent of the
+        // table: nothing the ledger holds is above what the village voted for.
+        expect(units / 10 ** row.decimals).toBeLessThanOrEqual(row.ceiling);
+        expect((await checkLedgerInvariants(pool)).problems).toEqual([]);
+      });
+    }
+
+    it("returns the ledger row and not the number before it was rounded", async () => {
+      await atScale(3);
+      await setRule(0.0015, 0.0015);
+      const u = await makeMember("mx-return-row");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-mx-return", questId: "q-mx", userId: u, confirmedAt: new Date(),
+      });
+      // The row holds one thousandth. The old return value said 0.0015, which
+      // is a figure no row in this database holds, and a route logging it told
+      // the member a number that was never posted.
+      expect(out.minted.find((m) => m.token === TOKEN)).toEqual({
+        token: TOKEN, units: await heldBy(u), decimals: 3,
+      });
+      expect(await heldBy(u)).toBe(1);
+    });
+
+    it("says which number stopped it when a ceiling falls below what the token can hold", async () => {
+      await atScale(0);
+      await setRule(25, 0.5);
+      const u = await makeMember("mx-ceil-unreachable");
+      const out = await mintForConfirmedClaim(pool, {
+        id: "claim-mx-unreachable", questId: "q-mx", userId: u, confirmedAt: new Date(),
+      });
+      expect(await heldBy(u)).toBe(0);
+      const said = out.unpayable.find((x) => x.token === TOKEN);
+      // A ceiling fact gets a ceiling's sentence. Reporting it as "the amount
+      // is too small" would send the founder to the number that is fine.
+      expect(said?.reason).toMatch(/ceiling is 0.5/);
+      expect(said?.reason).toMatch(/Raise the ceiling or pause the rule/);
+    });
+
+    it("publishes what the engine will pay on the feed a member reads", async () => {
+      await atScale(0);
+      await setRule(25, 5);
+      const shown = (await publicRules(pool)).find((r) => r.token === "Library Credit");
+      // The engine pays 5. This feed is unauthenticated and it published 25.
+      expect(shown?.says).toContain("5 Library Credit");
+      expect(shown?.says).not.toContain("25 Library Credit");
+
+      await setRule(25, 0);
+      const shut = (await publicRules(pool)).find((r) => r.token === "Library Credit");
+      expect(shut?.says).toContain("no Library Credit");
+    });
+
+    it("previews and settles the same number, and never a payout the run will not make", async () => {
+      await atScale(0);
+      await setSeatRule(25, 5);
+      await pool.query(
+        "INSERT INTO `org_role_assignments` (`id`, `org_role_id`, `holder_kind`, `user_id`, `holder_key`, `is_example`) " +
+          "VALUES (?,'role-mx','member',?,?,0) ON DUPLICATE KEY UPDATE `user_id` = VALUES(`user_id`)",
+        [SEAT, await makeMember("mx-seat-holder"), "mx-seat-holder"],
+      );
+      const view = await mintView(pool);
+      const seats = view.settlementPreview.seats;
+      const previewed = view.settlementPreview.mints.find((m) => m.token === TOKEN);
+      // The preview said `amount * seats` and the engine pays `clamp * seats`.
+      expect(previewed).toEqual({ token: TOKEN, units: 5 * seats, decimals: 0 });
+      // And the panel's own card states the clamp and the cap, so a founder
+      // reading the rule sees the same number the preview does.
+      const card = view.rules.find((r) => r.id === SEAT_RULE);
+      expect(card?.pays).toEqual({ units: 5, ceilingUnits: 5, decimals: 0 });
+      expect(card?.problem).toBeNull();
+
+      const out = await runSettlement(pool);
+      expect(out.minted.find((m) => m.token === TOKEN)).toEqual({ token: TOKEN, units: 5, decimals: 0 });
+      expect(await heldBy("mx-seat-holder")).toBe(5);
+    });
+
+    it("previews nothing where the engine would pay nothing, and says why", async () => {
+      await atScale(0);
+      await setSeatRule(25, 0);
+      const view = await mintView(pool);
+      expect(view.settlementPreview.mints.map((m) => m.token)).not.toContain(TOKEN);
+      const card = view.rules.find((r) => r.id === SEAT_RULE);
+      // Served AND carried by the client's own interface now, so the panel can
+      // stop putting a green badge over a rule that pays nobody.
+      expect(card?.problem).toMatch(/ceiling is 0/);
+      expect(card?.pays).toEqual({ units: 0, ceilingUnits: 0, decimals: 0 });
+    });
+
+    it("does not call a settlement that could pay nothing an already settled moon", async () => {
+      // The seat rule reads its amount from the work and a seat posts none, so
+      // this rule can never pay. It used to sail through the payable filter,
+      // pay nobody, and come back `alreadyRun: true` with an EMPTY unpayable
+      // list: a misconfiguration reported as a completed moon, which is the
+      // reading that stops anybody looking.
+      await atScale(0);
+      await pool.query("DELETE FROM `mint_rules` WHERE `village_id` = ? AND `trigger` = 'role.cycle'", [
+        villageId(),
+      ]);
+      await setSeatRule(null, 0);
+      const out = await runSettlement(pool);
+      expect(out.minted).toEqual([]);
+      expect(out.alreadyRun).toBe(false);
+      expect(out.unpayable.find((x) => x.token === TOKEN)?.reason).toMatch(/reads its amount from the work/);
+    });
+
+    // ── What held before this change, and still holds ────────────────────────
+
+    it("still fails closed on every ceiling that is not a positive number", () => {
+      const bad: unknown[] = [-1, NaN, null, undefined, "", Infinity, -Infinity];
+      for (const c of bad) {
+        const out = ceilingOutcome(rule({ amount: 25, ceiling: c as number }), 0, 0, "Library Credit");
+        // An Infinity ceiling is the one worth naming: a cap that is not a
+        // number must never read as no cap at all.
+        expect({ at: String(c), units: out.units, refused: out.refusal !== null })
+          .toEqual({ at: String(c), units: 0, refused: true });
+      }
+      // And the bound itself answers the same way.
+      expect(ceilingAtScale(Infinity, 0)).toBe(0);
+      expect(ceilingAtScale(NaN, 0)).toBe(0);
+    });
+
+    it("still bounds ONE occurrence: twenty at 25 under a ceiling of 250 post 500", async () => {
+      // GREEN EITHER WAY, and that is the point. The column is a per-occurrence
+      // cap and not a per-cycle budget, so twenty confirmed quests at 25 issue
+      // 500 and the ceiling of 250 never fires. Reading it as a budget would
+      // make this 250 and would stop the shipped `role.cycle` default after the
+      // tenth seat in every village with more than ten seats.
+      await atScale(0);
+      await setRule(25, 250);
+      const u = await makeMember("mx-twenty");
+      for (let i = 1; i <= 20; i += 1) {
+        await mintForConfirmedClaim(pool, {
+          id: `claim-mx-20-${i}`, questId: "q-mx-20", userId: u, confirmedAt: new Date(),
+        });
+      }
+      expect(await heldBy(u)).toBe(500);
+      expect((await checkLedgerInvariants(pool)).problems).toEqual([]);
+    });
+
+    it("still pays once for one occurrence, and once only", async () => {
+      await atScale(0);
+      await setRule(25, 5);
+      const u = await makeMember("mx-idem");
+      const claim = { id: "claim-mx-idem", questId: "q-mx", userId: u, confirmedAt: new Date() };
+      await mintForConfirmedClaim(pool, claim);
+      const again = await mintForConfirmedClaim(pool, claim);
+      expect(again.minted.find((m) => m.token === TOKEN)).toBeUndefined();
+      expect(await heldBy(u)).toBe(5);
+    });
+
+    it("still holds the ceiling under six concurrent calls on one claim", async () => {
+      /*
+       * Six calls, two claims, and the clamp has no running total to race on:
+       * it is a pure function of the row and the amount, decided before the
+       * post. What this measures is that contention cannot get more than the
+       * ceiling past it and that the books balance afterwards.
+       *
+       * `allSettled` and not `all`, and a rejection is an accepted outcome:
+       * `postTransfer` rolls back and rethrows on a deadlock victim and
+       * neither `mint` nor `mintForConfirmedClaim` catches it, which the block
+       * above measured at one run in three. A victim posts nothing at all.
+       */
+      await atScale(0);
+      await setRule(25, 5);
+      const a = await makeMember("mx-race-a");
+      const b = await makeMember("mx-race-b");
+      const call = (id: string, userId: string) =>
+        mintForConfirmedClaim(pool, { id, questId: "q-mx-race", userId, confirmedAt: new Date() });
+      const settled = await Promise.allSettled([
+        call("claim-mx-race-a", a), call("claim-mx-race-a", a), call("claim-mx-race-a", a),
+        call("claim-mx-race-b", b), call("claim-mx-race-b", b), call("claim-mx-race-b", b),
+      ]);
+      for (const s of settled) {
+        if (s.status === "rejected") {
+          expect(["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"]).toContain(s.reason?.code);
+        }
+      }
+      // One row each at most, at the ceiling, whatever the ledger did. Read
+      // off the rows: a second row would be a double pay and a row above 5
+      // would be the clamp losing a race it cannot have.
+      for (const who of [a, b]) {
+        const [rows] = await pool.query<any[]>(
+          "SELECT COUNT(*) AS n, COALESCE(SUM(`amount`), 0) AS units FROM `token_ledger` " +
+            "WHERE `to_account` = ? AND `token_type` = ?",
+          [memberAccount(who), TOKEN],
+        );
+        const n = Number(rows[0].n);
+        expect(n).toBeLessThanOrEqual(1);
+        expect(Number(rows[0].units)).toBe(n * 5);
+      }
+      expect((await checkLedgerInvariants(pool)).problems).toEqual([]);
+    });
+
+    it("refuses a queued change the column would round away", async () => {
+      await atScale(0);
+      await setRule(25, 250);
+      // Reachable through the governed path: `queueRuleChange` is the writer
+      // the admin route and the ballot executor both use.
+      const zeroed = await queueRuleChange(pool, RULE, { ceiling: 0.00001 }, "admin-mx");
+      expect(zeroed.ok).toBe(false);
+      expect(zeroed.ok === false && zeroed.error).toContain("nothing at all");
+      const off = await queueRuleChange(pool, RULE, { amount: 0.00001 }, "admin-mx");
+      expect(off.ok).toBe(false);
+      // And the one that used to throw a driver error out of the executor.
+      const huge = await queueRuleChange(pool, RULE, { ceiling: 1e14 }, "admin-mx");
+      expect(huge.ok).toBe(false);
+      expect(huge.ok === false && huge.error).toContain("above that");
+      // Nothing was queued by any of the three.
+      const [rows] = await pool.query<any[]>(
+        "SELECT `pending_from_cycle` FROM `mint_rules` WHERE `id` = ?", [RULE],
+      );
+      expect(rows[0].pending_from_cycle).toBeNull();
     });
   });
 });

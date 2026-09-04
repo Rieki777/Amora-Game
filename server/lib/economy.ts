@@ -48,6 +48,7 @@
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { cycleBoundsFor } from "../../shared/lunar";
 import {
+  mintRuleNumberProblem,
   mintRuleValueNumber,
   mintRuleValueProblem,
   parseMintRuleKey,
@@ -170,16 +171,51 @@ export async function ensureVoiceToken(pool: Pool, displayName?: string): Promis
  */
 export const VOICE_DECIMALS = 3;
 
+/**
+ * THE ONE REGISTRY READ FOR A TOKEN'S SCALE.
+ *
+ * Every conversion in this file used to spell this out for itself, and R31
+ * turns on the difference between a helper that LOOKS UP a scale and one that
+ * is HANDED one: a function that can take a slug and read today's decimals
+ * will silently use "now" for a number that was frozen under a different
+ * scale. So the lookup is named, separate, and the pure arithmetic below takes
+ * its scale as an argument. A caller with a historical figure passes the scale
+ * that figure was written in and never comes through here.
+ */
+export function decimalsFor(tokenSlug: string): number {
+  return tokenDef(tokenSlug)?.decimals ?? (tokenSlug === VILLAGE_VOICE ? VOICE_DECIMALS : 0);
+}
+
+/**
+ * A human AMOUNT at a stated scale, in minor units. Rounds, because 0.1 * 1000
+ * is not 100 in binary and because the nearest payable figure is what an
+ * amount means.
+ *
+ * NOT for a bound. See `ceilingAtScale`, and read the paragraph there before
+ * reaching for this one on a cap: the direction of the rounding is the whole
+ * of the difference between a ceiling that holds and one that does not.
+ */
+export function unitsAtScale(human: number, decimals: number): number {
+  return Math.round(Number(human) * 10 ** decimals);
+}
+
+/** Minor units at a stated scale, back to the number a member reads. */
+export function humanAtScale(units: number, decimals: number): number {
+  // Divide by a whole power of ten and never raise ten to a negative one:
+  // `10 ** -4` is 0.0001 on V8 25 and 0.00009999999999999999 on V8 22, and CI
+  // decides on 22. IEEE 754 division is correctly rounded and `10 ** decimals`
+  // is an exact integer for every scale a token can carry.
+  return Number(units) / 10 ** decimals;
+}
+
 /** Human amount to ledger units. Rounds, because 0.1 * 1000 is not 100 in binary. */
 export function toLedgerUnits(tokenSlug: string, human: number): number {
-  const decimals = tokenDef(tokenSlug)?.decimals ?? (tokenSlug === VILLAGE_VOICE ? VOICE_DECIMALS : 0);
-  return Math.round(Number(human) * 10 ** decimals);
+  return unitsAtScale(human, decimalsFor(tokenSlug));
 }
 
 /** Ledger units back to the number a member reads on their chip. */
 export function fromLedgerUnits(tokenSlug: string, units: number): number {
-  const decimals = tokenDef(tokenSlug)?.decimals ?? (tokenSlug === VILLAGE_VOICE ? VOICE_DECIMALS : 0);
-  return Number(units) / 10 ** decimals;
+  return humanAtScale(units, decimalsFor(tokenSlug));
 }
 
 // ── Village scope ───────────────────────────────────────────────────────────
@@ -609,7 +645,13 @@ export async function mint(pool: Pool, input: MintInput): Promise<MintOutcome> {
  *
  * ── WHAT THE CEILING BOUNDS, AND WHAT IT DOES NOT ──────────────────────────
  *
- * ONE OCCURRENCE, in the rule's own human units. Ten confirmed quests against
+ * ONE OCCURRENCE. The rule row states it in its own human units and this
+ * function ANSWERS IN THE TOKEN'S MINOR UNITS, which is the unit the payment
+ * is actually made in and therefore the only unit the bound can be enforced
+ * in. Read `ceilingAtScale` for why that distinction is the whole fix and why
+ * moving the arithmetic alone would have changed nothing.
+ *
+ * Ten confirmed quests against
  * `amount 25, ceiling 250` issue 250 and an eleventh issues 25 more, and that
  * is the rule working: 25 is what the village promised per confirmed quest and
  * the ceiling says no single payment may exceed 250. This column is NOT a
@@ -636,7 +678,18 @@ export async function mint(pool: Pool, input: MintInput): Promise<MintOutcome> {
  * (shared/mintRuleKeys.ts), so the vote has to bind where the payment happens
  * rather than at the form somebody filled in first.
  */
-export function clampToCeiling(posted: number, rule: MintRule): number {
+/**
+ * The three fields the ceiling decision reads, and it reads nothing else.
+ *
+ * A `MintRule` satisfies it, and so does a raw row a feed has already read for
+ * other reasons. Named because `publicRules` reaches this decision from a
+ * joined query and had no business fabricating an id, a trigger, a recipient
+ * and a cycle stamp to ask one question. It is also the exact shape the dry-run
+ * model mirrors (shared/dryRun/economicsModel.ts).
+ */
+export type CeilingRuleLike = Pick<MintRule, "amount" | "ceiling" | "tokenSlug">;
+
+export function clampToCeiling(posted: number, rule: CeilingRuleLike, decimals: number): number {
   // A fixed amount ignores what the source posted, and always did. What it no
   // longer ignores is its own ceiling.
   const asked = rule.amount !== null ? Number(rule.amount) : Number(posted);
@@ -646,13 +699,65 @@ export function clampToCeiling(posted: number, rule: MintRule): number {
   // faucet. `mint_rules.ceiling` is NOT NULL, so this is the unreachable
   // branch that stays cheap to keep unreachable.
   if (!Number.isFinite(ceiling) || ceiling < 0) return 0;
-  return Math.min(asked, ceiling);
+  return Math.min(unitsAtScale(asked, decimals), ceilingAtScale(ceiling, decimals));
+}
+
+/**
+ * A BOUND at a stated scale, in minor units, and it only ever goes DOWN.
+ *
+ * ── THE DEFECT THIS EXISTS TO CLOSE, AND WHY THE OBVIOUS FIX IS NOT IT ──────
+ *
+ * `mint_rules.ceiling` is `decimal(18,4)` and six of the seven shipped tokens
+ * carry 0 decimals, so the column holds places the token cannot. Measured on
+ * this build, read off the ledger: a rule at amount 0.6 under a ceiling of 0.5
+ * at 0 decimals POSTED ONE WHOLE UNIT, which is two hundred percent of the
+ * cap; amount 1.5 under a ceiling of 1.5 posted 2; at 3 decimals a ceiling of
+ * 0.0005 posted a full thousandth. Reachable through the governed path,
+ * because nothing refused the ceiling.
+ *
+ * MOVING THE CLAMP INTO MINOR UNITS DOES NOT FIX IT ON ITS OWN, and that is
+ * worth stating because it is the obvious reading. Rounding is monotone, so
+ * `round(min(a, c) * s)` and `min(round(a * s), round(c * s))` are the same
+ * number for every input; converting first and clamping second answers exactly
+ * what the old order answered. The unit was never the whole of it.
+ *
+ * WHAT FIXES IT IS THE DIRECTION. An AMOUNT rounds, because the nearest
+ * payable figure is what a payment means. A BOUND may only ever fall, because
+ * a bound rounded up is a bound the village never voted for, and "caps fail
+ * closed" is this economy's oldest invariant. So a ceiling of 0.5 on a
+ * whole-unit token allows nothing, and `ceilingOutcome` says so out loud
+ * instead of paying one.
+ *
+ * FLOORING A DOUBLE NEEDS THE ULP GUARD BELOW. `0.29 * 100` is
+ * 28.999999999999996, and a bare `Math.floor` would read a village's 29
+ * hundredths as 28 and quietly lower a cap nobody moved. A scaled value within
+ * a few units in the last place of a whole number IS that whole number: the
+ * column keeps four decimal places, so the smallest real fraction any token
+ * scale can produce here is a ten-thousandth, which is many orders of
+ * magnitude above the tolerance.
+ */
+export function ceilingAtScale(ceiling: number, decimals: number): number {
+  const scaled = Number(ceiling) * 10 ** decimals;
+  if (!Number.isFinite(scaled)) return 0;
+  const whole = Math.round(scaled);
+  if (Math.abs(scaled - whole) <= Math.abs(scaled) * Number.EPSILON * 8) return whole;
+  return Math.floor(scaled);
 }
 
 /** What the ceiling lets one occurrence post, and why it let it post nothing. */
 export interface CeilingOutcome {
-  /** What may be posted, in the rule's own human units. 0 posts nothing. */
-  paid: number;
+  /**
+   * What may be posted, in the token's MINOR units, at the scale the caller
+   * passed. 0 posts nothing.
+   *
+   * `units` and never `paid`, and the rename is load-bearing. This function
+   * used to answer in the rule's HUMAN units and both callers then ran
+   * `toLedgerUnits` over the answer, which rounded the comparison's result
+   * back up past the ceiling it had just been compared against. Every reader
+   * of this field has to know which unit it is in, and this file's own
+   * convention is that `units` is minor and `amount` is human.
+   */
+  units: number;
   /** Why the CEILING stopped it, in a founder's words, or null. */
   refusal: string | null;
 }
@@ -672,14 +777,29 @@ export interface CeilingOutcome {
  * this decision and adding one would describe a rule the schema does not have.
  * See `clampToCeiling` for the four citations behind that reading.
  *
- * WHAT COMES BACK, and every case of it:
+ * ── THE ANSWER IS IN MINOR UNITS AND THE SCALE IS AN ARGUMENT ──────────────
  *
- *   ceiling 250, amount 25   ->  { paid: 25, refusal: null }   nothing changes
- *   ceiling 5,   amount 25   ->  { paid: 5,  refusal: null }   the clamp bites
- *   ceiling 25,  amount 25   ->  { paid: 25, refusal: null }   exactly at it pays
- *   ceiling 0,   amount 25   ->  { paid: 0,  refusal: "..." }  fails closed, loudly
- *   ceiling 250, amount 0    ->  { paid: 0,  refusal: null }   the village's own off switch
- *   ceiling 100, from_source ->  { paid: min(posted, 100), refusal: null }
+ * `decimals` is passed in and never looked up, which is what keeps this pure
+ * and what R31 asks of every money helper: a function that can read today's
+ * scale off the registry will use "now" for a figure that was written under a
+ * different one. The two mint paths pass `decimalsFor(slug)`; a caller holding
+ * a frozen figure passes the scale that figure was frozen at.
+ *
+ * WHAT COMES BACK, and every case of it, at 0 decimals so `units` reads as the
+ * human figure:
+ *
+ *   ceiling 250, amount 25   ->  { units: 25, refusal: null }   nothing changes
+ *   ceiling 5,   amount 25   ->  { units: 5,  refusal: null }   the clamp bites
+ *   ceiling 25,  amount 25   ->  { units: 25, refusal: null }   exactly at it pays
+ *   ceiling 0,   amount 25   ->  { units: 0,  refusal: "..." }  fails closed, loudly
+ *   ceiling 0.5, amount 25   ->  { units: 0,  refusal: "..." }  below what the token can hold
+ *   ceiling 250, amount 0    ->  { units: 0,  refusal: null }   the village's own off switch
+ *   ceiling 100, from_source ->  { units: min(posted, 100), refusal: null }
+ *
+ * The fifth row is the one this function grew for. A ceiling the column can
+ * hold and the token cannot is a village that has capped a payment at a figure
+ * no ledger row can express, and it needs the same sentence a ceiling of zero
+ * gets, naming the same number to change.
  *
  * The refusal is worded for the founder reading the Mint panel, and it names
  * the number to change, because it lands in the same `unpayable` list
@@ -692,7 +812,12 @@ export interface CeilingOutcome {
  * sentence, where an `amount` of zero gets silence, because that one is a
  * village saying "not this one, not now" about the payment itself.
  */
-export function ceilingOutcome(rule: MintRule, posted: number, tokenName?: string): CeilingOutcome {
+export function ceilingOutcome(
+  rule: CeilingRuleLike,
+  posted: number,
+  decimals: number,
+  tokenName?: string,
+): CeilingOutcome {
   const name = tokenName ?? rule.tokenSlug;
   const ceiling = Number(rule.ceiling);
   // The CEILING alone decides the refusal, never the clamp's answer: a
@@ -701,13 +826,25 @@ export function ceilingOutcome(rule: MintRule, posted: number, tokenName?: strin
   // rule broken on every occurrence that posted nothing.
   if (!Number.isFinite(ceiling) || ceiling <= 0) {
     return {
-      paid: 0,
+      units: 0,
       refusal:
         `this rule's ceiling is ${rule.ceiling}, so it can pay no ${name} at all. ` +
         `Raise the ceiling or pause the rule`,
     };
   }
-  return { paid: clampToCeiling(posted, rule), refusal: null };
+  // A ceiling above zero that falls to nothing at this token's scale. The
+  // village capped a payment at a figure the ledger has no row for, so the
+  // rule pays nobody, and it is a ceiling fact and gets a ceiling's sentence:
+  // an "amount too small" reading would send the founder to the wrong number.
+  if (ceilingAtScale(ceiling, decimals) <= 0) {
+    return {
+      units: 0,
+      refusal:
+        `this rule's ceiling is ${rule.ceiling}, which is below the smallest amount of ${name} this ` +
+        `village can post, so it can pay none at all. Raise the ceiling or pause the rule`,
+    };
+  }
+  return { units: clampToCeiling(posted, rule, decimals), refusal: null };
 }
 
 // ── Reversal ────────────────────────────────────────────────────────────────
@@ -2048,26 +2185,36 @@ function reportUnpayable(context: string, unpayable: Array<{ token: string; reas
  * failure is returned and logged and the claim stands.
  *
  * UNITS, because the sweep points other callers at this function as the worked
- * example. The human number leaves `mint_rules.amount`, a `decimal(18,4)`; the
- * ceiling is applied in that same human unit because `mint_rules.ceiling`
- * shares the row; `toLedgerUnits` converts once; and a rule whose amount rounds
- * below the token's own resolution is refused out loud rather than paid as
- * zero. Nothing below that line converts again. NO BEHAVIOUR CHANGED HERE in
- * the decimals sweep, and that is the finding: this path was already right.
+ * example. The human number leaves `mint_rules.amount`, a `decimal(18,4)`;
+ * `ceilingOutcome` converts it once, at a scale it is handed, and answers in
+ * the token's minor units with the ceiling already applied to THAT integer;
+ * and a rule whose amount rounds below the token's own resolution is refused
+ * out loud instead of being paid as zero. Nothing below that line converts
+ * again and nothing above it posts.
+ *
+ * THE DECIMALS SWEEP CALLED THIS PATH ALREADY RIGHT AND IT WAS NOT. The
+ * conversion happened once, which is what the sweep checked, and it happened
+ * AFTER the comparison the ceiling had just won: `min(0.6, 0.5)` rounded to 1
+ * on a whole-unit token and posted twice the cap. The sweep's own sentence is
+ * why it went unseen for a moon, so it is corrected here instead of removed.
  */
 export async function mintForConfirmedClaim(
   pool: Pool,
   claim: { id: string; questId: string; userId: string; confirmedAt?: Date | string | null },
 ): Promise<{
   /**
-   * What was issued, in each token's HUMAN units, which is the unit of the rule
-   * row it came from and the unit `publicRules` publishes. The ledger holds the
-   * minor figure. NOTE that `SettlementResult.minted` carries the same idea in
-   * the OTHER unit and says so in its field name (`units`): the two are not
-   * interchangeable, and reading either as the other is wrong by
-   * `10 ** decimals`.
+   * WHAT THE LEDGER ROW HOLDS, and nothing derived from it.
+   *
+   * The integer in the token's minor units, the scale that integer is in, and
+   * the slug it is of: R31's shape, from the one place that knows all three.
+   * This used to report the clamp's answer in HUMAN units, taken before
+   * `toLedgerUnits` ran, so a caller reading it was reading a number that
+   * exists nowhere in the database. `SettlementResult.minted` now carries the
+   * same three fields under the same names, so the two paths can finally be
+   * read the same way; before this they differed by `10 ** decimals` and only
+   * a field name said so.
    */
-  minted: Array<{ token: string; amount: number }>;
+  minted: Array<{ token: string; units: number; decimals: number }>;
   skipped?: string;
   /**
    * Rules that were enabled, in force, and could not pay. An empty array is
@@ -2096,7 +2243,7 @@ export async function mintForConfirmedClaim(
   }
 
   const rules = await rulesFor(pool, "quest.completed");
-  const minted: Array<{ token: string; amount: number }> = [];
+  const minted: Array<{ token: string; units: number; decimals: number }> = [];
   const unpayable: Array<{ token: string; reason: string }> = [];
   for (const r of rules) {
     // Recognition is the consent route's job. See above.
@@ -2132,18 +2279,21 @@ export async function mintForConfirmedClaim(
     // THE CEILING BINDS HERE, and until this line it bound nowhere at all:
     // `clampToCeiling` had no caller in the shipped server, so a rule left at
     // `amount 25, ceiling 5` by a ballot that lowered only the ceiling went on
-    // paying 25 for ever. It is applied in the rule's own human units, before
-    // `toLedgerUnits`, because that is the unit `mint_rules.ceiling` and
-    // `mint_rules.amount` share: both are `decimal(18,4)` on the same row.
-    const capped = ceilingOutcome(r, asked, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
+    // paying 25 for ever.
+    //
+    // IT BINDS IN MINOR UNITS, and this line used to hand a human number to
+    // `toLedgerUnits` on the next one. `mint_rules.ceiling` is `decimal(18,4)`
+    // and this token may carry 0 decimals, so the comparison was exact and the
+    // rounding after it was not bounded by anything: a ceiling of 0.5 paid one
+    // whole unit. The scale is passed in rather than looked up inside, per R31.
+    const decimals = decimalsFor(r.tokenSlug);
+    const capped = ceilingOutcome(r, asked, decimals, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
     if (capped.refusal) {
       unpayable.push({ token: r.tokenSlug, reason: capped.refusal });
       continue;
     }
-    const human = capped.paid;
-    // The ledger takes integers. A rule of 0.1 voice posts 100 thousandths,
-    // because posting 0.1 posts nothing at all.
-    const amount = toLedgerUnits(r.tokenSlug, human);
+    // Already the ledger's own integer. Nothing below this line converts.
+    const amount = capped.units;
     // KEPT, NOT DELETED, and the sweep asked the question explicitly.
     // `mint_rules.amount` is `decimal(18,4)`, so the smallest non-zero human
     // figure a rule can carry is 0.0001, which at four decimals converts to 1
@@ -2155,12 +2305,16 @@ export async function mintForConfirmedClaim(
     // token registered below four decimals re-arms this immediately. Deleting
     // a guard because today's data cannot reach it is how the `faucetFor`
     // credits defect shipped. It costs one comparison. (sweep lane F)
+    //
+    // IT NOW MEANS ONLY THE AMOUNT. A ceiling that falls to nothing at this
+    // scale is refused above, by name, so reaching here with a zero means the
+    // rule's own amount rounded away and `asked` is the number to quote.
     if (amount <= 0) {
       // Below the token's own resolution. Also a promise that cannot be kept,
       // and the founder can only fix it if somebody says so.
       unpayable.push({
         token: r.tokenSlug,
-        reason: `${human} is smaller than the smallest amount this token can hold`,
+        reason: `${asked} is smaller than the smallest amount this token can hold`,
       });
       continue;
     }
@@ -2179,7 +2333,12 @@ export async function mintForConfirmedClaim(
       // quietly paid in one token instead of two.
       idempotencyKey: keys.questCompleted(villageId(), claim.questId, claim.id, claim.userId, r.tokenSlug),
     });
-    if (res.ok && !res.duplicate) minted.push({ token: r.tokenSlug, amount: human });
+    // THE ROW, not the number before it was rounded. This used to report the
+    // human figure the clamp had answered, so a rule at 0.0015 on a token at
+    // three decimals returned 0.0015 while the row held one thousandth: a
+    // route logging the return value told the member a number no row in this
+    // database holds. `units` plus `decimals` plus the slug is R31's shape.
+    if (res.ok && !res.duplicate) minted.push({ token: r.tokenSlug, units: amount, decimals });
     // A refusal from the ledger itself is the same class of news as a rule the
     // engine cannot honour, and it was equally silent before: the ledger's own
     // sentence went into a variable nobody read.
@@ -2242,15 +2401,18 @@ export interface SettlementResult {
   cycleKey: string;
   stewardsThanked: number;
   /**
-   * What each `role.cycle` rule paid, in the token's MINOR units, which is why
-   * this field is `units` and not `amount`. The conversion happens once per
-   * rule, immediately before `mint`, in the loop below.
-   * `mintForConfirmedClaim` reports the same idea in HUMAN units under the name
-   * `amount`; the two names are the only thing telling them apart, so a reader
-   * copying one call site's handling onto the other is wrong by
-   * `10 ** decimals`.
+   * What each `role.cycle` rule paid: the integer the ledger row holds, the
+   * scale it is in, and the slug it is of (R31). The conversion happens once,
+   * inside `ceilingOutcome`, and the seat loop below posts its answer without
+   * touching it again.
+   *
+   * `mintForConfirmedClaim` now reports the same three fields under the same
+   * names. It used to report HUMAN units under the name `amount`, and the two
+   * field names were the only thing telling the paths apart, so a reader
+   * copying one call site's handling onto the other was wrong by
+   * `10 ** decimals`. There is nothing left to copy wrong.
    */
-  minted: Array<{ token: string; units: number }>;
+  minted: Array<{ token: string; units: number; decimals: number }>;
   alreadyRun: boolean;
   /**
    * Enabled `role.cycle` rules the engine could not honour, once each rather
@@ -2624,24 +2786,41 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
       ruleProblems.push({ token: r.tokenSlug, reason: problem });
       return false;
     }
+    // A SEAT POSTS NO AMOUNT, so a rule that reads its amount from the work
+    // can never pay one, on any moon, ever. This was silent: `r.amount ?? 0`
+    // read null as zero, the ceiling check below was guarded on that zero
+    // being positive, the rule sailed through this filter into `payable`, the
+    // seat loop paid nothing, and `alreadyRun` then went true because
+    // `payable.length > 0`. A misconfiguration was reported as a completed
+    // moon, which is the reading that stops anybody looking. Named here, in
+    // the same words `mintForConfirmedClaim` uses for the same shape.
+    if (r.amount === null) {
+      ruleProblems.push({
+        token: r.tokenSlug,
+        reason: "this rule reads its amount from the work, and a seat posts no amount in this token",
+      });
+      return false;
+    }
     // A ceiling of zero is the third way, and the same class again: the row
     // says the rule pays 25 and says the most it may pay is nothing. Asked
     // ONCE here rather than once per seat, like every other reason in this
-    // filter. See `clampToCeiling` for what the column bounds.
-    const capped = ceilingOutcome(r, r.amount ?? 0, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
-    if ((r.amount ?? 0) > 0 && capped.refusal) {
+    // filter. See `clampToCeiling` for what the column bounds, and
+    // `ceilingAtScale` for why the answer is in minor units.
+    const decimals = decimalsFor(r.tokenSlug);
+    const capped = ceilingOutcome(r, r.amount, decimals, tokenDef(r.tokenSlug)?.name ?? r.tokenSlug);
+    if (r.amount > 0 && capped.refusal) {
       out.unpayable.push({ token: r.tokenSlug, reason: capped.refusal });
       return false;
     }
     // An amount that rounds to nothing in this token's minor units is the
     // other way a rule pays nobody while looking alive. Same class, same
     // report: a rule of 0.1 on a whole-unit token posts zero.
-    const human = capped.paid;
+    const human = r.amount;
     // KEPT for the reason written at its twin in `mintForConfirmedClaim`: on a
     // token at four decimals this cannot fire, because `mint_rules.amount` is
     // `decimal(18,4)`, and it stays because the next token a village registers
     // may carry fewer. (sweep lane F)
-    if (human > 0 && toLedgerUnits(r.tokenSlug, human) <= 0) {
+    if (human > 0 && capped.units <= 0) {
       ruleProblems.push({
         token: r.tokenSlug,
         reason: `${human} is smaller than the smallest amount this token can hold`,
@@ -2677,12 +2856,12 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
       // Clamped, like the quest path, and for the same reason: the ceiling is
       // what the village voted on and the amount is what it typed first. The
       // filter above has already reported a ceiling of zero once for the whole
-      // rule, so this loop only has to stop paying.
-      const human = ceilingOutcome(r, r.amount ?? 0).paid;
-      if (human <= 0) continue;
-      const units = toLedgerUnits(r.tokenSlug, human);
-      const faucet = faucetFor(r.tokenSlug)!;
+      // rule, so this loop only has to stop paying. The answer is already the
+      // ledger's own integer, so nothing here converts it a second time.
+      const decimals = decimalsFor(r.tokenSlug);
+      const units = ceilingOutcome(r, r.amount ?? 0, decimals).units;
       if (units <= 0) continue;
+      const faucet = faucetFor(r.tokenSlug)!;
       const res = await mint(pool, {
         toUserId: userId,
         tokenSlug: r.tokenSlug,
@@ -2696,19 +2875,43 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
       });
       if (res.ok && !res.duplicate) {
         paid.add(userId);
-        out.minted.push({ token: r.tokenSlug, units });
+        out.minted.push({ token: r.tokenSlug, units, decimals });
       }
     }
   }
   out.stewardsThanked = paid.size;
-  // Nothing new to pay means this cycle was already settled, which is the only
-  // honest way to know: the ledger is the record, not a flag beside it.
-  //
-  // Unless nothing COULD be paid. A run where every rule was unpayable also
-  // mints nothing, and calling that "already settled" would report a
-  // misconfiguration as a completed moon, which is the reading that stops
-  // anybody looking.
-  out.alreadyRun = out.minted.length === 0 && payable.length > 0;
+  /*
+   * Nothing new to pay means this cycle was already settled, which is the only
+   * honest way to know: the ledger is the record, not a flag beside it.
+   *
+   * Unless nothing COULD be paid. A run where every rule was unpayable also
+   * mints nothing, and calling that "already settled" would report a
+   * misconfiguration as a completed moon, which is the reading that stops
+   * anybody looking.
+   *
+   * `payable.length > 0` WAS NOT THAT TEST, and the comment above it was
+   * already the right sentence attached to the wrong condition. Two states
+   * reached it with an empty ledger and no report at all:
+   *
+   *   a rule that survives every reason in the filter and still pays nothing,
+   *   which was every `from_source` seat rule and every rule a village had set
+   *   to zero;
+   *
+   *   a village with a working rule and nobody in a seat, where there was
+   *   never anything to settle and no run could have paid it.
+   *
+   * So the condition asks what it means: was there a payment this run could
+   * have made. `WOULD PAY` re-asks the clamp because a rule can be payable and
+   * still answer zero, and the seat count because a payment needs somebody to
+   * receive it. Both directions of the mistake are one-sided and this is the
+   * safe side: reporting "not settled" when it was costs a log line the caller
+   * already guards on `stewardsThanked`, and reporting "settled" when nothing
+   * ever could be costs the village its only signal.
+   */
+  const wouldPay = payable.filter(
+    (r) => ceilingOutcome(r, r.amount ?? 0, decimalsFor(r.tokenSlug)).units > 0,
+  );
+  out.alreadyRun = out.minted.length === 0 && wouldPay.length > 0 && seats.length > 0;
   return out;
 }
 
@@ -2808,13 +3011,39 @@ export async function publicRules(pool: Pool): Promise<Array<{ trigger: string; 
     const name = String(r.token_name ?? r.token_slug);
     const amount = r.amount === null ? null : Number(r.amount);
     const ceiling = Number(r.ceiling ?? 0);
+    /*
+     * THE ENGINE'S NUMBER, THROUGH THE ENGINE'S OWN FUNCTION.
+     *
+     * This feed is unauthenticated and it is what a member reads before they
+     * decide whether to do the work. It used to print `mint_rules.amount`
+     * straight, and consult the ceiling only on the from_source branch, so a
+     * rule at `amount 25, ceiling 5` published "25 Village Credits when a
+     * steward confirms finished work" while the engine paid 5, and a rule at
+     * ceiling 0 published 25 while the engine paid nothing at all.
+     *
+     * `decimals` comes off the same joined row as the name, so the sentence is
+     * built at the scale the payment is actually made in and a token's scale
+     * moving needs no change here.
+     */
+    const decimals = Number(r.decimals ?? 0);
+    const decided = ceilingOutcome(
+      { tokenSlug: String(r.token_slug), amount, ceiling },
+      0,
+      decimals,
+      name,
+    );
+    const capUnits = ceilingAtScale(ceiling, decimals);
     // Plain sentences, not a table dump. Somebody reading this is asking what
     // the village does, and "quest.completed / 0.1 / 1 / claimant" answers a
     // different question than they asked.
     const what =
       amount === null
-        ? `up to ${ceiling} ${name}, as much as the work was posted for`
-        : `${amount} ${name}`;
+        ? capUnits > 0
+          ? `up to ${humanAtScale(capUnits, decimals)} ${name}, as much as the work was posted for`
+          : `no ${name}, because this rule's ceiling stops every payment`
+        : decided.units > 0
+          ? `${humanAtScale(decided.units, decimals)} ${name}`
+          : `no ${name} at present`;
     const when: Record<string, string> = {
       "quest.completed": "when a steward confirms finished work",
       "gratitude.given": "when a member thanks another",
@@ -2929,13 +3158,26 @@ export async function queueRuleChange(
   const rule = rows[0];
   if (!rule) return { ok: false, error: "no such rule" };
 
-  if (change.ceiling !== undefined && (!Number.isFinite(change.ceiling) || change.ceiling < 0)) {
-    return { ok: false, error: "a ceiling is zero or more, and zero means zero" };
+  // The SAME bound the ballot path checks at raise, from the same function, so
+  // the two writers cannot come to disagree about what a village may vote for.
+  // It covers what `decimal(18,4)` can hold and what it would round away: a
+  // ceiling of 0.00001 used to store as 0.0000 and answer `ok`, which is a
+  // refusing ceiling nobody asked for, and an amount of 0.00001 used to store
+  // as 0.0000, which is a silent off switch. At 1e14 the column threw an
+  // out-of-range error from inside the ballot executor after the vote carried.
+  if (change.ceiling !== undefined) {
+    if (!Number.isFinite(change.ceiling) || change.ceiling < 0) {
+      return { ok: false, error: "a ceiling is zero or more, and zero means zero" };
+    }
+    const bad = mintRuleNumberProblem("ceiling", change.ceiling);
+    if (bad) return { ok: false, error: bad };
   }
   if (change.amount !== undefined && change.amount !== null) {
     if (!Number.isFinite(change.amount) || change.amount <= 0) {
       return { ok: false, error: "an amount is greater than zero, or null to read it from the source" };
     }
+    const bad = mintRuleNumberProblem("amount", change.amount);
+    if (bad) return { ok: false, error: bad };
     // A fixed amount above its own ceiling is a rule that contradicts itself.
     const ceiling = change.ceiling ?? Number(rule.ceiling ?? 0);
     if (ceiling > 0 && change.amount > ceiling) {
@@ -3118,20 +3360,43 @@ export interface MintView {
      * when it cannot. An enabled rule with a `problem` is the village
      * promising something nobody will ever receive.
      *
-     * SERVED BUT NOT YET RENDERED. `client/src/pages/Mint.tsx` declares its
-     * own `Rule` interface and does not carry this field, so the panel still
-     * shows an unpayable rule with the same green "Paying" badge as a working
-     * one. The engine refuses it, `console.error` records it and this feed
-     * reports it; the last surface is a client change and is written up rather
-     * than done here. Adding `problem: string | null` to that interface and
-     * branching the badge on it is the whole of it.
+     * IT NOW CARRIES THE CEILING'S REFUSAL TOO, folded in. A rule the engine
+     * refuses because its ceiling is zero, or because its ceiling falls below
+     * what the token can hold, is the same class of fact as a rule with no
+     * faucet: enabled, printed, and paying nobody. One field, so the panel has
+     * one thing to branch on and cannot show a green badge over half of them.
      */
     problem: string | null;
+    /**
+     * WHAT ONE OCCURRENCE ACTUALLY PAYS, in this token's minor units with the
+     * scale beside it (R31).
+     *
+     * `units` is null for a rule that reads its amount from the work, whose
+     * payment is whatever the work posted, capped at `ceilingUnits`.
+     * `ceilingUnits` is the ceiling AS THE ENGINE ENFORCES IT, which is the
+     * `ceiling` field above floored into minor units, and the two disagree
+     * whenever the column carries places the token cannot: 0.5 on a whole-unit
+     * token is a `ceiling` of 0.5 and a `ceilingUnits` of 0.
+     *
+     * The panel prints these and never `amount`. Printing `amount` is how the
+     * Mint panel came to show a confident "25 Village Credits" over a rule the
+     * engine paid 5 on, with no ceiling anywhere on the card.
+     */
+    pays: { units: number | null; ceilingUnits: number; decimals: number };
     pending: null | { amount: number | null; ceiling: number; enabled: boolean; fromCycle: number };
   }>;
   /** Per token per SOURCE. Admin only: the public feed is totals-only. */
   supply: Array<{ token: string; source: string; issued: number }>;
-  settlementPreview: { seats: number; mints: Array<{ token: string; units: number }> };
+  /**
+   * What the next settlement would pay, per token, over every seat.
+   *
+   * `units` is the integer the ledger rows would hold and `decimals` is the
+   * scale it is in (R31). It used to be `units` alone, with no scale anywhere
+   * in the payload, and `client/src/pages/Mint.tsx` printed it raw: 25 at 0
+   * decimals and 250000 at 4, for the same 25 the village promised. A client
+   * could not have converted it if it had tried.
+   */
+  settlementPreview: { seats: number; mints: Array<{ token: string; units: number; decimals: number }> };
 }
 
 /** Everything the Mint panel shows, in one read. */
@@ -3166,16 +3431,32 @@ export async function mintView(pool: Pool): Promise<MintView> {
 
   return {
     cycleKey: key,
-    rules: rules.map((r) => ({
+    rules: rules.map((r) => {
+      const slug = String(r.token_slug);
+      const amount = r.amount === null ? null : Number(r.amount);
+      const ceiling = Number(r.ceiling ?? 0);
+      const decimals = decimalsFor(slug);
+      const name = String(r.token_name ?? slug);
+      const decided = ceilingOutcome({ tokenSlug: slug, amount, ceiling }, 0, decimals, name);
+      return {
       id: String(r.id),
       trigger: String(r.trigger),
-      token: String(r.token_slug),
-      tokenName: String(r.token_name ?? r.token_slug),
-      amount: r.amount === null ? null : Number(r.amount),
-      ceiling: Number(r.ceiling ?? 0),
+      token: slug,
+      tokenName: name,
+      amount,
+      ceiling,
       recipient: String(r.recipient ?? "claimant"),
       enabled: !!r.enabled,
-      problem: ruleCannotPay(String(r.token_slug)),
+      // The token's refusal first, because it is the one the engine hits
+      // first: a rule on a token with no faucet never gets as far as its own
+      // ceiling. Only a rule with a real amount can have a ceiling problem;
+      // an amount of zero is a village's off switch and gets no sentence.
+      problem: ruleCannotPay(slug) ?? ((amount ?? 0) > 0 ? decided.refusal : null),
+      pays: {
+        units: amount === null ? null : decided.units,
+        ceilingUnits: ceilingAtScale(ceiling, decimals),
+        decimals,
+      },
       pending:
         r.pending_from_cycle === null || r.pending_from_cycle === undefined
           ? null
@@ -3185,7 +3466,8 @@ export async function mintView(pool: Pool): Promise<MintView> {
               enabled: !!r.pending_enabled,
               fromCycle: Number(r.pending_from_cycle),
             },
-    })),
+      };
+    }),
     supply: supply.map((s) => ({
       token: String(s.token),
       source: String(s.source),
@@ -3200,11 +3482,28 @@ export async function mintView(pool: Pool): Promise<MintView> {
     // rule the engine could not honour read a confident "600 Village Credits
     // next moon" off a preview that had never asked whether a single one of
     // them would move. A forecast that cannot fail is not a forecast.
+    //
+    // AND ONLY WHAT THE CEILING LETS IT PAY. The comment above this block says
+    // the preview must agree exactly with the settlement filter, and it never
+    // called `ceilingOutcome` at all: a rule at `amount 25, ceiling 5` was
+    // previewed at 25 a seat and paid 5, and at a ceiling of 0 it was still
+    // previewed at 25 and paid nothing. It also multiplied BEFORE converting,
+    // which is a second disagreement with the engine: the engine converts once
+    // per seat and posts a whole number of units each time, so 0.5 over three
+    // seats is three postings of 1 at 0 decimals and never `round(1.5)`.
     settlementPreview: {
       seats: seatCount,
       mints: cycleRules
-        .filter((r) => (r.amount ?? 0) > 0 && !ruleCannotPay(r.tokenSlug))
-        .map((r) => ({ token: r.tokenSlug, units: toLedgerUnits(r.tokenSlug, (r.amount ?? 0) * seatCount) })),
+        .filter((r) => r.amount !== null && r.amount > 0 && !ruleCannotPay(r.tokenSlug))
+        .map((r) => {
+          const decimals = decimalsFor(r.tokenSlug);
+          return {
+            token: r.tokenSlug,
+            units: ceilingOutcome(r, 0, decimals).units * seatCount,
+            decimals,
+          };
+        })
+        .filter((m) => m.units > 0),
     },
   };
 }
