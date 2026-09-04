@@ -21,6 +21,7 @@ import path from "node:path";
 import mysql from "mysql2/promise";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
+import { NEEDS_AGGREGATE_FLOOR } from "../lib/needs";
 import { register } from "./needs";
 
 type Handler = (req: any, res: any) => Promise<unknown> | unknown;
@@ -84,12 +85,26 @@ const ADMIN_WRITES = [
 
 const MEMBER_READS = ["GET /api/needs/scope", "GET /api/needs/coverage"];
 
+/**
+ * Lane N4's four. Three of them read or write the signed-in member's OWN card
+ * and one is the count the whole village may read.
+ */
+const MEMBER_CARD = [
+  "GET /api/needs/mine",
+  "PUT /api/needs/mine",
+  "DELETE /api/needs/mine",
+  "GET /api/needs/aggregate",
+];
+
 describe("who may reach the needs routes", () => {
-  it("registers exactly the six doors, and no more", () => {
+  it("registers exactly the ten doors, and no more", () => {
     const { app, handlers } = collect();
     const { pool } = deadPool();
     register(app, { isAdmin: async () => true, authedUser: async () => ({ id: "u" }), getPool: () => pool } as any);
-    expect([...handlers.keys()].sort()).toEqual([...ADMIN_WRITES, ...MEMBER_READS].sort());
+    // Six from lane N1 and four from lane N4, on ONE module, because
+    // server/index.ts exempts exactly one import and one register call per
+    // module and a second module would have cost a second pair.
+    expect([...handlers.keys()].sort()).toEqual([...ADMIN_WRITES, ...MEMBER_READS, ...MEMBER_CARD].sort());
   });
 
   it.each(ADMIN_WRITES)("refuses a member on %s, and never touches the database", async (key) => {
@@ -320,5 +335,248 @@ describe("the module pays its own way in server/index.ts", () => {
     const m = measured();
     expect(m.current.lines).toBeLessThanOrEqual(m.baseline.lines);
     expect(m.current.routes).toBeLessThanOrEqual(m.baseline.routes);
+  });
+});
+
+/* ========================================================================== *
+ * Lane N4's four doors: the member's own card, and the count the village gets.
+ * ========================================================================== */
+
+/** The one thing an attacker wants, spelled so a grep finds this line. */
+const SOMEBODY_ELSE = "member-ana";
+
+/** Mount the module as one signed-in identity. */
+const asMember = (id: string, admin = false) => {
+  const { app, handlers } = collect();
+  const { pool, queries } = deadPool();
+  register(app, {
+    isAdmin: async () => admin,
+    authedUser: async () => (id ? { id } : null),
+    getPool: () => pool,
+  } as any);
+  return { handlers, queries };
+};
+
+describe("who may reach the member's own card", () => {
+  it.each(MEMBER_CARD)("refuses a stranger on %s, and never touches the database", async (key) => {
+    const { handlers, queries } = asMember("");
+    const out = await call(handlers, key, { body: { needKey: "love", depth: "unmet" } });
+    expect(out.status).toBe(401);
+    expect(out.body).toEqual({ error: "auth_required" });
+    expect(queries, "a refused read must not reach the pool").toEqual([]);
+  });
+
+  /**
+   * THE REFUSAL IS A MISSING HANDLER, and that is stronger than a gate.
+   *
+   * There is no route on this module that takes a user id from a request, so
+   * an admin has no URL to ask with. Express answers 404 for a path nothing
+   * registered, which is why the assertion below is about the handler map: a
+   * test that mocked a 404 would prove nothing about the router.
+   */
+  it("registers no door that names another member, so an admin read is a 404", () => {
+    const { app, handlers } = collect();
+    const { pool } = deadPool();
+    register(app, { isAdmin: async () => true, authedUser: async () => ({ id: "founder" }), getPool: () => pool } as any);
+    const doors = [...handlers.keys()];
+    expect(doors).not.toContain("GET /api/admin/needs/mine");
+    expect(doors).not.toContain("GET /api/admin/needs/members");
+    expect(doors.filter((d) => /:userId|:user|:memberId|\/members\//.test(d))).toEqual([]);
+    // And no door on this module carries a path parameter at all except the
+    // link id, which names a tag and never a person.
+    expect(doors.filter((d) => d.includes(":"))).toEqual(["DELETE /api/admin/needs/links/:id"]);
+  });
+
+  it("gives an admin their OWN card on /api/needs/mine, never the member they are looking at", async () => {
+    const rowsByUser: Record<string, any[]> = {
+      [SOMEBODY_ELSE]: [{ need_key: "love", depth: "deprived", note: "I am lonely" }],
+    };
+    const seen: any[][] = [];
+    const pool = {
+      async query(_sql: string, params: any[]) {
+        seen.push(params);
+        return [rowsByUser[params?.[0]] ?? [], []];
+      },
+    } as any;
+    const { app, handlers } = collect();
+    register(app, {
+      isAdmin: async () => true,
+      authedUser: async () => ({ id: "founder-1", role: "admin" }),
+      getPool: () => pool,
+    } as any);
+
+    const out = await call(handlers, "GET /api/needs/mine");
+    expect(out.status).toBe(200);
+    // The id the SELECT filtered on came off the token and nowhere else.
+    expect(seen[0][0]).toBe("founder-1");
+    expect(JSON.stringify(out.body)).not.toContain(SOMEBODY_ELSE);
+    expect(JSON.stringify(out.body)).not.toContain("lonely");
+    expect(out.body.mine).toEqual([]);
+    expect(out.body.answered).toBe(false);
+  });
+});
+
+describe("what the card may send", () => {
+  it("refuses a visibility of village with a sentence, before any write", async () => {
+    const { handlers, queries } = asMember("member-1");
+    const out = await call(handlers, "PUT /api/needs/mine", {
+      body: { needKey: "love", depth: "unmet", visibility: "village" },
+    });
+    expect(out.status).toBe(400);
+    expect(out.body.error).toContain("private");
+    expect(queries.filter((q) => /INSERT/i.test(q)), "a refused save writes nothing").toEqual([]);
+  });
+
+  it("refuses stewards the same way", async () => {
+    const { handlers } = asMember("member-1");
+    const out = await call(handlers, "PUT /api/needs/mine", {
+      body: { needKey: "love", depth: "unmet", visibility: "stewards" },
+    });
+    expect(out.status).toBe(400);
+  });
+
+  it("refuses a rung that is not one of the five, by name", async () => {
+    const { handlers } = asMember("member-1");
+    const out = await call(handlers, "PUT /api/needs/mine", {
+      body: { needKey: "love", depth: "flourishing" },
+    });
+    expect(out.status).toBe(400);
+    expect(out.body.error).toContain("Thriving");
+  });
+
+  it("asks the delete route to name the need, so an empty body erases nothing", async () => {
+    const { handlers, queries } = asMember("member-1");
+    const out = await call(handlers, "DELETE /api/needs/mine", { body: {} });
+    expect(out.status).toBe(400);
+    expect(queries.filter((q) => /DELETE/i.test(q))).toEqual([]);
+  });
+});
+
+describe.skipIf(!configured)("the member's card round trips through the routes", () => {
+  let db: TestDb;
+  let pool: mysql.Pool;
+  /** Whose token the module thinks it is holding. Reassigned per case. */
+  let whoami: string;
+  let handlers: Map<string, Handler>;
+
+  beforeAll(async () => {
+    db = await provisionTestDb();
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 });
+    const { app, handlers: h } = collect();
+    register(app, {
+      isAdmin: async () => true,
+      authedUser: async () => ({ id: whoami }),
+      getPool: () => pool,
+    } as any);
+    handlers = h;
+  }, 180_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    await db?.drop();
+  });
+
+  beforeEach(async () => {
+    whoami = SOMEBODY_ELSE;
+    await pool.query("DELETE FROM `member_needs`");
+    await pool.query("DELETE FROM `need_links`");
+    await pool.query("DELETE FROM `village_needs`");
+  });
+
+  it("saves a row as private when the body carries no visibility field", async () => {
+    const saved = await call(handlers, "PUT /api/needs/mine", {
+      body: { needKey: "love", depth: "unmet", feeling: "lonely" },
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.need.visibility).toBe("private");
+
+    const [rows] = await pool.query<any[]>("SELECT `visibility` FROM `member_needs`");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].visibility).toBe("private");
+  });
+
+  it("tells a member who has not been asked apart from one who has answered", async () => {
+    const before = await call(handlers, "GET /api/needs/mine");
+    expect(before.body.answered).toBe(false);
+    expect(before.body.mine).toEqual([]);
+
+    await call(handlers, "PUT /api/needs/mine", { body: { needKey: "play", depth: "thriving" } });
+    const after = await call(handlers, "GET /api/needs/mine");
+    // Answered, and nothing below the target. A count alone would read the
+    // same as the empty state above.
+    expect(after.body.answered).toBe(true);
+    expect(after.body.mine.filter((r: any) => r.depth === "deprived")).toEqual([]);
+  });
+
+  it("carries the ladder and the floor, so the card never writes its own copy", async () => {
+    const out = await call(handlers, "GET /api/needs/mine");
+    expect(out.body.depths).toEqual(["deprived", "unmet", "alive", "satisfied", "thriving"]);
+    expect(out.body.depthLabels.deprived).toBe("Deprived");
+    expect(out.body.floor).toBe(NEEDS_AGGREGATE_FLOOR);
+    expect(out.body.cycleId).toMatch(/^lunar-\d{6}$/);
+  });
+
+  it("shows one member their own card and nobody else's", async () => {
+    await call(handlers, "PUT /api/needs/mine", { body: { needKey: "love", depth: "deprived", note: "I am lonely" } });
+    whoami = "member-ben";
+    const ben = await call(handlers, "GET /api/needs/mine");
+    expect(ben.body.mine).toEqual([]);
+    expect(JSON.stringify(ben.body)).not.toContain("lonely");
+  });
+
+  it("takes one answer back, and says so when there was nothing to take", async () => {
+    await call(handlers, "PUT /api/needs/mine", { body: { needKey: "love", depth: "unmet" } });
+    const gone = await call(handlers, "DELETE /api/needs/mine", { body: { needKey: "love" } });
+    expect(gone.status).toBe(200);
+    const again = await call(handlers, "DELETE /api/needs/mine", { body: { needKey: "love" } });
+    expect(again.status).toBe(404);
+  });
+
+  it("answers the aggregate with counts and never a row", async () => {
+    await call(handlers, "PUT /api/admin/needs/scope", {
+      body: { needs: [{ needKey: "love", depthTarget: "satisfied" }] },
+    });
+    for (const [who, depth] of [
+      [SOMEBODY_ELSE, "satisfied"],
+      ["member-ben", "thriving"],
+      ["member-cai", "deprived"],
+    ] as const) {
+      whoami = who;
+      await call(handlers, "PUT /api/needs/mine", { body: { needKey: "love", depth, note: `${who} wrote this` } });
+    }
+
+    whoami = "member-dee";
+    const out = await call(handlers, "GET /api/needs/aggregate");
+    expect(out.status).toBe(200);
+    const love = out.body.needs.find((n: any) => n.needKey === "love");
+    expect(love.atOrAbove).toBe(2);
+    expect(love.below).toBe(1);
+    const wire = JSON.stringify(out.body);
+    for (const who of [SOMEBODY_ELSE, "member-ben", "member-cai"]) expect(wire).not.toContain(who);
+    expect(wire).not.toContain("wrote this");
+  });
+
+  it("withholds the counts below the floor", async () => {
+    await call(handlers, "PUT /api/admin/needs/scope", { body: { needs: [{ needKey: "play" }] } });
+    whoami = SOMEBODY_ELSE;
+    await call(handlers, "PUT /api/needs/mine", { body: { needKey: "play", depth: "deprived" } });
+    const out = await call(handlers, "GET /api/needs/aggregate");
+    const play = out.body.needs.find((n: any) => n.needKey === "play");
+    expect(play.suppressed).toBe(true);
+    expect(play.atOrAbove).toBeNull();
+    expect(play.below).toBeNull();
+  });
+
+  it("names what meets a need, and says plainly when nothing does", async () => {
+    await call(handlers, "PUT /api/admin/needs/scope", {
+      body: { needs: [{ needKey: "vitality" }, { needKey: "play" }] },
+    });
+    await call(handlers, "POST /api/admin/needs/links", {
+      body: { needKey: "vitality", subjectType: "quest", subjectRef: "q-well" },
+    });
+    // The card reads this payload for the line under each need.
+    const coverage = await call(handlers, "GET /api/needs/coverage");
+    expect(coverage.body.coverage.find((c: any) => c.needKey === "vitality").counts.quest).toBe(1);
+    expect(coverage.body.uncovered).toEqual(["play"]);
   });
 });
