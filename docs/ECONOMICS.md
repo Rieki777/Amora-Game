@@ -28,14 +28,20 @@ day it was measured. A number in a doc is a claim about a moment.
 | | |
 |---|---|
 | 1 to 4 | the engine, the live village, the tokens, where tokens come from |
-| 5 to 7 | gratitude, Village Voice, units and decimals |
+| 5 to 6 | gratitude, Village Voice and the one-way bridge |
+| 7 | **units and decimals**, and the rule before changing a token's scale in either direction |
 | 8 to 9 | what is enforced, and what has actually been proven |
-| 10 to 11 | known defects, open decisions |
+| 10 to 11 | **36 known defects** with their measurements, and four open decisions |
 | 12 to 13 | **the spend side**, and what a member is told when they are refused |
-| 14 | **the exit path** |
+| 14 | **the exit path**, its ten levers and what is still undecided |
 | 15 | **worked examples with real numbers**, posting by posting |
 | 16 | **the 2026-09-03 rulings**, and which four of the six are built |
 | 17 | how this document is kept true |
+
+**Reading it for one question.** Is something safe to change? Section 7 if it
+touches a token's scale, section 12 if it touches a member's balance, section 8
+for what a gate holds and what only a convention does. Is a defect still real?
+Section 10, and every entry there says whether it is fixed and where.
 
 ---
 
@@ -178,6 +184,19 @@ re-derived from the code**, so it is the fastest-rotting section in the file. A
 lane re-measures it; if a number here disagrees with the database, the database
 is right.
 
+**Not re-measured on 2026-09-04, and that is a limit worth stating rather than
+papering over.** This lane was a documentation lane with no reason to open a
+connection to the live Amora instance, so every row below still carries the day it
+was read and nothing has confirmed it since. Three claims elsewhere in this file
+lean on the first row of it (`token_ledger` at 0 entries): section 7 says the
+decimals change is safe here by accident, section 10.36 says the gratitude key
+class is empty, and section 9 says nothing has been proven in production. **All
+three are as old as that reading.** Re-run the counts before acting on any of
+them, and know the difference the whole file turns on: **an empty table and a real
+zero are different facts.** A `token_ledger` with no rows because nobody has spent
+anything is the finding here; a `token_ledger` with no rows because the query hit
+the wrong schema is a lane about to describe a full ledger as empty.
+
 | | | measured |
 |---|---|---|
 | `token_ledger` | **0 entries** | 2026-09-03 |
@@ -193,9 +212,13 @@ Two of those are worth separating from the rest, because they are the two most
 likely to be misread:
 
 - **`migrations applied` is a count from the live database, not a count of files
-  in this repository.** At `45869ad` the tree holds 118 `drizzle/*.sql` files and
-  creates 155 distinct tables. Those two numbers move on every merge and the live
-  one moves only on a deploy, so they are never expected to match.
+  in this repository.** At `1861f7d` the tree holds **122** `drizzle/*.sql` files
+  and names **161** distinct tables in a `CREATE TABLE`, up from 118 and 155 at
+  `45869ad` a day earlier. Method, so it can be redone: `ls drizzle/*.sql | wc -l`,
+  and for the tables `grep -rhoiE "create table( if not exists)? +\`?[a-z_0-9]+\`?"
+  drizzle/*.sql`, taking the last word of each hit, lowercased, unique. Those two
+  numbers move on every merge and the live one moves only on a deploy, so they are
+  never expected to match.
 - **`rows in tokens` is 9 on the live instance and 7 in a fresh village.** The
   example tokens are created at runtime by the example seeder, not by a
   migration: `drizzle/0047_example_market.sql` adds the `is_example` column and
@@ -2159,14 +2182,26 @@ repeated in the header of `server/redemption.test.ts` with every call site named
 `CLAUDE.md` is that all movement goes through `postTransfer` and
 `postTransferPair`, and that is checkable: `INSERT INTO token_ledger` appears
 at exactly two places in the tree, both inside `server/lib/ledger.ts`. So the
-set of postings is closed by the call sites of the six exported doors:
-`postTransfer`, `postTransferPair`, and the four narrow wrappers around them,
-`postGraceNightBurn`, `postPaymentReversalLeg`, `postClawbackMirror` and
-`postClawbackMirrorPair`. Walk every TypeScript file under `server/` that is
-not a test, take each call to one of those six, and read its `from`. A
+set of postings is closed by the call sites of the **seven** exported writing
+doors: `postTransfer`, `postTransferOn`, `postTransferPair`, and the four narrow
+wrappers around them, `postGraceNightBurn`, `postPaymentReversalLeg`,
+`postClawbackMirror` and `postClawbackMirrorPair`. Walk every TypeScript file
+under `server/` that is not a test, drop `server/lib/ledger.ts` itself and any
+comment line, take each call to one of those seven, and read its `from`. A
 member is debited whenever that `from` is `memberAccount(...)`, a variable
 bound to one, or an account id read back off the `token_ledger` row being
-mirrored. That is seventeen call sites, measured on `wt/econ-small`.
+mirrored.
+
+**Re-run 2026-09-04 at `1861f7d`: 36 posting call sites, of which 17 debit a
+member.** The seventeen are unchanged from the reading on `wt/econ-small`, so
+this table stands. Two notes on the method, both of which cost this lane a
+re-read. The door list said SIX and there are seven: `postTransferOn` is
+exported too, and it has exactly one caller outside the ledger module
+(`give()` in `server/lib/economy.ts`), which posts from the gratitude faucet and
+so debits nobody. And two of the seventeen hide inside a ternary
+(`from: amount > 0 ? LIBRARY_MINT : memberAccount(...)`, and the same shape in
+`server/routes/stays.ts`), so a walk that reads only the first identifier after
+`from:` finds fifteen and calls the answer complete.
 
 **Fifteen name a member account outright. Two derive one.**
 
@@ -2195,12 +2230,19 @@ The last two are the two that derive their member: they mirror a row, so they
 debit a member exactly when the posting being undone credited one. Everything
 above them names `memberAccount(...)` in the source.
 
-**Five of the seventeen can drive a member negative, and only five.** The
-ledger's `ALLOW_NEGATIVE_SOURCES` is `stay_night`, `payment_reversal` and
-`reversal`, and the debt capability behind each is module-private: only
-`postGraceNightBurn`, `postPaymentReversalLeg` and `postClawbackMirror` carry
-one. So the paths that can leave a member owing are the nights burn, the three
-bank-side payment reversals, and the clawback mirror. `reversePair` is not one
+**Five of the seventeen can drive a member negative, and only five. Re-verified
+2026-09-04 at `1861f7d`, and the five are named by file and line so the count
+can be checked instead of believed.** The ledger's `ALLOW_NEGATIVE_SOURCES` is
+`stay_night`, `payment_reversal` and `reversal`, built by `frozenSet` in
+`server/lib/ledger.ts`, and the debt capability behind each is module-private:
+only `postGraceNightBurn`, `postPaymentReversalLeg` and `postClawbackMirror`
+carry one, and all three are declared in that same file. Grepping their call
+sites outside the ledger module answers exactly five:
+`server/lib/stays.ts:343` (the grace-night burn), `server/index.ts` at 6505,
+6593 and 6655 (the commerce, stays and exchange bank reversals), and
+`server/lib/economy.ts:1135` (`reverse()`'s clawback mirror). So the paths that
+can leave a member owing are the nights burn, the three bank-side payment
+reversals, and the clawback mirror. `reversePair` is not one
 of them: `postTransferPair` refuses `allowNegative` outright, because undoing a
 swap behind a member who already spent what it gave them is a refusal a person
 should settle.
@@ -2874,6 +2916,21 @@ each other, and an entry is only "built" when at least the first two answer:
 A ruling that is refused rather than absent gets a fourth reading: the guard
 that refuses it, by function name, so whoever builds it answers the guard
 instead of routing around it.
+
+**RE-MEASURED AGAIN 2026-09-04 at `1861f7d`, by a lane that did not write the
+correction it was checking**, because a correction is a claim like any other and
+the whole failure this section records is a claim nobody re-read. Every one of
+the six was walked through the three handles a second time. **The verdict is
+unchanged: four built, two not.** The readings, so the work is repeatable:
+
+| Ruling | Handle 1, a dial | Handle 2, a posting or table | Handle 3, a surface | Verdict |
+|---|---|---|---|---|
+| R1 needs | 5 keys `needs.*` in `shared/gameVariables.ts` | `village_needs`, `need_links` from `drizzle/0149_a_village_says_what_it_is_for.sql`; `shared/needs.ts` names 10 needs | `server/routes/needs.ts`, `client/src/components/admin/NeedsPanel.tsx` (which re-exports `NeedsSetupStep`) | built |
+| R3 voice decay | `economy.voice_decay_pct` default 1, `economy.voice_decay_basis` | `sys:voice-decay` seeded by `drizzle/0148_voice_that_waned.sql` with `faucet` 0; source `voice_decay`; `decayVoice` called from `runSettlement` | The Mint dials, and `publicSupply`'s `waned` beside `issued` | built |
+| R4 exit levers | 10 keys `exit.*` | `sweepBalances` reads five of them; the convert branch posts a `postTransferPair` | `PUT` on the admin variables route and the governance apply loop, both through `setVariable` | built |
+| R9 unspent gratitude | none, and none is wanted: it is a measurement | `gratitude_allowance_total`, `_given`, `_unspent` in `shared/healthMetrics.ts`, written at close by `server/lib/health.ts` | the health dashboard | built |
+| R2 voice for contributions | none | `seedEconomy` is the ONLY `INSERT` into `mint_rules` in the tree; `queueRuleChange` and `applyPendingRules` write four pending columns and never `trigger` or `token_slug` | `POST /api/admin/tokens/:slug/mint` grants any platform token for any typed reason | **not enforced** |
+| R5 all tokens buyable | none | none | `tradingProblem` refuses every kind but `credit`, Voice by name first; `weightTokenListingProblem` and `weightTokenProblem` close the second door from both sides | **not built, and refused** |
 
 ### Built since this list was written
 
