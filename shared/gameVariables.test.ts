@@ -413,13 +413,17 @@ describe("the Exit levers (R4), whose whole job is to change nothing on the day 
 });
 
 describe("the Needs dials (R1), re-derived against what the needs store actually does", () => {
-  it("the two starting answers are the store's own literals", () => {
+  it("the two starting answers are what the store falls back to", () => {
     /*
-     * `upsertScopeNeed` (server/lib/needs.ts) writes `input.depthTarget ??
-     * "satisfied"` and `input.breadthTargetPct === undefined ? 100 : ...`.
-     * Those two literals are what a village adopting a need gets today, so
-     * they are what these defaults have to be: a village that never opens
-     * this panel adopts needs exactly as it does now.
+     * `upsertScopeNeed` (server/lib/needs.ts) now writes
+     * `input.depthTarget ?? defaultDepthTarget()` and
+     * `input.breadthTargetPct === undefined ? defaultBreadthPct() : ...`,
+     * and those two accessors read THESE keys. The constants they fall back
+     * to when nothing is voted are `NEEDS_DEFAULT_DEPTH_TARGET` and
+     * `NEEDS_DEFAULT_BREADTH_PCT`, which server/lib/needs.dials.test.ts pins
+     * against this registry from the other side. So these two defaults are
+     * still what a village that never opens the panel adopts needs at, and
+     * a village that DOES open it now gets what it chose.
      */
     expect(VARIABLES_BY_KEY["needs.default_depth_target"].default).toBe("satisfied");
     expect(VARIABLES_BY_KEY["needs.default_breadth_pct"].default).toBe("100");

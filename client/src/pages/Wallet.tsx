@@ -16,7 +16,7 @@ import SwapCard from "@/components/SwapCard";
 import { useEffect, useState } from "react";
 import { useModule, useModules, useHypha } from "@/modules/ModuleProvider";
 import { useAuth } from "@/contexts/AuthContext";
-import { authToken } from "@/lib/gameApi";
+import { authToken, useGameConfig } from "@/lib/gameApi";
 import { useTokenName } from "@/hooks/useTokenNames";
 import { Coins, CreditCard, ExternalLink, ReceiptText, Wallet as WalletIcon } from "lucide-react";
 import { ExamplesBanner } from "@/components/ExamplesBanner";
@@ -70,6 +70,23 @@ export default function Wallet() {
   // render as "Nothing yet" — telling a member who holds tokens that they
   // hold none, in the one place they come to check.
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
+  /*
+   * WHICH RUNG OPENS BUYING, FROM THE VILLAGE AND NEVER FROM THIS FILE.
+   *
+   * `progression.unlock.exchange.buy` is an open-ring dial: any member may put
+   * it on a ballot, and moving it to Co-Creator or to "none" is a decision the
+   * village makes. This caption used to read "Buying opens at the member
+   * stage" as a literal, so a village that moved the rung published a rule it
+   * had voted against. `GET /api/game/rules` is the whitelist that exists for
+   * exactly this ("so the UI can render the game's actual rules"), it is
+   * anonymous, and it already carried the quest cap mode.
+   *
+   * NULL UNTIL IT ARRIVES, and the caption says less while it is null. An
+   * absent payload is not the same fact as a rung of "none", and a page that
+   * printed a stage name it had not yet been told would be back to guessing.
+   */
+  const [rules, setRules] = useState<{ exchange?: { buyOpensAt?: string } } | null>(null);
+  const cfg = useGameConfig();
 
   const load = () => {
     setStatus("loading");
@@ -84,6 +101,14 @@ export default function Wallet() {
       })
       .catch(() => setStatus("failed"));
   };
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/game/rules")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d) setRules(d); })
+      .catch(() => { /* the caption falls back to saying less, never to a literal */ });
+    return () => { alive = false; };
+  }, []);
   useEffect(() => {
     if (exchangeModule) load();
     const q = new URLSearchParams(window.location.search).get("purchase");
@@ -130,6 +155,20 @@ export default function Wallet() {
    * the move to 4 decimals rather than inside it.
    */
   const tokenDecimals: Record<string, number> = data?.mine?.tokenDecimals ?? {};
+  /*
+   * The caption under a listing a member cannot buy yet. Three facts, three
+   * sentences: the rung has not arrived, the village opened buying by role
+   * alone, or buying opens at a named rung. `gateLabel` in lib/questBoard.ts
+   * words a quest's own stage gate the same way, down to the capitalised
+   * stage name off the live config.
+   */
+  const buyRung = rules?.exchange?.buyOpensAt ?? null;
+  const buyOpensCaption =
+    buyRung === null
+      ? "Buying is not open to you yet"
+      : buyRung === "none"
+        ? "Buying opens by role here, never by stage"
+        : `Buying opens at the ${(cfg?.stages ?? []).find((s) => s.id === buyRung)?.name ?? buyRung} stage`;
 
   return (
     <Layout>
@@ -241,7 +280,7 @@ export default function Wallet() {
                     <span className="text-xs text-muted-foreground">Card payments aren't connected yet</span>
                   )}
                   {user && !l.isExample && l.priceMinor != null && l.inStock && data?.stripeConfigured && !data?.mine?.canBuy && (
-                    <span className="text-xs text-muted-foreground">Buying opens at the member stage</span>
+                    <span className="text-xs text-muted-foreground">{buyOpensCaption}</span>
                   )}
                   </div>
                   {refusedSlug && refusedSlug.slug === l.slug && (

@@ -16333,9 +16333,9 @@ Send an empty drafts array when you are still listening. A role payload is {name
   app.post("/api/library/items/:id/reserve", async (req, res) => {
     const user = await authedUser(req);
     if (!user) return res.status(401).json({ error: "auth_required", message: "Sign in to borrow" });
-    if (await overLimit(`library-reserve:${user.id}`, Math.max(1, numberVar("library.reserve_daily_cap")), 24 * 60 * 60 * 1000)) {
-      return res.status(429).json({ error: "Ten reservations in a day is plenty" });
-    }
+    const reserveCap = Math.max(1, numberVar("library.reserve_daily_cap"));
+    const overReserveCap = await overLimit(`library-reserve:${user.id}`, reserveCap, 24 * 60 * 60 * 1000);
+    if (overReserveCap) return res.status(429).json({ error: `${reserveCap} ${reserveCap === 1 ? "reservation" : "reservations"} in a day is plenty` });
     const item = await libraryItemById(getPool(), req.params.id);
     if (!item) return res.status(404).json({ error: "No such item" });
     // Borrowing an example would escrow real credits against a shelf that does
@@ -26740,9 +26740,9 @@ ${inner}
         hyphaThreshold: numberVar("governance.hypha_threshold"),
         sensingDays: numberVar("governance.sensing_days"),
       },
-      quests: {
-        consentCapMode: stringVar("quest.consent_cap_mode"),
-      },
+      quests: { consentCapMode: stringVar("quest.consent_cap_mode"), consentCapMultiplier: numberVar("quest.consent_cap_multiplier") },
+      // The rung that opens buying, so /wallet names the village's own rung.
+      exchange: { buyOpensAt: stringVar("progression.unlock.exchange.buy") },
       tokens: {
         // Addresses are public on-chain data; the RPC endpoint is not exposed.
         equity: { ...GAME_CONFIG.currency.equity, address: stringVar("tokens.equity_address") },

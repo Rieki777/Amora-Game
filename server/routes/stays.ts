@@ -197,8 +197,18 @@ export function register(app: Express, deps: Deps): void {
     if (audience === "guest" && !boolVar("stay.guest_booking_enabled")) {
       return res.status(403).json({ error: "Stay requests are open to members right now. Write to the village instead" });
     }
-    if (await overLimit(`stay-request:${user.id}`, Math.max(1, numberVar("stay.request_daily_cap")), 24 * 60 * 60 * 1000)) {
-      return res.status(429).json({ error: "Five stay requests in a day is plenty. The stewards will reply" });
+    /*
+     * THE REFUSAL STATES THE LIMIT IT ENFORCED, which is the shape
+     * server/lib/economy.ts already uses for the give cap: "{cap} is the most
+     * you can give one person this moon". This sentence used to say "Five"
+     * while `stay.request_daily_cap` is an open-ring dial any member may put
+     * on a ballot, so a village that voted the cap to 2 refused at 2 and told
+     * the member five. One read, used for both.
+     */
+    const requestCap = Math.max(1, numberVar("stay.request_daily_cap"));
+    if (await overLimit(`stay-request:${user.id}`, requestCap, 24 * 60 * 60 * 1000)) {
+      const requests = requestCap === 1 ? "stay request" : "stay requests";
+      return res.status(429).json({ error: `${requestCap} ${requests} in a day is plenty. The stewards will reply` });
     }
     const { accommodationId, arriveOn, notes } = req.body ?? {};
     const acc = (await listAccommodations(getPool())).find((a) => a.id === String(accommodationId ?? ""));

@@ -50,6 +50,25 @@ export default function QuestDetail() {
   // What this quest is for (R1, R18). It arrives on the same detail read, so
   // the chips are painted with the page and never after a second round trip.
   const [needTags, setNeedTags] = useState<NeedTag[]>([]);
+  /*
+   * WHAT THE BOARD MAY PROMISE, AND WHO DECIDES IT.
+   *
+   * `quest.consent_cap_mode` is an open-ring dial with three settings, and
+   * only ONE of them ("posted") makes the advertised amount the payout. Its
+   * own registry entry uses this page's sentence to describe that one setting:
+   * "Capping it at the posted amount keeps the quest board honest: what a
+   * quest advertises is what it pays." This page printed that guarantee
+   * unconditionally, so a village on "capped" or on "unlimited" published a
+   * promise it had voted away.
+   *
+   * `GET /api/game/rules` is the anonymous whitelist that exists so the UI can
+   * render the game's actual rules, and it already carried the mode. It now
+   * carries the multiplier beside it, because the capped sentence is about a
+   * number and a number stated here would be a second copy of the dial.
+   */
+  const [rules, setRules] = useState<{
+    quests?: { consentCapMode?: string; consentCapMultiplier?: number };
+  } | null>(null);
   const iAmAdmin = !!user && (user.role === "admin" || user.role === "founder");
 
   useEffect(() => {
@@ -84,6 +103,15 @@ export default function QuestDetail() {
     return () => { live = false; };
   }, [questId]);
 
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/game/rules")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d) setRules(d); })
+      .catch(() => { /* the paragraph says less, and never a guarantee */ });
+    return () => { alive = false; };
+  }, []);
+
   const refreshClaims = () => {
     fetchGameMe().then((me) => {
       if (!me) return;
@@ -116,6 +144,22 @@ export default function QuestDetail() {
     () => (quest && signs ? signs.recent.filter((r) => r.questId === quest.id) : []),
     [quest, signs],
   );
+  /*
+   * ONE SENTENCE PER SETTING, and NOTHING while the rules have not arrived.
+   * An absent payload and a village on "posted" are different facts: the
+   * empty string prints the range sentence alone, which is true under all
+   * three settings, and only a mode the server actually named earns a
+   * guarantee after it.
+   */
+  const capRules = rules?.quests;
+  const capSentence =
+    capRules?.consentCapMode === "posted"
+      ? "What a quest advertises is what it pays."
+      : capRules?.consentCapMode === "capped" && typeof capRules.consentCapMultiplier === "number"
+        ? `The circle may add a bonus above the posted amount, up to ${capRules.consentCapMultiplier} times what the quest advertises.`
+        : capRules?.consentCapMode === "unlimited"
+          ? "The circle may release any amount when it consents."
+          : "";
   const gate = quest ? gateLabel(quest, stages) : null;
   const gateText =
     quest?.requiresRole && !quest.roleRequired && roleName
@@ -387,7 +431,7 @@ export default function QuestDetail() {
                 {quest.gratitude && (
                   <p className="text-xs text-muted-foreground mt-3">
                     The circle sets the exact amount inside the {quest.gratitude} range
-                    when it consents to your work. What a quest advertises is what it pays.
+                    when it consents to your work.{capSentence ? ` ${capSentence}` : ""}
                   </p>
                 )}
               </div>
