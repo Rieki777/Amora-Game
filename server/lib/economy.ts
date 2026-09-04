@@ -1663,6 +1663,17 @@ export async function mintForConfirmedClaim(
     // The ledger takes integers. A rule of 0.1 voice posts 100 thousandths,
     // because posting 0.1 posts nothing at all.
     const amount = toLedgerUnits(r.tokenSlug, human);
+    // KEPT, NOT DELETED, and the sweep asked the question explicitly.
+    // `mint_rules.amount` is `decimal(18,4)`, so the smallest non-zero human
+    // figure a rule can carry is 0.0001, which at four decimals converts to 1
+    // and never to 0. On a token at 4 or more decimals this branch is
+    // therefore unreachable, and it goes quiet rather than red, which is the
+    // dangerous way for a guard to die. It stays because it is a function of
+    // the TOKEN's decimals and not of the ruling: `tokens.decimals` is an int
+    // a village writes, `registerToken` takes whatever it is given, and any
+    // token registered below four decimals re-arms this immediately. Deleting
+    // a guard because today's data cannot reach it is how the `faucetFor`
+    // credits defect shipped. It costs one comparison. (sweep lane F)
     if (amount <= 0) {
       // Below the token's own resolution. Also a promise that cannot be kept,
       // and the founder can only fix it if somebody says so.
@@ -2145,6 +2156,10 @@ export async function runSettlement(pool: Pool, at: Date = new Date()): Promise<
     // other way a rule pays nobody while looking alive. Same class, same
     // report: a rule of 0.1 on a whole-unit token posts zero.
     const human = capped.paid;
+    // KEPT for the reason written at its twin in `mintForConfirmedClaim`: on a
+    // token at four decimals this cannot fire, because `mint_rules.amount` is
+    // `decimal(18,4)`, and it stays because the next token a village registers
+    // may carry fewer. (sweep lane F)
     if (human > 0 && toLedgerUnits(r.tokenSlug, human) <= 0) {
       ruleProblems.push({
         token: r.tokenSlug,
