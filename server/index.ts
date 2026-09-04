@@ -355,6 +355,7 @@ import {
   DEFAULT_EXIT_POLICY,
   EXIT_POLICY_TERMS,
   blankTerms,
+  exitLeverRefusal,
   normalizeExitPolicy,
   platformDefaultTerms,
 } from "./lib/exitPolicy";
@@ -22259,20 +22260,18 @@ ${inner}
     if (req.params.key === "economy.hypha_space" && String(raw).trim()) {
       const verdict = checkVoiceSecret();
       if (!verdict.ok && verdict.fatal) {
-        return res.status(409).json({
-          error: `${verdict.error} Fix the secret on the deployment before naming a space, or the server will refuse to start.`,
-        });
+        return res.status(409).json({ error: `${verdict.error} Fix the secret on the deployment before naming a space, or the server will refuse to start.` });
       }
       const slug = String(raw).trim();
       // varchar(120) in `voice_claims`.`hypha_space` (0072). The registry's text
       // validator allows 255, so without this a slug between the two saves
       // cleanly here and then fails the claim INSERT under strict mode, which
       // is a refusal the member meets and the admin never sees.
-      if (slug.length > 120) {
-        return res.status(400).json({ error: "A Hypha space slug cannot be longer than 120 characters." });
-      }
+      if (slug.length > 120) return res.status(400).json({ error: "A Hypha space slug cannot be longer than 120 characters." });
     }
 
+    const leverRefusal = exitLeverRefusal(req.params.key, String(raw), exitPolicyRepo.get(), rawValue);
+    if (leverRefusal) return res.status(400).json({ error: leverRefusal });
     const result = await setVariable(getPool(), req.params.key, String(raw));
     if (!result.ok) return res.status(400).json({ error: result.error });
     if (result.previous !== result.value) {
