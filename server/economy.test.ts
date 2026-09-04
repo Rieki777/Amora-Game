@@ -2018,10 +2018,23 @@ describe.skipIf(!configured)("the village economy engine", () => {
     it("refuses a padded or case-folded spelling of a real key", async () => {
       // PROOF S: the collation matches these to the real row, and the
       // byte-exact read back is what makes the refusal say so.
+      //
+      // THE TRAILING SPACE IS THE ONE ASSERTION IN THIS FILE THAT READS
+      // DIFFERENTLY ON THE TWO ENGINES, so it asserts the OUTCOME and not the
+      // sentence. `token_ledger` pins no charset (0005, 0009), so the column
+      // inherits the server default: MariaDB here gives it
+      // utf8mb4_uca1400_ai_ci, which is PAD SPACE, and the padded key matches
+      // the real row and is then caught by the byte-exact read back, so the
+      // refusal names the collation. CI pins mysql:8, whose default
+      // utf8mb4_0900_ai_ci is NO PAD, so the padded key matches nothing and
+      // the refusal is the plain one. Both are refusals and neither moves a
+      // unit, which is the property; the wording is the engine's.
       const padded = await reverse(pool, `${ORIG} `, { note: "padded" });
       expect(padded.ok).toBe(false);
-      expect(String(padded.ok === false && padded.error)).toContain("different key");
+      expect(String(padded.ok === false && padded.error)).toMatch(/different key|no such posting/);
 
+      // Case is folded by BOTH defaults (both are _ai_ci), so this one may
+      // name the collation on either engine.
       const shouted = await reverse(pool, ORIG.toUpperCase(), { note: "shouted" });
       expect(shouted.ok).toBe(false);
       expect(String(shouted.ok === false && shouted.error)).toContain("different key");
