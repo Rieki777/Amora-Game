@@ -148,14 +148,23 @@ describe("TokensTab", () => {
 /**
  * THE SCALE OF EVERY NUMBER ON THIS SCREEN.
  *
- * Voice carries 3 decimals and every other token carries 0, so this tab showed
- * a grant of 10 Voice as "10,000" and its Amount box minted 0.010 Voice to a
- * steward who typed 10. The box and the numbers beside it are one pair, and a
- * screen that divides one half is worse than one that divides neither, because
- * both raw at least agree. These tests fail if either half is left behind.
+ * When this was written Voice carried 3 decimals and every other token carried
+ * 0, so this tab showed a grant of 10 Voice as "10,000" and its Amount box
+ * minted 0.010 Voice to a steward who typed 10. The box and the numbers beside
+ * it are one pair, and a screen that divides one half is worse than one that
+ * divides neither, because both raw at least agree. These tests fail if either
+ * half is left behind.
+ *
+ * THE FIXTURE'S `decimals` IS DELIBERATELY NOT THE REGISTRY'S VALUE, and it
+ * must stay that way. Rye has since ruled currency-like tokens to two
+ * decimals, Voice among them. If this fixture were set to 2 it would be
+ * asserting against the same number the registry serves, and would stop being
+ * a control: a regression that hardcoded the live scale would pass. Pinning a
+ * scale nothing ships proves the conversion READS the token rather than
+ * knowing the answer. Do not "correct" it to match production.
  */
 describe("this screen speaks whole tokens", () => {
-  const VOICE = { slug: "village-voice", name: "Village Voice", kind: "voice", governance: "platform", transferable: true, active: true, decimals: 3, issuedBy: { "sys:mint": 12345 } };
+  const VOICE = { slug: "village-voice", name: "Village Voice", kind: "voice", governance: "platform", transferable: true, active: true, decimals: 3, issuedBy: { "sys:mint": 12345 } }; // 3 on purpose: not the shipped scale, see above
   const GRANT = {
     id: "amr-1", tokenSlug: "village-voice", tokenName: "Village Voice",
     // 10 whole Voice, as the ledger stores it.
