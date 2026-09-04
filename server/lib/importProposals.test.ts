@@ -28,6 +28,9 @@ import {
   proposalQueue,
   proposalsInBatch,
   recentDrops,
+  forgetMemberInProposals,
+  proposalsAboutMember,
+  unattributedSubjectCount,
 } from "./externalProposals";
 
 const configured = testDbConfigured();
@@ -49,6 +52,7 @@ function fromEnvelope(e: any) {
     quote: ev.quote ?? null,
     sourceRef: ev.source_ref ?? null,
     sourceOccurredAt: e.source_occurred_at ?? ev.source_at ?? null,
+    subjectRefs: Array.isArray(e.subject_refs) ? e.subject_refs.filter((v: unknown) => typeof v === "string") : [],
     subjectRef: Array.isArray(e.subject_refs) ? (e.subject_refs[0] ?? null) : (e.subject_ref ?? null),
     trustTier: e.trust_tier ?? null,
     significance: e.significance ?? null,
@@ -165,5 +169,95 @@ describe.skipIf(!configured)("importing a batch file", () => {
     });
     expect(out.ok, !out.ok ? out.message : "").toBe(true);
     expect((await proposalQueue(pool))[0].kind).toBe("event.proposed");
+  });
+});
+
+describe.skipIf(!configured)("a record about more than one person", () => {
+  beforeAll(async () => {
+    db = await provisionTestDb();
+    pool = mysql.createPool({ uri: db.url, timezone: "Z", connectionLimit: 4 }); // module-review-ok: the suite's own pool onto the scratch schema it provisioned
+  });
+  afterAll(async () => {
+    await pool?.end();
+    await db?.drop();
+  });
+  beforeEach(async () => {
+    await pool.query("DELETE FROM external_proposal_subjects"); // module-review-ok: resetting the scratch schema this suite provisioned
+    await pool.query("DELETE FROM external_proposals"); // module-review-ok: same
+    await pool.query("DELETE FROM users WHERE id LIKE 'u-sub-%'"); // module-review-ok: same
+  });
+
+  const land = (refs: string[]) =>
+    landProposal(pool, {
+      villageId: "local",
+      moduleId: "saberra",
+      batchId: "b-multi",
+      kind: "risk.observed",
+      payload: { observation: "Water decisions keep being deferred." },
+      quote: "That is the third time we have deferred it.",
+      sourceRef: `meeting#${refs.join("-")}`,
+      subjectRefs: refs,
+    });
+
+  it("keeps EVERY subject, which is the reference that used to be dropped", async () => {
+    const out = await land(["person-a", "person-b", "person-c"]);
+    expect(out.ok, !out.ok ? out.message : "").toBe(true);
+    const [rows] = await pool.query<any[]>(
+      "SELECT subject_ref, position FROM external_proposal_subjects ORDER BY position",
+    );
+    expect(rows.map((r) => r.subject_ref)).toEqual(["person-a", "person-b", "person-c"]);
+  });
+
+  it("still fills the singular column, so a rollback reads something true", async () => {
+    await land(["person-a", "person-b"]);
+    const [[row]] = await pool.query<any[]>("SELECT subject_ref FROM external_proposals");
+    expect(row.subject_ref).toBe("person-a");
+  });
+
+  it("resolves a reference that names a member of this village, and admits when it cannot", async () => {
+    await pool.query("INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)", // module-review-ok: seeding the scratch schema this suite provisioned
+      ["u-sub-1", "Ada", "ada@example.invalid", "x"]);
+    await land(["u-sub-1", "saberra-opaque-999"]);
+    const [rows] = await pool.query<any[]>(
+      "SELECT subject_ref, member_id FROM external_proposal_subjects ORDER BY position",
+    );
+    expect(rows[0].member_id).toBe("u-sub-1");
+    // The honest half: a reference this village cannot resolve is stored as
+    // unattributed instead of quietly reading as nobody being named.
+    expect(rows[1].member_id).toBeNull();
+    expect(await unattributedSubjectCount(pool)).toBe(1);
+  });
+
+  it("finds the record from EVERY member it names, which is the export promise", async () => {
+    for (const id of ["u-sub-1", "u-sub-2"]) {
+      await pool.query("INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)", // module-review-ok: seeding the scratch schema this suite provisioned
+        [id, id, `${id}@example.invalid`, "x"]);
+    }
+    await land(["u-sub-1", "u-sub-2"]);
+    // The defect this replaces: only the first was findable.
+    expect(await proposalsAboutMember(pool, "u-sub-1")).toHaveLength(1);
+    expect(await proposalsAboutMember(pool, "u-sub-2")).toHaveLength(1);
+  });
+
+  it("takes a departing member out and clears the words about them", async () => {
+    for (const id of ["u-sub-1", "u-sub-2"]) {
+      await pool.query("INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)", // module-review-ok: seeding the scratch schema this suite provisioned
+        [id, id, `${id}@example.invalid`, "x"]);
+    }
+    await land(["u-sub-1", "u-sub-2"]);
+    const done = await forgetMemberInProposals(pool, "u-sub-1");
+    expect(done).toEqual({ records: 1, quotesCleared: 1 });
+    expect(await proposalsAboutMember(pool, "u-sub-1")).toHaveLength(0);
+    // De-attribution is not enough on its own: the quote restated the person.
+    const [[row]] = await pool.query<any[]>("SELECT quote FROM external_proposals");
+    expect(row.quote).toBeNull();
+    // The other person's record survives, without the words.
+    expect(await proposalsAboutMember(pool, "u-sub-2")).toHaveLength(1);
+  });
+
+  it("refuses the whole record when a LATER subject is an email address", async () => {
+    const out = await land(["person-a", "ada@example.org"]);
+    expect(out.ok).toBe(false);
+    expect(await pool.query("SELECT 1 FROM external_proposals").then(([r]: any) => r.length)).toBe(0); // module-review-ok: the suite reading back the scratch schema it provisioned
   });
 });

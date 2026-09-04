@@ -87,9 +87,13 @@ function fromEnvelope(e) {
     quote: ev.quote ?? null,
     sourceRef: ev.source_ref ?? null,
     sourceOccurredAt: e.source_occurred_at ?? ev.source_at ?? null,
-    // The document says subject_refs is a list and that a record is about one
-    // subject. First wins, and a record naming several is worth a look rather
-    // than a silent join.
+    // EVERY subject, not the first. This used to take subject_refs[0] and drop
+    // the rest silently, which made a record naming two people a record about
+    // one of them as far as any subject-keyed path is concerned: the second
+    // person's export never found it and their erasure never cleared it. The
+    // dropped references were written nowhere, so it was also the version that
+    // could not be repaired later.
+    subjectRefs: Array.isArray(e.subject_refs) ? e.subject_refs.filter((v) => typeof v === "string") : [],
     subjectRef: Array.isArray(e.subject_refs) ? (e.subject_refs[0] ?? null) : (e.subject_ref ?? null),
     trustTier: e.trust_tier ?? null,
     significance: e.significance ?? null,
