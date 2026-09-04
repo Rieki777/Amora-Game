@@ -35,7 +35,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { WorkWithUsTab } from "./Admin";
+import WorkWithUsTab from "@/components/admin/WorkWithUsTab";
 
 const CURRENCY = "FIXTURE-RECOGNITION";
 
