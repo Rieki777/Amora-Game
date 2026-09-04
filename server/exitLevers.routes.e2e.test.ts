@@ -56,6 +56,13 @@ let dataDir = "";
 let pool: mysql.Pool;
 const logs: string[] = [];
 let founderToken = "";
+/**
+ * The bundle apply below, recorded once so the case that asserts THIS
+ * BRANCH's partial-apply behaviour can be deleted whole at the merge with
+ * the governance branch without touching the security claim.
+ */
+let bundleApply: Answer | undefined;
+let siblingAfterBundle: string | null = null;
 
 interface Answer { status: number; json: any }
 
@@ -294,11 +301,27 @@ describe.skipIf(!DB_CONFIGURED)("what the variables route refuses about a depart
      * checks the registry, the ring and the bounds and knows nothing about
      * exit levers, so a village really can take this to a vote; the refusal
      * belongs at the moment the value would land, and it comes back as a named
-     * failed element rather than as a silent write.
+     * element rather than as a silent write.
      *
-     * TWO ELEMENTS, one coherent and one refused, because a guard that refused
-     * the whole set would be a different defect and this is the case that can
-     * tell them apart.
+     * WHAT THIS CASE ASSERTS, AND WHAT IT DELIBERATELY DOES NOT. The security
+     * property is three facts: the apply does not answer 200, the body NAMES
+     * the refused element, and the refused value was not written. Those three
+     * are the whole claim, and they hold under both of the two behaviours this
+     * route has on two live branches. It says NOTHING about the fate of the
+     * sibling element, because that is exactly what differs: this branch
+     * applies a bundle element by element and answers 207 with the coherent
+     * half stored, while the governance branch validates every element before
+     * any irreversible write and answers 409 with nothing stored, per Rye's
+     * ruling that a bundle applies all or nothing. A case pinning either one
+     * is green on its own branch and red after the merge, and CI cannot see it
+     * because it merges each branch with main and never the two with each
+     * other. The case below owns that difference and is disposable.
+     *
+     * The body is read as a STRING on purpose. The container differs with the
+     * status (a partial apply reports `failed` beside `applied`; an
+     * all-or-nothing refusal need not), and what matters is that an
+     * administrator reading the response is told which element blocked it and
+     * why, in the sentence the product already uses.
      */
     const proposed = await call("POST", "/api/game/mechanics/proposals", {
       body: {
@@ -324,22 +347,56 @@ describe.skipIf(!DB_CONFIGURED)("what the variables route refuses about a depart
     );
 
     const applied = await call("POST", `/api/admin/mechanics/proposals/${proposalId}/apply`, {});
-    expect(applied.status, `apply: ${JSON.stringify(applied.json)}`).toBe(207);
-    expect(applied.json?.applied).toEqual(["exit.keep_pct.voice"]);
-    expect(applied.json?.failed).toEqual([
+    // RECORDED, never asserted here. The case below reads these two.
+    bundleApply = applied;
+    siblingAfterBundle = await storedValue("exit.keep_pct.voice");
+
+    const body = JSON.stringify(applied.json);
+    // THE VALUE FIRST, because it is the clause whose meaning cannot move. All
+    // three were measured against the broken arrangement one at a time and all
+    // three catch it, but this is the one that fails with the defect itself in
+    // the message (`expected '40' to be null`) rather than with a status code
+    // that is about to change under the all-or-nothing ruling.
+    expect(await storedValue("exit.keep_pct.recognition")).toBeNull();
+    expect(body, "the apply must name the element that blocked it").toContain("exit.keep_pct.recognition");
+    expect(body, "and say why, in the sentence a founder already meets").toContain(
+      "Recognition is a record of what happened, not a holding.",
+    );
+    expect(applied.status, `apply: ${body}`).not.toBe(200);
+
+    // Back to the shipped answers for the rest of the file. A no-op when the
+    // element never landed, which is why it belongs here and not below.
+    expect((await setDial("exit.keep_pct.voice", "0")).status).toBe(200);
+  });
+
+  it("SUPERSEDED-BY-ALL-OR-NOTHING: on this branch the bundle applies element by element", () => {
+    /*
+     * DELETE THIS CASE WHOLE WHEN THIS BRANCH MEETS THE GOVERNANCE BRANCH.
+     * Grep for SUPERSEDED-BY-ALL-OR-NOTHING.
+     *
+     * It asserts THIS branch's behaviour and nothing more: `applyMechanicsProposal`
+     * walks the change set and writes each element as it goes, so a bundle
+     * carrying one coherent and one refused element answers 207 with the
+     * coherent one stored. Rye ruled that a bundle applies ALL OR NOTHING, and
+     * the governance branch implements that ruling by validating every element
+     * before any irreversible write, which makes the same bundle a 409 with
+     * nothing stored. The ruling supersedes what is written here, so whoever
+     * lands that merge deletes this case rather than reconciling it.
+     *
+     * Nothing in the case above depends on either answer, so deleting this one
+     * costs no coverage of the security property.
+     */
+    expect(bundleApply, "the case above must run first: it makes the proposal this reads").toBeTruthy();
+    expect(bundleApply?.status, `apply: ${JSON.stringify(bundleApply?.json)}`).toBe(207);
+    expect(bundleApply?.json?.applied).toEqual(["exit.keep_pct.voice"]);
+    expect(bundleApply?.json?.failed).toEqual([
       {
         key: "exit.keep_pct.recognition",
         problem:
           "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep. Leave this share at zero.",
       },
     ]);
-
-    // The coherent half landed and the refused half was never written. Both
-    // halves matter: a guard that stopped the whole set would be as wrong as
-    // one that let this through.
-    expect(await storedValue("exit.keep_pct.voice")).toBe("10");
-    expect(await storedValue("exit.keep_pct.recognition")).toBeNull();
-    expect((await setDial("exit.keep_pct.voice", "0")).status).toBe(200);
+    expect(siblingAfterBundle).toBe("10");
   });
 
   it("a dial outside the Exit category is untouched by any of this", async () => {
