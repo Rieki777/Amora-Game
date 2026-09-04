@@ -1255,7 +1255,7 @@ async function gratitudeGivenInCycle(
   // it into `source_ref` (varchar(120), MAX_SOURCE_REF) so the two strings are
   // the same string, and lower-cased because that column answers under a
   // case-insensitive collation and `esc` already emits nothing but lower case.
-  const mine = new Map<string, { toId: string; amount: number }>();
+  const mine = new Map<string, string>();
   for (const n of notes) {
     const toId = String(n.to_id);
     const amount = Number(n.amount);
@@ -1263,7 +1263,7 @@ async function gratitudeGivenInCycle(
     const seat = out.byRecipient.get(toId) ?? { given: 0, back: 0 };
     seat.given += amount;
     out.byRecipient.set(toId, seat);
-    mine.set(keys.gratitudeGiven(v, String(n.id)).slice(0, MAX_SOURCE_REF).toLowerCase(), { toId, amount });
+    mine.set(keys.gratitudeGiven(v, String(n.id)).slice(0, MAX_SOURCE_REF).toLowerCase(), toId);
   }
 
   const [mirrors] = await conn.query<RowDataPacket[]>(
@@ -1271,28 +1271,30 @@ async function gratitudeGivenInCycle(
       "WHERE t.`source` = 'reversal' AND t.`at` >= ? AND t.`at` < ? " +
       "AND t.`source_ref` LIKE ? GROUP BY t.`source_ref`",
     // Built by the key builder, so the village segment is escaped here exactly
-    // as it is escaped in the keys stored. Spelling the prefix by hand put a
-    // RAW village id in front of an ESCAPED one and matched nothing at all for
-    // any village whose id carried a colon or a capital.
+    // as it is escaped in the keys stored. Spelt by hand, as it was, this put a
+    // RAW village id in front of ESCAPED ones: a fork hazard and not a live bug,
+    // because `villageId()` is "local" today and escapes to itself, and a fork
+    // whose id carried a colon or a capital would have matched nothing at all.
     [startsAt, endsAt, `${keys.gratitudeGiven(v, "")}%`],
   );
   for (const m of mirrors) {
-    const note = mine.get(String(m.ref).toLowerCase());
+    const toId = mine.get(String(m.ref).toLowerCase());
     // Somebody else's reversed gift. It is in this result set and it is not in
     // this member's allowance, and that sentence is the whole of D30.
-    if (!note) continue;
+    if (toId === undefined) continue;
     // MINOR OUT OF THE LEDGER, HUMAN INTO THE SUBTRACTION (sweep lane F).
     // `given` above is `gratitude_log.amount`, the unit a member typed;
     // `token_ledger.amount` is minor. At decimals 0 the two coincide and this
     // call is the identity; at 4 they are ten thousand apart, and subtracting
     // raw would floor the spend at zero and refund the giver their whole moon.
     //
-    // Converted PER NOTE and not once over the total, because the per-recipient
-    // figure below is made of the same numbers: one conversion for two readers
-    // is one place for them to disagree.
-    out.back += fromLedgerUnits(HEARTS, Number(m.back));
-    const seat = out.byRecipient.get(note.toId);
-    if (seat) seat.back += fromLedgerUnits(HEARTS, Number(m.back));
+    // Converted PER MIRROR ROW and not once over the total, because the total
+    // and the per-recipient figure are both made of it: one conversion feeding
+    // both readers is one number they cannot come apart on.
+    const undone = fromLedgerUnits(HEARTS, Number(m.back));
+    out.back += undone;
+    const seat = out.byRecipient.get(toId);
+    if (seat) seat.back += undone;
   }
   return out;
 }
