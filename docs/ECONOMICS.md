@@ -31,7 +31,7 @@ day it was measured. A number in a doc is a claim about a moment.
 | 5 to 6 | gratitude, Village Voice and the one-way bridge |
 | 7 | **units and decimals**, and the rule before changing a token's scale in either direction |
 | 8 to 9 | what is enforced, and what has actually been proven |
-| 10 to 11 | **37 known defects** with their measurements, and four open decisions |
+| 10 to 11 | **39 known defects** with their measurements, and four open decisions |
 | 12 to 13 | **the spend side**, and what a member is told when they are refused |
 | 14 | **the exit path**, its ten levers and what is still undecided |
 | 15 | **worked examples with real numbers**, posting by posting |
@@ -105,7 +105,7 @@ subtlety in this system; see section 7.
 <!-- generated:triggers start -->
 A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is UNIQUE, so the shape of the key is what decides whether a second attempt pays again.
 
-`keys` in `server/lib/economy.ts` builds 9 of them. The angle brackets are that builder's own parameter names.
+`keys` in `server/lib/economy.ts` builds 11 of them. The angle brackets are that builder's own parameter names.
 
 | Builder | What the builder returns |
 | --- | --- |
@@ -173,7 +173,7 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `xstock-<Date.now()>-<Math.random().toString(36).slice(2, 8)>` | `server/index.ts` |
 | `xstock:<slug>:<body>` | `server/index.ts` |
 
-48 distinct shapes across 52 posting site(s), plus 3 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
+47 distinct shapes across 52 posting site(s), plus 3 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
 <!-- generated:triggers end -->
 
 ---
@@ -213,9 +213,10 @@ Two of those are worth separating from the rest, because they are the two most
 likely to be misread:
 
 - **`migrations applied` is a count from the live database, not a count of files
-  in this repository.** At `1861f7d` the tree holds **122** `drizzle/*.sql` files
-  and names **161** distinct tables in a `CREATE TABLE`, up from 118 and 155 at
-  `45869ad` a day earlier. Method, so it can be redone: `ls drizzle/*.sql | wc -l`,
+  in this repository.** At `08bc494` the tree holds **123** `drizzle/*.sql` files
+  and names **162** distinct tables in a `CREATE TABLE`, up from 118 and 155 at
+  `45869ad` a day earlier and from 122 and 161 four commits ago. Method, so it can
+  be redone: `ls drizzle/*.sql | wc -l`,
   and for the tables `grep -rhoiE "create table( if not exists)? +\`?[a-z_0-9]+\`?"
   drizzle/*.sql`, taking the last word of each hit, lowercased, unique. Those two
   numbers move on every merge and the live one moves only on a deploy, so they are
@@ -296,10 +297,19 @@ A faucet's NEGATIVE balance is the issued supply of its token. These system acco
 
 | Vault account | Holds |
 | --- | --- |
-| `sys:treasury` | where a spent credit lands, unless the token names its own sink |
+| `sys:event-escrow` | a seat fee, until the gathering is held or cancelled |
 | `sys:exit-settlement` | a departing member's swept balance |
+| `sys:library-escrow` | a loan deposit, until the loan settles |
+| `sys:library-pool` | the usage fee a settled loan released |
+| `sys:library-sink` | library credit an admin burned |
+| `sys:redeemed` | tokens a confirmed redemption retired, and it only ever receives |
+| `sys:redemption-hold` | tokens held against a redemption somebody has open |
+| `sys:treasury` | where a spent credit lands, unless the token names its own sink |
 | `sys:voice-bridge` | voice debited by a claim, waiting on Hypha |
+| `sys:voice-decay` | all the voice that has waned in this village, and it only ever receives |
 | `sys:voice-settled` | voice whose claim Hypha confirmed |
+
+11 of them, read from every `INSERT` into `ledger_accounts` under `drizzle/` and never from a list kept here: this table named four for as long as the migrations seeded more, and a reader asking where value sits was told about less of it than exists.
 
 Sources that may drive a NON-faucet account below zero, and only with `allowNegative` set: `stay_night`, `payment_reversal`, `reversal`.
 <!-- generated:faucets end -->
@@ -376,12 +386,17 @@ allowance. At an allowance of 100 that cap is 25. `shareCapFor` floors it at 1,
 because 1 percent of 50 rounds to zero and a zero there would refuse every send
 in the village while both dials still read as sane numbers.
 
-**The refund arm of that calculation has no caller today.** Only
-`server/lib/voiceClaim.ts` calls `reverse()`, in two places, both for voice, so
-no gratitude posting is ever reversed in this build and that subtraction has
-never returned anything but zero in production. It is correct code with no
-caller, which is different from correct code that works. Re-measured on
-2026-09-04 and still two callers, both passing `claim.debit_key`.
+**The refund arm of that calculation has no caller today.** `reverse()` has
+**three** non-test callers and none of them reverses a gratitude posting, so that
+subtraction has never returned anything but zero in production. It is correct code
+with no caller, which is different from correct code that works. **Re-measured
+2026-09-04 at `08bc494`, and the count moved under this sentence the same day:**
+`server/lib/voiceClaim.ts` twice, both passing `claim.debit_key`, and
+`server/lib/redemptionStore.ts` once, in `releaseHold`, passing a redemption's
+stored `hold_key`. The redemption release is a genuine third caller and it changes
+nothing about the conclusion, because it reverses a redemption hold. The evidence
+had to move even though the finding did not, which is why the count is written
+here instead of the phrase "only voiceClaim".
 
 **The two doors write ONE key shape now, and they did not.** `give()` has always
 posted under `keys.gratitudeGiven`, which is
@@ -581,22 +596,23 @@ input disagreeing at ANY scale, and that Village Voice is the token whose scale
 still moves, downward. The comments about what happens AT four decimals as an
 illustration of scale are fine and are not in this count.
 
-Measured at `1861f7d`, `grep -rn "postTransferOn(\|postTransfer(\|postTransferPair(\|postGraceNightBurn(\|postPaymentReversalLeg(\|postClawbackMirror(\|postClawbackMirrorPair(" server/ --include=*.ts`,
-dropping tests, comment lines and `server/lib/ledger.ts` itself: **36 posting call
+Measured at `08bc494`, `grep -rn "postTransferOn(\|postTransfer(\|postTransferPair(\|postGraceNightBurn(\|postPaymentReversalLeg(\|postClawbackMirror(\|postClawbackMirrorPair(" server/ --include=*.ts`,
+dropping tests, comment lines and `server/lib/ledger.ts` itself: **38 posting call
 sites** across seven exported doors. That figure was **33** when this section was
 written, against a grep for `postTransfer(` alone, which could not see the four
-narrow debt wrappers or `postTransferOn`. Reading each site's `amount` expression
-inside its own call, they divide two ways now:
+narrow debt wrappers or `postTransferOn`, and it was 36 six hours ago before
+redemption landed its two. Reading each site's `amount` expression inside its own
+call, they divide two ways now:
 
 | How many | What they hand the ledger |
 |---|---|
 | 21 | a human number converted at the call site with `toLedgerUnits` |
-| 15 | a value that is ALREADY minor, by a stated contract |
+| 17 | a value that is ALREADY minor, by a stated contract |
 
 **The second column used to hold 29 of them and the sweeps closed that.** Those
 29 were "a human number, straight through", correct only because a human number
 and a minor unit are the same number at `decimals = 0`. `give()` was the plainest
-case and posts `toLedgerUnits(HEARTS, amount)` now. The fifteen that convert
+case and posts `toLedgerUnits(HEARTS, amount)` now. The seventeen that convert
 nothing are each a deliberate contract, named below and marked in the code, and
 they add up: **three** balance readers (`sweepBalances`'s remainder and its Voice
 conversion leg, the voice-claim debit), **two** mirror derivations (`reverse` and
@@ -604,8 +620,12 @@ conversion leg, the voice-claim debit), **two** mirror derivations (`reverse` an
 pass-throughs (`mint()` and `mintStayCredits`, whose callers convert one frame
 up), **three** seat legs off one converted `seatPriceFor`, **one** grace-night
 burn off a converted stored price, **one** `decayVoice` computing minor units
-directly, **two** `stay_purchases.credits_granted` legs, and **one**
-`POST /api/wallet/send`, whose client converts before the request is sent.
+directly, **two** `stay_purchases.credits_granted` legs, **one**
+`POST /api/wallet/send`, whose client converts before the request is sent, and
+**two** redemption legs, whose amount arrives minor from the route boundary and
+is stored minor in `redemptions.amount`. Redemption's hold comment names the
+other two balance readers by file, which is the discipline this list exists to
+keep: a fourth site of that shape should name the three before it.
 
 The obvious repair is also wrong. Converting inside `postTransfer` would break
 `sweepBalances` and the voice claim debit, which read balances that are ALREADY
@@ -906,7 +926,7 @@ Conservation is checked against `token_balances`, which is a CACHE, and the cach
   are gone. The sweeps closed the 29 and both admin mint doors convert. What
   remains as convention is that whether a site converts is a decision recorded in
   a comment beside it and in section 7, with nothing mechanical holding it:
-  21 of the 36 posting sites convert with `toLedgerUnits` and 15 are already
+  21 of the 38 posting sites convert with `toLedgerUnits` and 17 are already
   minor, and only a test per path tells the two apart.
 - A rule can be saved for an amount smaller than its token's resolution.
 - Faucets may go negative, and member accounts may too, by ruling. Nothing in the
@@ -1019,14 +1039,18 @@ surface printed the raw minor units. A member holding 10 Village Voice read **10
 on their profile chip and **10000** on their wallet, and the wallet is the one they
 will believe.
 
-**Re-measured 2026-09-04 at `1861f7d`, and both halves are closed.** The count
+**Re-measured 2026-09-04 at `08bc494`, and both halves are closed.** The count
 first, by the same handle: `grep -rn "fromLedgerUnits(" server/ shared/ client/
 --include=*.ts --include=*.tsx`, dropping tests, comment lines, the import
-clauses and the definition itself, is **41 call sites in 10 files**
+clauses and the definition itself, is **48 call sites in 13 files**
 (`server/index.ts` 12, `server/lib/exit.ts` 8, `server/lib/library.ts` 6,
-`server/lib/exchange.ts` 4, `server/lib/voiceClaim.ts` 3, `server/lib/eventSeats.ts`
-2, `server/lib/mintCap.ts` 2, `server/routes/stays.ts` 2, `server/lib/economy.ts` 1,
-`server/lib/stays.ts` 1). One file and three sites is now ten files and forty-one.
+`server/lib/exchange.ts` 4, `server/routes/redemption.ts` 4,
+`server/lib/voiceClaim.ts` 3, `server/lib/eventSeats.ts` 2,
+`server/lib/mintCap.ts` 2, `server/lib/redemption.ts` 2, `server/routes/stays.ts` 2,
+`server/lib/economy.ts` 1, `server/lib/redemptionStore.ts` 1,
+`server/lib/stays.ts` 1). One file and three sites is now thirteen files and
+forty-eight, and seven of those arrived with redemption in the hours between two
+readings of this paragraph.
 
 The wallet itself divides. `client/src/lib/tokenAmount.ts` holds
 `formatTokenAmount(units, decimals)`, which is the one place minor units become a
@@ -1912,9 +1936,13 @@ village, and the correction is a new numbered migration written against those
 two facts, never a second matcher in the allowance.
 
 **The whole class is currently empty and unreachable, and the file ships
-anyway.** `reverse()` has two callers, both in `server/lib/voiceClaim.ts`, and
-both pass a voice-claim debit key, so nothing in this build has ever reversed a
-gratitude posting of either spelling. Section 2 measured `token_ledger` at zero
+anyway.** `reverse()` has **three** non-test callers as of `08bc494`: twice in
+`server/lib/voiceClaim.ts`, both passing a voice-claim debit key, and once in
+`server/lib/redemptionStore.ts`'s `releaseHold`, passing a redemption's stored
+`hold_key`. None of the three passes a gratitude key, so nothing in this build has
+ever reversed a gratitude posting of either spelling. This entry said TWO callers
+in one file when it was written hours earlier, which is how fast the evidence
+under a finding moves while the finding stands. Section 2 measured `token_ledger` at zero
 entries on 2026-09-03. That census covers ONE instance, thirteen founder
 instances run this image, and the obvious next change is a caller that reverses
 a gift. A rewrite of an unreversed key costs nothing today and is expensive on
@@ -2045,7 +2073,7 @@ rule and not as a refusal of small caps.
 
 ---
 
-### 10.33 The founder's redemption sequence could not be executed on this code. Closed on `wt/econ`, measured.
+### 10.38 The founder's redemption sequence could not be executed on this code. Closed on `wt/econ`, measured.
 
 **His words, and they are the requirement.** *"On platform all we need is a
 'redemption' process that destroys currency that is redeemed... a member makes a
@@ -2144,6 +2172,51 @@ choices, with the vote path refusing at the door while it is unbuilt
 that setting is told instead of being left with a stranded hold. Section 16
 carries both as questions.
 
+### 10.39 A generated table said where value sits and named four of the eleven places. Fixed on `wt/econ`, measured.
+
+10.37's blind spot has a second form and this is it: a HAND-KEPT LIST inside the
+generator, which the guard cannot see for the same reason it could not see a
+hardcoded count. Both sides of the comparison carry the same short list, so it
+passes forever however incomplete it is.
+
+The faucets region in section 4 prints two tables. The faucet half was derived.
+**The vault half named four accounts, written one at a time in
+`scripts/generate-economics-doc.mjs`, while `drizzle/` seeds ELEVEN non-faucet
+system accounts.** Measured 2026-09-04 at `08bc494` by reading every `INSERT`
+into `ledger_accounts` across the migration set: sixteen `sys:` rows, five with
+the faucet flag and eleven without. The four listed were `sys:treasury`,
+`sys:exit-settlement`, `sys:voice-bridge` and `sys:voice-settled`. The seven
+missing were `sys:event-escrow`, `sys:library-escrow`, `sys:library-pool`,
+`sys:library-sink`, `sys:voice-decay`, `sys:redemption-hold` and `sys:redeemed`.
+
+**Why this one is worse than a wrong count.** A reader asking where value can sit
+in this economy consults exactly that table, it sits inside a region marked
+GENERATED so it is trusted more than the prose around it, and three of the seven
+missing accounts are ESCROWS holding value that belongs to a member: a seat fee
+before the gathering, a loan deposit before the loan settles, tokens held against
+an open redemption. `sys:voice-decay` had been missing since `0148` landed it,
+and `sys:redemption-hold` and `sys:redeemed` arrived in `0155` today and did not
+reach it either, which is what made the omission visible at all.
+
+**The fix is 10.33's fix, in the document instead of the code.**
+`seededSystemAccounts(root)` reads the seed tuples out of `drizzle/`, stripping
+comment lines first because the runner does, taking the first seed of each id
+because `INSERT IGNORE` means a later restatement changes nothing. The region
+renders every row whose faucet flag is 0 and states the count it printed.
+`VAULT_SENTENCES` keeps the four hand-written sentences that read better than a
+migration label and nothing else: **the LIST is derived and only the WORDING is
+kept**, so a twelfth vault reaches the table on the day it is seeded rather than
+on the day somebody remembers a map.
+
+**Proven, and proven to go red.** A new self-test asserts the five faucets read as
+faucets, four known vaults read as vaults, every non-faucet seed appears in the
+rendered table, and no faucet appears in it (that last one is the dangerous
+direction: a faucet listed as an account that never goes below zero would deny the
+one fact section 4 exists to state). Dropping `sys:redeemed` from the reader on
+purpose turned it red with `sys:redeemed is seeded by
+0155_a_member_redeems_what_they_hold.sql and is missing from the vault table`;
+restored, the file passes 42 checks and the generator is byte-identical.
+
 ## 11. Open decisions
 
 1. **Decimals. SETTLED 2026-09-04, and the other way.** Rye had ruled 4 across
@@ -2167,14 +2240,16 @@ carries both as questions.
    swaps it, and the repair afterwards is a clawback against somebody who did
    nothing wrong. Section 7 opens with this, because that is where a reader who is
    about to make the change will be standing.
-2. **Whether an audit event is a guarantee.** **74** `void recordEvent` calls post
+2. **Whether an audit event is a guarantee.** **76** `void recordEvent` calls post
    the audit trail without awaiting it, so a member who acts and immediately opens
    the audit feed can miss their own action. Fine as best effort, wrong if the feed
-   is a control. This entry said 62; re-counted 2026-09-04 at `1861f7d` by
+   is a control. This entry said 62; re-counted 2026-09-04 at `08bc494` by
    `grep -rn "void recordEvent" server/ --include=*.ts` dropping tests, which
-   answers 74 with none of them on a comment line, in `server/index.ts` (57) and
-   nine route and library files. The same grep for `await recordEvent(` answers 46,
-   so about three in five of this build's audit writes are fire and forget.
+   answers 76 with none of them on a comment line, in `server/index.ts` (57) and
+   ten route and library files. The same grep for `await recordEvent(` answers 46,
+   so three in five of this build's audit writes are fire and forget, and the ratio
+   is what makes this a decision instead of a cleanup: it is the shape of the
+   build, not a handful of sites.
 3. **What proves this engine.** Nothing short of one real cycle in a real village,
    with several members acting at once, separates "proven by its tests" from
    "proven". See `PLAN_TO_A.md`.
@@ -2223,43 +2298,65 @@ two admin negative-adjustment routes and the three Stripe reversal handlers.
 **Both lanes enumerated by CLOSURE and not by keyword**, which is the only method
 that can be repeated: exactly two statements in this repository write
 `token_ledger`, both in `server/lib/ledger.ts`, and the posting set is therefore
-closed by the call sites of the doors that reach them. One lane read six doors and
-reported seventeen paths while its own table carried fourteen rows. The other read
-**seven** (it also had `postTransferOn`) and reported fourteen paths across sixteen
-call sites, which agrees with the table. **Fourteen is the number for the tree
-before redemption**, and the seventeen was prose that had drifted from the rows
-beneath it, which is the same defect this section exists to fix, committed while
-fixing it.
+closed by the call sites of the doors that reach them. **Three lanes have now
+written a total into this paragraph and no two of them agreed: four, then
+seventeen, then fourteen across sixteen call sites, over a table that carried
+first four rows, then seventeen, then eighteen.**
 
-**Redemption adds one, so the table below carries fifteen.** The enumeration is
-repeated in the header of `server/redemption.test.ts` with every call site named.
+**They disagreed because "path" and "call site" are two different units and none
+of the three said which it was counting.** That is the whole of it, and it is
+worth more than any of the numbers. A PATH is a thing that happens to a member
+and gets one row in the table below; a CALL SITE is one call to one door. They
+are not the same count, because one path can be several sites: the three Stripe
+reversal handlers are three sites and read as one path, `reverse` and
+`reversePair` are two sites and one path, and a redemption is two sites (the
+hold, then the burn) under one row.
 
-**How the list was enumerated, so it can be redone.** The ledger invariant in
-`CLAUDE.md` is that all movement goes through `postTransfer` and
-`postTransferPair`, and that is checkable: `INSERT INTO token_ledger` appears
-at exactly two places in the tree, both inside `server/lib/ledger.ts`. So the
-set of postings is closed by the call sites of the **seven** exported writing
-doors: `postTransfer`, `postTransferOn`, `postTransferPair`, and the four narrow
-wrappers around them, `postGraceNightBurn`, `postPaymentReversalLeg`,
-`postClawbackMirror` and `postClawbackMirrorPair`. Walk every TypeScript file
-under `server/` that is not a test, drop `server/lib/ledger.ts` itself and any
-comment line, take each call to one of those seven, and read its `from`. A
-member is debited whenever that `from` is `memberAccount(...)`, a variable
-bound to one, or an account id read back off the `token_ledger` row being
-mirrored.
+**Measured once, in both units, on 2026-09-04 at `08bc494`, which is the tree
+with redemption in it.**
 
-**Re-run 2026-09-04 at `1861f7d`: 36 posting call sites, of which 17 debit a
-member.** The seventeen are unchanged from the reading on `wt/econ-small`, so
-this table stands. Two notes on the method, both of which cost this lane a
-re-read. The door list said SIX and there are seven: `postTransferOn` is
-exported too, and it has exactly one caller outside the ledger module
-(`give()` in `server/lib/economy.ts`), which posts from the gratitude faucet and
-so debits nobody. And two of the seventeen hide inside a ternary
-(`from: amount > 0 ? LIBRARY_MINT : memberAccount(...)`, and the same shape in
-`server/routes/stays.ts`), so a walk that reads only the first identifier after
-`from:` finds fifteen and calls the answer complete.
+| | Before redemption (`1861f7d`) | With redemption (`08bc494`) |
+|---|---|---|
+| Posting call sites, all seven doors | 36 | **38** |
+| Of those, with a member account on the `from` side | 17 | **19** |
+| Rows in the table below | 17 | **18** |
 
-**Fifteen name a member account outright. Two derive one.**
+Nineteen sites and eighteen rows, because redemption's hold and its burn are two
+call sites under one row. Whenever this paragraph and that table disagree again,
+the table is the PATHS and the paragraph should say which unit it means before it
+says a number.
+
+**How to redo it, so the next lane gets the same answer.** `INSERT INTO
+token_ledger` appears at exactly two places in the tree, both inside
+`server/lib/ledger.ts`, so the posting set is closed by the call sites of the
+**seven** exported writing doors: `postTransfer`, `postTransferOn`,
+`postTransferPair`, and the four narrow wrappers around them,
+`postGraceNightBurn`, `postPaymentReversalLeg`, `postClawbackMirror` and
+`postClawbackMirrorPair`. Grep all seven across `server/ --include=*.ts`, drop
+tests, drop `server/lib/ledger.ts` itself, drop comment lines, and read each
+call's `from`. A member is debited whenever that `from` is `memberAccount(...)`,
+a variable bound to one, or an account id read back off the `token_ledger` row
+being mirrored.
+
+Three notes on the method, each of which cost a lane a re-read:
+
+- **The door list is SEVEN and was written as six.** `postTransferOn` is exported
+  too. It has exactly one caller outside the ledger module (`give()` in
+  `server/lib/economy.ts`), which posts from the gratitude faucet and so debits
+  nobody, which is why missing it changed no total and would have on any other
+  day.
+- **Three of the nineteen hide inside a ternary**, so a walk that reads only the
+  first identifier after `from:` finds sixteen and calls the answer complete:
+  `from: amount > 0 ? LIBRARY_MINT : memberAccount(...)` in `server/index.ts`,
+  the same shape in `server/routes/stays.ts`, and
+  `from: row.heldAccount ?? memberAccount(row.userId)` in
+  `server/lib/redemptionStore.ts`.
+- **That third one is a fallback and not a normal path.** A redemption's burn
+  debits `sys:redemption-hold` in every ordinary case; it names the member only
+  when the village has `redemption.holds_on_propose` off, so nothing was held and
+  the burn takes the tokens directly. It counts, and it counts for that reason.
+
+**Sixteen name a member account outright. Two derive one, and one names either.**
 
 | Path | Posting | Source | Idempotency key | Sink |
 |---|---|---|---|---|
@@ -2286,22 +2383,30 @@ The last two are the two that derive their member: they mirror a row, so they
 debit a member exactly when the posting being undone credited one. Everything
 above them names `memberAccount(...)` in the source.
 
-**Five of the seventeen can drive a member negative, and only five. Re-verified
-2026-09-04 at `1861f7d`, and the five are named by file and line so the count
-can be checked instead of believed.** The ledger's `ALLOW_NEGATIVE_SOURCES` is
-`stay_night`, `payment_reversal` and `reversal`, built by `frozenSet` in
+**Five of the nineteen can drive a member negative, and only five. Redemption
+added two sites and neither of them is one. Re-verified 2026-09-04 at
+`08bc494`, and the five are named so the count can be checked instead of
+believed.** The ledger's `ALLOW_NEGATIVE_SOURCES` is `stay_night`,
+`payment_reversal` and `reversal`, built by `frozenSet` in
 `server/lib/ledger.ts`, and the debt capability behind each is module-private:
 only `postGraceNightBurn`, `postPaymentReversalLeg` and `postClawbackMirror`
 carry one, and all three are declared in that same file. Grepping their call
-sites outside the ledger module answers exactly five:
-`server/lib/stays.ts:343` (the grace-night burn), `server/index.ts` at 6505,
-6593 and 6655 (the commerce, stays and exchange bank reversals), and
-`server/lib/economy.ts:1135` (`reverse()`'s clawback mirror). So the paths that
-can leave a member owing are the nights burn, the three bank-side payment
-reversals, and the clawback mirror. `reversePair` is not one
-of them: `postTransferPair` refuses `allowNegative` outright, because undoing a
-swap behind a member who already spent what it gave them is a refusal a person
+sites outside the ledger module answers six, of which five create debt:
+`server/lib/stays.ts` (the grace-night burn), `server/index.ts` three times (the
+commerce, stays and exchange bank reversals), and `server/lib/economy.ts` twice
+(`reverse()`'s clawback mirror, and `reversePair()`'s pair form). So the paths
+that can leave a member owing are the nights burn, the three bank-side payment
+reversals, and the clawback mirror. `reversePair` is the sixth site and not one
+of the five: `postTransferPair` refuses `allowNegative` outright, because undoing
+a swap behind a member who already spent what it gave them is a refusal a person
 should settle.
+
+**Redemption's two sites carry no proof and neither of its sources is on the
+list.** `redemption_hold` and `redemption_burn` post through the plain
+`postTransfer`, so the ledger's ordinary overdraft test applies to both and a
+member who does not hold the tokens is refused. That is deliberate and it is
+what makes the hold honest: a redemption cannot put anybody in debt, and a
+redemption of tokens somebody has already spent fails instead of creating them.
 
 **A source is not a capability, and the stay refund is the case that shows
 it.** `POST /api/admin/stays/purchases/:id/refund` posts source
@@ -2313,11 +2418,14 @@ prevails and the village case does not. Waning is deliberately outside all of
 this: a waning that could drive a member below zero would be a debt nobody
 incurred.
 
-**A new hold mechanism has to answer all seventeen and not four.** The four the
-old table listed are the four a member CHOOSES. The other thirteen happen to a
-member: a moon closing, a bank reversing a charge, a steward correcting a
-number, a departure settling. A guard written only where a member clicks is a
-guard the other thirteen walk past.
+**A new hold mechanism has to answer all eighteen paths and not four.** The four
+the old table listed are the four a member CHOOSES. The other fourteen happen to
+a member: a moon closing, a bank reversing a charge, a steward correcting a
+number, a departure settling, a redemption confirming. A guard written only where
+a member clicks is a guard the other fourteen walk past. Redemption is the case
+that proves the rule and it did the work: its lock had to be tested against every
+path, and `server/redemption.test.ts` names each one in its header along with
+which of them can reach a locked token at all.
 
 Two things follow from this table and both are easy to misread.
 
@@ -2847,7 +2955,7 @@ guards would run through `sendGratitude`, the amount would be `feed.heart_amount
 (1), the cap would be `feed.max_hearts_per_recipient_per_cycle` (5) taps, the
 source would be `heart_received`, and the ledger key would be
 `gratitude.given:local:<noteId>`. Two doors, one lock, one key shape as of
-2026-09-04: see section 5 and 10.33 for the shape that used to sit here and what
+2026-09-04: see section 5 and 10.36 for the shape that used to sit here and what
 it cost.
 
 ### 15.4 Wren holds a seat through a settlement
@@ -3163,8 +3271,8 @@ measured five ways at `1861f7d` and all five agree.**
    not `spending.ts`, not anything: `grep -n "import" server/lib/crowdpool.ts`
    returns nothing at all. A module that cannot reach the ledger cannot post to it.
 2. **It is not among the posting call sites.** Section 12's enumeration walks
-   every call to the seven exported writing doors under `server/`; 36 sites, and
-   none of them is in this module or in the routes that serve it.
+   every call to the seven exported writing doors under `server/`; 38 sites at
+   `08bc494`, and none of them is in this module or in the routes that serve it.
 3. **No economy file names a campaign or a pledge.** `grep -rniE "\bcampaign|\bpledge"`
    over `ledger.ts`, `economy.ts`, `spending.ts`, `exchange.ts`, `exit.ts`,
    `library.ts`, `stays.ts`, `eventSeats.ts`, `voiceClaim.ts`, `mintCap.ts` and
@@ -3181,7 +3289,7 @@ measured five ways at `1861f7d` and all five agree.**
 So the question a reader arrives with, **how does a pledge relate to the village's
 own tokens**, has a flat answer: it does not. Pledging on the hub issues no
 Gratitude, mints no Credits, moves no Voice and fires no rule. It is not one of
-section 12's seventeen paths that debit a member and not one of section 4's five
+section 12's eighteen paths that debit a member and not one of section 4's five
 faucets. **The relationship is editorial, not economic.** The bridge page tells a
 village what its raising is doing; the village's own economy is the separate
 thing sections 1 to 16 describe.
@@ -3352,7 +3460,8 @@ closed is a self-test asserting that region's stated count equals its printed
 rows. The half that is not is every other number a generator writes beside a list
 it derives; there is no reader that finds those pairs.
 
-**The same shape has a second form: a HAND-KEPT list inside the generator.** The
+**The same shape has a second form: a HAND-KEPT list inside the generator, and
+one of those shipped incomplete (10.39).** The
 refusals region in section 13 reads four functions named one at a time in
 `scripts/generate-economics-doc.mjs` (`sendRefusal`, `priceRefusal`,
 `mayToggleTransferable`, `checkGive`), so a fifth refusal function would never
