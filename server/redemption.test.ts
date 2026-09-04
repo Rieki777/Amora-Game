@@ -267,8 +267,6 @@ describe("who confirms", () => {
   it("refuses a member confirming their own redemption, at any amount", () => {
     expect(
       confirmRefusal({
-        state: "requested",
-        to: "confirmed",
         memberUserId: "wren",
         actorUserId: "wren",
         tokenStillReal: true,
@@ -282,8 +280,6 @@ describe("who confirms", () => {
   it("re-runs the token guard at the confirm door, and names the token", () => {
     expect(
       confirmRefusal({
-        state: "requested",
-        to: "confirmed",
         memberUserId: "wren",
         actorUserId: "ash",
         tokenStillReal: false,
@@ -297,8 +293,6 @@ describe("who confirms", () => {
   it("requires a reason, because a decision with none is not a record", () => {
     expect(
       confirmRefusal({
-        state: "requested",
-        to: "refused",
         memberUserId: "wren",
         actorUserId: "ash",
         tokenStillReal: true,
