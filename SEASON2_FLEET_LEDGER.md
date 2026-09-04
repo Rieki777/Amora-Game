@@ -326,9 +326,14 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   `server/db/testDb.ts` hashes every migration file's NAME and its BYTES, so a rename yields a
   different template key and the old template can never be reused for the new set. No non-template
   schema on the server carries either name, and this machine has no `DATABASE_URL` at all.
-  **Swept for both numbers as STRINGS**, pattern `git grep -nE '0154|0155'`, 22 hits over 10 files.
-  Eleven were real and corrected; the ledger keeps its history above; one is a generic example
-  (`0155_add_widget.sql` in `scripts/check-economics-narrative.mjs`) and one is a PNG.
+  **Swept for both numbers as STRINGS**, pattern `git grep -nE '0154|0155'`: 23 lines over 11 paths.
+  **13 lines across 8 files were real references and were corrected**, plus the two migrations' own
+  header lines, which is 15 in all. Left alone on purpose: the 8 lines above in this ledger, which
+  are its history and the whole lesson; one generic EXAMPLE (`0155_add_widget.sql`, a docblock
+  illustration in `scripts/check-economics-narrative.mjs`); and one PNG that matches on bytes.
+  Not one of the 13 was a filename: they were comments, a section marker, doc prose, test
+  descriptions and two "Seeded by" lines. A sweep for the filename alone would have found none of
+  them.
 - **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
   new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
   makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the
