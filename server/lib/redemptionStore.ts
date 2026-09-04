@@ -301,8 +301,9 @@ export async function requestRedemption(pool: Pool, input: RedeemInput): Promise
         // Third call site of this shape. `sweepBalances` in server/lib/exit.ts
         // and `requestVoiceClaim` in server/lib/voiceClaim.ts each carry the
         // same comment naming the other; this one names both. Wrapping it in
-        // `toLedgerUnits` would take 10,000x the member's tokens the day a
-        // village moves to 4 decimals, and would be invisible at 0.
+        // `toLedgerUnits` would take a hundred times the member's tokens at the
+        // two decimals every credit token now carries, and would be invisible
+        // at 0.
         amount: ask.amountUnits,
         source: HOLD_SOURCE,
         sourceRef: id,

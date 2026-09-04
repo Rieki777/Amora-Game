@@ -64,8 +64,10 @@ import { numberVar, stringVar } from "./variables";
  *      the balance for every token at every scale and a rounding remainder can
  *      never exceed what the member holds.
  *
- * Rule 2 was already wrong for Village Voice at 3 decimals, before any ruling:
- * a member holding 0.5 voice was described as holding "500 village-voice".
+ * Rule 2 was already wrong for Village Voice when it carried a scale, before
+ * any ruling: a member holding 0.5 voice was described as holding "50
+ * village-voice" at the two decimals it carries now, and "500" at the three it
+ * carried then. The defect is the missing division and never the number.
  */
 
 export const EXIT_SETTLEMENT = "sys:exit-settlement";

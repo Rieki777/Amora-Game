@@ -55,6 +55,7 @@ import InfoTip from "@/components/InfoTip";
 import { useGameConfig, authToken } from "@/lib/gameApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { useFocusTarget } from "@/lib/useFocusTarget";
+import { decayReachSentence } from "@shared/tokenScale";
 
 interface MechanicsVariable {
   key: string;
@@ -1002,6 +1003,27 @@ export default function GameMechanics() {
                                     </span>
                                   </div>
                                   <p className="text-sm text-stone-600 mt-1 leading-relaxed">{v.description}</p>
+                                  {/*
+                                    THE SMALLEST BALANCE THIS RATE ACTUALLY REACHES.
+                                    `decayVoice` floors each member's share and skips the
+                                    member when the answer is zero, so every percentage has a
+                                    line below which it silently does nothing. A number that
+                                    quietly stops applying below a line is a promise the
+                                    village cannot see it is not keeping, and a village voting
+                                    a small percentage to be gentle may be voting one that
+                                    reaches almost nobody while this panel shows it working.
+                                    Derived from `decayUnits`, which IS the engine's floor, so
+                                    the sentence and the behaviour cannot disagree. It reads
+                                    off the STAGED value when there is one, so it moves as the
+                                    dial moves. A statement of fact and never a refusal: the
+                                    standing ruling is that a warning never blocks, and this is
+                                    one step below a warning.
+                                  */}
+                                  {v.key === "economy.voice_decay_pct" && (
+                                    <p className="text-sm text-teal-deep mt-1 leading-relaxed">
+                                      {decayReachSentence(Number(stagedValue ?? v.value ?? v.default), "Voice")}
+                                    </p>
+                                  )}
                                   {editable && (
                                     <div className="mt-2 flex items-center gap-2">
                                       <DialEditor v={v} staged={stagedValue} onStage={stage} />

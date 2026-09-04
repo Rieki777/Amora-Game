@@ -327,8 +327,9 @@ export async function requestVoiceClaim(
       // value with `fromLedgerUnits` without rebinding this one.
       //
       // Same shape as `sweepBalances` in `server/lib/exit.ts`: minor in from
-      // the balance cache, minor out to the ledger. Wrapping this would take
-      // 10,000x the member's voice once every token is at 4 decimals.
+      // the balance cache, minor out to the ledger. Wrapping this would take a
+      // hundred times the member's voice at the two decimals Voice now carries,
+      // and would be invisible at zero.
       amount: amountUnits,
       source: "voice_claim",
       sourceRef: claimId,

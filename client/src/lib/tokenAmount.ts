@@ -2,21 +2,25 @@
  * THE ONE PLACE MINOR UNITS BECOME THE NUMBER A MEMBER READS.
  *
  * `token_ledger.amount` and `token_balances.balance` are INTs, so a token with
- * decimals stores minor units: Village Voice rides in thousandths, and a
- * member who earned 10 Voice has 10000 on the row. Dividing is not a nicety.
- * A surface that prints the row prints 10000, and a member who is told they
- * hold ten thousand of something they earned ten of has been lied to by the
+ * decimals stores minor units: Village Voice rides in hundredths, and a
+ * member who earned 10 Voice has 1000 on the row. Dividing is not a nicety.
+ * A surface that prints the row prints 1000, and a member who is told they
+ * hold a thousand of something they earned ten of has been lied to by the
  * one page they came to trust.
  *
- * WHY THIS EXISTS BEFORE THE 4-DECIMALS SWEEP, AND NOT AS PART OF IT.
+ * WHY THIS EXISTS AT ALL, AND WHY IT IS NOT ABOUT ONE TOKEN.
  *
- * Rye has ruled that every token moves to 4 decimals. Today exactly one token
- * carries decimals at all, so exactly one number on one screen is wrong, and
- * it is wrong by 1000x. The day that ruling lands, EVERY token is wrong by
- * 10,000x on EVERY surface that does not divide, all at once, with no single
- * broken screen to point at. So the dividing goes in first, on every surface,
- * while there is still one token to check it against. Adding decimals to a
- * token after this is then a registry row and nothing else.
+ * Rye ruled the scale on 2026-09-04: two decimals on the tokens a village
+ * spends, prices and redeems, whole numbers for everything else, and Village
+ * Voice at two. `shared/tokenScale.ts` holds both numbers and the reasoning.
+ * Four tokens carry a scale now and three do not, so a surface that prints the
+ * row without dividing is wrong by a hundred on more than half of them.
+ *
+ * A scale-aware payload and ONE conversion helper are what stop a display and
+ * an input disagreeing, and they do it at ANY scale. That is why this file is
+ * not written against a particular number of decimals: a village that rescales
+ * a token, or a fork that ships another one, changes a registry row and nothing
+ * here.
  *
  * A surface that renders a token amount calls `formatTokenAmount`. It does not
  * write its own division: two spellings of the same rule is how the profile

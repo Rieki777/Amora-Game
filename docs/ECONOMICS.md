@@ -539,62 +539,133 @@ shrank, and a village watching that would stop trusting its own books.
 `decimals` column says how many. `toLedgerUnits()` and `fromLedgerUnits()`
 convert.
 
-Today six of the seven tokens have `decimals = 0` and Village Voice has 3.
+Since **`0162`** (2026-09-04) four of the seven tokens carry `decimals = 2` and
+three carry `0`.
 
-**THE FOUR-DECIMALS FLIP IS CANCELLED, AND THE SURVIVING QUESTION POINTS THE
-OTHER WAY.** Rye settled it on 2026-09-04, in his words [Whole numbers, keep code
-safe], with the 3 on Village Voice described as future potential for micro
-transactions. So no token is going UP. What is left is Village Voice coming DOWN
-from 3 to 0, and a reader who carries the cancelled plan's instincts into that
-change will do the one thing that cannot be undone. Everything in this section
-below that names "the flip migration" was written for a change that will not
-happen; the UNIT DECISIONS it records are what survives, because they say which
-stored columns mean minor units and which mean what a person typed, and that is
-true at any scale.
+**THE SCALE RULING, AND IT IS NOT THE ONE THIS SECTION USED TO CARRY.** Rye
+settled it on 2026-09-04: **two decimals on currency-like tokens, whole numbers
+for everything else, and Village Voice at two rather than the three it carried.**
+`shared/tokenScale.ts` is the one home for both numbers, `server/lib/economy.ts`
+re-exports them, and every client surface reads the same constants, so a display
+and an input cannot be handed different scales.
 
-**LOWERING A TOKEN'S DECIMALS IS A SCALE CHANGE, DOWNWARD, AND THE STORED ROWS DO
-NOT MOVE WITH IT.** `token_ledger.amount` holds minor units and `tokens.decimals`
-is the only thing that says how many. Take Voice from 3 to 0 and a stored 100 that
-meant 0.100 becomes 100 whole units the instant the column changes: every holder
-in the village inflates by a thousand, no invariant fires, because conservation
-holds at any scale and the cache still agrees with the ledger it caches. Nothing
-in this build refuses it.
+This ruling reversed twice before it settled. An earlier reading had every token
+going UP to four, and the one after it had Voice coming DOWN to zero. Both are
+dead. Nine comments in nine files were still describing the four-decimals flip as
+a coming event and one stated the reversed ruling as standing; all of them were
+corrected in the same change that landed `0162`, along with six more the count
+had missed.
 
-**It is safe on this village only by the accident of an empty ledger** (section 2:
-`token_ledger` at 0 entries, measured 2026-09-03), which is not safety by
-construction. Thirteen founder instances run this image and a fork that has been
-issuing Voice for a month is where this becomes a thousandfold gift nobody voted
-for. So the rule, and it is the rule for any decimals change in either direction:
+**WHICH TOKENS ARE CURRENCY-LIKE IS A COLUMN AND NOT A JUDGEMENT.** A token that
+is spent, priced or exchanged is currency-like, and in this build that set is
+exactly `kind = 'credit'` with `governance = 'platform'`. Three refusals in three
+modules agree on it and none of them was written for this ruling:
+`isPriceableToken` narrows a price to credit kind, `redeemableToken` narrows a
+redemption to it, and `tradingProblem` refuses recognition by name, refuses every
+hypha-governed token, refuses voice kind, and then refuses anything that is not
+credit kind.
 
-1. **Assert the token's ISSUED SUPPLY IS ZERO before changing its decimals.** A
-   faucet's negative balance is the issued supply (section 4), so the question is
-   answerable in one read and needs no new column. If it is not zero, either
-   rescale `token_ledger.amount` for that token in the SAME transaction as the
-   registry change, or stop and name the village.
-2. **If the registry and the stored column cannot move in one transaction, the
+| token | kind | governance | scale | why |
+|---|---|---|---|---|
+| `credits` | credit | platform | **2** | spent, priced, redeemed, and the pool token. Currency-like |
+| `stay-credit` | credit | platform | **2** | a night is priced in it and it is spent. Currency-like |
+| `library-credit` | credit | platform | **2** | a borrowing is priced in it and it is spent. Currency-like |
+| `village-voice` | voice | platform | **2** | NOT currency-like. Two for the waning reason below |
+| `gratitude` | recognition | platform | 0 | recognition, with no financial value of its own. Never a price, never bought, never swapped, never redeemed, each refused in code by name |
+| `equity` | equity | hypha | 0 | a read-only mirror of a token on Base. Its scale is the chain's, a boot invariant requires it to hold no ledger rows here, and `validateLeg` refuses to move it |
+| `voice` | voice | hypha | 0 | the same, and distinct from `village-voice`, which is the platform token that actually accrues |
+
+A token a village creates for itself takes the same rule from the same column:
+`0162` selects BY KIND and never by a list of slugs, and `ensureStayToken` and
+`ensureLibraryToken` pass `CURRENCY_DECIMALS` at registration so a FRESH village
+and a migrated one land on the same scale. `registerToken` leaves `decimals` out
+of its upsert on purpose, so nothing else would ever reconcile the two.
+
+**Nothing here was ambiguous enough to need the tie-break, and the tie-break is
+still worth stating: an ambiguous token defaults to WHOLE NUMBERS**, because a
+scale that turns out to be unnecessary is a permanent conversion surface, and
+raising one later is a migration while lowering one is a migration nobody can
+safely run once the token has moved.
+
+**WHY VOICE KEEPS DECIMALS, AND IT IS THE OPPOSITE OF THE INTUITION.** Voice is
+always issued in whole units, so it looks like the token that least needs a
+scale. It is the only one that WANES. `decayVoice` computes each member's share
+through `decayUnits`, which FLOORS, and skips the member entirely when the answer
+is zero. At whole numbers and the default one percent, **a member holding
+anything under a hundred Voice never wanes at all**, and nothing reports it,
+because skipping is the ordinary path for a member with nothing to lose. The
+waning ruling would sit in the settings, be displayed, and do nothing. At two
+decimals one percent reaches a member holding a single whole Voice.
+
+**WHY IT CAME DOWN FROM THREE TO TWO IS SAFETY AND NOT TIDINESS.** Every money
+defect this codebase shipped in the last day came from a scale mismatch, and the
+worst were invisible because Voice was the ONLY token carrying a scale, so a bug
+that shows on one token keeps shipping. Two distinct scales instead of three is
+fewer places a display and an input can disagree.
+
+**A DECIMALS CHANGE IS A RESCALE IN BOTH DIRECTIONS.** `token_ledger.amount`
+holds minor units and `tokens.decimals` is the only thing that says how many.
+Take Voice from 3 to 0 and a stored 100 that meant 0.100 becomes 100 whole units
+the instant the column changes. Raise credits from 0 to 2 and a stored 5 that
+meant five whole units becomes five hundredths. Every holder in the village moves
+by a factor of a hundred or a thousand, no invariant fires, because conservation
+holds at any scale and the cache still agrees with the ledger it caches.
+
+**It was safe on this village only by the accident of an empty ledger**, measured
+2026-09-03, which is not safety by construction. Thirteen founder instances run
+this image and a fork that has been issuing Voice for a month is where this
+becomes a gift nobody voted for. So the rule, and it is the rule for any decimals
+change in either direction:
+
+1. **Assert the token's stored amounts are all gone before changing its
+   decimals.** `0162` does this and REFUSES, naming the token in the error text
+   the boot runner prints. If it is not clean, either rescale the stored rows in
+   the SAME transaction as the registry change, or stop and name the village.
+2. **If the registry and the stored columns cannot move in one transaction, the
    REGISTRY MOVES LAST.** A stale registry over rescaled data reads too SMALL; a
    fresh registry over unscaled data reads too LARGE. Both are wrong and only one
-   of them is acted on: a member who sees their balance jump a thousandfold spends
-   it, claims it, or sells it, and the correction afterwards is a clawback against
-   somebody who did nothing wrong. Too small is a complaint. Too large is a loss.
+   of them is acted on: a member who sees their balance jump spends it, claims it
+   or sells it, and the correction afterwards is a clawback against somebody who
+   did nothing wrong. Too small is a complaint. Too large is a loss.
 
-**OPEN, and named here because this lane could not close it without touching
-production code.** Nine comments in nine files still describe the flip as a
-coming event, and one of them states the reversed ruling as standing. Measured
-2026-09-04 at `1861f7d`, dropping tests:
-`client/src/lib/tokenAmount.ts:13` opens "Rye has ruled that every token moves to
-4 decimals"; `client/src/components/SendTokensCard.tsx:41`,
-`client/src/pages/Library.tsx:97`, `client/src/pages/Stay.tsx:141` and
-`client/src/pages/Wallet.tsx:155` each reason from the day the tokens all move;
-`server/index.ts:16149`, `server/lib/exit.ts:576`, `server/lib/library.ts:36` and
-`server/lib/voiceClaim.ts:331` do the same beside the postings they annotate.
-Every one of them is the JUSTIFICATION for code that is correct and should stay,
-so this is a comment sweep and never a behaviour change: whoever takes it
-replaces the coming-flip reason with the standing one, which is that a
-scale-aware payload and one conversion helper are what stop a display and an
-input disagreeing at ANY scale, and that Village Voice is the token whose scale
-still moves, downward. The comments about what happens AT four decimals as an
-illustration of scale are fine and are not in this count.
+**"ISSUED SUPPLY IS ZERO" IS NOT A WIDE ENOUGH QUESTION, AND `0162` ASKS A WIDER
+ONE.** Per-token `SUM(balance)` is identically zero by boot invariant, so a
+balance sum answers nothing, and a faucet's negative balance sees only what was
+issued. Neither can see a PRICE a steward posted in a token nobody has spent yet,
+and that price is stored in the same minor units and is corrupted by the same
+multiplication. So the guard asks whether ANY row anywhere stores an amount
+denominated in the token, across eleven tables. `mint_rules.amount`,
+`mint_rules.ceiling` and `voice_claims.amount` are deliberately not among them
+and are not a gap: those columns hold `decimal(18,4)` HUMAN units, which mean the
+same thing at every scale.
+
+**KNOWN RESIDUAL, RECORDED AND LEFT.** `mint_rules.ceiling` is `decimal(18,4)`
+whatever scale the token it bounds carries, so a village can vote a ceiling finer
+than its token can express and it floors to nothing. The harm is already closed:
+the engine refuses such a rule out loud with a sentence naming the ceiling, so
+nobody is handed a cap that silently bounds nothing. It is left as it is because
+narrowing the column is a CONTRACTION, and this repository never contracts in a
+release that adds. Whoever fixes it does so in a release that takes nothing else
+away, and it is a two-release rename and not an `ALTER` in place.
+
+**PROPOSED BY THE GOVERNANCE SESSION ON 2026-09-04, AND NOT A FOUNDER RULING.**
+Rye has not been asked for this one. It follows from the same measurement that
+decided the scale, and it belongs to the sessions until he says otherwise. Every
+waning percentage has a threshold below which it silently does nothing, because
+`decayVoice` floors and skips on zero: at one percent and two decimals that
+threshold is one whole Voice, and at half a percent it is two. **A number that
+quietly stops applying below a line is a promise the village cannot see it is not
+keeping**, and a village voting a small percentage to be gentle may be voting one
+that reaches almost nobody while the panel shows it working. So the waning dial
+in Game Mechanics now carries a sentence beside it naming the smallest whole
+balance that percentage actually reaches. It is a statement of fact and never a
+refusal, per the standing ruling that a warning never blocks. It is computed from
+`decayUnits`, which IS the engine's floor, so the displayed number and the
+behaviour cannot be different quantities, which is the lesson of the mint cap. It
+is stated in whole tokens because a member reading hundredths learns nothing, it
+moves when the percentage moves, and when the threshold passes what any village
+plausibly holds it says so plainly instead of printing a large number without
+comment.
 
 Measured at `08bc494`, `grep -rn "postTransferOn(\|postTransfer(\|postTransferPair(\|postGraceNightBurn(\|postPaymentReversalLeg(\|postClawbackMirror(\|postClawbackMirrorPair(" server/ --include=*.ts`,
 dropping tests, comment lines and `server/lib/ledger.ts` itself: **38 posting call

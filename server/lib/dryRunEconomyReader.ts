@@ -228,7 +228,7 @@ function specFor(slug: string, kind: string, decimals: number, governance: Token
  * The fallback mirrors `toLedgerUnits` (server/lib/economy.ts:154) exactly,
  * including its one special case: a rule naming a token that is not registered
  * scales as whole units unless it is the village voice token, which rides in
- * thousandths whether or not its row has loaded yet.
+ * hundredths whether or not its row has loaded yet.
  */
 function decimalsOf(tokens: readonly TokenSpec[], slug: string): number {
   for (let i = 0; i < tokens.length; i += 1) {
