@@ -1,5 +1,6 @@
 // Platform game API client. All project-specific naming comes from /api/game/config.
 import { useEffect, useState } from "react";
+import { removeStored, storedText } from "./safeStorage";
 
 /**
  * The ONE localStorage key for the session token. Exported so nothing else
@@ -273,7 +274,11 @@ export function useSeason(): SeasonState | null {
 }
 
 export function authToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  // Every request goes through here, so a browser blocking site data used to
+  // throw on any page that fetched anything. A blocked store reads as no
+  // session, which is true: it never held one. The member is told why when
+  // they sign in (client/src/lib/signInStorage.ts).
+  return storedText("local", TOKEN_KEY);
 }
 
 /**
@@ -282,7 +287,8 @@ export function authToken(): string | null {
  * left the notification bell and the module manifest permanently anonymous.
  */
 export function clearAuthToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+  // Dropping a session never refuses. See AuthContext.logout.
+  removeStored("local", TOKEN_KEY);
 }
 
 export async function gameFetch(path: string, init: RequestInit = {}): Promise<Response> {
