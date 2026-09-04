@@ -3352,6 +3352,16 @@ closed is a self-test asserting that region's stated count equals its printed
 rows. The half that is not is every other number a generator writes beside a list
 it derives; there is no reader that finds those pairs.
 
+**The same shape has a second form: a HAND-KEPT list inside the generator.** The
+refusals region in section 13 reads four functions named one at a time in
+`scripts/generate-economics-doc.mjs` (`sendRefusal`, `priceRefusal`,
+`mayToggleTransferable`, `checkGive`), so a fifth refusal function would never
+reach the document and the guard would go on passing. Checked 2026-09-04 at
+`1861f7d` and **the list is complete today**: `grep -n "): string | null"
+server/lib/spending.ts` returns exactly the three that are named, and `checkGive`
+is the fourth. This is a note and not a defect, and it is the thing to re-check
+whenever a refusal is added.
+
 **What a sweep of this file is actually doing, because the failure mode is
 specific.** Section 10 is a growing list, sections 11, 14 and 16 name absences,
 and a sentence saying a thing does not exist is the sentence nobody rechecks:
