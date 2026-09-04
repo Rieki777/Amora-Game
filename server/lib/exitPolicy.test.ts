@@ -11,9 +11,11 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_EXIT_POLICY,
   blankTerms,
+  exitElementRefusal,
   exitLeverFindings,
   exitLeverProblem,
   exitLeverRefusal,
+  exitSetRefusals,
   normalizeExitPolicy,
   platformDefaultTerms,
   type ExitLeverReading,
@@ -214,7 +216,7 @@ describe("the platform's own defaults describe a policy the engine can honour", 
 describe("what a leaver cannot keep, whatever the village types", () => {
   it("recognition: a share of a record is not a holding", () => {
     expect(exitLeverProblem(reading({ "exit.keep_pct.recognition": "40" }))).toBe(
-      "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep.",
+      "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep. Leave this share at zero.",
     );
   });
 
@@ -236,14 +238,20 @@ describe("burning back to a faucet that does not exist", () => {
   it("names the token that has nowhere to go", () => {
     expect(
       exitLeverProblem(reading({ "exit.remainder_account": "burn" }, [platformCredit, ownCredit])),
-    ).toBe("Harvest Credit has no faucet, so there is nowhere to burn it back to.");
+    ).toBe(
+      "Harvest Credit has no faucet, so there is nowhere to burn it back to. " +
+        "Send what a leaver does not keep to an account the village can hold it in.",
+    );
   });
 
   it("names every one of them, and reads as English when there are several", () => {
     const second: ExitLeverToken = { ...ownCredit, slug: "gift-credit", name: "Gift Credit" };
     expect(
       exitLeverProblem(reading({ "exit.remainder_account": "burn" }, [ownCredit, second, platformCredit])),
-    ).toBe("Harvest Credit and Gift Credit have no faucet, so there is nowhere to burn them back to.");
+    ).toBe(
+      "Harvest Credit and Gift Credit have no faucet, so there is nowhere to burn them back to. " +
+        "Send what a leaver does not keep to an account the village can hold it in.",
+    );
   });
 
   it("says nothing when every token the ledger moves has a faucet", () => {
@@ -428,5 +436,90 @@ describe("the live adapter the write route calls", () => {
     };
     expect(exitLeverRefusal("gratitude.base_budget", "500", DEFAULT_EXIT_POLICY, counted)).toBeNull();
     expect(reads).toBe(0);
+  });
+});
+
+describe("the two predicates a change-set executor calls before it writes anything", () => {
+  /*
+   * A two-phase executor validates every element of a set BEFORE it makes any
+   * irreversible write, and refuses the whole set naming what blocked it. That
+   * needs a refusal reachable with no write, and it needs the refusal to be
+   * about the state the set would PRODUCE.
+   *
+   * The deadlock these two shapes exist to dissolve is real and was measured
+   * on this file's own guard: judging each element against current-plus-one
+   * refuses a set that turns Voice conversion on AND sets a rate under it,
+   * because the conversion is judged against a rate the same set is about to
+   * supply. That intermediate state never exists in the world.
+   */
+
+  it("an ELEMENT is judged alone, so a second dial in the same set cannot make the answer wrong", () => {
+    // Every other dial reads as the platform's own answer during an element
+    // pass, so `convert` is NOT refused here even though the neutral rate is
+    // zero: that pairing is the set predicate's to see.
+    expect(exitElementRefusal("exit.voice_on_exit", "convert")).toBeNull();
+    expect(exitElementRefusal("exit.cooling_days", "365")).toBeNull();
+
+    // The four that are wrong on their own come back with their own sentence.
+    expect(exitElementRefusal("exit.keep_pct.recognition", "40")).toBe(
+      "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep. Leave this share at zero.",
+    );
+    expect(exitElementRefusal("exit.keep_pct.equity", "1")).toContain("governed on Base under Hypha");
+    expect(exitElementRefusal("exit.voice_on_exit", "keep")).toContain("makes the account a tombstone");
+    expect(exitElementRefusal("exit.remainder_account", "burn", [ownCredit])).toContain("no faucet");
+    // And burn is fine when every token this village issues has one.
+    expect(exitElementRefusal("exit.remainder_account", "burn", [platformCredit])).toBeNull();
+  });
+
+  it("an element pass says nothing about a key outside the Exit category, and nothing about a coherent one", () => {
+    expect(exitElementRefusal("gratitude.base_budget", "500")).toBeNull();
+    expect(exitElementRefusal("exit.keep_pct.credit", "100")).toBeNull();
+    expect(exitElementRefusal("exit.remainder_account", "treasury")).toBeNull();
+  });
+
+  it("the SET predicate answers about the resulting reading, and names every element implicated", () => {
+    // The pair, which no element pass can see: conversion on, rate at zero.
+    const both = exitSetRefusals(reading({ "exit.voice_on_exit": "convert" }));
+    expect(both).toEqual([
+      {
+        sentence: "A conversion at zero is a forfeit. Say forfeit, or set a rate.",
+        keys: ["exit.voice_on_exit", "exit.voice_convert_rate"],
+      },
+    ]);
+
+    // The same set, with the rate the executor is about to apply, is coherent.
+    // This is the state a per-element pass over current-plus-one refuses and
+    // the resulting reading allows, which is the whole reason for the shape.
+    expect(exitSetRefusals(reading({ "exit.voice_on_exit": "convert", "exit.voice_convert_rate": "2.5" }))).toEqual([]);
+  });
+
+  it("the set predicate reaches the published notice period, which is a document and no dial at all", () => {
+    expect(exitSetRefusals(reading({ "exit.cooling_days": "45" }, [platformCredit], 30))).toEqual([
+      {
+        sentence:
+          "Your published policy says 30 days of notice and this would hold balances for 45. Change the published term first.",
+        keys: ["exit.cooling_days"],
+      },
+    ]);
+    expect(exitSetRefusals(reading({ "exit.cooling_days": "45" }, [platformCredit], 60))).toEqual([]);
+  });
+
+  it("the set predicate returns element-scope refusals too, so one pass alone cannot miss anything", () => {
+    // A caller running both passes drops duplicates by sentence; a caller
+    // running only this one is still complete, which is the safer default for
+    // a guard somebody else wires.
+    const all = exitSetRefusals(reading({ "exit.keep_pct.recognition": "40", "exit.cooling_days": "45" }));
+    expect(all.map((r) => r.keys)).toEqual([["exit.keep_pct.recognition"], ["exit.cooling_days"]]);
+    // The WARNING never comes back through either predicate.
+    const window = { "exit.keep_pct.credit": "100", "exit.vote_over": "0" };
+    expect(exitLeverFindings(reading(window, [buyable])).map((f) => f.severity)).toEqual(["warning"]);
+    expect(exitSetRefusals(reading(window, [buyable]))).toEqual([]);
+  });
+
+  it("the shipped defaults raise nothing through either predicate", () => {
+    expect(exitSetRefusals(reading())).toEqual([]);
+    for (const v of VARIABLES.filter((d) => d.category === "Exit")) {
+      expect(exitElementRefusal(v.key, v.default, [platformCredit]), v.key).toBeNull();
+    }
   });
 });

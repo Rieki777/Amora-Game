@@ -205,21 +205,30 @@ export function blankTerms(policy: ExitPolicy): string[] {
  * it said out loud; the seventh finding is the only one of those, and it saves
  * every time.
  *
+ * WHERE IT RUNS, and it is no longer one door. `setVariable`
+ * (`server/lib/variables.ts`) calls it on EVERY write through a guard wired
+ * once at boot, so the admin variables route, the governance apply loop and
+ * any writer added later are judged by this one function. It used to run at
+ * the admin route alone while the apply loop wrote straight past it, and every
+ * Exit dial is Ring 2, so a passed proposal could land a combination the
+ * product refuses to let an admin type.
+ *
  * WHAT THIS GUARD CANNOT SEE, stated the way the other guards in this
  * repository state their own blind spots:
  *
- *   1. It runs at the variables WRITE ROUTE and nowhere else. The governance
- *      apply path (`server/index.ts`, the mechanics change-set loop) calls
- *      `setVariable` directly, and every Exit dial is Ring 2, so a passed
- *      proposal can still land a combination this refuses. Closing that means
- *      moving the call into `setVariable` itself, which is a different file
- *      and a different lane.
- *   2. It reads the published notice period at the moment a DIAL is written.
- *      Editing the published policy down to a shorter notice through the exit
- *      policy route does not come back through here, so an already-saved
- *      cooling period can outlive the term it was checked against.
- *   3. It says nothing about whether the settlement HONOURS the dials. On this
- *      ref nothing reads them at all, which each dial's own description says.
+ *   1. It reads the published notice period at the moment a DIAL is written.
+ *      Editing the published policy down to a shorter notice through
+ *      `PUT /api/admin/exit-policy` does not come back through here, because
+ *      that route writes a DOCUMENT and no document is an element of a change
+ *      set (`CHANGE_ITEM_KINDS`, `shared/dryRun/types.ts`, has no document
+ *      kind). So an already-saved cooling period can outlive the term it was
+ *      checked against. What that can no longer do is hold a departing
+ *      member's balance past the date their own exit row promised:
+ *      `settlesFrom` (`server/lib/exit.ts`) caps the settle date at
+ *      `notice_ends_at`.
+ *   2. It judges dials. Whether the SETTLEMENT honours them is
+ *      `server/lib/exit.ts`, and `server/lib/exitSplit.test.ts` is where that
+ *      is measured.
  */
 
 /** The four facts a lever asks about one token. */
@@ -252,6 +261,19 @@ export interface ExitLeverFinding {
   /** The dials this is about. A route refusal prefers the one being written. */
   keys: string[];
   severity: "refusal" | "warning";
+  /**
+   * ELEMENT: true or false about ONE dial and the world, whatever else is
+   * being written alongside it. SET: only answerable about the whole resulting
+   * reading, because a second dial or the published policy is half the answer.
+   *
+   * The distinction is what lets a two-phase change-set executor refuse a set
+   * without ever judging an intermediate state. A set that turns Voice
+   * conversion on AND sets a rate under it is coherent; judged one element at
+   * a time against what stands today, the conversion is refused for a rate the
+   * same set is about to supply, and the state it was judged against never
+   * exists in the world.
+   */
+  scope: "element" | "set";
   message: string;
 }
 
@@ -284,8 +306,9 @@ export function exitLeverFindings(reading: ExitLeverReading): ExitLeverFinding[]
     out.push({
       keys: ["exit.keep_pct.recognition"],
       severity: "refusal",
+      scope: "element",
       message:
-        "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep.",
+        "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep. Leave this share at zero.",
     });
   }
 
@@ -296,6 +319,7 @@ export function exitLeverFindings(reading: ExitLeverReading): ExitLeverFinding[]
     out.push({
       keys: ["exit.keep_pct.equity"],
       severity: "refusal",
+      scope: "element",
       message:
         "Equity is governed on Base under Hypha and this platform never moves it. What happens to it on departure is decided there.",
     });
@@ -313,7 +337,10 @@ export function exitLeverFindings(reading: ExitLeverReading): ExitLeverFinding[]
       out.push({
         keys: ["exit.remainder_account"],
         severity: "refusal",
-        message: `${nameList(stranded)} ${one ? "has" : "have"} no faucet, so there is nowhere to burn ${one ? "it" : "them"} back to.`,
+        scope: "element",
+        message:
+          `${nameList(stranded)} ${one ? "has" : "have"} no faucet, so there is nowhere to burn ${one ? "it" : "them"} back to. ` +
+          "Send what a leaver does not keep to an account the village can hold it in.",
       });
     }
   }
@@ -324,6 +351,7 @@ export function exitLeverFindings(reading: ExitLeverReading): ExitLeverFinding[]
     out.push({
       keys: ["exit.voice_on_exit", "exit.voice_convert_rate"],
       severity: "refusal",
+      scope: "set",
       message: "A conversion at zero is a forfeit. Say forfeit, or set a rate.",
     });
   }
@@ -336,6 +364,7 @@ export function exitLeverFindings(reading: ExitLeverReading): ExitLeverFinding[]
     out.push({
       keys: ["exit.voice_on_exit"],
       severity: "refusal",
+      scope: "element",
       message:
         "Keeping Voice needs an account that still exists after the departure, and a resolved exit makes the account a tombstone. This becomes available when a village can record a departure without one.",
     });
@@ -351,6 +380,7 @@ export function exitLeverFindings(reading: ExitLeverReading): ExitLeverFinding[]
     out.push({
       keys: ["exit.cooling_days"],
       severity: "refusal",
+      scope: "set",
       message: `Your published policy says ${reading.noticePeriodDays} days of notice and this would hold balances for ${cooling}. Change the published term first.`,
     });
   }
@@ -367,6 +397,7 @@ export function exitLeverFindings(reading: ExitLeverReading): ExitLeverFinding[]
       out.push({
         keys: ["exit.keep_pct.credit", "exit.vote_over"],
         severity: "warning",
+        scope: "set",
         message: `Somebody can buy ${nameList(buyable)}, open an exit, and take all of it back out with nobody asked. That is a withdrawal window wearing an exit. A village may mean exactly this, so it saves; the test run flags it every time.`,
       });
     }
@@ -417,19 +448,128 @@ export function exitLeverRefusal(
   if (!key.startsWith("exit.")) return null;
   const value = String(proposed).trim();
   return exitLeverProblem(
-    {
-      value: (k) => (k === key ? value : rawValue(k)),
-      noticePeriodDays: Number(policy?.voluntary?.noticePeriodDays ?? DEFAULT_EXIT_POLICY.voluntary.noticePeriodDays),
-      tokens: allTokens().map((t) => ({
-        slug: t.slug,
-        name: t.name,
-        kind: t.kind,
-        governance: t.governance,
-        active: t.active,
-        hasFaucet: faucetFor(t.slug) !== null,
-        listedForTrade: isListedForTrade(t.slug),
-      })),
-    },
+    exitLeverReading((k) => (k === key ? value : rawValue(k)), policy),
     key,
   );
 }
+
+/**
+ * The token registry reduced to the six facts a lever asks about. Live, and
+ * read-only: `allTokens` is the in-memory registry, so this needs no pool and
+ * no connection.
+ */
+export function exitLeverTokens(): ExitLeverToken[] {
+  return allTokens().map((t) => ({
+    slug: t.slug,
+    name: t.name,
+    kind: t.kind,
+    governance: t.governance,
+    active: t.active,
+    hasFaucet: faucetFor(t.slug) !== null,
+    listedForTrade: isListedForTrade(t.slug),
+  }));
+}
+
+/**
+ * A whole reading, assembled from an effective-value lookup and a published
+ * policy. A change-set executor builds the RESULTING lookup in memory (every
+ * element of the set applied) and hands it here, so the judgement is about the
+ * state the set would produce and never about an intermediate one.
+ */
+export function exitLeverReading(value: (key: string) => string, policy: ExitPolicy | null | undefined): ExitLeverReading {
+  return {
+    value,
+    noticePeriodDays: Number(policy?.voluntary?.noticePeriodDays ?? DEFAULT_EXIT_POLICY.voluntary.noticePeriodDays),
+    tokens: exitLeverTokens(),
+  };
+}
+
+/*
+ * ── TWO PHASES, TWO PREDICATES, ONE SET OF RULES ──────────────────────────
+ *
+ * A change-set executor validates every element before it makes any
+ * irreversible write, and refuses the whole set naming the elements that
+ * blocked it. That needs a refusal reachable WITHOUT writing, and it needs the
+ * refusal to be about the state the set would produce.
+ *
+ * ELEMENT (`exitElementRefusal`): true or false about one dial and the world.
+ * A share of recognition, a share of equity, burning a token that has no
+ * faucet, and keeping Voice are each wrong on their own, whatever else is in
+ * the set, so an element pass catches them at the cheapest possible moment.
+ *
+ * SET (`exitSetRefusals`): the complete answer about a resulting reading. It
+ * returns EVERY refusal that reading carries, element-scope ones included, so
+ * a caller running only this one cannot miss anything; a caller running both
+ * passes drops duplicates by sentence. The two rules that ONLY this can see
+ * are the pair (`exit.voice_on_exit` with `exit.voice_convert_rate`, where a
+ * set turning conversion on and setting a rate under it is coherent and each
+ * half alone is not) and the published notice period, which is a document
+ * field and no dial at all.
+ *
+ * NEITHER PASS EVER JUDGES AN INTERMEDIATE STATE. `exitLeverProblem`, which
+ * `setVariable` reaches through the wired guard, judges current-plus-one and
+ * that stays right: a single admin write has no set, so the state it is judged
+ * against is the state the write produces.
+ */
+
+/** One set-level refusal. `keys` is PLURAL: two elements can be wrong together. */
+export interface ExitSetRefusal {
+  sentence: string;
+  keys: string[];
+}
+
+/**
+ * Every refusal the RESULTING reading carries. Pure, no write, no transaction.
+ * Warnings never come back through here; they belong to the test run.
+ */
+export function exitSetRefusals(reading: ExitLeverReading): ExitSetRefusal[] {
+  return exitLeverFindings(reading)
+    .filter((f) => f.severity === "refusal")
+    .map((f) => ({ sentence: f.message, keys: f.keys }));
+}
+
+/**
+ * What is wrong with ONE element, whatever else is being written beside it.
+ * Pure, no write, no transaction, and no pool or connection: the token
+ * registry it reads is already in memory.
+ *
+ * Only element-scope rules run, and they run against a reading in which every
+ * other dial sits at a value that cannot itself trigger anything, so a second
+ * dial the same set is about to move can never make this answer wrong. The set
+ * pass is where a pair is judged.
+ */
+export function exitElementRefusal(
+  key: string,
+  proposed: string,
+  tokens: ReadonlyArray<ExitLeverToken> = exitLeverTokens(),
+): string | null {
+  if (!key.startsWith("exit.")) return null;
+  const value = String(proposed).trim();
+  const found = exitLeverFindings({
+    value: (k) => (k === key ? value : ELEMENT_NEUTRAL[k] ?? ""),
+    // Nothing an element can say about a cooling period is true on its own,
+    // and this is what keeps that rule silent here instead of guessing a term.
+    noticePeriodDays: Number.POSITIVE_INFINITY,
+    tokens,
+  }).find((f) => f.severity === "refusal" && f.scope === "element" && f.keys.includes(key));
+  return found?.message ?? null;
+}
+
+/**
+ * The value every OTHER dial reads as during an element pass: the platform
+ * default, which by construction triggers nothing. Written out rather than
+ * read from the registry so this file keeps its three imports and stays
+ * unit-testable with no registry loaded.
+ */
+const ELEMENT_NEUTRAL: Record<string, string> = {
+  "exit.keep_pct.credit": "0",
+  "exit.keep_pct.voice": "0",
+  "exit.keep_pct.recognition": "0",
+  "exit.keep_pct.equity": "0",
+  "exit.remainder_account": "settlement",
+  "exit.cooling_days": "0",
+  "exit.voice_on_exit": "forfeit",
+  "exit.voice_convert_rate": "0",
+  "exit.vote_over": "0",
+  "exit.sellback_enabled": "false",
+};

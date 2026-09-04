@@ -39,7 +39,7 @@ import {
   WIRED_BUT_HELD_BACK,
   type PowerHolder,
 } from "./lib/capabilityRegistry";
-import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
+import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar, wireVariableGuard } from "./lib/variables";
 import { adminGateWasConsulted, markAdminGate } from "./lib/adminGate";
 import { type FaqPathway, register as registerFaqRoutes } from "./routes/faqs";
 import { register as registerLandRoutes } from "./routes/land";
@@ -6105,6 +6105,7 @@ async function startServer() {
       return decodeToken(AUTH_TOKEN_SECRET, header.slice(7))?.userId ?? null;
     },
   });
+  wireVariableGuard((key, value) => exitLeverRefusal(key, value, exitPolicyRepo.get(), rawValue));
   initModuleUsage(getPool());
 
   // S30/S33/S37: open-state lives on the server (it needs the pool); the
@@ -15335,9 +15336,10 @@ Send an empty drafts array when you are still listening. A role payload is {name
       return res.status(409).json({ error: `This exit is ${exit.status}` });
     }
     const result = await sweepBalances(getPool(), { exitId: exit.id, userId: exit.userId });
+    if (result.refusal) return res.status(409).json({ error: result.refusal });
     await getPool().query(
       "UPDATE exits SET status = 'settling', resolution = CONCAT(COALESCE(resolution,''), ?) WHERE id = ?",
-      [`\n[${new Date().toISOString().slice(0, 10)}] balances swept: ${JSON.stringify(result.swept)}`, exit.id],
+      [result.note, exit.id],
     );
     res.json({ success: true, ...result });
   });
@@ -22206,8 +22208,6 @@ ${inner}
       if (slug.length > 120) return res.status(400).json({ error: "A Hypha space slug cannot be longer than 120 characters." });
     }
 
-    const leverRefusal = exitLeverRefusal(req.params.key, String(raw), exitPolicyRepo.get(), rawValue);
-    if (leverRefusal) return res.status(400).json({ error: leverRefusal });
     const result = await setVariable(getPool(), req.params.key, String(raw));
     if (!result.ok) return res.status(400).json({ error: result.error });
     if (result.previous !== result.value) {

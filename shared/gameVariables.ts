@@ -1748,19 +1748,22 @@ export const VARIABLES: VariableDef[] = [
   // most community-shaped number in this file.
   //
   // EVERY DEFAULT HERE REPRODUCES TODAY, EXACTLY. `sweepBalances`
-  // (server/lib/exit.ts) posts every positive balance in full to
-  // sys:exit-settlement and reads no game variable at all, so a village that
-  // never opens this panel keeps the departure it already has.
-  // `shared/gameVariables.test.ts` asserts each of the ten defaults by name
-  // against that sentence.
+  // (server/lib/exit.ts) reads these five dials now, and on the defaults below
+  // it does what it always did: every positive balance moves in full to
+  // sys:exit-settlement, nothing is held back, and no date gates the settle.
+  // So a village that never opens this panel keeps the departure it already
+  // has. `shared/gameVariables.test.ts` asserts each of the ten defaults by
+  // name, and `server/lib/exitDefaults.test.ts` runs a whole departure on them
+  // and compares every ledger row to the ones origin/main writes.
   //
-  // WHAT ACTS ON THESE TODAY is the save-time guard and nothing else:
-  // `exitLeverProblem` (server/lib/exitPolicy.ts) refuses six incoherent
-  // combinations at the variables write route with one sentence each. The
-  // SETTLEMENT reads them in the lane after this one, and until that lands
-  // every description below says what still happens instead. A dial whose
-  // effect has not arrived says so on itself; that is the same honesty the
-  // write route already applies to the two stays knobs it refuses outright.
+  // TWO THINGS ACT ON THESE. The save-time guard, `exitLeverProblem`
+  // (server/lib/exitPolicy.ts), refuses six incoherent combinations with one
+  // sentence each, and it now runs inside `setVariable` so a passed proposal
+  // meets it as well as an admin. The SETTLEMENT reads the five dials that
+  // decide what moves: the four keep shares, the remainder account, the
+  // cooling period, and the Voice pair. `exit.vote_over` and
+  // `exit.sellback_enabled` are still records of intent and nothing reads
+  // them, and their descriptions say so on themselves.
   //
   // applyTiming is left to derive to `instant` for all ten. None of them is a
   // settlement basis and a departure is not a cycle close, so none belongs in
@@ -1770,7 +1773,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exit",
     label: "Share of credits a leaver keeps",
     description:
-      "The share of each credit token a departing member keeps when their balance is settled. At 0, where this starts, the whole balance moves to the account named in 'Where the rest of a settled balance goes'. At 40 they keep forty percent of every credit token they hold and the village receives the other sixty. This counts by KIND and never by token name, so a village that mints its own credits gets the same answer as one running the platform's. Works with: 'Where the rest of a settled balance goes' and 'Days of cooling before a balance settles'. The settlement act does not read this yet, so a departure today still moves every positive balance in full and the exit desk records what it moved.",
+      "The share of each credit token a departing member keeps when their balance is settled. At 0, where this starts, the whole balance moves to the account named in 'Where the rest of a settled balance goes'. At 40 they keep forty percent of every credit token they hold and the village receives the other sixty. This counts by KIND and never by token name, so a village that mints its own credits gets the same answer as one running the platform's. The share is worked out in the token's smallest unit and rounded DOWN, so what a leaver keeps plus what the village receives is exactly what they held, to the last unit. Works with: 'Where the rest of a settled balance goes' and 'Days of cooling before a balance settles'. The settle act records the shares it actually applied onto the exit, so a dial moved afterwards never rewrites what happened.",
     type: "percentage",
     default: "0",
     min: 0,
@@ -1782,7 +1785,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exit",
     label: "Share of Voice a leaver keeps",
     description:
-      "The share of a departing member's Voice that 'What happens to Voice at a departure' is applied to. At 0 the whole holding settles the way it does today. Above 0, the shape of what happens to that share is the other dial's answer: forfeit sends it with everything else, keep leaves it where it is, convert turns it into credits at the rate below. Voice that was earned and Voice that was bought are treated alike, because the ledger holds one balance for both. The settlement act does not read this yet, so a departure today still moves the whole holding.",
+      "The share of a departing member's Voice that 'What happens to Voice at a departure' is applied to. At 0 the whole holding settles the way it does today. Above 0, the shape of what happens to that share is the other dial's answer: forfeit sends it with everything else, keep leaves it where it is, convert turns it into credits at the rate below. Voice that was earned and Voice that was bought are treated alike, because the ledger holds one balance for both. At forfeit, which is where this starts, the whole holding moves whatever share you set here, so this dial only changes a departure once the other one does.",
     type: "percentage",
     default: "0",
     min: 0,
@@ -1818,7 +1821,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exit",
     label: "Where the rest of a settled balance goes",
     description:
-      "The account that receives whatever a departing member does not keep. Exit settlement is where it goes today: a holding account nothing spends, so the village can decide later without deciding now. The treasury is an ordinary vault the village spends from. The last two choices change what a number several pages already print MEANS, and each of them says so on itself. The settlement act does not read this yet, so everything still lands in exit settlement.",
+      "The account that receives whatever a departing member does not keep. Exit settlement is where it goes today: a holding account nothing spends, so the village can decide later without deciding now. The treasury is an ordinary vault the village spends from. The last two choices change what a number several pages already print MEANS, and each of them says so on itself. The settle act sends every remainder to the account chosen here, one posting per token, and records on the exit which account received it.",
     type: "choice",
     default: "settlement",
     choices: [
@@ -1849,7 +1852,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exit",
     label: "Days of cooling before a balance settles",
     description:
-      "How long after a member opens their exit before an admin may settle their balance. At 0, which is today, the sweep is available the moment the exit is open. Above 0 the settle act refuses until that many days have passed and the refusal names the date. This may never exceed the notice period your published exit policy prints, and saving a longer one is refused with both numbers in the sentence, because that page is the highest-stakes copy on the site. The exits table has carried the notice date since the module shipped and no guard has ever read it; this is the dial that gives it meaning, and the guard itself arrives with the settlement lane.",
+      "How long after a member opens their exit before an admin may settle their balance. At 0, which is today, the sweep is available the moment the exit is open. Above 0 the settle act refuses until that many days have passed and the refusal names the date. This may never exceed the notice period your published exit policy prints, and saving a longer one is refused with both numbers in the sentence, because that page is the highest-stakes copy on the site. The exits table has carried the notice date since the module shipped and no guard ever read it; this is the dial that gives it meaning. The settle act counts from the day the exit opened, and it never holds a balance past the notice date that member's own exit already carries, so a policy edited afterwards cannot extend a hold somebody was told would end.",
     type: "integer",
     default: "0",
     min: 0,
@@ -1878,7 +1881,7 @@ export const VARIABLES: VariableDef[] = [
       {
         value: "convert",
         label: "It becomes credits",
-        hint: "Posted as one pair, so a half-finished conversion cannot leave somebody holding neither. Set the rate below it.",
+        hint: "Posted as one pair, so a half-finished conversion cannot leave somebody holding neither. The credits come out of the treasury, which has to hold enough of them or the conversion is refused whole. Set the rate below it.",
       },
     ],
   },
@@ -1887,7 +1890,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Exit",
     label: "Credits per Voice when converting",
     description:
-      "How many credits one Voice becomes when 'What happens to Voice at a departure' is set to convert. A rate of 0 with convert chosen is refused when you save it, because a conversion that pays nothing is a forfeit wearing another word. This is read in the convert case alone, so it sits at 0 while the other dial says forfeit.",
+      "How many credits one Voice becomes when 'What happens to Voice at a departure' is set to convert. A rate of 0 with convert chosen is refused when you save it, because a conversion that pays nothing is a forfeit wearing another word. This is read in the convert case alone, so it sits at 0 while the other dial says forfeit. The credits are worked out in the smallest unit of both tokens and rounded DOWN, and a rate too small to pay a single unit converts nothing and says so.",
     type: "decimal",
     default: "0",
     min: 0,

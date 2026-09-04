@@ -184,10 +184,76 @@ describe.skipIf(!configured)("a departure on the shipped Exit defaults", () => {
     expect(report.problems).toEqual([]);
   });
 
+  it("the settle act is not held, and the note it hands the route still opens with the line the route always wrote", async () => {
+    /*
+     * The sweep now returns a REFUSAL slot and a NOTE, and the settle route
+     * reads both. On the shipped dials the refusal is absent (cooling is 0, so
+     * nothing gates the settle) and the note's first line is the one
+     * `origin/main`'s route composed inline, character for character, so an
+     * exit row read by any existing surface still says what it said.
+     *
+     * The capture is the new half, and it is written even here: a reader has
+     * to be able to tell "this village settled on the platform's defaults"
+     * from "this exit predates the split", and an absent line cannot say the
+     * first of those.
+     */
+    const result = await sweepBalances(pool, { exitId, userId: USER });
+    expect(result.refusal).toBeNull();
+
+    const day = new Date().toISOString().slice(0, 10);
+    const [first, second, ...rest] = result.note.split("\n").filter((l) => l.length);
+    expect(rest).toEqual([]);
+    /*
+     * Nothing moved on this re-read, so the second line is the no-op line and
+     * not a fresh capture. WHICH no-op line is a fact about the defaults: at a
+     * keep share of zero the first sweep emptied the account, so this run sees
+     * NOTHING OUTSTANDING and never reaches a duplicate key. A village keeping
+     * a share leaves a positive balance behind, so its retry meets the
+     * duplicate instead and says so; `exitSplit.test.ts` asserts that sentence.
+     */
+    expect(first).toBe(`[${day}] balances swept: {}`);
+    expect(second).toBe(`[${day}] no balance moved: nothing was outstanding`);
+
+    // And a fresh exit on the same defaults captures the defaults.
+    const other = await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO `users` (`id`, `name`, `email`, `password_hash`) VALUES (?,?,?,'h')",
+      ["exit-defaults-second", "exit-defaults-second", "exit-defaults-second@example.test"],
+    );
+    expect(other).toBeTruthy();
+    await postTransfer(pool, {
+      from: MINT_FAUCET, to: memberAccount("exit-defaults-second"), tokenType: WHOLE, amount: 100,
+      source: "test_seed", idempotencyKey: "exit-defaults:seed:second",
+    });
+    const made = await createExit(pool, {
+      userId: "exit-defaults-second", kind: "voluntary", openedBy: "admin", noticeDays: 0,
+    });
+    expect(made.ok).toBe(true);
+    if (!made.ok) return;
+    const fresh = await sweepBalances(pool, { exitId: made.exit.id, userId: "exit-defaults-second" });
+    expect(fresh.captured).toEqual({
+      keep: { credit: 0, voice: 0, recognition: 0, equity: 0 },
+      to: "settlement",
+      voice: "forfeit",
+      rate: "0",
+      cooling: 0,
+      lines: [{ token: WHOLE, kind: "credit", held: 100, kept: 0, moved: 100, to: EXIT_SETTLEMENT }],
+    });
+    // The reading came off the registry with no `exit.%` row anywhere, which
+    // is the inherited-default state the first case in this file pinned.
+    expect(fresh.policy).toEqual({
+      keepPct: { credit: 0, voice: 0, recognition: 0, equity: 0 },
+      remainderAccount: "settlement",
+      coolingDays: 0,
+      voiceOnExit: "forfeit",
+      voiceConvertRate: "0",
+    });
+  });
+
   it("a second sweep on the same exit posts nothing, whatever the dials say later", async () => {
     // The idempotency key carries no policy, so a re-run is the same key and
-    // the same no-op. That is the property the settlement lane has to keep
-    // when it starts splitting the amount.
+    // the same no-op, and that property survived the split: with nothing kept
+    // the account is empty, so this run finds no balance rather than a
+    // duplicate key. A village keeping a share meets the duplicate instead.
     const before = await sweepRowsFor(pool, exitId);
     const again = await sweepBalances(pool, { exitId, userId: USER });
     expect(again.swept).toEqual({});
@@ -201,7 +267,11 @@ describe.skipIf(!configured)("a departure on the shipped Exit defaults", () => {
     // module-private function inside server/index.ts, so what resolve does to
     // the LEDGER (nothing) is asserted as the absence of any further row.
     const [[all]] = await pool.query<any[]>("SELECT COUNT(*) AS n FROM `token_ledger`");
-    expect(Number(all.n)).toBe(6); // three seeds, three sweeps
+    // Three seeds and three sweeps for the leaver above, plus the one seed and
+    // one sweep the capture case opened a second departure for. Every re-run
+    // of an already-settled sweep added nothing, which is the other half of
+    // what this count is watching.
+    expect(Number(all.n)).toBe(8);
   });
 });
 

@@ -158,7 +158,7 @@ describe.skipIf(!DB_CONFIGURED)("what the variables route refuses about a depart
     const r = await setDial("exit.keep_pct.recognition", "40");
     expect(r.status).toBe(400);
     expect(r.json?.error).toBe(
-      "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep.",
+      "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep. Leave this share at zero.",
     );
     expect(await storedValue("exit.keep_pct.recognition")).toBeNull();
   });
@@ -196,7 +196,10 @@ describe.skipIf(!DB_CONFIGURED)("what the variables route refuses about a depart
 
     const r = await setDial("exit.remainder_account", "burn");
     expect(r.status).toBe(400);
-    expect(r.json?.error).toBe("Harvest Credit has no faucet, so there is nowhere to burn it back to.");
+    expect(r.json?.error).toBe(
+      "Harvest Credit has no faucet, so there is nowhere to burn it back to. " +
+        "Send what a leaver does not keep to an account the village can hold it in.",
+    );
     expect(await storedValue("exit.remainder_account")).toBeNull();
   });
 
@@ -277,6 +280,66 @@ describe.skipIf(!DB_CONFIGURED)("what the variables route refuses about a depart
     expect(await storedValue("exit.keep_pct.credit")).toBe("100");
     expect(await storedValue("exit.vote_over")).toBeNull(); // 0 by default: no departure asks anybody
     expect((await setDial("exit.keep_pct.credit", "0")).status).toBe(200);
+  });
+
+  it("A PASSED PROPOSAL cannot land what an admin is refused, and the apply names the element", async () => {
+    /*
+     * THE DOOR THIS CASE EXISTS FOR. The guard used to live in the variables
+     * write route and nowhere else, while `applyMechanicsProposal` calls
+     * `setVariable` directly and every Exit dial is Ring 2, so a village could
+     * vote in a combination the product refuses to let a founder type. The
+     * check now lives inside `setVariable`, so both doors reach one function.
+     *
+     * The proposal is CREATED successfully on purpose. `validateChangeSet`
+     * checks the registry, the ring and the bounds and knows nothing about
+     * exit levers, so a village really can take this to a vote; the refusal
+     * belongs at the moment the value would land, and it comes back as a named
+     * failed element rather than as a silent write.
+     *
+     * TWO ELEMENTS, one coherent and one refused, because a guard that refused
+     * the whole set would be a different defect and this is the case that can
+     * tell them apart.
+     */
+    const proposed = await call("POST", "/api/game/mechanics/proposals", {
+      body: {
+        title: "What a leaver keeps",
+        rationale: "The village discussed departures at the last gathering and wants a share to stay.",
+        changes: [
+          { key: "exit.keep_pct.voice", to: "10" },
+          { key: "exit.keep_pct.recognition", to: "40" },
+        ],
+      },
+    });
+    expect(proposed.status, `propose: ${JSON.stringify(proposed.json)}`).toBe(200);
+    const proposalId = String(proposed.json?.id ?? "");
+    expect(proposalId).toBeTruthy();
+
+    // Carried, by whatever route a village's vote comes home. The status is
+    // set directly because this case is about the APPLY step and not about
+    // how a proposal reaches it; every path into `applyMechanicsProposal`
+    // lands on the same function.
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "UPDATE `mechanics_proposals` SET `status` = 'passed_verified' WHERE `id` = ?",
+      [proposalId],
+    );
+
+    const applied = await call("POST", `/api/admin/mechanics/proposals/${proposalId}/apply`, {});
+    expect(applied.status, `apply: ${JSON.stringify(applied.json)}`).toBe(207);
+    expect(applied.json?.applied).toEqual(["exit.keep_pct.voice"]);
+    expect(applied.json?.failed).toEqual([
+      {
+        key: "exit.keep_pct.recognition",
+        problem:
+          "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep. Leave this share at zero.",
+      },
+    ]);
+
+    // The coherent half landed and the refused half was never written. Both
+    // halves matter: a guard that stopped the whole set would be as wrong as
+    // one that let this through.
+    expect(await storedValue("exit.keep_pct.voice")).toBe("10");
+    expect(await storedValue("exit.keep_pct.recognition")).toBeNull();
+    expect((await setDial("exit.keep_pct.voice", "0")).status).toBe(200);
   });
 
   it("a dial outside the Exit category is untouched by any of this", async () => {
