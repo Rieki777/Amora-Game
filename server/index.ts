@@ -16264,8 +16264,8 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const refusal = sendRefusal(slug);
     if (refusal) return res.status(400).json({ error: refusal });
 
-    const n = Number(amount) || 0; // human, fractional where the token has decimals; `toLedgerUnits` rounds it to the token's own resolution
-    if (!(n > 0) || toLedgerUnits(slug, n) <= 0) return res.status(400).json({ error: "How much are you sending?" });
+    const n = Math.trunc(Number(amount) || 0); // ALREADY MINOR: `SendTokensCard.tsx` converts with `toMinorUnits` beside the input that shows the scale, so a `toLedgerUnits` here would post ten thousand times what was typed
+    if (n <= 0) return res.status(400).json({ error: "How much are you sending?" });
 
     /*
      * WHO IT IS FOR: an email the sender typed, or an id an API caller holds.
@@ -16317,7 +16317,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: memberAccount(user.id),
       to: memberAccount(recipient.id),
       tokenType: slug,
-      amount: toLedgerUnits(slug, n),
+      amount: n,
       source: "member_send",
       // The counterpart, so each side's ledger line can name the other person.
       sourceRef: recipient.id,
