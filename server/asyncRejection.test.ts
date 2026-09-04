@@ -84,7 +84,7 @@ afterAll(async () => {
 /** The status, or the word the ledger used, so a regression names itself. */
 async function statusWithin(method: string, path: string, ms = 3000): Promise<number | string> {
   try {
-    const res = await fetch(base + path, { method, signal: AbortSignal.timeout(ms) });
+    const res = await fetch(base + path, { method, signal: AbortSignal.timeout(ms) }); // module-review-ok: the test client dialling its own in-process server on localhost, as every e2e suite does
     return res.status;
   } catch {
     return `HUNG: no answer in ${ms}ms`;
