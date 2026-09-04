@@ -304,6 +304,31 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   "Seeded by 0153" comments in `server/lib/redemption.ts`, and the section marker in
   `shared/capabilities.ts`. Two other files in the repository contain the digits `0153` and
   neither is about a migration (`docs/prototypes/grounds-v0.html`, `shared/lunarTable.json`).
+- **decimals lane (DEC), 2026-09-04: claims 0160 and 0161, renumbered from 0154 and 0155.** No new
+  SQL: these are the economics keys lane's `one_gift_one_key` and the redemption lane's
+  `a_member_redeems_what_they_hold`, moved up because `origin/main` reached 0159 while `wt/econ`
+  was in flight. Neither number collided. **Both were legal on the branch and both would have been
+  refused the moment it took current main**, and the gate could not say so: `resolveBase()` uses
+  `merge-base HEAD origin/main`, our merge base was `e5446c2` whose ceiling is **0143**, so the
+  only-forward rule was comparing against a release seven numbers behind the one a rollback now
+  lands on. Proved by building a throwaway branch off current `origin/main` carrying both files:
+  the same script that exits 0 here exits 1 there and names both files against ceiling 0159.
+  **Measured all three ways immediately before renaming and all three agreed on 0159**: every
+  remote ref after a fresh fetch, every local ref across 336 worktrees, and every `drizzle/`
+  directory on disk. `origin/main` holds two files at 0156 (`an_investor_path_records_facts_not_money`
+  and `half_erased_members`), the pair that shipped eleven minutes apart and had to be
+  grandfathered, so 0156 is spent twice over and 0160 is the first number free of it.
+  **Why the renumber was safe.** `_migrations_applied` keys on FILENAME, so a renamed file that has
+  run somewhere persistent replays while the old name stays marked applied. A scan of all 57 schemas
+  on the local server holding a `_migrations_applied` table found the old names in four
+  `village_tpl_*` templates, which is NOT the "scratch schemas dropped per run" this lane was told
+  to expect. It is still safe, for a reason worth writing down: `migrationsFingerprint()` in
+  `server/db/testDb.ts` hashes every migration file's NAME and its BYTES, so a rename yields a
+  different template key and the old template can never be reused for the new set. No non-template
+  schema on the server carries either name, and this machine has no `DATABASE_URL` at all.
+  **Swept for both numbers as STRINGS**, pattern `git grep -nE '0154|0155'`, 22 hits over 10 files.
+  Eleven were real and corrected; the ledger keeps its history above; one is a generic example
+  (`0155_add_widget.sql` in `scripts/check-economics-narrative.mjs`) and one is a PNG.
 - **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
   new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
   makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the

@@ -595,7 +595,7 @@ describe.skipIf(!configured)("the seed fallback, and saying it is a seed", () =>
     // that once: `sys:voice-decay` arrived with drizzle/0148_voice_that_waned
     // from the decay lane, and this line is what said so. Twice now:
     // `sys:redemption-hold` and `sys:redeemed` arrived with
-    // drizzle/0155_a_member_redeems_what_they_hold from the redemption lane, and
+    // drizzle/0161_a_member_redeems_what_they_hold from the redemption lane, and
     // both belong in the snapshot by the rule above, because a redemption posts
     // into one of them and then the other. If you are here
     // because you added an account, add it to the list and read the sentence

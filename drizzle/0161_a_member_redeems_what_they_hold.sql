@@ -1,4 +1,4 @@
--- 0155: a member turns tokens into something real, and the tokens are destroyed.
+-- 0161: a member turns tokens into something real, and the tokens are destroyed.
 --
 -- THE FOUNDER'S SHAPE, in his words: "On platform all we need is a redemption
 -- process that destroys currency that is redeemed. Then the off platform

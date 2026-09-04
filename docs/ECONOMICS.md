@@ -1903,7 +1903,7 @@ read a spend of 8, and `reverse()` on the key the allowance builds answered
 same file's case for `give()` was green, which is the shape of a defect on one
 door and not on a rule.
 
-**Existing rows are REPAIRED, by `drizzle/0154_one_gift_one_key.sql`, and the
+**Existing rows are REPAIRED, by `drizzle/0160_one_gift_one_key.sql`, and the
 repair moves no value.** It rewrites `idempotency_key` and touches no amount, no
 account and no `source_ref`, so per-token `SUM(balance)` is the same number
 after it as before and `token_balances` stays a cache of rows it did not change.
@@ -2195,7 +2195,7 @@ GENERATED so it is trusted more than the prose around it, and three of the seven
 missing accounts are ESCROWS holding value that belongs to a member: a seat fee
 before the gathering, a loan deposit before the loan settles, tokens held against
 an open redemption. `sys:voice-decay` had been missing since `0148` landed it,
-and `sys:redemption-hold` and `sys:redeemed` arrived in `0155` today and did not
+and `sys:redemption-hold` and `sys:redeemed` arrived in `0161` today and did not
 reach it either, which is what made the omission visible at all.
 
 **The fix is 10.33's fix, in the document instead of the code.**
@@ -2214,7 +2214,7 @@ rendered table, and no faucet appears in it (that last one is the dangerous
 direction: a faucet listed as an account that never goes below zero would deny the
 one fact section 4 exists to state). Dropping `sys:redeemed` from the reader on
 purpose turned it red with `sys:redeemed is seeded by
-0155_a_member_redeems_what_they_hold.sql and is missing from the vault table`;
+0161_a_member_redeems_what_they_hold.sql and is missing from the vault table`;
 restored, the file passes 42 checks and the generator is byte-identical.
 
 ## 11. Open decisions
