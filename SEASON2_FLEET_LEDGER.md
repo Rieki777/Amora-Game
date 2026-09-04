@@ -236,6 +236,21 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   gates green, `check-migration-compat` applied all 113 previous-release migrations against a
   populated database, seeded rows in all three tables these files name, applied the four, and
   confirmed a second run applies zero.
+- **redemption lane (RB), 2026-09-04: claims 0153 for
+  `drizzle/0153_a_member_redeems_what_they_hold.sql`.** One new table, `redemptions`, plus
+  `INSERT IGNORE` for two non-faucet system accounts (`sys:redemption-hold`,
+  `sys:redeemed`). Additive only.
+  **Measured three ways immediately before creating the file, and the gate was wrong by two.**
+  `node scripts/check-migration-numbers.mjs --next` printed **0151** and exited 0. It was wrong
+  twice, in the two directions this section warns about:
+  0151 is already taken (`0151_a_member_finds_their_own_reservation.sql`, on 220 remote refs and
+  331 local refs, and on disk in `TREASURES/` and `wt-rebase/`), and **0152 is taken by an
+  UNTRACKED file on disk**, `drizzle/0152_a_vendor_record_names_more_than_one_person.sql` in the
+  `wt-bridge` worktree on branch `wt/draft-deadlock`, which `git status` reports as `??`. An
+  untracked file is on no ref at all, so the remote scan, the local-ref scan and the gate are
+  all blind to it, and only the disk scan across worktrees finds it. **The gate compares disk
+  against `origin/main` and is therefore silent on exactly the case that collides.** Read its
+  green as one channel of three.
 - **arch-store lane, 2026-08-31: claims 0122 for `drizzle/0122_collection_versions.sql`.** One
   new table, `collection_versions`, holding one counter per `dbCollection` table. It is what
   makes `replaceAll` able to tell a current snapshot from a stale one, and its row lock is the

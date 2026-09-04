@@ -158,6 +158,76 @@ export const VARIABLES: VariableDef[] = [
     max: 10000000,
     unit: "tokens",
   },
+  // ── Redemption: turning tokens into something real ───────────────────────
+  //
+  // A member asks for their tokens to become cash, a service, a share, a
+  // bicycle. The village settles that off the platform. When a steward
+  // confirms that the member has been paid, the tokens are destroyed here.
+  // The five dials below are everything a village decides about that.
+  {
+    key: "redemption.confirmed_by",
+    category: "Ledger",
+    label: "Who confirms a redemption",
+    description:
+      "Who has to agree before a member's redemption is carried out and their tokens are destroyed. A steward means one person who holds this village's redemption key signs it off, and it stays between them, the member, and the other stewards. A village vote means it opens as a ballot, and a ballot is public: what the member asked for, and what they asked for it in return, become readable by anyone with the link, permanently, including after a refusal. Whichever is set when a member asks is written onto their request, so moving this dial never changes how something already open is decided.",
+    type: "choice",
+    default: "steward",
+    choices: [
+      {
+        value: "steward",
+        label: "A steward confirms",
+        hint: "One holder of the redemption key signs it off. Grant that key to a role in the village's powers, and a village that has granted it to nobody falls back to its admins.",
+      },
+      {
+        value: "vote",
+        label: "The village votes",
+        hint: "It opens as a ballot. Ballots are public. This path is still being finished, and while it is, asking to redeem is refused with a sentence saying so.",
+      },
+    ],
+  },
+  {
+    key: "redemption.holds_on_propose",
+    category: "Ledger",
+    label: "Hold the tokens while a redemption is open",
+    description:
+      "When this is on, asking to redeem moves the tokens into a holding account straight away. They stay the member's, they stop being spendable, and they come back in full if the redemption is refused, withdrawn, or left to expire. Turning it off leaves them spendable until the moment a steward confirms, which means a member can be paid off the platform on Tuesday, spend the same tokens on Wednesday, and leave the confirmation with nothing to destroy on Thursday. The village has then paid for tokens it never received, and no part of this software notices. Founder held for that reason.",
+    type: "boolean",
+    default: "true",
+    ring: "founder",
+  },
+  {
+    key: "redemption.tokens",
+    category: "Ledger",
+    label: "Which tokens may be redeemed",
+    description:
+      "Leave this empty and every token this village issues as a spendable credit may be redeemed. Type a comma-separated list of token slugs to narrow it to exactly those. This dial can only ever NARROW. Tokens governed on Base, recognition, voice, standing examples, and the credits a module issues against its own service are refused whatever is typed here, so nothing set on this dial can make this platform the source of truth for a cap table, and nothing set here turns governance weight into money.",
+    type: "text",
+    default: "",
+    ring: "founder",
+  },
+  {
+    key: "redemption.per_member_per_cycle",
+    category: "Ledger",
+    label: "Redemptions one member may open per cycle",
+    description:
+      "How many redemptions one member may open in one lunar cycle, counting the ones still waiting on a steward. This is deliberately its own number and not the rule-change proposal cap: asking for value back is a different act from asking to change how the village works, and spending one budget on the other would mean a member who redeems twice has three rule changes left for the moon. 0 closes redemption to everybody.",
+    type: "integer",
+    default: "2",
+    min: 0,
+    max: 100,
+  },
+  {
+    key: "redemption.expires_after_days",
+    category: "Ledger",
+    label: "A redemption expires after",
+    description:
+      "How long a redemption waits for an answer before it expires on its own and the held tokens go back to the member in full. This exists so a request nobody answers ends by itself, rather than holding somebody's balance for as long as the village is busy. Set it to 0 and a redemption waits forever, which is a real choice for a village that would sooner answer late than expire something.",
+    type: "integer",
+    default: "30",
+    min: 0,
+    max: 3650,
+    unit: "days",
+  },
   // ── R73, 2026-08-29: one allowance, one per-recipient rule ────────────────
   //
   // Three dials used to live here and just above. The economy engine carried
