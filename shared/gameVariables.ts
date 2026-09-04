@@ -1956,7 +1956,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Needs",
     label: "Rung a need aims for when nobody said otherwise",
     description:
-      "The depth a need starts at when the village adopts it without choosing one. The ladder runs Deprived, Unmet, Alive, Satisfied, Thriving, lowest first, and most villages aim at Satisfied across the board and reach for Thriving on two or three. Every need can be moved on its own afterwards; this is only where it starts. The scope editor writes Satisfied today whatever this says, so moving it takes effect once that editor reads it.",
+      "The depth a need starts at when the village adopts it without choosing one. The ladder runs Deprived, Unmet, Alive, Satisfied, Thriving, lowest first, and most villages aim at Satisfied across the board and reach for Thriving on two or three. Every need can be moved on its own afterwards; this is only where it starts. The scope editor reads this: a need adopted without a rung is written at whatever this says, and a need adopted WITH one keeps the rung that was named.",
     type: "choice",
     default: "satisfied",
     choices: NEED_DEPTHS.map((d) => ({ value: d, label: NEED_DEPTH_LABELS[d] })),
@@ -1966,7 +1966,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Needs",
     label: "Share of members a need aims to reach when nobody said otherwise",
     description:
-      "How much of the village a need is meant to cover when it is adopted without a figure. 100 means everybody, which is what the scope editor writes today. Lower it where the village is being honest that a need is met for some and unmet for others. Whole percents only, because the scope table refuses a fraction by name. Every need can be moved on its own afterwards.",
+      "How much of the village a need is meant to cover when it is adopted without a figure. 100 means everybody, which is where the platform starts and what the scope editor writes until this moves. Lower it where the village is being honest that a need is met for some and unmet for others. Whole percents only, because the scope table refuses a fraction by name. Every need can be moved on its own afterwards.",
     type: "integer",
     default: "100",
     min: 0,
@@ -1978,7 +1978,7 @@ export const VARIABLES: VariableDef[] = [
     category: "Needs",
     label: "Smallest count of members that may be shown",
     description:
-      "The smallest number of members whose answers may appear as a count anywhere in the village. Under it the village sees nothing at all, because in a small place a count of one is a name and a count of two is a name and a guess. 3 is the floor the member card and the health series both read once those land. Raise it in a village where people know each other well enough for four to be identifiable.",
+      "The smallest number of members whose answers may appear as a count anywhere in the village. Under it the village sees nothing at all, because in a small place a count of one is a name and a count of two is a name and a guess. 3 is the floor the aggregate keeps and the number the member's own needs card prints into the sentence that says when a count appears. Raise it in a village where people know each other well enough for four to be identifiable.",
     type: "integer",
     default: "3",
     min: 1,
