@@ -18,7 +18,7 @@ a `<!-- generated:name start -->` and its `end` marker is written by
 apart. Do not hand-edit inside the markers: the next generator run overwrites it.
 Everything outside them is prose, and `scripts/check-economics-narrative.mjs` is
 the guard on that half: it fails when the economy's code moved and this document
-did not. Section 17 describes both.
+did not. Section 18 describes both.
 
 **Dates on figures are not decoration.** Every measured number below carries the
 day it was measured. A number in a doc is a claim about a moment.
@@ -36,7 +36,8 @@ day it was measured. A number in a doc is a claim about a moment.
 | 14 | **the exit path**, its ten levers and what is still undecided |
 | 15 | **worked examples with real numbers**, posting by posting |
 | 16 | **the 2026-09-03 rulings**, and which four of the six are built |
-| 17 | how this document is kept true |
+| 17 | **crowdpooling**, and where the boundary between this economy and the hub's falls |
+| 18 | how this document is kept true |
 
 **Reading it for one question.** Is something safe to change? Section 7 if it
 touches a token's scale, section 12 if it touches a member's balance, section 8
@@ -888,7 +889,7 @@ Conservation is checked against `token_balances`, which is a CACHE, and the cach
 - `docs/TOKENS.md` matches the code (`scripts/check-token-doc.mjs`).
 - The generated regions of THIS file match the code
   (`scripts/check-economics-doc.mjs`), and its prose cannot go stale in silence
-  (`scripts/check-economics-narrative.mjs`). See section 17.
+  (`scripts/check-economics-narrative.mjs`). See section 18.
 
 **Convention only, and worth knowing:**
 
@@ -2950,7 +2951,7 @@ two that are left are the two worth reading carefully.
 **This list rotted silently, which is what a list of absences does.** Two lanes
 found R3 and R4 shipped while this section still called them unbuilt, and a
 sentence saying a thing does not exist is exactly the sentence nobody rechecks:
-there is no compiler error for it, no test, and the guard in section 17 cannot
+there is no compiler error for it, no test, and the guard in section 18 cannot
 read prose. So every entry below was re-measured, not only the two that were
 reported.
 
@@ -3147,7 +3148,174 @@ reopen and what it may not.
 
 ---
 
-## 17. How this document is kept true
+## 17. Crowdpooling, and where the boundary falls
+
+**The one sentence to act on: the money mechanics of a crowdpool are the HUB's,
+and this platform's crowdpool module is a window onto them that does not touch the
+village's own token economy at all.** A pledge is not a posting. Nothing in
+sections 1 to 16 changes because a campaign exists, and nothing about a campaign
+changes because a village mints, gives, settles or sweeps.
+
+**That last clause is the one worth checking rather than believing, so it was
+measured five ways at `1861f7d` and all five agree.**
+
+1. **`server/lib/crowdpool.ts` has no imports.** Not the ledger, not the economy,
+   not `spending.ts`, not anything: `grep -n "import" server/lib/crowdpool.ts`
+   returns nothing at all. A module that cannot reach the ledger cannot post to it.
+2. **It is not among the posting call sites.** Section 12's enumeration walks
+   every call to the seven exported writing doors under `server/`; 36 sites, and
+   none of them is in this module or in the routes that serve it.
+3. **No economy file names a campaign or a pledge.** `grep -rniE "\bcampaign|\bpledge"`
+   over `ledger.ts`, `economy.ts`, `spending.ts`, `exchange.ts`, `exit.ts`,
+   `library.ts`, `stays.ts`, `eventSeats.ts`, `voiceClaim.ts`, `mintCap.ts` and
+   `gratitude.ts` returns nothing.
+4. **No mint rule can fire on one.** The only writer of `mint_rules` ROWS is
+   `seedEconomy` (section 16, R2), and the triggers it seeds are `quest.completed`
+   and `role.cycle`. There is no route that creates a rule, so there is no trigger
+   a campaign could be attached to even by an admin.
+5. **It has no dial of its own in the economy's plane.** There is no
+   `crowdpool.*` game variable. The one variable it reads is `governance.hub_url`,
+   which is an address and never an amount, and its campaign list lives in
+   `module_settings` like any other module's config.
+
+So the question a reader arrives with, **how does a pledge relate to the village's
+own tokens**, has a flat answer: it does not. Pledging on the hub issues no
+Gratitude, mints no Credits, moves no Voice and fires no rule. It is not one of
+section 12's seventeen paths that debit a member and not one of section 4's five
+faucets. **The relationship is editorial, not economic.** The bridge page tells a
+village what its raising is doing; the village's own economy is the separate
+thing sections 1 to 16 describe.
+
+### What this side actually does
+
+`server/lib/crowdpool.ts` reads **five** public tRPC procedures off the hub's
+no-auth `/api/trpc`: `campaigns.list` (only to resolve a slug to a numeric id by
+slugified title), `campaigns.getById`, `campaigns.getItems`,
+`campaigns.getActivity` and `campaigns.getPartnerLinks`. The hub sends no CORS
+headers, so a browser cannot read them; the game server proxies through
+`guardedFetchJson`, the same pinned, range-checked dialer the feedback relay uses,
+with a 12 second timeout. The four per-campaign reads go out together.
+
+The cache is memory, TTL **90 seconds** (`CROWDPOOL_TTL_MS`). Every successful
+fetch becomes that key's snapshot, and the `crowdpool-sync` job runs every **10
+minutes** while the module is on, refreshing every configured campaign and writing
+the whole snapshot map into the `crowdpool-snapshots` `app_config` document, so a
+reboot with the hub dark still has the last good numbers. **No new tables, and
+nothing in the module writes to any table the economy reads.**
+
+Two derived figures, both computed here and not read off the hub: `endsAt` is
+`startedAt + durationDays` because the hub stores no end column, and
+`percentDelivered` weights each need's delivered fraction by its estimated value,
+with a need whose `quantityWanted` is 0 contributing nothing instead of dividing
+by zero.
+
+### What a member sees when the hub is unreachable
+
+Three states, and the third is the one that matters:
+
+| State | The list card | The campaign page |
+|---|---|---|
+| Fresh, inside the TTL | the numbers, `stale: false` | the numbers, `stale: false` |
+| Hub refusing, a snapshot exists | the snapshot with `stale: true` and its real `lastSyncAt` | the same, and the page names the AGE of what it is showing |
+| Hub refusing, never synced | `{ key, reachable: false, lastSyncAt: null }` | 503 and the sentence `The hub is out of reach and no snapshot has been kept yet. Try again in a minute.` |
+
+**There is no path that renders a fake zero**, which is the same rule the rest of
+this document holds the economy to: an empty state and a real zero are different
+facts, and a campaign that has raised nothing and a campaign nobody could read
+must never print the same number.
+
+### The fields this side normalises, and the failure they hide
+
+Every normaliser reads NAMED fields off the hub's JSON with `??` fallback chains
+and a default at the end, so **a rename on the hub's side does not error here. It
+falls through to the default, and the panel goes quietly empty or quietly wrong.**
+That is worth knowing where somebody will meet it, because there is no alert for
+it and the sync job will keep reporting success.
+
+- A need takes `id`, `name` through a fallback chain, `kind` defaulting to
+  `item`, `category`, `capitalType` defaulting to `material`, a description read
+  through `resourceDescription` then `roleDescription` then
+  `equipmentDescription` then `landDescription`, `estimatedValue`,
+  `pledgedValue`, the three-slot `quantityWanted` / `quantityClaimed` /
+  `quantityDelivered` meter, `needDeadline`, `priorityPinned` and
+  `groupClaimable`. A need whose `id` does not survive is DROPPED from the list.
+- A campaign takes `id`, `title` defaulting to `Untitled campaign`,
+  `projectName`, `location`, `description`, `status` defaulting to `active`,
+  `currency` defaulting to `USD`, `totalValue`, `pledgedTotal`,
+  `financialTarget`, `pledgedFinancial`, `startedAt`, `durationDays`,
+  `contributorsCount`, `isDemo`, and a cover image through
+  `coverImage.url` then `projectImageUrl` then `generatedImageUrl`.
+- **The activity feed is the one place a rename MISLABELS instead of emptying.**
+  A row is read for an id, a verb, a public display name and a timestamp, each
+  through its own fallback chain: the verb through `type` then `eventType` then
+  `status` then `action`, the name through `contributorName` then `displayName`
+  then `userName` then `username` then `name`, the timestamp through `createdAt`
+  then `at` then `timestamp`. `foldEventType` then folds the verb into the three
+  words the page narrates. **An unknown verb passes through lowercased**, which
+  degrades to an unstyled line and is the safe direction. **A verb that is
+  missing entirely becomes `pledged`**, so a hub that renamed all four of those
+  field names at once would turn every row in the public feed into a pledge. The
+  feed is capped at 60 rows and the partner list at 8.
+- **What is deliberately NOT read off an activity row: any amount, any value,
+  any user id.** The normaliser never touches those fields, a row with no public
+  name travels as `A contributor`, and a test holds the wire clean of them. That
+  is the aggregate-first privacy ruling, and it is the reason this section can
+  say the relationship is editorial: there is no per-person figure crossing the
+  boundary in either direction.
+- Numbers are coerced and strings are clipped at the boundary (a description to
+  600 or 2000 characters, a url to 500), which is the same discipline
+  `postTransfer`'s callers keep and for the same reason: a vendor string that
+  arrives long is a lost record and not a truncated one.
+
+**A finding, not a wording problem, and out of this lane's zone to fix.** Both
+`server/lib/crowdpool.ts:5` and `docs/modules/crowdpool.md` say **four**
+procedures are read and then list **five**. It is the same defect class as 10.37
+in this file, in two more places, and it is the count a reader integrating against
+this module would take at face value. Neither file is this lane's to edit.
+
+### THE SEAM, and it is unconfirmed on the far side
+
+**Everything above is what THIS code does. None of it describes the hub's
+mechanics, and it must not be read as doing so.** A pledge happens on the hub
+page every claim here links out to. What a pledge means, what it commits somebody
+to, and what happens between `pledged`, `delivered` and `thanked` are the hub's to
+state.
+
+Four questions are open with the Crowdpooling session and are **not answered
+here, because answering them from this side would be describing somebody else's
+mechanics from a read path**:
+
+1. Which of the five procedures and which of their fields are stable contract,
+   and which are internal and free to move. The normalisers above are written
+   against a live read taken 2026-08-22 and nothing has promised them.
+2. What a pledge does in the hub's own terms, including whether it is a
+   commitment, a payment, or an intent.
+3. Whether the nine `capitalType` values are theirs to change, and on what notice.
+4. Whether the `quantityWanted` / `quantityClaimed` / `quantityDelivered` meter
+   is theirs to change, and what the three slots mean when they disagree.
+
+**One more thing belongs on the seam, because it is where the boundary would
+move.** The commitments module (D7, designed in
+`docs/modules/crowdpool-dashboard.md`) is the deferred piece that would WRITE:
+post-campaign pledge tracking, fulfillment fanning out into the library and
+quests, pledge linking by email. **That module does not exist in this build.** If
+it is built, the flat answer at the top of this section stops being flat, and
+this section is where the new answer goes.
+
+One presentation decision is worth stating because it looks like an omission and
+is not. Each need's `capitalType` IS used here: it tints the need's tile and is
+named in a sentence on the campaign page. What is deliberately absent is the
+hub's nine-segment capital-stack WIDGET, because the capitals framework is not
+part of the living map's vocabulary. And the word "needs"
+collides: a crowdpool `CrowdpoolNeed` is read-only mirror data with a capital
+type, an estimated value and a pledge meter, while the village's own ten
+`HUMAN_NEEDS` (`shared/needs.ts`, R1 in section 16) carry none of those and scope
+the `village_needs` table. The two can appear on one admin panel. They are not
+the same thing and neither reads the other.
+
+---
+
+## 18. How this document is kept true
 
 Two guards, because the document has two halves.
 
