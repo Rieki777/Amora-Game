@@ -40,3 +40,25 @@ export const CONTENT_SECTIONS = [
   // the number. Amora's own wording is in server/seeds/pages-covenant-seed.json.
   { key: "covenant", label: "Love Letter Covenant", icon: FileText },
 ] as const;
+
+/**
+ * The document a section starts as when this village has never saved it.
+ *
+ * GET /api/content/:section answers 404 for a section nobody has written
+ * yet, which is the correct answer and the ordinary state of every fresh
+ * instance. The editor needs SOMETHING to put in the box in that case, and
+ * the one thing it must never put there is the 404's own body: it used to,
+ * and Save then wrote {"error":"Section not found"} into the village as real
+ * content. See the load() in client/src/pages/Admin.tsx for the full account.
+ *
+ * `team` is an ARRAY of cards and everything else is an object keyed by
+ * field. Getting this wrong is not cosmetic either: the team card editor
+ * only renders when the parsed value is an array, so handing it `{}` would
+ * silently drop a founder back to raw JSON on the one section that has a
+ * friendly editor.
+ */
+const ARRAY_SECTIONS = new Set<string>(["team"]);
+
+export function emptyContentFor(sectionKey: string): unknown[] | Record<string, never> {
+  return ARRAY_SECTIONS.has(sectionKey) ? [] : {};
+}

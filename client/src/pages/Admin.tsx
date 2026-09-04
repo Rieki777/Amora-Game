@@ -39,7 +39,7 @@ import MapVocabularyPanel from "@/components/admin/MapVocabularyPanel";
 import EventsAdminPanel from "@/components/EventsAdminPanel";
 import ResourcesAdminPanel from "@/components/power/ResourcesAdminPanel";
 import { CrowdpoolAdminTab, ForumCategoriesEditor, ToolsCategoriesEditor } from "@/components/admin/ModuleConfigPanels";
-import { CONTENT_SECTIONS } from "@/components/admin/contentSections";
+import { CONTENT_SECTIONS, emptyContentFor } from "@/components/admin/contentSections";
 import { navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
 import { SETUP_STEPS, measureSetup, setupIsComplete } from "@/components/admin/setupProgress";
 import TokenNamingLink from "@/components/admin/TokenNamingLink";
@@ -1011,7 +1011,7 @@ function SubmissionsTab({ password }: { password: string }) {
 
 // ── Content Editor Tab ────────────────────────────────────────────────────────
 
-function ContentEditorTab({ password, sectionKey, sectionLabel }: {
+export function ContentEditorTab({ password, sectionKey, sectionLabel }: {
   password: string;
   sectionKey: string;
   sectionLabel: string;
@@ -1028,15 +1028,69 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
    */
   const [saveError, setSaveError] = useState("");
   const [saved, setSaved] = useState(false);
+  /**
+   * Set when the LOAD could not establish what this section currently holds.
+   *
+   * It is not the same as "this section is empty", and the difference is the
+   * whole point: an empty section is safe to save over, a section whose
+   * contents are unknown is not. While this is set, saving is refused.
+   */
+  const [loadError, setLoadError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const res = await fetch(`${API_BASE}/content/${sectionKey}`);
+      /*
+       * THE BODY OF A FAILED RESPONSE IS NOT CONTENT.
+       *
+       * This read `const data = await res.json()` with no status check, so
+       * GET /api/content/:section answering 404 {"error":"Section not found"}
+       * (server/index.ts, the expected answer for a section this village has
+       * never saved) put that object in the editor as if it were the
+       * village's own words. Every founder opening Legal & Jurisdiction
+       * Notices or Love Letter Covenant on a fresh instance saw it, because
+       * a fresh instance has saved none of them.
+       *
+       * The damage was not the display. `save()` PUTs whatever is in this
+       * box, and the PUT route assigns `content[section] = req.body`
+       * unvalidated, so pressing Save Changes wrote {"error":"Section not
+       * found"} into the village as REAL content. The section then answered
+       * 200 with that object forever after, which is strictly worse than the
+       * 404: useVillageContent reads a 404 as `isPlaceholder` and renders a
+       * neutral placeholder, and a 200 defeats that fallback. The public
+       * Love Letter would have gone on serving a covenant with no opening
+       * and no governance paragraph, with no way back through this screen.
+       *
+       * A never-saved section is EMPTY. That is what the public reader
+       * already believes (see client/src/hooks/useVillageContent.ts) and
+       * this editor now agrees with it.
+       */
+      if (res.status === 404) {
+        setRaw(JSON.stringify(emptyContentFor(sectionKey), null, 2));
+        setLoading(false);
+        return;
+      }
+      if (!res.ok) {
+        // Any OTHER failure is genuinely unknown ground. Do not offer an
+        // empty document to save over content that may well exist.
+        setLoadError(
+          `This section could not be read (${res.status}), so what it holds right now is unknown. ` +
+          `Saving is blocked until a read succeeds, because saving from here could overwrite real content with a blank.`,
+        );
+        setRaw("");
+        setLoading(false);
+        return;
+      }
       const data = await res.json();
       setRaw(JSON.stringify(data, null, 2));
     } catch {
-      setRaw("// Error loading content");
+      setLoadError(
+        "This section could not be read: the request did not reach the server. " +
+        "Saving is blocked until a read succeeds.",
+      );
+      setRaw("");
     }
     setLoading(false);
   }, [sectionKey]);
@@ -1048,12 +1102,37 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
 
   const save = async () => {
     setParseError("");
+    /*
+     * A save is only ever safe on top of a KNOWN current state. If the read
+     * failed we do not have one, so this refuses rather than writing a blank
+     * over content that may exist. The 404 case is not this case: a 404 is a
+     * successful read establishing that the section is empty.
+     */
+    if (loadError) {
+      setSaveError("This section has not been read successfully yet, so there is nothing safe to save over. Press refresh first.");
+      return;
+    }
     let parsed;
     try {
       parsed = JSON.parse(raw);
     } catch (e: any) {
       setParseError("Invalid JSON: " + e.message);
       return;
+    }
+    /*
+     * The last line of defence, and it is deliberately narrow: a document
+     * whose ONLY key is `error` is an error envelope that reached this box by
+     * some route, never a village's own content. It is checked here as well
+     * as at load because this box is editable and pasteable, and because the
+     * PUT route stores req.body unvalidated: whatever passes here becomes
+     * what the public pages serve.
+     */
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const keys = Object.keys(parsed);
+      if (keys.length === 1 && keys[0] === "error") {
+        setSaveError(`This looks like an error message ("${String((parsed as any).error)}"), not content. Saving it would publish it. Clear the box to start this section from scratch.`);
+        return;
+      }
     }
     // Blank list entries are trimmed HERE, not while typing — see the
     // "one per line" textarea's comment. Typing must never rewrite what
@@ -1148,6 +1227,12 @@ function ContentEditorTab({ password, sectionKey, sectionLabel }: {
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <p role="alert" className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          {loadError}
+        </p>
+      )}
 
       {saveError && (
         <p role="alert" className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -10055,9 +10140,20 @@ function SettingsTab({ password }: { password: string }) {
 
 // ── Work With Us content tab (exchange types + Maia) ──────────────────────────
 
-function WorkWithUsTab({ password }: { password: string }) {
+export function WorkWithUsTab({ password }: { password: string }) {
   const [cfg, setCfg] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  /*
+   * HOISTED, and it must stay hoisted. This read used to sit inline in the
+   * JSX, below `if (!cfg) return <Loading/>`, which made it a CONDITIONAL
+   * hook: the loading render never reached it, the loaded render did, the
+   * hook count changed between the two and React threw "Rendered more hooks
+   * than during the previous render". The tab crashed to the error screen
+   * every single time it was opened, because the fetch always resolves after
+   * the first paint. `useGameConfig` is a hook, not a getter, however much
+   * `useGameConfig()?.currency?.name` reads like one.
+   */
+  const gameConfig = useGameConfig();
 
   useEffect(() => {
     fetch(`${API_BASE}/admin/work-with-us-config`, { headers: authHeaders(password) })
@@ -10110,7 +10206,7 @@ function WorkWithUsTab({ password }: { password: string }) {
             <input type="text" value={cfg.assistantName ?? ""} onChange={(e) => setCfg({ ...cfg, assistantName: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-700 block mb-1">{useGameConfig()?.currency?.name ?? "recognition"} on accepted proposal</label>
+            <label className="text-sm font-medium text-gray-700 block mb-1">{gameConfig?.currency?.name ?? "recognition"} on accepted proposal</label>
             <input type="number" min={0} value={cfg.acceptGratitude ?? 0} onChange={(e) => setCfg({ ...cfg, acceptGratitude: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
           </div>
         </div>
