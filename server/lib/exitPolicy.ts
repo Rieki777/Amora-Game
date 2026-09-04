@@ -538,7 +538,11 @@ export function exitSetRefusals(reading: ExitLeverReading): ExitSetRefusal[] {
  * dial the same set is about to move can never make this answer wrong. The set
  * pass is where a pair is judged.
  */
-export function exitElementRefusal(key: string, proposed: string): string | null {
+export function exitElementRefusal(
+  key: string,
+  proposed: string,
+  tokens: ReadonlyArray<ExitLeverToken> = exitLeverTokens(),
+): string | null {
   if (!key.startsWith("exit.")) return null;
   const value = String(proposed).trim();
   const found = exitLeverFindings({
@@ -546,7 +550,7 @@ export function exitElementRefusal(key: string, proposed: string): string | null
     // Nothing an element can say about a cooling period is true on its own,
     // and this is what keeps that rule silent here instead of guessing a term.
     noticePeriodDays: Number.POSITIVE_INFINITY,
-    tokens: exitLeverTokens(),
+    tokens,
   }).find((f) => f.severity === "refusal" && f.scope === "element" && f.keys.includes(key));
   return found?.message ?? null;
 }
