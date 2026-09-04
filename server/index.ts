@@ -4797,7 +4797,7 @@ async function anonymizeMember(target: any, actorId: string | null): Promise<Era
   // ── Lane C: the stores outside this village ────────────────────────────────
   // Asked AFTER the local sweep, so a slow or refusing driver never delays the
   // one deletion this deployment fully controls.
-  const external = await forgetMemberEverywhere(target.id);
+  const external = await forgetMemberEverywhere(getPool(), target.id);
   for (const miss of external.unconfirmed) {
     // An erasure that did not complete is a fact about an OBLIGATION, so it
     // gets an audit row of its own beside the integration_health failure the
@@ -27945,7 +27945,7 @@ ${inner}
        * could not be read is NAMED in the file the member downloads, so a
        * partial export announces itself instead of looking complete.
        */
-      externalStores: await exportMemberEverywhere(user.id),
+      externalStores: await exportMemberEverywhere(getPool(), user.id),
     };
     res.setHeader("Content-Disposition", `attachment; filename="my-data-${user.id}.json"`);
     res.json(exportDoc);
