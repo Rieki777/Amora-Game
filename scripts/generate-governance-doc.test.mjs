@@ -44,10 +44,13 @@ import {
   generate,
   namedDialProblem,
   proseCoverageProblem,
+  proseOf,
   quorumSentence,
   renderLineage,
   schemaFacts,
+  stewardNoReachSentence,
   subjectCoverageProblem,
+  tokenSendReach,
 } from "./generate-governance-doc.mjs";
 import { checkSpan } from "./check-voice.mjs";
 
@@ -288,6 +291,89 @@ check("every withdrawn sentence carries the date it was struck", () => {
   }
 });
 
+console.log("\ngenerate-governance-doc: a steward's no needs something to fire on\n");
+
+/*
+ * THE RULE IS ARITHMETIC UNTIL A PAYOUT CAN REACH IT.
+ *
+ * `stewardNoBlocks` returns early on anything that is not a token send, and
+ * nothing in production is one. `SUBJECT_CLOSERS` holds no payout subject, so
+ * `openBallot` refuses to open a binding ballot on `token_send`, `quest_payout`
+ * or `founding_allocation`; `EXECUTABLE_ITEM_KINDS` holds no token-send
+ * element, so `validateChangeSet` refuses a change set carrying one. The
+ * document stated the block flatly anyway, which is the one thing this
+ * generator exists to stop. These pin the sentence to the code in BOTH
+ * directions: it cannot claim a live rule while nothing can run it, and it
+ * cannot go on hedging once a payout subject or an executable element lands.
+ */
+
+check("with no closer and no executable element, nothing reaches the block", () => {
+  const reach = tokenSendReach(
+    { forSubject: { token_send: "token_send", role_seat: "game_change" }, forItem: { token_send: "token_send", dial: "game_change" } },
+    { all: ["mechanics", "role_seat"] },
+    { executableKinds: ["dial", "mint_rule"] },
+  );
+  assert.deepStrictEqual(reach.subjects, ["token_send"]);
+  assert.deepStrictEqual(reach.itemKinds, ["token_send"]);
+  assert.deepStrictEqual(reach.subjectsThatClose, []);
+  assert.deepStrictEqual(reach.itemKindsBuildable, []);
+  assert.strictEqual(reach.reachable, false);
+});
+
+check("one payout subject with a closer is enough to reach it", () => {
+  const reach = tokenSendReach(
+    { forSubject: { token_send: "token_send" }, forItem: { dial: "game_change" } },
+    { all: ["mechanics", "token_send"] },
+    { executableKinds: ["dial"] },
+  );
+  assert.deepStrictEqual(reach.subjectsThatClose, ["token_send"]);
+  assert.strictEqual(reach.reachable, true);
+});
+
+check("one executable token-send element is enough to reach it", () => {
+  const reach = tokenSendReach(
+    { forSubject: { token_send: "token_send" }, forItem: { token_send: "token_send" } },
+    { all: ["mechanics"] },
+    { executableKinds: ["dial", "token_send"] },
+  );
+  assert.deepStrictEqual(reach.itemKindsBuildable, ["token_send"]);
+  assert.strictEqual(reach.reachable, true);
+});
+
+check("THE SENTENCE SAYS WHICHEVER OF THE TWO THE CODE IS", () => {
+  const unreachable = {
+    tokenSend: { subjects: ["token_send", "quest_payout"], itemKinds: ["token_send"], subjectsThatClose: [], itemKindsBuildable: [], reachable: false },
+  };
+  const built = {
+    tokenSend: { subjects: ["token_send"], itemKinds: ["token_send"], subjectsThatClose: ["token_send"], itemKindsBuildable: [], reachable: true },
+  };
+  assert.match(stewardNoReachSentence(unreachable), /no subject reaches it yet/);
+  assert.match(stewardNoReachSentence(unreachable), /`quest_payout`/);
+  const yes = stewardNoReachSentence(built);
+  assert.ok(!/no subject reaches it yet/.test(yes), yes);
+  assert.match(yes, /`token_send`/);
+});
+
+check("THE DOCUMENT CARRIES THE MARK EXACTLY WHILE THE CODE CANNOT FIRE", () => {
+  const f = collectFacts();
+  const text = generate();
+  assert.strictEqual(
+    text.includes("no subject reaches it yet"),
+    !f.tokenSend.reachable,
+    f.tokenSend.reachable
+      ? "a payout reaches a binding ballot now, so the hedge has to come out of PROSE.stewardNo and ruling 28"
+      : "the document states a steward's no as a live rule while no token send can reach a ballot",
+  );
+  // The paragraph a member meets first, not only the rulings appendix.
+  const paragraph = text.split("\n").find((l) => l.includes("**A seated steward's no.**"));
+  assert.ok(paragraph, "the steward's no paragraph is gone from the document");
+  assert.strictEqual(paragraph.includes("no subject reaches it yet"), !f.tokenSend.reachable, paragraph);
+  // And ruling 28's own status line answers off the same fact.
+  const ruling = RULINGS.find((r) => r.id === 28);
+  assert.ok(ruling, "ruling 28 is gone");
+  assert.strictEqual(/Half built/.test(ruling.status(f)), !f.tokenSend.reachable, ruling.status(f));
+});
+
 console.log("\ngenerate-governance-doc: the written half\n");
 
 check("every entry in PROSE renders, and every marker names an entry", () => {
@@ -312,7 +398,11 @@ check("EVERY HUMAN SENTENCE KEEPS THE HOUSE WRITING RULES", () => {
   const span = (label, text) => {
     for (const hit of checkSpan(text)) complaints.push(`${label}: ${hit[0]} (${hit[1]})`);
   };
-  for (const [key, text] of Object.entries(PROSE)) span(`PROSE.${key}`, text);
+  // A few entries read the code and are written as a function of the facts, so
+  // they are resolved before they are checked. An unresolved one would sail
+  // through as "[object Function]" and never be read by this guard again.
+  const prosefacts = collectFacts();
+  for (const key of Object.keys(PROSE)) span(`PROSE.${key}`, proseOf(key, prosefacts));
   for (const [key, text] of Object.entries(SUBJECT_WORDS)) span(`SUBJECT_WORDS.${key}`, text);
   // The struck sentences are somebody's words too, and they render on the page
   // like any other paragraph.

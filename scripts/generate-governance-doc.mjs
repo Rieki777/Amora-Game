@@ -722,6 +722,19 @@ export function weightFacts(root = ROOT) {
 export function changeSetFacts(root = ROOT) {
   const rel = "server/lib/mechanics.ts";
   const abs = absOf(root, rel);
+  /*
+   * WHAT THIS BUILD CAN ACTUALLY CARRY OUT, not what the type union allows.
+   *
+   * `validateChangeSet` refuses any element outside `EXECUTABLE_ITEM_KINDS`
+   * before a vote opens, so a kind absent from it can never be voted on here
+   * however completely the rest of the document describes it. That is the fact
+   * behind the steward's no, whose whole rule is about a kind this list does
+   * not hold.
+   */
+  const executableKinds = listConst(root, rel, "EXECUTABLE_ITEM_KINDS").map(String);
+  if (!executableKinds.length) {
+    fail(`${rel}: EXECUTABLE_ITEM_KINDS is empty; a build that can carry out nothing is not a shape this document can describe`);
+  }
   // The cap is read from the exported constant when there is one, because a
   // named export survives a refactor that a literal in a comparison does not.
   // The old inline shape is still accepted so this keeps answering for a tree
@@ -730,14 +743,45 @@ export function changeSetFacts(root = ROOT) {
   if (named) {
     const cap = literalOf(named, abs);
     if (typeof cap !== "number") fail(`${rel} declares CHANGE_SET_CAP as something other than a number`);
-    return { maxChanges: cap };
+    return { maxChanges: cap, executableKinds };
   }
   const text = fs.readFileSync(abs, "utf8");
   const m = /changes\.length\s*>\s*(\d+)/.exec(text);
   if (!m) {
     fail(`${rel} caps a change set neither with CHANGE_SET_CAP nor with "changes.length > N"; the dial ceiling is read from one of them`);
   }
-  return { maxChanges: Number(m[1]) };
+  return { maxChanges: Number(m[1]), executableKinds };
+}
+
+/**
+ * CAN A TOKEN SEND REACH A BALLOT AT ALL TODAY?
+ *
+ * A steward's no fails a token send and nothing else, so the rule is live only
+ * while some token send can be voted on. Two doors reach one: a SUBJECT type
+ * with a closer in `SUBJECT_CLOSERS`, because a binding ballot cannot open on a
+ * subject with no closer, and a change-set ELEMENT kind inside
+ * `EXECUTABLE_ITEM_KINDS`, because validation refuses the rest. Both are read
+ * from the code so this answer moves the day either one does.
+ *
+ * The document said the block happens, flatly, while neither door existed. A
+ * generated document repeating a ruling the code cannot perform is worse than a
+ * hand-written one, because a reader trusts it more.
+ */
+export function tokenSendReach(kinds, dispatcher, changeSet) {
+  const closes = new Set(dispatcher.all);
+  const executable = new Set(changeSet.executableKinds);
+  const sends = (record) => Object.keys(record).filter((k) => record[k] === "token_send");
+  const subjects = sends(kinds.forSubject);
+  const itemKinds = sends(kinds.forItem);
+  const subjectsThatClose = subjects.filter((s) => closes.has(s));
+  const itemKindsBuildable = itemKinds.filter((k) => executable.has(k));
+  return {
+    subjects,
+    itemKinds,
+    subjectsThatClose,
+    itemKindsBuildable,
+    reachable: subjectsThatClose.length > 0 || itemKindsBuildable.length > 0,
+  };
 }
 
 /** Starting the Game: the one row that says a village has, and what it refuses until then. */
@@ -1528,12 +1572,12 @@ const PROSE = {
     "The veto lives on the BALLOT, and a proposal's display of it derives from that proposal's current ballot. " +
     "Stamping it on the proposal row instead is how a village that answers its steward's objection and passes the " +
     "same proposal again gets skipped by the landing gate forever.",
-  stewardNo:
+  stewardNo: (f) =>
     "**A seated steward's no.** On a token-send ballot only, a seated steward voting no fails it at the close. Never " +
     "on a ballot the steward is the subject of. It needs a reason under the veto's own rule, and the row closes as " +
     "vetoed with the steward named, so the override and the dashboard's blocked-payouts row both reach it. The " +
     "steward's own weight counts in the tally like anybody's. A token send has no window after it closes, so the " +
-    "block has to happen while the ballot is open.",
+    `block has to happen while the ballot is open. ${stewardNoReachSentence(f)}`,
   notVetoable:
     "**What no steward may stop.** Seating and unseating a role that carries the veto, and any edit to the settings " +
     "that say what a steward may stop, keep their timing and their window like any Game change and sit outside every " +
@@ -1813,6 +1857,24 @@ export function dialCoverageProblem(keys, known = KNOWN_DIALS) {
     );
   }
   return null;
+}
+
+/**
+ * ONE PROSE ENTRY, RESOLVED, whether it is a sentence or a reading of the code.
+ *
+ * Most entries are a person's fixed words. A few say something whose truth
+ * depends on what is built, and those are written as a function of the facts
+ * rather than as a sentence somebody has to remember to revisit. A ruling's
+ * note has always worked this way; this is the same door for the paragraphs a
+ * member meets before the appendix. Both shapes still render under the same
+ * marker, because the words are a person's either way.
+ */
+export function proseOf(key, f, who = "render()", prose = PROSE) {
+  const entry = prose[key];
+  if (!entry) fail(`${who} asked for the prose entry "${key}", which PROSE does not hold`);
+  const text = typeof entry === "function" ? entry(f) : entry;
+  if (!text) fail(`${who} asked for the prose entry "${key}" and it rendered as nothing`);
+  return text;
 }
 
 /**
@@ -2300,13 +2362,16 @@ const RULINGS = [
       "However if a steward votes down on a token payment proposal than it fails automatically.",
       "Yes stewards can also block payouts, and yes to the veto override",
     ],
-    status: (f) => (f.staged.steward ? "**Staged.** Not built." : "**Built.**"),
-    note: () =>
+    status: (f) => {
+      if (f.staged.steward) return "**Staged.** Not built.";
+      return f.tokenSend.reachable ? "**Built.**" : "**Half built.**";
+    },
+    note: (f) =>
       "A seated steward voting no on a token-send ballot fails it at the close, with the steward named and the reason on " +
       "the record, and the row closes as vetoed so the override and the dashboard both reach it. Two narrowings are the " +
       "build's own reading and are recorded as such: it applies to token sends and never to every ballot, and a steward " +
       "cannot fail a ballot they are the subject of. Because a token send has no window after it closes, the block " +
-      "happens while the ballot is open.",
+      `happens while the ballot is open. ${stewardNoReachSentence(f)}`,
   },
   {
     id: 29,
@@ -2651,6 +2716,7 @@ export function collectFacts(root = ROOT) {
 
   return {
     commit,
+    tokenSend: tokenSendReach(kinds, dispatcher, changeSet),
     dispatcher,
     subjects: subjectRows,
     launchFloor: launchSubject,
@@ -2705,8 +2771,37 @@ function table(headers, rows) {
 
 const code = (s) => `\`${s}\``;
 const list = (xs) => xs.map(code).join(", ");
+/** The same, joined the way a sentence joins them, for prose rather than a table cell. */
+const andList = (xs) => {
+  const parts = xs.map(code);
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+};
 /** "a" or "an", so a ring name read out of the code never renders as `a open`-ring. */
 const an = (word) => (/^[aeiou]/i.test(String(word)) ? "an" : "a");
+
+/**
+ * WHETHER A STEWARD'S NO CAN FIRE YET, in one sentence, derived from the code.
+ *
+ * The pattern ruling 31 already uses for the non-human seat: say that the
+ * arithmetic is built and name what has not arrived. `tokenSendReach` reads the
+ * two doors, this turns the answer into the sentence, and the self-test pins
+ * them together in both directions so neither half can go stale alone.
+ */
+export function stewardNoReachSentence(f) {
+  const t = f.tokenSend;
+  if (t.reachable) {
+    const doors = [...t.subjectsThatClose, ...t.itemKindsBuildable];
+    return `A village can put one to a vote today: ${andList(doors)}.`;
+  }
+  return (
+    "The arithmetic is built and no subject reaches it yet. " +
+    `The token-send subject types are ${andList(t.subjects)}; none of them has a closer, and a binding ballot cannot ` +
+    `open on a subject with no closer. The token-send change-set element is ${andList(t.itemKinds)}; this build ` +
+    "cannot carry one out, so validation refuses a change set holding one. The block is written and waiting for the " +
+    "first payout a village can put to a vote."
+  );
+}
 
 /**
  * WHAT QUORUM COUNTS, in one sentence, derived from the arithmetic.
@@ -2761,15 +2856,13 @@ export function render(f) {
   const p = (s = "") => L.push(s);
   /** A person's sentence, marked in the source of the document where it appears. */
   const say = (key) => {
-    const text = PROSE[key];
-    if (!text) fail(`render() asked for the prose entry "${key}", which PROSE does not hold`);
+    const text = proseOf(key, f, "render()");
     p(`<!-- written by a person: ${key} -->`);
     p(text);
   };
   /** The same, indented so it continues the list item above it. */
   const sayUnder = (key) => {
-    const text = PROSE[key];
-    if (!text) fail(`render() asked for the prose entry "${key}", which PROSE does not hold`);
+    const text = proseOf(key, f, "render()");
     p(`  <!-- written by a person: ${key} -->`);
     p(`  ${text}`);
   };
@@ -3585,14 +3678,12 @@ export function renderLineage(f) {
   const L = [];
   const p = (s = "") => L.push(s);
   const say = (key) => {
-    const text = PROSE[key];
-    if (!text) fail(`renderLineage() asked for the prose entry "${key}", which PROSE does not hold`);
+    const text = proseOf(key, f, "renderLineage()");
     p(`<!-- written by a person: ${key} -->`);
     p(text);
   };
   const sayUnder = (key) => {
-    const text = PROSE[key];
-    if (!text) fail(`renderLineage() asked for the prose entry "${key}", which PROSE does not hold`);
+    const text = proseOf(key, f, "renderLineage()");
     p(`  <!-- written by a person: ${key} -->`);
     p(`  ${text}`);
   };

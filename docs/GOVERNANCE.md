@@ -11,7 +11,7 @@ This describes a FRESH village: what a village standing up a new instance holds 
 <!-- written by a person: generated -->
 This file is generated. `scripts/generate-governance-doc.mjs` reads the engine, the subject registry, the dials, the capability tables, the module definition, the clock and the route registrations, works out the facts, and writes the whole document. `scripts/check-governance-doc.mjs` regenerates it and fails the build when the committed text and the code have come apart.
 
-It describes the code at commit `2ab5e230076fe7b2d73e49f25e376f443abf4ecf`.
+It describes the code at commit `7abc3461637d07ffa0b548912cde5a2a6ec21da4`.
 
 <!-- written by a person: editing -->
 Editing this file by hand does not hold. Change the code, then run:
@@ -297,7 +297,7 @@ A veto is a first-class act. It carries the name of the steward who cast it, a r
 The veto lives on the BALLOT, and a proposal's display of it derives from that proposal's current ballot. Stamping it on the proposal row instead is how a village that answers its steward's objection and passes the same proposal again gets skipped by the landing gate forever.
 
 <!-- written by a person: stewardNo -->
-**A seated steward's no.** On a token-send ballot only, a seated steward voting no fails it at the close. Never on a ballot the steward is the subject of. It needs a reason under the veto's own rule, and the row closes as vetoed with the steward named, so the override and the dashboard's blocked-payouts row both reach it. The steward's own weight counts in the tally like anybody's. A token send has no window after it closes, so the block has to happen while the ballot is open.
+**A seated steward's no.** On a token-send ballot only, a seated steward voting no fails it at the close. Never on a ballot the steward is the subject of. It needs a reason under the veto's own rule, and the row closes as vetoed with the steward named, so the override and the dashboard's blocked-payouts row both reach it. The steward's own weight counts in the tally like anybody's. A token send has no window after it closes, so the block has to happen while the ballot is open. The arithmetic is built and no subject reaches it yet. The token-send subject types are `token_send`, `quest_payout` and `founding_allocation`; none of them has a closer, and a binding ballot cannot open on a subject with no closer. The token-send change-set element is `token_send`; this build cannot carry one out, so validation refuses a change set holding one. The block is written and waiting for the first payout a village can put to a vote.
 
 <!-- written by a person: notVetoable -->
 **What no steward may stop.** Seating and unseating a role that carries the veto, and any edit to the settings that say what a steward may stop, keep their timing and their window like any Game change and sit outside every steward's reach. A seat that could veto its own removal is a seat nobody can remove. A change set mixing one of those elements with any other kind is refused when it is validated, naming both elements, so the carve-out cannot carry anything else through beside it.
@@ -873,7 +873,7 @@ This is the ruling the whole model turns on, and it withdraws the approval gate 
 
 ### 28. A steward's no fails a token payment, and a veto can be overridden
 
-**Built.** Status computed from the code. Said 2026-09-03.
+**Half built.** Status computed from the code. Said 2026-09-03.
 
 <!-- the founder's own words -->
 > However if a steward votes down on a token payment proposal than it fails automatically.
@@ -882,7 +882,7 @@ This is the ruling the whole model turns on, and it withdraws the approval gate 
 > Yes stewards can also block payouts, and yes to the veto override
 
 <!-- written by a person: ruling-28 -->
-A seated steward voting no on a token-send ballot fails it at the close, with the steward named and the reason on the record, and the row closes as vetoed so the override and the dashboard both reach it. Two narrowings are the build's own reading and are recorded as such: it applies to token sends and never to every ballot, and a steward cannot fail a ballot they are the subject of. Because a token send has no window after it closes, the block happens while the ballot is open.
+A seated steward voting no on a token-send ballot fails it at the close, with the steward named and the reason on the record, and the row closes as vetoed so the override and the dashboard both reach it. Two narrowings are the build's own reading and are recorded as such: it applies to token sends and never to every ballot, and a steward cannot fail a ballot they are the subject of. Because a token send has no window after it closes, the block happens while the ballot is open. The arithmetic is built and no subject reaches it yet. The token-send subject types are `token_send`, `quest_payout` and `founding_allocation`; none of them has a closer, and a binding ballot cannot open on a subject with no closer. The token-send change-set element is `token_send`; this build cannot carry one out, so validation refuses a change set holding one. The block is written and waiting for the first payout a village can put to a vote.
 
 ### 29. The override tier, the governance windows, the notices and the countdown
 
@@ -1028,7 +1028,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
 
 ```json
 {
-  "commit": "2ab5e230076fe7b2d73e49f25e376f443abf4ecf",
+  "commit": "7abc3461637d07ffa0b548912cde5a2a6ec21da4",
   "module": {
     "id": "governance",
     "shipsAs": "off",
@@ -2562,7 +2562,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-09-03"
       ],
-      "status": "Built.",
+      "status": "Half built.",
       "statusBasis": "computed"
     },
     {
