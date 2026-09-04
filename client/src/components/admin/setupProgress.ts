@@ -246,6 +246,21 @@ export interface SetupObservation {
   filled?: number;
   total?: number;
   detail?: string;
+  /**
+   * Whether a founder's tick may still carry this step. Defaults to true,
+   * which is the behaviour every step had before this field existed.
+   *
+   * FALSE IS FOR A STEP WHOSE BLANK IS NEVER A DELIBERATE ANSWER. The carry
+   * exists because a blank is sometimes the real answer: a village states its
+   * own land figures or states none, so a founder may say "this is finished"
+   * over a reading of `todo`. That reasoning does not reach the needs scope. A
+   * village with no needs in scope has not answered the question, and the row
+   * renders no checkbox anyway (SetupSection draws one only for a `declared`
+   * row), so a carry there would be a `true` sitting in the brand document
+   * from some earlier version of this list with no control able to clear it.
+   * That is the ticked-box outage in its newest shape.
+   */
+  carryable?: boolean;
 }
 
 export type SetupObservations = Partial<Record<SetupStepKey, SetupObservation>>;
@@ -322,7 +337,7 @@ export function measureSetup(
     /* A step read from somewhere else. The observation is the default answer,
        and a tick may still carry it, visibly. */
     if (observation) {
-      const carried = observation.state !== "done" && ticked;
+      const carried = observation.carryable !== false && observation.state !== "done" && ticked;
       const state: SetupState = carried ? "done" : observation.state;
       return {
         ...base,
@@ -422,6 +437,7 @@ export function needsObservation(reading: NeedsScopeReading | null | undefined):
     return {
       needs: {
         state: "unknown",
+        carryable: false,
         detail: "The needs scope has not been read back yet, so this row says nothing either way.",
       },
     };
@@ -431,6 +447,7 @@ export function needsObservation(reading: NeedsScopeReading | null | undefined):
     return {
       needs: {
         state: "done",
+        carryable: false,
         filled: reading.adopted,
         total,
         detail: `This village has taken on ${reading.adopted} of the ${total} needs on its list.`,
@@ -440,6 +457,7 @@ export function needsObservation(reading: NeedsScopeReading | null | undefined):
   return {
     needs: {
       state: "todo",
+      carryable: false,
       filled: 0,
       total,
       detail: reading.answered
