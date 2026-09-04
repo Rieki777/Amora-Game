@@ -96,6 +96,7 @@
  *   node scripts/check-economics-narrative.mjs --base origin/main
  *   node scripts/check-economics-narrative.mjs --list   print the surface and stop
  */
+import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -108,51 +109,103 @@ export const ROOT = path.resolve(
 export const DOC = "docs/ECONOMICS.md";
 
 /**
- * ── THE ECONOMY SURFACE ────────────────────────────────────────────────────
+ * ── THE ECONOMY SURFACE, AND THE RULE FOR BEING ON IT ──────────────────────
  *
- * Every file whose change makes some sentence in docs/ECONOMICS.md possibly
- * wrong. Reviewable on purpose: argue with any line of it.
+ * THE RULE, in one sentence: **any file that calls `postTransfer`,
+ * `postTransferOn`, `postTransferPair`, `mint` or `reverse` is on the
+ * surface**, because a file that moves value can make some sentence in
+ * docs/ECONOMICS.md wrong. If you are adding a posting to a new file, you do
+ * not need to edit this script: the list below is DERIVED from those calls
+ * every time the guard runs, so your file is on the surface the moment the
+ * call is there.
  *
- * The engine itself. Each of these has at least one section of the document
- * describing what it does in prose that a machine cannot regenerate.
+ * WHY IT IS DERIVED AND NOT TYPED. It was typed, with nine entries, and it
+ * omitted `eventSeats.ts`, `library.ts`, `exchange.ts`, `stays.ts` and
+ * `routes/stays.ts` -- five files that all post to the ledger. Four sweep
+ * lanes changed them and satisfied this guard without it ever looking at their
+ * work, which is the same "unchecked reads as passed" failure the guard exists
+ * to prevent, one level up. A hand-kept list of files that move value is a
+ * promise nobody checks; the calls themselves are the fact.
+ *
+ * The derivation deliberately EXCLUDES a leading dot, so `rows.reverse()` and
+ * `list.map(...)` are not mistaken for the ledger's `reverse()`. Measured
+ * against the tree at the time of writing it selects exactly eleven files and
+ * every one of them genuinely posts.
+ *
+ * SURFACE_ALWAYS below is the other half: files that are on the surface for a
+ * reason other than posting, which no grep can find. Those stay typed out,
+ * each with the reason, because each is a judgement.
  */
-export const SURFACE_FILES = [
-  // The mint, the rules, the cycle, the allowance, the occurrence keys.
-  "server/lib/economy.ts",
-  // postTransfer, the invariants, the account constants, the registry.
-  "server/lib/ledger.ts",
-  // The sinks, the sending firewall, and every refusal a member reads.
+export const POSTING_CALLS = ["postTransfer", "postTransferOn", "postTransferPair", "mint", "reverse"];
+
+/**
+ * A call to one of the posting functions, not a method of the same name.
+ *
+ * The negative lookbehind on `.` and word characters is what keeps
+ * `rows.reverse()`, `draft.changes.reverse()` and `log.filter(...).reverse()`
+ * off the surface. Without it every file in the repository that reverses an
+ * array would be an economy file.
+ */
+export const POSTING_CALL_RE = new RegExp(`(?<![.\\w])(${POSTING_CALLS.join("|")})\\s*\\(`);
+
+/**
+ * On the surface for a reason a grep cannot see. Each entry is a judgement, so
+ * each carries the sentence that justifies it.
+ */
+export const SURFACE_ALWAYS = [
+  // Posts nothing by design ("Nothing in this file posts. It decides") and
+  // decides everything: the sinks, the sending firewall, and every refusal
+  // sentence section 13 quotes.
   "server/lib/spending.ts",
-  // sweepBalances and the open-state enumeration (section 14).
-  "server/lib/exit.ts",
-  // The published exit terms, which are what the village owes (section 14).
-  // NOT in the brief's list and added deliberately: section 14's central
-  // claim, that nothing is decided in code, is a claim about THIS file's
-  // DEFAULT_EXIT_POLICY, and it would become false the moment somebody wrote
-  // a real valuation method into it.
+  // The published exit terms. Section 14's central claim, that nothing is
+  // decided in code, is a claim about this file's DEFAULT_EXIT_POLICY.
   "server/lib/exitPolicy.ts",
-  // The one-way bridge, the claim states, BRIDGE_DISPATCH_BUILT (section 6).
-  "server/lib/voiceClaim.ts",
-  // The budgeted send path and the heart door (sections 5 and 10.2).
-  "server/lib/gratitude.ts",
-  // The seeded rules and their amounts (section 4, section 15).
+  // The seeded mint rules and their amounts, which section 4 and section 15
+  // both derive from. It writes rows, not postings.
   "server/lib/economySeed.ts",
-  // The ballot keys a governed mint-rule change may move. This is the mint
-  // rule route's contract, and it lives in shared/ rather than in a route.
+  // The ballot keys a governed mint-rule change may move: the mint rule
+  // route's contract, and it lives in shared/ rather than in a route.
   "shared/mintRuleKeys.ts",
 ];
 
+/** Every file under server/ that calls a posting function. */
+export function derivedPostingFiles(root = ROOT) {
+  const base = path.join(root, "server");
+  if (!fs.existsSync(base)) {
+    return { error: `${path.relative(root, base) || "server"} is not there, so the economy surface cannot be derived` };
+  }
+  const out = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(abs); continue; }
+      if (!e.name.endsWith(".ts") || e.name.includes(".test.") || e.name.includes(".spec.")) continue;
+      if (POSTING_CALL_RE.test(fs.readFileSync(abs, "utf8"))) {
+        out.push(path.relative(root, abs).split(path.sep).join("/"));
+      }
+    }
+  };
+  walk(base);
+  return { files: out.sort() };
+}
+
 /**
- * The token registry migrations, named rather than globbed.
+ * The whole whole-file surface: what posts, plus what judgement put there,
+ * minus anything matched by hunk instead.
  *
- * Found at 45869ad with:
- *   grep -lE "\b(INTO|UPDATE|TABLE)\s+(IF\s+NOT\s+EXISTS\s+)?`?tokens`?" drizzle/*.sql
- *
- * A NEW migration touching `tokens` is caught by the rule below rather than by
- * this list, which is the point of having both: this list cannot go stale in
- * the direction that matters, because the direction that matters is somebody
- * adding a migration and this list not knowing about it.
+ * A file cannot be on both lists. `server/index.ts` posts and would therefore
+ * be derived, but it is matched by CHANGED LINE for the reason in HUNK_FILES'
+ * own note, and having it on both would silently restore the whole-file
+ * matching that was deliberately rejected.
  */
+export function surfaceFiles(root = ROOT) {
+  const derived = derivedPostingFiles(root);
+  if (derived.error) return derived;
+  const all = new Set([...SURFACE_ALWAYS, ...derived.files]);
+  for (const hunked of Object.keys(HUNK_FILES)) all.delete(hunked);
+  return { files: Array.from(all).sort(), derived: derived.files };
+}
+
 export const SURFACE_MIGRATIONS = [
   "drizzle/0006_token_registry.sql",
   "drizzle/0007_village_credits_token.sql",
@@ -287,7 +340,42 @@ export function resolveBase() {
   for (const c of found.slice(1)) {
     if (git(["merge-base", "--is-ancestor", best.sha, c.sha]).ok) best = c;
   }
-  return best;
+
+  /*
+   * ── THE BASE ALREADY CONTAINS HEAD ─────────────────────────────────────
+   *
+   * When the base ref contains the commit under test, merge-base(HEAD, base)
+   * IS HEAD, so the diff is empty and every guard downstream of it reports
+   * "nothing changed". That is not a hypothetical path here: ci.yml runs on
+   * `push` to every branch, GITHUB_BASE_REF is empty on a push so the
+   * fallback is origin/main, and this repository's own notes record that
+   * direct pushes to main happen. On exactly that path this guard printed
+   * PASSED over a changed economy, with `0 file(s) changed in total` as the
+   * only tell. Found by the adversary pass, F8.
+   *
+   * The answer is the one check-migration-compat.mjs already reached, and
+   * whose absence here was an omission when resolveBase was copied from it:
+   * if HEAD is the base branch, the previous release is HEAD's first parent,
+   * so compare HEAD^..HEAD.
+   *
+   * A ROOT COMMIT HAS NO PARENT, and there the honest answer is that there is
+   * nothing to compare against. That returns an ERROR, so the caller exits 2.
+   * Returning HEAD would make the diff empty again and print the same green
+   * this whole block exists to remove.
+   */
+  const headSha = head.text;
+  if (best.sha !== headSha) return best;
+
+  const parent = git(["rev-parse", "--verify", "HEAD^{commit}^"]);
+  if (!parent.ok) {
+    return {
+      error:
+        `${best.ref} already contains HEAD, so there is no range between them, and HEAD is a root ` +
+        "commit with no parent to fall back to. There is nothing to compare. Pass an explicit " +
+        "--base if you know what this change should be measured against.",
+    };
+  }
+  return { ref: `${best.ref} (already contains HEAD, so HEAD^)`, sha: parent.text, viaParent: true };
 }
 
 /** Files changed between the base and HEAD, and files dirty in the tree. */
@@ -347,9 +435,32 @@ export function changedFiles(baseSha) {
  */
 export function hunkMentions(file, symbols, baseSha) {
   const seen = new Set();
+  /*
+   * READ THE DIFF'S STRUCTURE, NEVER THE SHAPE OF A LINE.
+   *
+   * This used to skip any line matching /^(\+\+\+|---)/, meaning to skip the
+   * two file headers. It also skipped every REAL changed line whose own text
+   * begins with `++` or `--`, and both of those are ordinary code here:
+   * `+++mintedThisCycle;` is a pre-increment of the admin mint's counter, and
+   * removing a SQL `-- comment` line from a template literal produces
+   * `--- comment`. Either one changed the economy while the guard reported
+   * "nothing on the economy surface changed". Found by the adversary pass
+   * (F9), with `mintedThisCycle++;` as its control: the same edit written the
+   * other way round fired correctly, which is what made the miss invisible.
+   *
+   * Matching the header FORMS more exactly (`^\+\+\+ ` and `^--- `) would
+   * still collide with a removed line whose own text is `-- a/path`. So this
+   * tracks WHERE IT IS instead: `diff --git` opens a file's header block, `@@`
+   * opens a hunk, and only inside a hunk does a leading + or - mean a changed
+   * line. That is exact by construction and cannot be fooled by content.
+   */
   const scan = (text) => {
+    let inHunk = false;
     for (const line of text.split("\n")) {
-      if (!/^[+-]/.test(line) || /^(\+\+\+|---)/.test(line)) continue;
+      if (line.startsWith("diff --git ")) { inHunk = false; continue; }
+      if (line.startsWith("@@")) { inHunk = true; continue; }
+      if (!inHunk) continue;
+      if (!/^[+-]/.test(line)) continue;
       const body = line.slice(1);
       for (const s of symbols) if (body.includes(s)) seen.add(s);
     }
@@ -366,11 +477,22 @@ export function hunkMentions(file, symbols, baseSha) {
 
 function main() {
   if (process.argv.includes("--list")) {
+    const shown = surfaceFiles(ROOT);
+    if (shown.error) {
+      say(`the economy surface cannot be derived: ${shown.error}`);
+      return EXIT_CANNOT_RUN;
+    }
+    const listed = shown.files;
+    // Only the derived files that SURVIVED the hunk-matched exclusion, or the
+    // count would claim server/index.ts is on the whole-file list.
+    const listedDerived = shown.derived.filter((f) => listed.includes(f));
     say(
       `The ECONOMY SURFACE guarded against ${DOC}:`,
       "",
-      "  whole files:",
-      ...SURFACE_FILES.map((f) => `    ${f}`),
+      "  the rule: any file that calls " + POSTING_CALLS.join(", ") + " is on the surface.",
+      "",
+      `  whole files (${listed.length}, of which ${listedDerived.length} derived from those calls):`,
+      ...listed.map((f) => `    ${f}${listedDerived.includes(f) ? "  (posts)" : "  (judgement)"}`),
       "",
       "  token registry migrations:",
       ...SURFACE_MIGRATIONS.map((f) => `    ${f}`),
@@ -410,10 +532,23 @@ function main() {
     return EXIT_CANNOT_RUN;
   }
 
+  const surface = surfaceFiles(ROOT);
+  if (surface.error) {
+    say(
+      "check-economics-narrative could not work out what the economy surface is, so it did not run.",
+      "",
+      `  ${surface.error}`,
+      "",
+      "The surface is DERIVED from the files that call " + POSTING_CALLS.join(", ") + ".",
+      "Exit 2: an empty surface and an unreadable one produce the same empty list of hits.",
+    );
+    return EXIT_CANNOT_RUN;
+  }
+
   const hits = [];
   for (const [file, where] of changed.files) {
-    if (SURFACE_FILES.includes(file)) {
-      hits.push({ file, why: "on the economy surface", where });
+    if (surface.files.includes(file)) {
+      hits.push({ file, why: SURFACE_ALWAYS.includes(file) ? "on the economy surface" : "it posts to the ledger", where });
       continue;
     }
     if (SURFACE_MIGRATIONS.includes(file)) {
@@ -448,7 +583,7 @@ function main() {
     say(
       `Economics narrative guard passed. Nothing on the economy surface changed against ` +
         `${base.ref} @ ${base.sha.slice(0, 8)} ` +
-        `(${changed.files.size} file(s) changed in total, ${SURFACE_FILES.length} whole-file surface ` +
+        `(${changed.files.size} file(s) changed in total, ${surface.files.length} whole-file surface ` +
         `entries and ${Object.keys(HUNK_FILES).length} hunk-matched file(s) examined).`,
     );
     return EXIT_OK;

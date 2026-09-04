@@ -96,18 +96,73 @@ subtlety in this system; see section 7.
 ### The occurrence keys
 
 <!-- generated:triggers start -->
-A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is UNIQUE, so the shape of the key is what decides whether a second attempt pays again. Read from `keys` in `server/lib/economy.ts`; the angle brackets are that function's own parameter names.
+A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is UNIQUE, so the shape of the key is what decides whether a second attempt pays again.
 
-| Builder | Key shape |
+`keys` in `server/lib/economy.ts` builds eight of them. The angle brackets are that builder's own parameter names.
+
+| Builder | What the builder returns |
 | --- | --- |
 | `keys.questCompleted` | `quest.completed:<esc(v)>:<esc(questId)>:<esc(claimId)>:<esc(userId)>:<esc(tokenSlug)>` |
 | `keys.gratitudeGiven` | `gratitude.given:<esc(v)>:<esc(noteId)>` |
 | `keys.roleCycle` | `role.cycle:<esc(v)>:<esc(cycleKey)>:<esc(seatId)>:<esc(userId)>:<esc(tokenSlug)>` |
 | `keys.journeyStage` | `journey.stage_reached:<esc(v)>:<esc(journeyId)>:<esc(stage)>:<esc(userId)>` |
 | `keys.welcomeAboard` | `welcome_aboard.quest:<esc(v)>:<esc(questNo)>:<esc(userId)>` |
+| `keys.voiceDecay` | `voice.decay:<esc(v)>:<esc(cycleKey)>:<esc(userId)>:<esc(tokenSlug)>` |
 | `keys.transfer` | `transfer:<esc(v)>:<esc(transferRowId)>` |
 | `keys.reversal` | `reversal:<esc(v)>:<eventKey>` |
 | `keys.voiceClaim` | `voice-claim:<esc(v)>:<esc(claimRowId)>` |
+
+**A builder's output is not always the key.** The token slug used to be appended to it at the two mint call sites rather than built in, which printed a shape here that the ledger never held; it is a builder parameter now, and both tables agree because of it. Most of the economy still does not use a builder at all. So the table below is read from the CALL SITES: every `idempotencyKey` written under `server/`, resolved through templates, builders, conditionals, local constants and local helpers into the string the ledger receives.
+
+| Key shape the ledger holds | Written in |
+| --- | --- |
+| `adj-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/routes/stays.ts` |
+| `admin_mint:<Date.now()>-<Math.random().toString(36).slice(2, 8)>` | `server/index.ts` |
+| `admin_mint:<slug>:<body>` | `server/index.ts` |
+| `admin_mint:req:<id>` | `server/index.ts` |
+| `comp-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/routes/stays.ts` |
+| `exit:<exitId>:sweep:<token>` | `server/lib/exit.ts` |
+| `gratitude_pool:<cycleNumber>:<userId>` | `server/index.ts` |
+| `gratitude_received:<id>` | `server/lib/gratitude.ts` |
+| `gratitude.given:<esc(v)>:<esc(noteId)>` | `server/lib/economy.ts` |
+| `intake:<itemId>` | `server/lib/library.ts` |
+| `intake:li-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/lib/library.ts` |
+| `ladj-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/index.ts` |
+| `loan:<loanId>:settle:pool` | `server/lib/library.ts` |
+| `loan:<loanId>:settle:release` | `server/lib/library.ts` |
+| `loan:loan-<Date.now()>-<Math.random().toString(36).slice(2, 6)>:escrow` | `server/lib/library.ts` |
+| `ord:<id>:leg1` | `server/lib/exchange.ts` |
+| `ord:<id>:leg2` | `server/lib/exchange.ts` |
+| `ord:<id>:reversal-leg1` | `server/routes/stays.ts` |
+| `ord:<orderId>:leg1` | `server/index.ts`, `server/lib/exchange.ts` |
+| `ord:<orderId>:reversal-leg1` | `server/index.ts` |
+| `ord:sp-<Date.now()>-<Math.random().toString(36).slice(2, 6)>:leg1` | `server/routes/stays.ts` |
+| `pp:<purchaseId>:grant:evt_<id>` | `server/index.ts` |
+| `pp:<purchaseId>:grant:inv_<String(invoiceId)>` | `server/index.ts` |
+| `pp:<purchaseId>:grant:manual` | `server/index.ts` |
+| `pp:<purchaseId>:grant:pi_<payment_intent>` | `server/index.ts` |
+| `pp:<purchaseId>:reversal:evt_<id>` | `server/index.ts` |
+| `pp:<purchaseId>:reversal:inv_<String(invoiceId)>` | `server/index.ts` |
+| `pp:<purchaseId>:reversal:manual` | `server/index.ts` |
+| `pp:<purchaseId>:reversal:pi_<payment_intent>` | `server/index.ts` |
+| `proposal_accepted:<id>` | `server/index.ts` |
+| `quest_consent:<id>` | `server/index.ts` |
+| `quest.completed:<esc(v)>:<esc(questId)>:<esc(claimId)>:<esc(userId)>:<esc(tokenSlug)>` | `server/lib/economy.ts` |
+| `queststay:<id>` | `server/index.ts` |
+| `reversal:<esc(v)>:<eventKey>` | `server/lib/economy.ts` |
+| `role.cycle:<esc(v)>:<esc(cycleKey)>:<esc(seatId)>:<esc(userId)>:<esc(tokenSlug)>` | `server/lib/economy.ts` |
+| `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:keep` | `server/lib/eventSeats.ts` |
+| `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:pay` | `server/lib/eventSeats.ts` |
+| `seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:refund` | `server/lib/eventSeats.ts` |
+| `send:<id>:<nonce>` | `server/index.ts` |
+| `stay:<id>:night:<night>` | `server/lib/stays.ts` |
+| `voice-claim-debit:<villageId()>:<claimId>` | `server/lib/voiceClaim.ts` |
+| `voice-claim-settled:<villageId()>:<claimId>` | `server/lib/voiceClaim.ts` |
+| `voice.decay:<esc(v)>:<esc(cycleKey)>:<esc(userId)>:<esc(tokenSlug)>` | `server/lib/economy.ts` |
+| `xstock-<Date.now()>-<Math.random().toString(36).slice(2, 8)>` | `server/index.ts` |
+| `xstock:<slug>:<body>` | `server/index.ts` |
+
+45 distinct shapes across 49 posting site(s), plus 2 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
 <!-- generated:triggers end -->
 
 ---
@@ -329,6 +384,84 @@ chain: `export const BRIDGE_DISPATCH_BUILT = false;`. Nothing in this build
 dispatches a claim to Hypha. A claim is recorded, the voice is debited and held
 at the bridge, and something outside this repository has to confirm it.
 
+### Voice that wanes (R3, R15)
+
+Voice does not keep. At the close of each cycle the settlement posts a
+percentage of every member's Voice to `sys:voice-decay`, a system account seeded
+by `drizzle/0148_voice_that_waned.sql` that is not a faucet and only ever
+receives, so its balance is all the Voice that has waned in this village to
+date. The rate is `economy.voice_decay_pct`, a percentage under The Mint that
+defaults to 1 and accepts 0 through 100, and `economy.voice_decay_basis` says
+what the rate is measured against. The basis ships with a single value, `all`,
+because a member's balance already is their unspent Voice: Voice leaves a member
+account through a voice claim and through an exit sweep, and both have taken it
+out of the balance before the settlement reads it, so an `unspent` option would
+measure the same number twice. Both dials carry `applyTiming: "cycle-close"` on
+their definitions, so a change voted mid cycle lands at the next close.
+
+Waning is a ledger posting and never a rewrite of a balance, which is what keeps
+every promise this document makes elsewhere. Conservation still holds, the member
+can read the row that took it (`mem:<user>` to `sys:voice-decay`, source
+`voice_decay`, description "Voice that waned this moon"), and a ballot that has
+already frozen its weights reads whatever the ledger held when it opened. No row
+names an actor. R65 and R66 rule that no party may strip another's earned voice,
+and a row naming an admin would read as exactly that act.
+
+The amount is computed in minor units and floored:
+`Math.floor(balanceUnits * pct / 100)`. Rounding up would take more than the
+published rate, which is the one direction that must never happen. Flooring also
+makes a balance too small to reach into a counted exemption instead of a unit
+quietly costed to somebody, so at three decimals and 1 percent a member holding
+5.000 Voice wanes 50 units and a member holding 0.050 Voice wanes nothing.
+
+The step runs inside `runSettlement`, behind `economyReady`, behind the launch
+fact, and ahead of the read that returns early when no `role.cycle` rule is in
+force. Ahead of that early return, because a village whose only rule is
+`quest.completed` must still wane. Ahead of the seat payout, because a balance
+should wane only after it has sat through a cycle, which is what makes the
+published ceiling true: an accrual of `a` a moon against a rate `d` settles at
+`a / d`, so a seat paying 50 Voice a moon at 1 percent settles at 5000 Voice.
+Behind the launch fact, because a village that has not voted its Game into
+existence is issuing nothing and must not be taken from. `economyReady` alone
+does not give that, although the design assumed it would: `seedEconomy` writes
+its rules enabled at boot, so a village that has never issued a token reads as
+ready, and `decayVoice` therefore reads `readGameStart` itself.
+
+Two exemptions, both structural. Every system account is exempt because the read
+asks for `kind = 'member'`, which is what keeps `sys:voice-bridge` and
+`sys:voice-settled` out of it: waning Voice held against an open claim would
+change the amount arriving at the far end of a crossing that has already been
+quoted, and the refund path reverses the original debit, so it would then hand
+back a different number than was taken. A member with an open exit is exempt
+because their balances are already on the way to `sys:exit-settlement` and a
+notice period has been quoted to them. A member who is simply away wanes like
+anybody else, which is the whole mechanism.
+
+`SettlementResult` carries a field named `decay`, always present and filled with
+zeros when the step did not run, so a reader cannot mistake "the engine never
+reached this" for "nothing waned". It holds `slug` (the token that wanes,
+`village-voice`), `pct` (the rate this run read off the dial), `total` (units
+posted to the sink by this run, in minor units of `slug`), `holders` (members
+whose Voice actually waned), `skippedTooSmall` (members whose share of the rate
+floored to nothing), `skippedExiting` (members left alone because they are in
+the middle of leaving), and `cycleKey` (the lunation the run is keyed on). One
+key per member per cycle, `voice.decay:<village>:<cycleKey>:<userId>:<slug>`,
+is what makes an hourly job take once a moon and lets a partial run resume. A
+refusal from the ledger, a missing `sys:voice-decay` account among them, rides
+home on the settlement's existing `unpayable` array with a sentence naming the
+account, once for the whole village and not once for each member.
+
+One edge is measured and named. A member holding nothing when a moon's first
+hourly ask runs is not in the read at all, so no key is written for them, and a
+payout later in that same moon wanes at the next ask. It happens once in a
+member's life, and closing it would mean posting a ledger row of zero, which
+`postTransfer` refuses.
+
+The public supply feed reports `waned` beside `issued` and derives `circulating`
+as the difference. `issued` counts what came out of a faucet and nothing puts it
+back, so on its own it would climb every moon while every wallet in the village
+shrank, and a village watching that would stop trusting its own books.
+
 ---
 
 ## 7. Units and decimals, and the thing to know before changing them
@@ -365,6 +498,63 @@ minor units and post them unchanged, so a departing member's settlement would be
 multiplied by ten thousand. **The units question has to be answered per caller**,
 with a test per path.
 
+**The five do-not-convert sites, named, so a later sweep does not helpfully fix
+them.** `sweepBalances` (`server/lib/exit.ts`) and the voice-claim debit in
+`requestVoiceClaim` (`server/lib/voiceClaim.ts`) both read
+`token_balances.balance`, which is a SUM over `token_ledger.amount`, and post it
+back unchanged: minor in, minor out, with no human number anywhere on the path.
+The voice claim's other three legs (the confirm posting, the refund, and
+`retryRefund`) already convert at the boundary with `toLedgerUnits` over the
+human `voice_claims.amount` column, and `toLedgerUnits` reads the registry's
+`decimals` at call time, so all three stay correct at 0, 3 or 4 with no edit.
+Two of those hand the value to `reverse()` as an ASSERTION against the ledger
+row it mirrors, so a second conversion there turns every correct refund into a
+loud mismatch. All five now carry a marker comment saying which they are. What
+`exit.ts` did need was the opposite direction: the `swept` map and the two exit
+desk sentences handed minor units to a person, and all three now divide with
+`fromLedgerUnits`. `server/lib/exit.test.ts` pins both halves at once, at
+decimals 0, 3 and 4, because a test reading only the ledger row stays green over
+an admin toast that says 300000, and a test reading only the toast stays green
+over a settlement multiplied by ten thousand.
+
+**Seat fees are the worked example of where the answer goes, and of the second
+question it drags with it.** `server/lib/eventSeats.ts` posts three legs and only
+one of them carries a human number: the fee a host typed into `events.seat_price`.
+`seatPriceFor` converts it once, so the pay leg, the refund and the settle all
+move minor units and the last two replay the first without touching it. The
+conversion cannot sit at the `postTransfer` call, because the same number is also
+stored in `event_seat_charges.amount`, and `seatEscrowDrift` compares the sum of
+that column against `token_balances.balance`. **That column is a mirror of a
+posted leg, so it moves to MINOR units with the ledger**, which means the flip
+migration has to rescale every `held` row by the same factor it applies to
+`token_ledger`. Leave it human and the reconciliation reports drift on every open
+charge; convert only the post and it reports the same drift from the other side.
+`heldSeatValue` is the read that had to change shape as well as scale: one
+`SUM(amount)` over the whole table added tokens at different scales together, so
+it groups by token and divides by each token's own.
+
+**Stays answered it on the WRITE, and the answer is worth copying.** Four of the
+29 are stay credits, and a fix at each of the four would have repaired the debit
+and left the grace floor, the "nights left" figure and the refund still mixing
+units. So a posted token price converts once, where the number an admin typed
+enters the database (`priceToStored` in `server/lib/stays.ts`, called by the
+prices route), and `accommodation_prices.amount_minor` finally means for a token
+what it always meant for usd. `priceFor`, `stays.rate_snapshot_credits`, the
+nightly burn, the grace floor and `nightsRemaining` then all read one unit for
+free. `mintStayCredits` keeps the MINOR contract `postTransfer` states and
+converts nothing, because two of its four callers already hand it a minor number
+off that same price, and a conversion inside the wrapper would multiply those a
+second time on a token that is sold for money.
+**`stay_purchases.credits_granted` is MINOR**, the same unit as the ledger leg it
+produced: the settle mint, the admin refund and the chargeback clawback all read
+that one column and post it unconverted, and two of them share an idempotency key
+that no retry can correct, so the only safe contract is the one where none of the
+three converts. The figures a guest reads (the notification, the receipt field,
+the catalog price) divide back down at the edge. The flip migration therefore
+has to widen and backfill `accommodation_prices.amount_minor`,
+`stays.rate_snapshot_credits` and `stay_purchases.credits_granted`, all three
+still `int` from `0021`.
+
 **One token is already inconsistent with itself, at zero decimals, today.** Village
 Voice has 3 decimals now, and the two ways it can be issued disagree:
 
@@ -382,6 +572,50 @@ has never hurt anyone: the ledger is empty.
 `decimals 0`, so a founder can save a rule for an amount the registry then rounds
 away. The engine reports that as `unpayable` rather than paying zero silently,
 which is right, but nothing stops the rule being saved.
+
+**The exchange is the first module to answer the units question in full, and its
+answer is the shape the others can copy.** `server/lib/exchange.ts` runs in WHOLE
+tokens throughout: quotes, `exchange_orders.quantity` and `pay_quantity`, the
+per-cycle swap caps a steward types, and every figure the module hands back to a
+caller. The ledger runs in minor units. The two meet at exactly six places, three
+writing and three reading. Writing: the settle leg in `settleExchangeOrder` and
+both legs of `executeSwap` each call `toLedgerUnits` with their own token's slug,
+which matters on a swap because the two sides can sit at different scales.
+Reading: `treasuryStock`, `swapCycleUsage` and `swappableBalance` each call
+`fromLedgerUnits` before returning, so the twelve reads of those three functions
+in `server/index.ts`, every one of which weighs the figure against a whole-token
+quantity, a steward-typed cap or a person's eyes, keep both sides in one unit
+with no edit of their own.
+`quoteSwap` is untouched: it never sees a slug, its prices are cents per whole
+token, and its ceil-toward-the-treasury proof is stated over integers. The place
+a second conversion is easiest to add by accident is `swappableBalance`, whose
+`held` adds a HUMAN sum from `exchange_orders.quantity` to a MINOR sum from
+`token_ledger.amount`; only the second half converts, and dividing the whole sum
+takes the human half down twice and quietly stops the chargeback hold holding.
+`server/lib/exchange.units.test.ts` runs every one of these at decimals 0 and at
+decimals 4 against a real schema, because at decimals 0 alone each conversion is
+the identity and proves nothing.
+
+**The material library is the first module swept, and it answers five callers
+plus two readers.** `server/lib/library.ts` converts at each of its five posting
+legs (the intake award in `recordIntake`, the dual-signed award in
+`approveIntake`, the deposit in `reserveItem`, and the fee and release legs in
+`settleLoan`), and converts back in the two places that carry a ledger figure
+out to a person: `intakeMintedThisCycle`, whose sum meets a per-member cap
+declared in credits, and `supplyVsBacking`, whose over-issuance flag compares
+the mint's issue against an appraisal a steward typed. Neither of those two
+contains a `postTransfer`, so a sweep keyed on the posting primitive walks past
+both, and the cap is the one that breaks TIGHT: read raw at 4 decimals, a single
+75-credit award leaves 750000 against a cap of 500 and the donor is locked out
+of the rest of the lunation. **The decision on the stored mirror:
+`library_loans.escrow_credits` STAYS in whole credits**, along with
+`library_items.credit_value`, `wear_fee` and `damage_fee`, because every Library
+game variable declares its unit as credits and those columns hold what a steward
+types and a member is quoted. `escrowReconciliation` therefore converts the
+column UP to meet the ledger, so the boot invariant still compares integers, and
+**the flip migration must NOT backfill any library table**. A loan opened before
+the flip reconciles after it with the column untouched, which
+`server/lib/library.test.ts` carries across the flip and proves.
 
 ---
 
@@ -463,6 +697,33 @@ top of it.
 first.** Everything above was measured against a scratch database and a built
 server driven by a harness. No member has ever used any of it. Section 11 item 3
 is the open question about what would change that.
+
+### The dry run reads this economy once, and reads it read only
+
+A member previewing a decision runs a simulation, and a simulation that could
+write would be a way to change the village by asking it a question. So the
+economy is handed to the preview as plain data, read once by
+`server/lib/dryRunEconomyReader.ts` off a connection the caller has already
+fenced with `SET TRANSACTION READ ONLY`. Every statement in that file is a
+SELECT, it opens no transaction of its own, and it takes a single connection and
+never a pool, so nothing it does can escape the fence; the database itself
+refuses a write inside one with error 1792, and its tests prove all of that
+including the fence. It answers four things: the token registry with each
+token's decimals, faucet and sinks; every balance in minor units as a `bigint`,
+faucets and their negatives included, so conservation can be checked from the
+snapshot alone; every mint rule, disabled ones as well, carrying both the scaled
+minor units and the `decimal(18,4)` column's own text, because a rule written at
+0.0004 on a whole-unit token rounds to zero and only the text can say that was
+not somebody's decision; and every game variable, the village's stored value
+where it has one and the platform default everywhere else. **A founder can open
+a preview before the economy has been seeded, and an empty table is not a
+measurement.** So the fallback is per section: an empty `tokens` or `mint_rules`
+falls back to what `economySeed.ts` would write at the village's first boot,
+which is a mock, and `economyProvenance` says which sections were measured and
+which were filled in so a mock is never read as a measurement. Balances and
+variables never fall back. A village with no balance rows really is at zero, and
+`game_variables` stores deltas only, so an empty one is a village on the platform
+defaults; both of those are things the reader looked at and found.
 
 ---
 

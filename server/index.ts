@@ -65,6 +65,8 @@ import { register as registerStaysRoutes } from "./routes/stays";
 import { register as registerSitePullRoutes } from "./routes/sitePull";
 import { register as registerBrandPreviewRoutes } from "./routes/brandPreview";
 import { register as registerBrandUploadRoutes } from "./routes/brandUploads";
+import { register as registerNeedsRoutes } from "./routes/needs";
+import { register as registerDryRunRoutes } from "./routes/dryRun";
 import { resolveGoogleConfig } from "./lib/oauthGoogle";
 import {
   decodeToken,
@@ -471,7 +473,6 @@ import {
   type NotifyDeps,
 } from "./lib/notify";
 import { registerJob, registeredJobs, startScheduler } from "./lib/scheduler";
-import { dryRun, MAX_MOONS } from "./lib/dryRun";
 import { cyclePoolProblem } from "./lib/cyclePool";
 import { onReplyCreated, onThreadCreated, processMentions, subscribe } from "./lib/forum";
 import {
@@ -13113,76 +13114,6 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
   });
 
   /**
-   * THE TEST RUN (R86). Turn the village's cycles over quickly and see what
-   * the settings do, in the last moment before the launch ballot.
-   *
-   * READS ONLY, and that is the whole design. `server/lib/dryRun.ts` carries
-   * the reasoning; the short version is that R81 puts all minting behind
-   * governance and R67 shuts issuance until the launch vote carries, so a run
-   * that wrote would either meet the gate and teach the founder nothing, or
-   * route around the gate and remove it. This route reads five facts and hands
-   * them to a function that takes no pool.
-   *
-   * It is allowed on a village that has ALREADY started its Game, deliberately.
-   * There is no accident available: nothing here can write, so a founder
-   * checking what a dial change would do to next season is welcome to it. The
-   * report says which of the two villages it was looking at.
-   */
-  app.post("/api/admin/dry-run", async (req, res) => {
-    if (!(await isAdmin(req))) return res.status(401).json({ error: "auth_required" });
-
-    // A length the caller asked for, or a refusal. A silent clamp would answer
-    // a question nobody put, and the number is on the report.
-    const asked = Number(req.body?.moons);
-    if (!Number.isFinite(asked) || !Number.isInteger(asked) || asked < 1 || asked > MAX_MOONS) {
-      return res.status(400).json({
-        error: "bad_request",
-        message: `A test run covers between 1 and ${MAX_MOONS} moons. You asked for ${req.body?.moons}.`,
-      });
-    }
-
-    const start = await readGameStart(getPool());
-    const [seats] = await getPool().query<any[]>(
-      "SELECT COUNT(*) AS n FROM `org_role_assignments` " +
-        "WHERE `active_holder_key` IS NOT NULL AND `holder_kind` = 'member' AND `user_id` IS NOT NULL AND `is_example` = 0",
-    );
-    const [ruleRows] = await getPool().query<any[]>(
-      "SELECT * FROM `mint_rules` WHERE `village_id` = ? ORDER BY `trigger`, `token_slug`",
-      [villageId()],
-    );
-
-    const report = dryRun(
-      {
-        gameStarted: start.started,
-        startedAt: start.startedAt,
-        seatCount: Number(seats[0]?.n ?? 0),
-        rules: ruleRows.map((r) => ({
-          id: String(r.id),
-          trigger: String(r.trigger),
-          tokenSlug: String(r.token_slug),
-          amount: r.amount === null || r.amount === undefined ? null : Number(r.amount),
-          ceiling: Number(r.ceiling ?? 0),
-          enabled: !!r.enabled,
-          effectiveFromCycle: Number(r.effective_from_cycle ?? 0),
-          pending:
-            r.pending_from_cycle === null || r.pending_from_cycle === undefined
-              ? null
-              : {
-                  amount: r.pending_amount === null || r.pending_amount === undefined ? null : Number(r.pending_amount),
-                  ceiling: Number(r.pending_ceiling ?? 0),
-                  enabled: !!r.pending_enabled,
-                  fromCycle: Number(r.pending_from_cycle),
-                },
-        })),
-        jobs: registeredJobs(),
-        modulesOff: MODULES.filter((m) => effectiveLifecycle(m.id) === "off").map((m) => ({ id: m.id, name: m.name })),
-      },
-      { moons: asked },
-    );
-    res.json(report);
-  });
-
-  /**
    * S65: Maia's launch-guide mode. The SAME registry the page renders is the
    * ONLY knowledge she gets — she reads live status and points at the exact
    * surfaces, she never invents an item and never touches a secret. Admin-
@@ -18037,7 +17968,11 @@ Send an empty drafts array when you are still listening. A role payload is {name
      * check the library runs over its own escrow.
      */
     const drift = await seatEscrowDrift(getPool());
-    const invariants = { ok: core.ok && drift.length === 0, problems: [...core.problems, ...drift] };
+    // `uncredited` is carried and deliberately NOT folded into `problems`: an
+    // undelivered gratitude credit is a finding, not a corruption, so `ok` stays
+    // true. This route used to rebuild the object as { ok, problems } and drop
+    // it, which is why the founder could not see it.
+    const invariants = { ok: core.ok && drift.length === 0, problems: [...core.problems, ...drift], uncredited: core.uncredited };
     const [systems] = await getPool().query<any[]>(
       "SELECT a.id, a.label, a.faucet, tb.token_type, tb.balance FROM ledger_accounts a " +
         "LEFT JOIN token_balances tb ON tb.account_id = a.id WHERE a.kind = 'system' ORDER BY a.id, tb.token_type",
@@ -19494,6 +19429,8 @@ ${inner}
   registerMilestonesRoutes(app, { isAdmin, guardCapability, milestonesRepo });
   registerLandRoutes(app, { isAdmin, authedUser, guardCapability, getPool, uploadsDir: UPLOADS_DIR });
   registerBrandPreviewRoutes(app, { isAdmin, getPool, brandRepo });
+  registerNeedsRoutes(app, { isAdmin, authedUser, getPool });
+  registerDryRunRoutes(app, { authedUser, isAdmin, overLimit, getPool });
 
   // â”€â”€ Project Settings (village dues + other editable numbers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

@@ -26,10 +26,12 @@ import {
   parseEconomicsAssumptions,
 } from "./economicsAssumptions";
 import {
+  ALLOW_NEGATIVE_SOURCES,
   ECONOMICS_KEY,
   assertConserved,
   ceilingOutcome,
   economicsModel,
+  negativeKey,
   readEconomicsMemo,
   ruleCannotPay,
   writtenAmount,
@@ -134,6 +136,7 @@ function mintRules(): MintRuleSpec[] {
       amount: BigInt(10000),
       amountRaw: "10.0000",
       ceiling: BigInt(100000),
+      ceilingRaw: "100.0000",
       enabled: true,
     },
     {
@@ -144,6 +147,7 @@ function mintRules(): MintRuleSpec[] {
       amount: BigInt(25),
       amountRaw: "25.0000",
       ceiling: BigInt(250),
+      ceilingRaw: "250.0000",
       enabled: true,
     },
     {
@@ -154,6 +158,7 @@ function mintRules(): MintRuleSpec[] {
       amount: BigInt(50000),
       amountRaw: "50.0000",
       ceiling: BigInt(200000),
+      ceilingRaw: "200.0000",
       enabled: true,
     },
     {
@@ -164,6 +169,7 @@ function mintRules(): MintRuleSpec[] {
       amount: BigInt(25),
       amountRaw: "25.0000",
       ceiling: BigInt(250),
+      ceilingRaw: "250.0000",
       enabled: true,
     },
     // Seeded OFF on purpose (economySeed.ts:165 and the block comment above it).
@@ -175,6 +181,7 @@ function mintRules(): MintRuleSpec[] {
       amount: BigInt(20),
       amountRaw: "20.0000",
       ceiling: BigInt(100),
+      ceilingRaw: "100.0000",
       enabled: false,
     },
   ];
@@ -559,6 +566,187 @@ describe("economics model, invariants", () => {
   });
 });
 
+describe("the allow-negative mirror, keyed and bounded", () => {
+  /**
+   * A state with a hand-built memo, which is the only way to reach the lawful
+   * branch: this model never posts an allow-negative source itself, so a
+   * bounded exemption has to be constructed the way the ledger would have
+   * produced it.
+   */
+  function withDebits(debits: Record<string, bigint>, extra: Record<string, Record<string, bigint>>) {
+    const { model, stepped } = runOneCycle("lunar");
+    const memo = { ...readEconomicsMemo(stepped)!, allowNegativeDebits: debits };
+    const state: SimState = {
+      ...stepped,
+      balances: { ...stepped.balances, ...extra },
+      models: { ...stepped.models, [ECONOMICS_KEY]: memo },
+    };
+    return { model, state };
+  }
+
+  const negatives = (r: { model: ReturnType<typeof economicsModel>; state: SimState }) =>
+    r.model.invariants(r.state).filter((v) => v.invariant === "ledger.no_negative_non_faucet");
+
+  it("holds every source the ledger holds, reversal included", () => {
+    // The list itself is compared against the ledger's runtime value in
+    // server/dryRunMirror.test.ts, which is the only test that may import both.
+    // Here it is only asserted that the member the mirror was missing is back.
+    expect(ALLOW_NEGATIVE_SOURCES).toContain("reversal");
+    expect(ALLOW_NEGATIVE_SOURCES).toContain("stay_night");
+    expect(ALLOW_NEGATIVE_SOURCES).toContain("payment_reversal");
+    expect(ALLOW_NEGATIVE_SOURCES).toHaveLength(3);
+  });
+
+  it("lets a negative stand only as far as the allow-negative debits reach", () => {
+    /*
+     * `checkLedgerInvariants` (server/lib/ledger.ts:886) exempts an account
+     * holding ANY debit from one of these sources, for that account AND that
+     * token. Unbounded, that exempts a negative of any size once a single
+     * clawback has touched the account. The bound is the honest reading: what a
+     * clawback took out is the most a lawful negative can be.
+     */
+    const key = negativeKey("mem:u1", "credits");
+    const exactly = withDebits(
+      { [key]: BigInt(25) },
+      { "mem:u1": { credits: BigInt(-25) }, "sys:treasury": { credits: BigInt(50) } },
+    );
+    expect(negatives(exactly)).toHaveLength(0);
+
+    const over = withDebits(
+      { [key]: BigInt(25) },
+      { "mem:u1": { credits: BigInt(-26) }, "sys:treasury": { credits: BigInt(51) } },
+    );
+    expect(negatives(over)).toHaveLength(1);
+    expect(negatives(over)[0].detail).toContain("took 25 credits out of it");
+    expect(negatives(over)[0].detail).toContain("short by 1");
+  });
+
+  it("does not let a debit in one token exempt a negative in another", () => {
+    // A stay_night burn of credits says nothing about a negative in
+    // recognition. Keyed by account alone, it exempted it.
+    const wrongToken = withDebits(
+      { [negativeKey("mem:u1", "credits")]: BigInt(900) },
+      { "mem:u1": { gratitude: BigInt(-900) }, "sys:treasury": { gratitude: BigInt(900) } },
+    );
+    expect(negatives(wrongToken)).toHaveLength(1);
+    expect(negatives(wrongToken)[0].detail).toContain("gratitude");
+    expect(negatives(wrongToken)[0].detail).toContain("took 0 gratitude out of it");
+
+    // The same debit against the same token does exempt it.
+    const rightToken = withDebits(
+      { [negativeKey("mem:u1", "gratitude")]: BigInt(900) },
+      { "mem:u1": { gratitude: BigInt(-900) }, "sys:treasury": { gratitude: BigInt(900) } },
+    );
+    expect(negatives(rightToken)).toHaveLength(0);
+  });
+
+  it("answers the same for the same balances however the run reached them", () => {
+    /*
+     * The verdict used to be decided by whichever debit came last, so two runs
+     * ending on identical balances disagreed about whether the ledger was
+     * broken. A bound over sums cannot depend on order: the same debits in any
+     * arrangement give the same total.
+     */
+    const held = { "mem:u1": { credits: BigInt(-25) }, "sys:treasury": { credits: BigInt(50) } };
+    const key = negativeKey("mem:u1", "credits");
+    const oneWay = withDebits({ [key]: BigInt(10) + BigInt(15) }, held);
+    const otherWay = withDebits({ [key]: BigInt(15) + BigInt(10) }, held);
+    expect(negatives(oneWay).length).toBe(negatives(otherWay).length);
+    expect(negatives(oneWay)).toHaveLength(0);
+    // And an unrelated debit elsewhere changes nothing about this account.
+    const noisy = withDebits({ [key]: BigInt(25), [negativeKey("mem:u2", "credits")]: BigInt(9999) }, held);
+    expect(negatives(noisy)).toHaveLength(0);
+  });
+
+  it("treats a run with no memo as a run that earned no exemption", () => {
+    // Fail closed. A state nothing stepped has no record of a clawback, so a
+    // negative on it is a negative nobody can account for.
+    const { model, stepped } = runOneCycle("lunar");
+    const bare: SimState = {
+      ...stepped,
+      balances: { ...stepped.balances, "mem:u1": { credits: BigInt(-25) }, "sys:treasury": { credits: BigInt(50) } },
+      models: {},
+    };
+    expect(model.invariants(bare).map((v) => v.invariant)).toContain("ledger.no_negative_non_faucet");
+  });
+});
+
+describe("the gratitude allowance, mirrored as the engine posts it", () => {
+  /** The same village with every token carrying `decimals` places. */
+  function scaled(decimals: number): VillageSnapshot {
+    const snap = snapshot("lunar");
+    snap.quests = { open: 2, confirmedPerCycle: 0, gratitudePerConfirmation: BigInt(0) };
+    snap.tokens = snap.tokens.map((t) => ({ ...t, decimals }));
+    snap.balances["mem:u2"] = {};
+    snap.members = [
+      { id: "u1", accountId: "mem:u1", stage: "member", seats: [] },
+      { id: "u2", accountId: "mem:u2", stage: "member", seats: [] },
+    ];
+    return snap;
+  }
+
+  it("posts the number the engine posts, unscaled, at any decimals", () => {
+    /*
+     * `allowanceFor` (server/lib/economy.ts:610) returns
+     * `Math.round(numberVar("gratitude.base_budget") * stageMultiplier)`, which
+     * is 100 * 2 = 200, a HUMAN figure. `give` (economy.ts:934) hands that
+     * straight to `postTransfer` with NO `toLedgerUnits` anywhere on the path,
+     * and `postTransfer` reads what it is handed as MINOR UNITS. So the engine
+     * posts 200, and 50 after `shareCapFor` (economy.ts:683) takes its quarter,
+     * whatever `decimals` says. A model that scaled by 10^decimals would post
+     * 500,000 at four places and preview a village nobody is living in.
+     */
+    const model = economicsModel({ ...ONE_QUEST, gratitudeAllowanceGivenShare: 1 });
+    const stepped = model.step(initialState(scaled(4)), 1, makeRng(SEED));
+    const memo = readEconomicsMemo(stepped)!;
+    expect(memo.allowanceTotal).toBe(BigInt(400));
+    expect(memo.gratitudeGiven).toBe(BigInt(100));
+    expect(stepped.balances["mem:u1"].gratitude).toBe(BigInt(50));
+    expect(stepped.balances["mem:u2"].gratitude).toBe(BigInt(50));
+
+    // And it is the same number at zero decimals, which is the whole point: the
+    // engine's answer does not move with the registry, and neither does this.
+    const flat = model.step(initialState(scaled(0)), 1, makeRng(SEED));
+    expect(readEconomicsMemo(flat)!.allowanceTotal).toBe(BigInt(400));
+    expect(flat.balances["mem:u1"].gratitude).toBe(BigInt(50));
+  });
+
+  it("says out loud that every gift is smaller than the dial promises", () => {
+    const model = economicsModel({ ...ONE_QUEST, gratitudeAllowanceGivenShare: 1 });
+    const stepped = model.step(initialState(scaled(4)), 1, makeRng(SEED));
+    const flag = model.flags(stepped, 1).filter((f) => f.code === "econ_allowance_unscaled")[0];
+    expect(flag.severity).toBe("danger");
+    expect(flag.sentence).toContain("4 decimal place(s)");
+    expect(flag.sentence).toContain("10000 times smaller");
+    expect(flag.actionable).toContain("decimals sweep lane F");
+
+    // Quiet on a village whose recognition token has no decimal places, which
+    // is every village that has not changed it.
+    const flat = model.step(initialState(scaled(0)), 1, makeRng(SEED));
+    expect(model.flags(flat, 1).map((f) => f.code)).not.toContain("econ_allowance_unscaled");
+    // And quiet on the default fixture.
+    const plain = runOneCycle("lunar");
+    expect(plain.model.flags(plain.stepped, 1).map((f) => f.code)).not.toContain("econ_allowance_unscaled");
+  });
+
+  it("compares the pool against an allowance in the same units", () => {
+    /*
+     * `econ_pool_exhausts` weighs `allowanceTotal` against
+     * `gratitude.pool_per_cycle`. While the allowance was scaled by 10^decimals
+     * and the pool was not, that sentence compared two different units and
+     * cried exhaustion on a village that was fine. Both are the dial's own
+     * whole numbers now.
+     */
+    const model = economicsModel(ONE_QUEST);
+    const stepped = model.step(initialState(scaled(4)), 1, makeRng(SEED));
+    // 400 of allowance against a pool of 1000 (shared/gameVariables.ts:117).
+    expect(readEconomicsMemo(stepped)!.allowanceTotal).toBe(BigInt(400));
+    expect(readEconomicsMemo(stepped)!.poolSize).toBe(BigInt(1000));
+    const exhausts = model.flags(stepped, 1).filter((f) => f.code === "econ_pool_exhausts");
+    expect(exhausts.map((f) => f.sentence).join(" ")).not.toContain("worth less than one minor unit");
+  });
+});
+
 describe("economics model, determinism", () => {
   it("answers the same state twice from the same seed", () => {
     const snap = snapshot("lunar");
@@ -630,6 +818,7 @@ describe("economics model, flags", () => {
         amount: BigInt(5),
         amountRaw: "5.0000",
         ceiling: BigInt(50),
+        ceilingRaw: "50.0000",
         enabled: true,
       },
       {
@@ -640,6 +829,7 @@ describe("economics model, flags", () => {
         amount: null,
         amountRaw: "",
         ceiling: BigInt(50),
+        ceilingRaw: "50.0000",
         enabled: true,
       },
     ]);
@@ -684,6 +874,7 @@ describe("economics model, flags", () => {
         amount: BigInt(0),
         amountRaw: "0.0004",
         ceiling: BigInt(50),
+        ceilingRaw: "50.0000",
         enabled: true,
       },
       {
@@ -694,6 +885,7 @@ describe("economics model, flags", () => {
         amount: BigInt(0),
         amountRaw: "0.0000",
         ceiling: BigInt(50),
+        ceilingRaw: "50.0000",
         enabled: true,
       },
     ]);
@@ -772,7 +964,7 @@ describe("economics model, flags", () => {
     const snap = snapshot("lunar");
     // The shape a ballot leaves behind when it lowers only the ceiling.
     snap.mintRules = snap.mintRules.map((r) =>
-      r.id === "rule-quest.completed-credits" ? { ...r, ceiling: BigInt(5), amount: BigInt(25) } : r,
+      r.id === "rule-quest.completed-credits" ? { ...r, ceiling: BigInt(5), ceilingRaw: "5.0000", amount: BigInt(25) } : r,
     );
     const model = economicsModel(ONE_QUEST);
     const stepped = model.step(initialState(snap), 1, makeRng(SEED));
@@ -790,7 +982,7 @@ describe("economics model, flags", () => {
   it("refuses a rule whose ceiling is zero, in the engine's own words", () => {
     const snap = snapshot("lunar");
     snap.mintRules = snap.mintRules.map((r) =>
-      r.id === "rule-quest.completed-credits" ? { ...r, ceiling: BigInt(0) } : r,
+      r.id === "rule-quest.completed-credits" ? { ...r, ceiling: BigInt(0), ceilingRaw: "0.0000" } : r,
     );
     const model = economicsModel(ONE_QUEST);
     const stepped = model.step(initialState(snap), 1, makeRng(SEED));
@@ -803,6 +995,113 @@ describe("economics model, flags", () => {
     // And it lands in the same unpayable list ruleCannotPay feeds.
     const unpayable = readEconomicsMemo(stepped)!.unpayable;
     expect(unpayable.map((u) => u.reason).join(" ")).toContain("can pay no credits at all");
+  });
+
+  it("tells a cap of nothing from a cap typed below what the token can hold", () => {
+    /*
+     * BOTH VILLAGES ARRIVE HOLDING `ceiling: BigInt(0)`, and only
+     * `MintRuleSpec.ceilingRaw` tells them apart.
+     *
+     * "0.0000" is a decision. `ceilingOutcome` (server/lib/economy.ts:590)
+     * finds `ceiling <= 0` and refuses every occurrence, out loud.
+     *
+     * "0.0004" on a token with no decimal places is a typo. The engine reads
+     * 0.0004, finds it ABOVE zero, so it does not refuse: `clampToCeiling`
+     * (economy.ts:534) returns `min(25, 0.0004)` = 0.0004, and
+     * `toLedgerUnits` (economy.ts:154) then rounds that to 0, which the mint
+     * path reports as smaller than the token can hold (economy.ts:1377).
+     * Reading the second as the first would turn a fat-fingered cap into a
+     * total stop and preview a village nobody voted for.
+     */
+    const withCeiling = (raw: string, minor: bigint) => {
+      const snap = snapshot("lunar");
+      snap.mintRules = snap.mintRules.map((r) =>
+        r.id === "rule-quest.completed-credits" ? { ...r, ceiling: minor, ceilingRaw: raw } : r,
+      );
+      const model = economicsModel(ONE_QUEST);
+      const stepped = model.step(initialState(snap), 1, makeRng(SEED));
+      return { model, stepped, codes: model.flags(stepped, 1).map((f) => f.code), flags: model.flags(stepped, 1) };
+    };
+
+    // A cap of nothing: the refusal, and never the rounds-away sentence.
+    const decided = withCeiling("0.0000", BigInt(0));
+    expect(decided.codes).toContain("econ_rule_ceiling_zero");
+    expect(decided.codes).not.toContain("econ_ceiling_rounds_away");
+
+    // A cap below the resolution: the rounds-away sentence, and never the refusal.
+    const typo = withCeiling("0.0004", BigInt(0));
+    expect(typo.codes).toContain("econ_ceiling_rounds_away");
+    expect(typo.codes).not.toContain("econ_rule_ceiling_zero");
+    const rounds = typo.flags.filter((f) => f.code === "econ_ceiling_rounds_away")[0];
+    expect(rounds.severity).toBe("warning");
+    expect(rounds.sentence).toContain("caps one occurrence at 0.0004 credits");
+    expect(rounds.sentence).toContain("credits holds 0 decimal place(s)");
+    expect(rounds.actionable).toContain("Write a ceiling of at least 1");
+
+    // Neither one pays, and each says why in the engine's own words.
+    expect(decided.stepped.balances["mem:u1"].credits).toBeUndefined();
+    expect(typo.stepped.balances["mem:u1"].credits).toBeUndefined();
+    const saidOf = (r: ReturnType<typeof withCeiling>) =>
+      readEconomicsMemo(r.stepped)!.unpayable.map((u) => u.reason).join(" | ");
+    expect(saidOf(decided)).toContain("this rule's ceiling is 0, so it can pay no credits at all");
+    expect(saidOf(typo)).toContain("0.0004 is smaller than the smallest amount this token can hold");
+    expect(saidOf(typo)).not.toContain("can pay no credits at all");
+
+    // The voice rule is untouched in both, so this is about the ceiling and
+    // never about the cycle failing.
+    expect(decided.stepped.balances["mem:u1"]["village-voice"]).toBe(BigInt(10000));
+    expect(typo.stepped.balances["mem:u1"]["village-voice"]).toBe(BigInt(10000));
+  });
+
+  it("keeps a cap that survives rounding, down to the smallest unit the token holds", () => {
+    /*
+     * The boundary of the branch above. `toLedgerUnits` rounds half UP, so on
+     * village-voice at three places "0.0006" becomes 1 thousandth and the cap
+     * is real: `min(10.0000, 0.0006)` is 0.0006, which posts as 1. Nothing is
+     * flagged, because nothing is wrong.
+     */
+    const snap = snapshot("lunar");
+    snap.mintRules = snap.mintRules.map((r) =>
+      r.id === "rule-quest.completed-village-voice" ? { ...r, ceiling: BigInt(1), ceilingRaw: "0.0006" } : r,
+    );
+    const model = economicsModel(ONE_QUEST);
+    const stepped = model.step(initialState(snap), 1, makeRng(SEED));
+    expect(stepped.balances["mem:u1"]["village-voice"]).toBe(BigInt(1));
+    const codes = model.flags(stepped, 1).map((f) => f.code);
+    expect(codes).not.toContain("econ_ceiling_rounds_away");
+    expect(codes).not.toContain("econ_rule_ceiling_zero");
+    // It does contradict its own amount, which is a different and true thing.
+    expect(codes).toContain("econ_rule_contradicts_ceiling");
+  });
+
+  it("survives a malformed spec that pairs a real cap of zero with no text", () => {
+    /*
+     * DELIBERATELY MALFORMED, AND NO CONFORMING READER EMITS IT.
+     *
+     * `types.ts` pairs an empty `ceilingRaw` with `ceiling: null`, and the two
+     * together mean NO CAP. `ceiling: BigInt(0)` is a different fact: a real
+     * cap of nothing. So this fixture asserts both at once, which no snapshot
+     * reader can do, because the economy reader keys both fields off one null
+     * check and emits them as a pair.
+     *
+     * It is here anyway, and that is the point. `writtenCeiling` carries a
+     * fallback for a spec arriving with no text, and a fallback nothing
+     * exercises is a fallback nobody can trust. The safe answer with no text to
+     * read is the old one: a cap that rounded to nothing is treated as a cap of
+     * nothing, which stops a payout rather than letting one through. This test
+     * pins that, and it is the ONLY place in this file that builds a spec the
+     * contract does not describe.
+     */
+    const snap = snapshot("lunar");
+    snap.mintRules = snap.mintRules.map((r) =>
+      // Malformed on purpose: a real cap of zero beside the empty text that
+      // means no cap. See the block above.
+      r.id === "rule-quest.completed-credits" ? { ...r, ceiling: BigInt(0), ceilingRaw: "" } : r,
+    );
+    const model = economicsModel(ONE_QUEST);
+    const stepped = model.step(initialState(snap), 1, makeRng(SEED));
+    expect(model.flags(stepped, 1).map((f) => f.code)).toContain("econ_rule_ceiling_zero");
+    expect(stepped.balances["mem:u1"].credits).toBeUndefined();
   });
 
   it("pays a seat holder from the role.cycle rules and a seatless member nothing", () => {
@@ -879,7 +1178,7 @@ describe("the ceiling mirror, held to the engine's own table", () => {
      */
     const snap = snapshot("lunar");
     snap.mintRules = snap.mintRules.map((r) =>
-      r.id === "rule-quest.completed-village-voice" ? { ...r, ceiling: BigInt(2500), amount: BigInt(10000) } : r,
+      r.id === "rule-quest.completed-village-voice" ? { ...r, ceiling: BigInt(2500), ceilingRaw: "2.5000", amount: BigInt(10000) } : r,
     );
     const model = economicsModel(ONE_QUEST);
     const stepped = model.step(initialState(snap), 1, makeRng(SEED));

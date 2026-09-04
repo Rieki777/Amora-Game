@@ -12,7 +12,7 @@
  * ten Village Voice is 10000 in the ledger and has to read as 10.
  */
 import { describe, expect, it } from "vitest";
-import { decimalsOf, formatTokenAmount } from "./tokenAmount";
+import { decimalsOf, formatTokenAmount, smallestUnit, toMinorUnits } from "./tokenAmount";
 
 describe("formatTokenAmount", () => {
   it("shows ten Village Voice as ten, not ten thousand", () => {
@@ -83,5 +83,63 @@ describe("decimalsOf", () => {
     expect(decimalsOf(undefined, "village-voice")).toBe(0);
     expect(decimalsOf({}, "village-voice")).toBe(0);
     expect(decimalsOf(null, "anything")).toBe(0);
+  });
+});
+
+/**
+ * THE TWO HALVES OF THE CARD HAVE TO AGREE.
+ *
+ * A member sees a balance and types a number into a box beside it. If the
+ * display divides and the box does not, the card lies to them in the most
+ * expensive way available: quietly, about money, in a direction they will not
+ * question.
+ *
+ * That is not hypothetical. The decimals sweep taught the send card to SHOW a
+ * balance in human units and left its input posting MINOR units to an endpoint
+ * that truncates and moves exactly that many. A member holding 10000 Village
+ * Voice saw "You hold 10", typed 1, and moved 0.001. Before the sweep the card
+ * said 10000 and the box took 10000: both raw, and agreeing, which is
+ * survivable in a way that disagreeing is not.
+ *
+ * So these are round trips rather than assertions about either half alone.
+ */
+describe("what a member sees, typed straight back, is what the ledger held", () => {
+  const cases: Array<[number, number]> = [
+    [10000, 3], // 10 Village Voice, the only token with decimals today
+    [10000, 4], // the same row after the 4-decimals ruling
+    [25, 0],    // Village Credits as they ship now
+    [1229, 4],  // deliberately not a round number of minor units
+    [1, 0],
+    [500, 3],
+    [0, 3],
+  ];
+  for (const [units, d] of cases) {
+    it(`${units} at ${d}dp survives the round trip`, () => {
+      expect(toMinorUnits(formatTokenAmount(units, d), d)).toBe(units);
+    });
+  }
+});
+
+describe("the send card's actual bug", () => {
+  it("typing the whole balance back moves the whole balance", () => {
+    expect(toMinorUnits(formatTokenAmount(10000, 3), 3)).toBe(10000);
+  });
+
+  it("typing 1 moves one whole token, not one minor unit", () => {
+    expect(toMinorUnits("1", 3)).toBe(1000);
+    expect(toMinorUnits("1", 0)).toBe(1);
+  });
+
+  it("refuses to invent a number from something that is not one", () => {
+    expect(Number.isNaN(toMinorUnits("", 3))).toBe(true);
+    expect(Number.isNaN(toMinorUnits("abc", 3))).toBe(true);
+  });
+});
+
+describe("smallestUnit", () => {
+  it("gives an input a step a member can actually reach", () => {
+    expect(smallestUnit(0)).toBe(1);
+    expect(smallestUnit(3)).toBe(0.001);
+    expect(smallestUnit(4)).toBe(0.0001);
   });
 });

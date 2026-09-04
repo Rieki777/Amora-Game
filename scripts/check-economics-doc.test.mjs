@@ -31,11 +31,15 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   REGION_NAMES,
+  constInitializerText,
+  frozenStringSet,
+  verifyKeystoneSets,
   ROOT,
   endMarker,
   findRegion,
   invariantChecks,
   occurrenceKeys,
+  postingKeys,
   refusalsFrom,
   renderAll,
   startMarker,
@@ -218,6 +222,252 @@ check("READER FIXTURE: a finding built from a variable THROWS, not half a senten
 });
 
 fs.rmSync(READER_FIXTURES, { recursive: true, force: true });
+
+/*
+ * ── F7: the keystone sets are read for their VALUE, not their source shape ──
+ *
+ * generate-token-doc.mjs's `setConst` takes the FIRST array literal in the
+ * initialiser, so a `.concat`, a `.filter`, or an environment-keyed ternary
+ * passes it unchanged while the program holds a different set. The adversary
+ * pass drove all three past both doc guards and past the payments.test.ts pin,
+ * which compares the set inside a process that identifies itself as the test
+ * environment and so cannot see the ternary at all.
+ */
+const KEYSTONE_SETS = [
+  ["server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES"],
+  ["server/lib/spending.ts", "SENDABLE_KINDS"],
+  ["server/lib/spending.ts", "MODULE_VOUCHERS"],
+];
+
+function setFixture(label, initializer) {
+  const root = path.join(READER_FIXTURES, `set-${label}`);
+  fs.mkdirSync(path.join(root, "server", "lib"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "server", "lib", "ledger.ts"),
+    `export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = ${initializer};\n`,
+  );
+  return root;
+}
+
+check("F7 READER: the plain documented shape is accepted, and its values read", () => {
+  for (const [file, name] of KEYSTONE_SETS) {
+    const v = frozenStringSet(ROOT, file, name);
+    assert.ok(Array.isArray(v) && v.length > 0, `${name} must read as a non-empty list`);
+    assert.ok(v.every((x) => typeof x === "string"), `${name} must read as strings`);
+  }
+  assert.deepStrictEqual(
+    frozenStringSet(ROOT, "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES").sort(),
+    ["payment_reversal", "reversal", "stay_night"],
+  );
+});
+
+check("F7 READER: .concat, an env ternary, and .filter are all REFUSED", () => {
+  // The three shapes from the report, each of which passed both doc guards.
+  const attacks = {
+    concat: 'new Set(["a", "b"].concat(["spend"]))',
+    ternary: 'new Set(process.env.NODE_ENV === "test" ? ["a", "b"] : ["a", "b", "spend"])',
+    filter: 'new Set(["a", "b"].filter((s) => s !== "b"))',
+  };
+  for (const [label, init] of Object.entries(attacks)) {
+    assert.throws(
+      () => frozenStringSet(setFixture(label, init), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES"),
+      (err) => {
+        assert.match(String(err.message), /accepts exactly two shapes/);
+        assert.match(String(err.message), /It found:/, "the refusal must print the shape it saw");
+        return true;
+      },
+      `${label} must be refused`,
+    );
+  }
+});
+
+check("F7 READER: a spread, a non-literal element, a second argument, and an empty set are REFUSED", () => {
+  const attacks = {
+    spread: 'new Set([...BASE, "spend"])',
+    identifier: 'new Set(["a", SOME_CONST])',
+    notaset: '["a", "b"]',
+    objectfreeze: 'Object.freeze(new Set(["a", "b"]))',
+    frozenConcat: 'frozenSet(["a", "b"].concat(["spend"]))',
+    frozenSpread: "frozenSet([...BASE])",
+    empty: "new Set([])",
+    frozenEmpty: "frozenSet([])",
+  };
+  for (const [label, init] of Object.entries(attacks)) {
+    assert.throws(
+      () => frozenStringSet(setFixture(label, init), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES"),
+      /accepts exactly two shapes/,
+      `${label} must be refused`,
+    );
+  }
+  // `Object.freeze(new Set([...]))` is refused DELIBERATELY. The keystone lane
+  // seals these sets with `frozenSet`, which is accepted below; a different
+  // wrapper is a different decision and gets a reviewed one-line addition
+  // rather than being inferred.
+});
+
+check("F7 READER: frozenSet([...]) is ACCEPTED and reads the same list as new Set", () => {
+  // The keystone lane closes F14 by making these sets refuse mutation:
+  // frozenSet returns a Set whose add, delete and clear throw. It changes what
+  // the value can DO, not what it IS, so moving to it must not change a single
+  // line of either document.
+  const plain = frozenStringSet(setFixture("ok-plain", 'new Set(["a", "b"])'), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES");
+  const sealed = frozenStringSet(setFixture("ok-frozen", 'frozenSet(["a", "b"])'), "server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES");
+  assert.deepStrictEqual(sealed, ["a", "b"]);
+  assert.deepStrictEqual(sealed, plain, "sealing a set must not change the list either document prints");
+});
+
+check("F7 RUNTIME: the value under NODE_ENV=production equals the documented list", () => {
+  // The half a static reader cannot cover. The declaration is evaluated in a
+  // subprocess that identifies itself as PRODUCTION, because payments.test.ts
+  // compares the same set inside a process that says NODE_ENV=test, and an
+  // environment-keyed set is identical in the two and different in the one
+  // that matters.
+  for (const [file, name] of KEYSTONE_SETS) {
+    const src = constInitializerText(ROOT, file, name);
+    // `frozenSet` is the keystone lane's sealing wrapper, and this subprocess
+    // is a bare node with none of the module around it, so the name has to be
+    // supplied or the probe fails to evaluate rather than reporting a value.
+    // A shim is honest here for the same reason the reader above accepts the
+    // real one: sealing changes what the value can DO, not what it IS, and
+    // this case measures the VALUE. The shim cannot widen the gate either,
+    // because `frozenStringSet` has already refused every initialiser shape
+    // but the two literal ones before this line runs. That `add` throws is
+    // measured where it belongs, in server/ledger.test.ts.
+    const shim = "const frozenSet = (values) => new Set(values);";
+    const probe = `${shim}process.stdout.write(JSON.stringify(Array.from(${src}).sort()));`;
+    const r = spawnSync(process.execPath, ["-e", probe], {
+      encoding: "utf8",
+      env: { ...process.env, NODE_ENV: "production", VITEST: "" },
+    });
+    assert.strictEqual(r.status, 0, `evaluating ${name} failed:\n${r.stdout}${r.stderr}`);
+    assert.deepStrictEqual(
+      JSON.parse(r.stdout),
+      frozenStringSet(ROOT, file, name).sort(),
+      `${name} holds a different value at runtime under NODE_ENV=production than the document prints`,
+    );
+  }
+});
+
+check("F7: verifyKeystoneSets throws when the two readers disagree", () => {
+  // The cross-check itself. If setConst and the strict reader ever report
+  // different lists for a shape neither refused, the document cannot be
+  // written from either without choosing, and this refuses to choose.
+  assert.throws(
+    () => verifyKeystoneSets(ROOT, { allowNegative: ["stay_night"], sendableKinds: ["credit"], moduleVouchers: [] }),
+    /the two readers disagree about ALLOW_NEGATIVE_SOURCES/,
+  );
+});
+
+/*
+ * ── F10: the key table is read from the CALL SITES, not from `keys` ────────
+ */
+check("F10 READER: the two mint keys carry the :<tokenSlug>, now from the builder", () => {
+  // The exact defect: the document printed the builder's output for the two
+  // highest-volume mints, and the ledger held that string plus the slug,
+  // which the call sites appended after the builder returned.
+  //
+  // THE SLUG IS A BUILDER PARAMETER NOW (keystone lane, W3 F18): appending it
+  // outside also meant it went in unescaped, so a colon in a token slug moved
+  // the boundary between two segments. What this case pins is unchanged, and
+  // it is the thing that matters: the slug is IN the key the ledger holds.
+  // Both readers agree on that string today, which is what closed F10.
+  const shapes = new Set(postingKeys(ROOT).sites.map((s) => s.shape));
+  assert.ok(
+    shapes.has("quest.completed:<esc(v)>:<esc(questId)>:<esc(claimId)>:<esc(userId)>:<esc(tokenSlug)>"),
+    "the quest mint key must carry the token slug",
+  );
+  assert.ok(
+    shapes.has("role.cycle:<esc(v)>:<esc(cycleKey)>:<esc(seatId)>:<esc(userId)>:<esc(tokenSlug)>"),
+    "the settlement key must carry the token slug",
+  );
+  // And the bare builder output must NOT be presented as a key the ledger holds.
+  assert.ok(!shapes.has("quest.completed:<v>:<questId>:<claimId>:<userId>"), "the bare builder shape is not a key");
+  assert.ok(!shapes.has("role.cycle:<v>:<cycleKey>:<seatId>:<userId>"), "the bare builder shape is not a key");
+});
+
+check("F10 READER: the hand-written keys the old table omitted are all present", () => {
+  const shapes = new Set(postingKeys(ROOT).sites.map((s) => s.shape));
+  for (const wanted of [
+    "voice-claim-settled:<villageId()>:<claimId>",
+    "voice-claim-debit:<villageId()>:<claimId>",
+    "ord:<orderId>:reversal-leg1",
+    "exit:<exitId>:sweep:<token>",
+    "gratitude_received:<id>",
+    "loan:<loanId>:settle:release",
+    "seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:pay",
+    "stay:<id>:night:<night>",
+  ]) {
+    assert.ok(shapes.has(wanted), `${wanted} is written by the code and missing from the key table`);
+  }
+  assert.ok(shapes.size >= 40, `expected the ledger to hold at least 40 shapes, read ${shapes.size}`);
+});
+
+check("F10 READER: a forwarded key is counted, not printed as a shape", () => {
+  // `mint()` hands on `input.idempotencyKey`. That is the caller's key, and
+  // every caller is read separately, so printing it as a shape would invent one.
+  const { forwarded, sites } = postingKeys(ROOT);
+  assert.ok(forwarded >= 1, "the forwarding sites must be recognised rather than refused");
+  assert.ok(!sites.some((s) => /idempotencyKey/.test(s.shape)), "a forwarded key must not reach the table");
+});
+
+check("F10 READER: a key it cannot resolve is a THROW naming the site", () => {
+  // The whole point. A key table missing a key is the defect this replaces, so
+  // an unreadable site refuses rather than being skipped.
+  const root = path.join(READER_FIXTURES, "unreadable-key");
+  fs.mkdirSync(path.join(root, "server", "lib"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "server", "lib", "economy.ts"),
+    "export const keys = { a: (v: string) => `a:${v}` };\n" +
+      "export async function pay(pool: any, secret: string) {\n" +
+      "  return postTransfer(pool, { idempotencyKey: someImportedThing(secret) });\n" +
+      "}\n",
+  );
+  assert.throws(
+    () => postingKeys(root),
+    (err) => {
+      assert.match(String(err.message), /writes an idempotency key this reader cannot resolve/);
+      assert.match(String(err.message), /server\/lib\/economy\.ts:3/, "the refusal must name file and line");
+      assert.match(String(err.message), /someImportedThing/, "the refusal must print the expression");
+      return true;
+    },
+  );
+});
+
+check("F10 READER: a builder that is not in `keys` is a THROW, not a silent gap", () => {
+  const root = path.join(READER_FIXTURES, "unknown-builder");
+  fs.mkdirSync(path.join(root, "server", "lib"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "server", "lib", "economy.ts"),
+    "export const keys = { a: (v: string) => `a:${v}` };\n" +
+      "export async function pay(pool: any) {\n" +
+      "  return postTransfer(pool, { idempotencyKey: keys.notARealBuilder('x') });\n" +
+      "}\n",
+  );
+  assert.throws(() => postingKeys(root), /is not in the\s+`keys` object this reader read/);
+});
+
+check("F10 READER: the tokenSlug suffix is found wherever it is written", () => {
+  // The keystone lane may move the `:${slug}` inside the builders. Both
+  // arrangements must produce the same final shape, or this reader would go
+  // red on a change that alters nothing the ledger sees.
+  const mk = (label, keysDecl, callSite) => {
+    const root = path.join(READER_FIXTURES, label);
+    fs.mkdirSync(path.join(root, "server", "lib"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "server", "lib", "economy.ts"),
+      `export const keys = { q: ${keysDecl} };\n` +
+        "export async function pay(pool: any, r: any) {\n" +
+        `  return postTransfer(pool, { idempotencyKey: ${callSite} });\n` +
+        "}\n",
+    );
+    return postingKeys(root).sites.map((s) => s.shape);
+  };
+  const atCallSite = mk("suffix-callsite", "(v: string, q: string) => `quest:${v}:${q}`", "`${keys.q(villageId(), r.questId)}:${r.tokenSlug}`");
+  const inBuilder = mk("suffix-builder", "(v: string, q: string, tokenSlug: string) => `quest:${v}:${q}:${tokenSlug}`", "keys.q(villageId(), r.questId, r.tokenSlug)");
+  assert.deepStrictEqual(atCallSite, ["quest:<v>:<q>:<tokenSlug>"]);
+  assert.deepStrictEqual(inBuilder, ["quest:<v>:<q>:<tokenSlug>"]);
+  assert.deepStrictEqual(atCallSite, inBuilder, "moving the suffix into the builder must not change the shape");
+});
 
 check("READER: refusalsFrom reads BOTH branches of a ternary refusal", () => {
   // This is the case that caught the first draft of the reader: sendRefusal

@@ -147,17 +147,25 @@ export interface TokenSpec {
 /**
  * One minting rule as the simulation needs it, copied from `mint_rules`.
  *
- * ── WHY THE AMOUNT IS HERE TWICE ───────────────────────────────────────────
+ * ── WHY BOTH NUMBERS ARE HERE TWICE ────────────────────────────────────────
  *
- * `mint_rules.amount` is `decimal(18,4)` (drizzle/0071), and a token with
- * `decimals: 0` turns 0.0004 into 0 minor units. So `amount` alone cannot
- * tell a rule that was set to nothing from a rule whose amount rounded away
- * to nothing, and those two are different facts about a village: one is a
- * decision, the other is a rule that quietly pays nobody.
+ * `mint_rules.amount` and `mint_rules.ceiling` are both `decimal(18,4)`
+ * (drizzle/0071), and a token with `decimals: 0` turns 0.0004 into 0 minor
+ * units. So the rounded number alone cannot tell a field that was SET to
+ * nothing from a field that ROUNDED AWAY to nothing, and those are different
+ * facts about a village.
  *
- * `amountRaw` is the column's own text, unrounded and unparsed. A model that
- * wants to say "this rule rounds away to nothing" compares the two and is
- * exact, instead of inferring from a zero that has two causes.
+ * For the amount, one is a decision and the other is a rule that quietly pays
+ * nobody. For the ceiling it is worse: a cap typed below the token's own
+ * resolution arrives as 0 and reads as refuse everything, where the engine
+ * would clamp. A preview that turned a fat-fingered cap into a total stop
+ * would be reporting a village nobody voted for.
+ *
+ * `amountRaw` and `ceilingRaw` are the columns' own text, unrounded and
+ * unparsed. A model that wants to say "this rounds away to nothing" compares
+ * the pair and is exact, instead of inferring from a zero that has two
+ * causes. `simulate.ts` writes each pair atomically, so a change set can
+ * never leave one of them stale beside the other.
  */
 export interface MintRuleSpec {
   /** The row's id, which is what a `mint:<id>:<field>` change key names. */
@@ -179,6 +187,15 @@ export interface MintRuleSpec {
   amountRaw: string;
   /** The most it may mint in one cycle, in minor units, or null for no cap. */
   ceiling: bigint | null;
+  /**
+   * The ceiling's `decimal(18,4)` text, on the same terms as `amountRaw` and
+   * empty string for no cap. It carries more weight than its twin: a cap of
+   * `"0.0004"` on a token with no decimals reaches a model as `BigInt(0)`,
+   * which is the same value a cap of "let nothing through" carries. The text
+   * is what tells those two apart, and it is the ONLY unrounded copy of the
+   * ceiling in the simulation.
+   */
+  ceilingRaw: string;
   /** Whether it fires at all. */
   enabled: boolean;
 }

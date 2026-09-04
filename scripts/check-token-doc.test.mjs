@@ -75,7 +75,8 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { generate } from "./generate-token-doc.mjs";
+import { generate, setConst } from "./generate-token-doc.mjs";
+import { constInitializerText } from "./generate-economics-doc.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..");
@@ -131,13 +132,30 @@ function linkOrCopy(target, dest) {
  * "the generator could not read the code" case is built WITHOUT deleting
  * anything from the real repository.
  */
-function newTree(label, { doc = EXPECTED, omit = [] } = {}) {
+function newTree(label, { doc = EXPECTED, omit = [], ledger = null } = {}) {
   const root = path.join(FIXTURES, label);
   fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
   fs.copyFileSync(GENERATOR, path.join(root, "scripts", "generate-token-doc.mjs"));
   fs.copyFileSync(GUARD, path.join(root, "scripts", "check-token-doc.mjs"));
   for (const name of LINKED) {
     if (omit.includes(name)) continue;
+    // A case that rewrites the keystone declaration needs a REAL COPY of
+    // server/, never the junction: writing through the junction would edit the
+    // repository this test is measuring.
+    if (name === "server" && ledger) {
+      fs.cpSync(path.join(REPO_ROOT, "server"), path.join(root, "server"), { recursive: true });
+      const target = path.join(root, "server", "lib", "ledger.ts");
+      const src = fs.readFileSync(target, "utf8");
+      // The declaration moved from `new Set([...])` to `frozenSet([...])` when
+      // the keystone lane closed W3 F14: the set was mutable at runtime behind
+      // a `ReadonlySet` type, which is a claim and not a property. Only the
+      // TEXT this fixture rewrites changed; the list it holds did not, and the
+      // reader accepts both shapes.
+      const ORIGINAL = 'export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = frozenSet(["stay_night", "payment_reversal", "reversal"]);';
+      assert.ok(src.includes(ORIGINAL), "the keystone declaration this fixture rewrites has moved");
+      fs.writeFileSync(target, src.replace(ORIGINAL, ledger));
+      continue;
+    }
     linkOrCopy(path.join(REPO_ROOT, name), path.join(root, name));
   }
   if (doc !== null) {
@@ -255,33 +273,26 @@ check("it reports the TOTAL number of differing lines, not just the one it print
 
 // ── THE GAP: could-not-run is exit 1, the same as drift ────────────────────
 
-check("GAP: a MISSING docs/TOKENS.md exits 1, not 2, and says it is missing", () => {
-  // Recorded, not endorsed. The important half is that it is NOT 0: a guard
-  // reporting an absent document as a clean run would be the whole problem.
-  // What it cannot do is tell a reader of a red build that nothing was
-  // compared.
+check("a MISSING docs/TOKENS.md exits 2: could not compare, not drifted", () => {
+  // This was the recorded GAP: the guard used exit 1 for everything, so a red
+  // build could not distinguish "I looked and it is wrong" from "I could not
+  // look". Closed now, and pinned here so it stays closed.
   const { code, out } = runGuard(newTree("nodoc", { doc: null }));
-  assert.notStrictEqual(code, 0, "an absent document must never be a pass");
-  assert.strictEqual(
-    code,
-    1,
-    `today this is 1; if it becomes 2 that is an improvement and this test should be updated. Got ${code}:\n${out}`,
-  );
+  assert.strictEqual(code, 2, `an absent document is could-not-compare. Got ${code}:\n${out}`);
   assert.match(out, /docs\/TOKENS\.md is missing/);
-  assert.match(out, /node scripts\/generate-token-doc\.mjs/);
+  assert.match(out, /Exit 2, not 1/);
   assert.ok(!/have come apart/.test(out), "a missing file must not be described as drift");
 });
 
-check("GAP: sources the generator cannot read exit 1, not 2, and blame the CODE", () => {
+check("sources the generator cannot read exit 2, and blame the CODE", () => {
   // Built by omitting the drizzle junction, so nothing is deleted from the
   // real repository. The document in this fixture is perfectly correct and the
   // guard still fails, which is right: nothing was compared.
   const { code, out } = runGuard(newTree("nosources", { omit: ["drizzle"] }));
-  assert.notStrictEqual(code, 0, "an unreadable source tree must never be a pass");
-  assert.strictEqual(code, 1, `today this is 1; if it becomes 2, update this test. Got ${code}:\n${out}`);
+  assert.strictEqual(code, 2, `an unreadable source tree is could-not-compare. Got ${code}:\n${out}`);
   assert.match(out, /could not be generated, so it cannot be checked/);
   assert.match(out, /drizzle/, "the message must name the source that moved");
-  assert.match(out, /refuses to guess/);
+  assert.match(out, /Exit 2: nothing was compared/);
 });
 
 // ── --list ─────────────────────────────────────────────────────────────────
@@ -296,6 +307,90 @@ check("--list prints the sources AND still runs the check", () => {
   assert.match(out, /drizzle/);
   assert.match(out, /server\/lib\/economy\.ts/);
   assert.strictEqual(code, 1, `--list does not suppress the check. Got ${code}:\n${out}`);
+});
+
+// ── F7: the keystone sets, read for their VALUE ────────────────────────────
+
+const KEYSTONE_SETS = [
+  ["server/lib/ledger.ts", "ALLOW_NEGATIVE_SOURCES"],
+  ["server/lib/spending.ts", "SENDABLE_KINDS"],
+  ["server/lib/spending.ts", "MODULE_VOUCHERS"],
+];
+
+check("F7: the three widenings that walked past this guard are now REFUSED", () => {
+  // setConst used to take the first array literal in the initialiser, which
+  // reads the source text rather than the value. All three of these produced
+  // a clean RC=0 from this guard AND from check-economics-doc, and the third
+  // also walks past server/payments.test.ts, which compares the set inside a
+  // process that says NODE_ENV=test.
+  const attacks = {
+    concat: 'export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal", "reversal"].concat(["spend"]));',
+    ternary: 'export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(process.env.NODE_ENV === "test" ? ["stay_night", "payment_reversal", "reversal"] : ["stay_night", "payment_reversal", "reversal", "spend"]);',
+    filter: 'export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal", "reversal"].filter((s) => s !== "reversal"));',
+  };
+  for (const [label, ledger] of Object.entries(attacks)) {
+    const { code, out } = runGuard(newTree(`widen-${label}`, { ledger }));
+    assert.strictEqual(code, 2, `${label} must be refused as could-not-read. Got ${code}:\n${out}`);
+    assert.match(out, /accepts exactly two shapes/, `${label} must name the shapes it accepts`);
+    assert.match(out, /It found:/, `${label} must print the shape it saw`);
+    assert.match(out, /ALLOW_NEGATIVE_SOURCES/);
+  }
+});
+
+check("F7: frozenSet([...]) is ACCEPTED, because it is the second documented shape", () => {
+  // The keystone lane closes F14 by sealing these sets: frozenSet returns a
+  // Set whose add, delete and clear throw. It changes what the value can DO,
+  // not what it IS, so both documents must keep reading the same list across
+  // that change rather than going red on it.
+  const ledger = 'export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = frozenSet(["stay_night", "payment_reversal", "reversal"]);';
+  const { code, out } = runGuard(newTree("frozenset", { ledger }));
+  assert.strictEqual(code, 0, `frozenSet with a literal array must read exactly like new Set:\n${out}`);
+  assert.match(out, /Token doc guard passed/);
+});
+
+check("F7: frozenSet wrapping anything but a literal array is still REFUSED", () => {
+  // The wrapper is not a licence. `frozenSet([...].concat([...]))` hides the
+  // same widening behind an accepted name.
+  const ledger = 'export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = frozenSet(["stay_night", "payment_reversal", "reversal"].concat(["spend"]));';
+  const { code, out } = runGuard(newTree("frozenset-concat", { ledger }));
+  assert.strictEqual(code, 2, `frozenSet around a .concat must be refused. Got ${code}:\n${out}`);
+  assert.match(out, /accepts exactly two shapes/);
+});
+
+check("F7: an HONEST widening is still exit 1, drift, with both sides printed", () => {
+  // The control that proves the cases above measure the SHAPE and not merely
+  // "the set changed". A village that really does widen the keystone gets the
+  // ordinary drift failure, which is regenerated and reviewed.
+  const ledger = 'export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = new Set(["stay_night", "payment_reversal", "reversal", "spend"]);';
+  const { code, out } = runGuard(newTree("widen-honest", { ledger }));
+  assert.strictEqual(code, 1, `an honest edit is drift, not could-not-read. Got ${code}:\n${out}`);
+  assert.match(out, /have come apart/);
+  assert.match(out, /the code says:/);
+  assert.match(out, /the file says:/);
+});
+
+check("F7 RUNTIME: every keystone set's value under NODE_ENV=production matches the document", () => {
+  // The half no static reader can cover, and the half payments.test.ts cannot
+  // reach: it compares the same set inside a process that identifies itself as
+  // the test environment, where an environment-keyed set is identical to the
+  // honest one. This evaluates the declaration where it matters.
+  for (const [file, name] of KEYSTONE_SETS) {
+    const src = constInitializerText(REPO_ROOT, file, name);
+    const documented = setConst(REPO_ROOT, file, name).sort();
+    const probe =
+      "const frozenSet = (a) => new Set(a);\n" +
+      `process.stdout.write(JSON.stringify(Array.from(${src}).sort()));`;
+    const r = spawnSync(process.execPath, ["-e", probe], {
+      encoding: "utf8",
+      env: { ...process.env, NODE_ENV: "production", VITEST: "" },
+    });
+    assert.strictEqual(r.status, 0, `evaluating ${name} failed:\n${r.stdout}${r.stderr}`);
+    assert.deepStrictEqual(
+      JSON.parse(r.stdout),
+      documented,
+      `${name} holds a different value at runtime under NODE_ENV=production than docs/TOKENS.md prints`,
+    );
+  }
 });
 
 // ── The positive control for the whole file ────────────────────────────────

@@ -11,7 +11,7 @@
  * applied, unique per provision. No TEST_DATABASE_URL and the suite skips
  * loudly rather than passing hollowly.
  */
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { describe, expect, it, beforeAll, beforeEach, afterAll } from "vitest";
 import mysql from "mysql2/promise";
 import {
   allowanceFor,
@@ -22,6 +22,8 @@ import {
   clampToCeiling,
   claimRefunds,
   CREDITS,
+  cycleWindow,
+  decayVoice,
   economyEpoch,
   faucetFor,
   publicSupply,
@@ -45,13 +47,17 @@ import {
   reversePair,
   runSettlement,
   VILLAGE_VOICE,
+  VOICE_BRIDGE,
+  VOICE_DECAY,
   VOICE_MINT,
   villageId,
   writeGratitudeRow,
   type MintRule,
 } from "./lib/economy";
 import { balanceOf, checkLedgerInvariants, CYCLE_POOL_FAUCET, loadTokenRegistry, memberAccount, MINT_FAUCET, postTransfer, postTransferPair, registerToken, RECOGNITION_FAUCET, TREASURY } from "./lib/ledger";
-import { loadVariables } from "./lib/variables";
+import { createExit } from "./lib/exit";
+import { VOICE_SETTLED } from "./lib/voiceClaim";
+import { loadVariables, numberVar, setVariable } from "./lib/variables";
 import { cycleBoundsFor } from "../shared/lunar";
 import { provisionTestDb, testDbConfigured, type TestDb } from "./db/testDb";
 
@@ -1833,4 +1839,512 @@ describe.skipIf(!configured)("the village economy engine", () => {
     });
   });
 
+
+  // ── Voice that wanes (R3, R15) ───────────────────────────────────────────
+
+  /**
+   * ITS OWN SCRATCH SCHEMA, and that is not tidiness.
+   *
+   * Waning reads EVERY member account holding Voice, and the suites above
+   * leave three members holding 1, 100 and 100 minor units between them. On
+   * the shared schema a "one member was too small to wane" count would read as
+   * two, and the sink would hold units nobody in this block ever minted. Every
+   * number below is exact, so the village it is measured in has to be.
+   *
+   * `beforeEach` empties the Voice ledger between tests for the same reason. A
+   * raw DELETE is never allowed in product code and is the right tool here: it
+   * is a fixture reset in a schema that exists for six seconds, and the
+   * alternative is every test carrying the arithmetic of every test before it.
+   */
+  describe("Voice that wanes", () => {
+    let ddb: TestDb;
+    let dpool: mysql.Pool;
+    let seedNo = 0;
+
+    beforeAll(async () => {
+      ddb = await provisionTestDb();
+      dpool = mysql.createPool({ uri: ddb.url, timezone: "Z", connectionLimit: 10 });
+      await loadTokenRegistry(dpool);
+      await loadVariables(dpool);
+      await ensureVoiceToken(dpool, "Village Voice");
+      await loadTokenRegistry(dpool);
+      await economyEpoch(dpool);
+    });
+
+    afterAll(async () => {
+      await dpool?.end();
+      await ddb?.drop();
+    });
+
+    beforeEach(async () => {
+      await dpool.query("DELETE FROM `token_ledger` WHERE `token_type` = ?", [VILLAGE_VOICE]);
+      await dpool.query("DELETE FROM `token_balances` WHERE `token_type` = ?", [VILLAGE_VOICE]);
+      await dpool.query("DELETE FROM `exits`");
+      // One enabled rule, so `economyReady` is true, and DELIBERATELY not a
+      // `role.cycle` one: that is the village shape the early-return trap
+      // lives in, so every test here runs inside the trap rather than one.
+      await dpool.query("DELETE FROM `mint_rules` WHERE `village_id` = ?", [villageId()]);
+      await dpool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+          "VALUES ('decay-quest-rule', ?, 'quest.completed', ?, 10, 100, 'claimant', 1)",
+        [villageId(), VILLAGE_VOICE],
+      );
+    });
+
+    /** A member holding `units` minor units of Voice, issued from the faucet. */
+    async function holding(id: string, units: number): Promise<string> {
+      await dpool.query(
+        "INSERT INTO `users` (`id`, `name`, `email`, `password_hash`) VALUES (?,?,?,'x') " +
+          "ON DUPLICATE KEY UPDATE `name` = VALUES(`name`)",
+        [id, id, `${id}@examples.invalid`],
+      );
+      const r = await mint(dpool, {
+        toUserId: id,
+        tokenSlug: VILLAGE_VOICE,
+        amount: units,
+        from: VOICE_MINT,
+        source: "role_cycle",
+        sourceRef: id,
+        description: "seeded for a waning test",
+        idempotencyKey: `test.waning.seed:${id}:${++seedNo}`,
+      });
+      expect(r.ok, `seeding ${id}`).toBe(true);
+      return id;
+    }
+
+    /** Conservation, read the way the boot invariant reads it. */
+    async function voiceSum(): Promise<number> {
+      const [rows] = await dpool.query<any[]>(
+        "SELECT COALESCE(SUM(`balance`), 0) AS s FROM `token_balances` WHERE `token_type` = ?",
+        [VILLAGE_VOICE],
+      );
+      return Number(rows[0].s);
+    }
+
+    it("wanes 1 percent of 5.000 Voice, and the books still balance", async () => {
+      // Nothing sets the dial here ON PURPOSE. An unset dial reads the
+      // platform default, and the default IS the ruling: 1 percent a cycle.
+      expect(numberVar("economy.voice_decay_pct")).toBe(1);
+
+      const at = new Date();
+      const u = await holding("wane-five", 5000);
+      const out = await runSettlement(dpool, at);
+
+      // 5000 minor units at VOICE_DECIMALS = 3 is 5.000 Voice. One percent of
+      // it is 50 units, which is 0.050 Voice, so the chip reads 4.950.
+      expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(4950);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(50);
+      // The whole reason waning is a posting: per token, every balance still
+      // sums to zero.
+      expect(await voiceSum()).toBe(0);
+      expect(out.decay).toEqual({
+        slug: VILLAGE_VOICE,
+        pct: 1,
+        total: 50,
+        holders: 1,
+        skippedTooSmall: 0,
+        skippedExiting: 0,
+        cycleKey: cycleWindow(at).key,
+      });
+    });
+
+    it("follows floor arithmetic for twelve moons, and conserves at every step", async () => {
+      const u = await holding("wane-twelve", 5000);
+      /*
+       * Floored, never rounded, twelve times. Rounding would take 4950, 4901,
+       * 4852, 4803 ... and the fourth number is where the two series part: one
+       * percent of 4852 is 48.52, which rounds to 49 and floors to 48. Taking
+       * the larger of the two is taking more than the dial says.
+       */
+      const expected = [4950, 4901, 4852, 4804, 4756, 4709, 4662, 4616, 4570, 4525, 4480, 4436];
+      const start = new Date();
+      const seen: number[] = [];
+      const cycles = new Set<string>();
+
+      for (let i = 0; i < 12; i += 1) {
+        // Thirty days apart, which is longer than a lunation (29.53 days), so
+        // each run lands in its own cycle. The set below proves it did.
+        const at = new Date(start.getTime() + i * 30 * 24 * 60 * 60 * 1000);
+        cycles.add(cycleWindow(at).key);
+        await runSettlement(dpool, at);
+        seen.push(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE));
+        expect(await voiceSum(), `moon ${i + 1}`).toBe(0);
+      }
+
+      expect(cycles.size).toBe(12);
+      expect(seen).toEqual(expected);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(5000 - 4436);
+    });
+
+    it("wanes nothing twice in one moon, and a resumed run finishes a partial one", async () => {
+      const a = await holding("wane-twice-a", 5000);
+      const b = await holding("wane-twice-b", 5000);
+      const at = new Date();
+      const cycleKey = cycleWindow(at).key;
+
+      // A PARTIAL RUN, written by hand: the first member's posting landed and
+      // the process died before the second. That is what an interrupted
+      // hourly job leaves behind, and there is no flag anywhere recording it.
+      const first = await postTransfer(dpool, {
+        from: memberAccount(a),
+        to: VOICE_DECAY,
+        tokenType: VILLAGE_VOICE,
+        amount: 50,
+        source: "voice_decay",
+        sourceRef: cycleKey,
+        description: "Voice that waned this moon",
+        idempotencyKey: keys.voiceDecay(villageId(), cycleKey, a, VILLAGE_VOICE),
+      });
+      expect(first.ok).toBe(true);
+
+      const resumed = await runSettlement(dpool, at);
+      expect(await balanceOf(dpool, memberAccount(a), VILLAGE_VOICE)).toBe(4950);
+      expect(await balanceOf(dpool, memberAccount(b), VILLAGE_VOICE)).toBe(4950);
+      // Only the member the partial run never reached is new work.
+      expect(resumed.decay.holders).toBe(1);
+      expect(resumed.decay.total).toBe(50);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(100);
+
+      // And the hourly job asking again inside the same moon moves nothing.
+      const again = await runSettlement(dpool, at);
+      expect(again.decay.holders).toBe(0);
+      expect(again.decay.total).toBe(0);
+      expect(await balanceOf(dpool, memberAccount(a), VILLAGE_VOICE)).toBe(4950);
+      expect(await balanceOf(dpool, memberAccount(b), VILLAGE_VOICE)).toBe(4950);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(100);
+      expect(await voiceSum()).toBe(0);
+    });
+
+    it("wanes in a village whose only rule is quest.completed", async () => {
+      /*
+       * THE EARLY-RETURN TRAP. `runSettlement` returns as soon as no
+       * `role.cycle` rule is in force, and waning written after that line
+       * would never run in this village at all: the dial would read 1 percent
+       * and nothing would ever move, with no error and no log line.
+       */
+      expect(await rulesFor(dpool, "role.cycle")).toHaveLength(0);
+      const u = await holding("wane-quest-only", 5000);
+      const out = await runSettlement(dpool);
+
+      expect(out.stewardsThanked).toBe(0);
+      expect(out.decay.holders).toBe(1);
+      expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(4950);
+    });
+
+    it("does not wane the seat payout that this same moon just made", async () => {
+      /*
+       * WHERE THE STEP SITS IS AN ECONOMIC DECISION, not a tidiness one.
+       *
+       * Waning runs BEFORE the seat loop, so a balance wanes only after it has
+       * sat through a cycle. That is what makes the published ceiling true: an
+       * accrual of `a` a moon against a rate `d` settles at `a / d`. Waning
+       * after the payout would settle at `a * (1 - d) / d`, a whole cycle of
+       * accrual lower than every figure a founder is shown beside the dial.
+       */
+      await dpool.query(
+        "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+          "VALUES ('decay-seat-rule', ?, 'role.cycle', ?, 50, 200, 'holder', 1)",
+        [villageId(), VILLAGE_VOICE],
+      );
+      const id = "wane-seated";
+      await dpool.query(
+        "INSERT INTO `users` (`id`, `name`, `email`, `password_hash`) VALUES (?,?,?,'x') " +
+          "ON DUPLICATE KEY UPDATE `name` = VALUES(`name`)",
+        [id, id, `${id}@examples.invalid`],
+      );
+      await dpool.query(
+        "INSERT IGNORE INTO `ledger_accounts` (`id`, `kind`, `user_id`, `label`, `faucet`) VALUES (?,?,?,?,0)",
+        [memberAccount(id), "member", id, id],
+      );
+      await dpool.query("INSERT IGNORE INTO `org_roles` (`id`, `name`, `is_example`) VALUES (?,?,0)", [
+        `role-${id}`,
+        `Seat for ${id}`,
+      ]);
+      await dpool.query(
+        "INSERT IGNORE INTO `org_role_assignments` " +
+          "(`id`, `org_role_id`, `holder_kind`, `user_id`, `holder_key`, `is_example`) VALUES (?,?,'member',?,?,0)",
+        [`seat-${id}`, `role-${id}`, id, id],
+      );
+
+      const first = new Date();
+      const firstRun = await runSettlement(dpool, first);
+      // 50 Voice at three decimals. Nothing waned: the member held nothing
+      // when the moon opened.
+      expect(firstRun.decay.holders).toBe(0);
+      expect(await balanceOf(dpool, memberAccount(id), VILLAGE_VOICE)).toBe(50000);
+
+      const second = new Date(first.getTime() + 30 * 24 * 60 * 60 * 1000);
+      await runSettlement(dpool, second);
+      // One percent of what they held at the open, then this moon's seat.
+      expect(await balanceOf(dpool, memberAccount(id), VILLAGE_VOICE)).toBe(50000 - 500 + 50000);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(500);
+      expect(await voiceSum()).toBe(0);
+    });
+
+    it("MEASURED: a member who held nothing at the moon's first ask wanes on what it paid them", async () => {
+      /*
+       * NOT a proof that this is right, only a record of what it does.
+       *
+       * The job asks hourly and a member holding nothing is not in the read,
+       * so no key is written for them. Paid later in the same moon, the next
+       * ask finds a positive balance and wanes one percent of it. It happens
+       * once in a member's life and closing it would mean posting a ledger row
+       * of zero, which `postTransfer` refuses. If the founder decides a new
+       * member's first moon should be untouched, this test is where that
+       * decision changes.
+       */
+      const at = new Date();
+      const firstAsk = await runSettlement(dpool, at);
+      expect(firstAsk.decay.holders).toBe(0);
+
+      const u = await holding("wane-latecomer", 50000);
+      const secondAsk = await runSettlement(dpool, at);
+      expect(secondAsk.decay.holders).toBe(1);
+      expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(49500);
+    });
+
+    it("leaves a member who is in the middle of leaving alone, and says how many", async () => {
+      const leaver = await holding("wane-leaver", 5000);
+      const staying = await holding("wane-stayer", 5000);
+      const exit = await createExit(dpool, {
+        userId: leaver,
+        kind: "voluntary",
+        openedBy: "admin-1",
+        noticeDays: 0,
+      });
+      expect(exit.ok).toBe(true);
+
+      const out = await runSettlement(dpool);
+      // Their balances are already on the way to `sys:exit-settlement` and a
+      // notice period has been quoted to them. Moving the number mid
+      // departure changes what they settle at after they were told.
+      expect(await balanceOf(dpool, memberAccount(leaver), VILLAGE_VOICE)).toBe(5000);
+      expect(await balanceOf(dpool, memberAccount(staying), VILLAGE_VOICE)).toBe(4950);
+      expect(out.decay.skippedExiting).toBe(1);
+      expect(out.decay.holders).toBe(1);
+      expect(out.decay.total).toBe(50);
+    });
+
+    it("wanes nothing from a balance too small to reach, and counts those members", async () => {
+      // 50 minor units is 0.05 Voice. One percent of it is half a unit, and
+      // the ledger holds integers, so flooring makes this an exemption rather
+      // than a unit quietly costed to somebody.
+      const dust = await holding("wane-dust", 50);
+      const out = await runSettlement(dpool);
+
+      expect(await balanceOf(dpool, memberAccount(dust), VILLAGE_VOICE)).toBe(50);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(0);
+      expect(out.decay.skippedTooSmall).toBe(1);
+      expect(out.decay.holders).toBe(0);
+      expect(out.decay.total).toBe(0);
+    });
+
+    it("never touches the bridge or the settled account", async () => {
+      const u = await holding("wane-bridge", 5000);
+      // Voice on its way to Hypha is debited from the member at REQUEST and
+      // held by the bridge, and part of it has already settled.
+      const held = await postTransfer(dpool, {
+        from: memberAccount(u),
+        to: VOICE_BRIDGE,
+        tokenType: VILLAGE_VOICE,
+        amount: 1000,
+        source: "voice_claim",
+        description: "Voice claimed toward Hypha",
+        idempotencyKey: "test.waning.bridge",
+      });
+      expect(held.ok).toBe(true);
+      const settled = await postTransfer(dpool, {
+        from: VOICE_BRIDGE,
+        to: VOICE_SETTLED,
+        tokenType: VILLAGE_VOICE,
+        amount: 400,
+        source: "voice_claim_settled",
+        description: "settled on Hypha",
+        idempotencyKey: "test.waning.settled",
+      });
+      expect(settled.ok).toBe(true);
+
+      await runSettlement(dpool);
+
+      // Waning the bridge would change the amount arriving at the far end of
+      // a crossing that has already been quoted, and a later refund reverses
+      // the original debit, so it would then hand back a different number
+      // than was taken.
+      expect(await balanceOf(dpool, VOICE_BRIDGE, VILLAGE_VOICE)).toBe(600);
+      expect(await balanceOf(dpool, VOICE_SETTLED, VILLAGE_VOICE)).toBe(400);
+      // The member's own remaining 4000 wanes as normal.
+      expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(3960);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(40);
+      expect(await voiceSum()).toBe(0);
+    });
+
+    it("wanes nothing at all when the dial is set to 0", async () => {
+      const u = await holding("wane-off", 5000);
+      const at = new Date();
+      const set = await setVariable(dpool, "economy.voice_decay_pct", "0");
+      expect(set.ok).toBe(true);
+      try {
+        const out = await runSettlement(dpool, at);
+        // Zero means zero. Nothing is counted either, because nothing was
+        // attempted: a member is not "too small to wane" in a village that
+        // does not wane.
+        expect(out.decay).toEqual({
+          slug: VILLAGE_VOICE,
+          pct: 0,
+          total: 0,
+          holders: 0,
+          skippedTooSmall: 0,
+          skippedExiting: 0,
+          cycleKey: cycleWindow(at).key,
+        });
+        expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(5000);
+        expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(0);
+      } finally {
+        await setVariable(dpool, "economy.voice_decay_pct", "1");
+      }
+    });
+
+    it("refuses an unshipped basis, and wanes nothing if one is written by hand", async () => {
+      // The dial offers ONE value. `unspent` is not shippable here because a
+      // member's balance already IS their unspent Voice: Voice leaves a member
+      // account through a voice claim and an exit sweep, and both have taken
+      // it out of the balance before this reads it.
+      const refused = await setVariable(dpool, "economy.voice_decay_basis", "unspent");
+      expect(refused.ok).toBe(false);
+
+      const u = await holding("wane-basis", 5000);
+      // The only way to a value the registry refuses is a hand-written row,
+      // and failing CLOSED in the taking direction is the only safe way to
+      // fail.
+      await dpool.query(
+        "INSERT INTO `game_variables` (`config_key`, `value`, `value_type`) VALUES (?,?,?) " +
+          "ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
+        ["economy.voice_decay_basis", "unspent", "text"],
+      );
+      await loadVariables(dpool);
+      try {
+        const problems: Array<{ token: string; reason: string }> = [];
+        const summary = await decayVoice(dpool, new Date(), problems);
+        expect(summary.holders).toBe(0);
+        expect(summary.total).toBe(0);
+        expect(problems).toEqual([]);
+        expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(5000);
+      } finally {
+        await dpool.query("DELETE FROM `game_variables` WHERE `config_key` = ?", [
+          "economy.voice_decay_basis",
+        ]);
+        await loadVariables(dpool);
+      }
+    });
+
+    it("leaves checkLedgerInvariants with nothing new to say", async () => {
+      // PROVED rather than assumed. The sink is a non-faucet account whose
+      // balance only rises, so no invariant here has to learn about it: the
+      // conservation sum, the cache-drift join and the negative-balance check
+      // all read it correctly as an ordinary account.
+      const before = await checkLedgerInvariants(dpool);
+      expect(before.problems).toEqual([]);
+
+      await holding("wane-invariants", 5000);
+      await runSettlement(dpool);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(50);
+
+      const after = await checkLedgerInvariants(dpool);
+      expect(after.problems).toEqual([]);
+      expect(after.ok).toBe(true);
+    });
+
+    it("wanes nothing in a village whose engine is not running", async () => {
+      const u = await holding("wane-not-ready", 5000);
+      await dpool.query("DELETE FROM `mint_rules` WHERE `village_id` = ?", [villageId()]);
+      const at = new Date();
+      expect((await economyReady(dpool)).ready).toBe(false);
+
+      const out = await runSettlement(dpool, at);
+      // Every number zero, and the field still present. A reader cannot
+      // mistake "the engine never reached this step" for "nothing waned",
+      // because `pct` is 0 here while the dial itself reads 1.
+      expect(out.decay).toEqual({
+        slug: VILLAGE_VOICE,
+        pct: 0,
+        total: 0,
+        holders: 0,
+        skippedTooSmall: 0,
+        skippedExiting: 0,
+        cycleKey: cycleWindow(at).key,
+      });
+      expect(numberVar("economy.voice_decay_pct")).toBe(1);
+      expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(5000);
+      expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(0);
+    });
+
+    it("wanes nothing before the village has voted its Game into existence", async () => {
+      /*
+       * `economyReady` does NOT cover this, although the design said it did:
+       * `seedEconomy` writes four of its five rules enabled at BOOT, so a
+       * village that has never issued a token reads as ready. The founding
+       * allocation would have waned before the launch vote, which is the
+       * opposite of what the birthing screen promises.
+       */
+      const u = await holding("wane-prelaunch", 5000);
+      const [saved] = await dpool.query<any[]>(
+        "SELECT `value` FROM `app_config` WHERE `config_key` = 'game-start'",
+      );
+      await dpool.query("DELETE FROM `app_config` WHERE `config_key` = 'game-start'");
+      try {
+        expect((await economyReady(dpool)).ready).toBe(true);
+        const out = await runSettlement(dpool);
+        // The dial WAS read, and the launch fact is what stopped it. That is
+        // the difference between this row and the one above.
+        expect(out.decay.pct).toBe(1);
+        expect(out.decay.holders).toBe(0);
+        expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(5000);
+        expect(await balanceOf(dpool, VOICE_DECAY, VILLAGE_VOICE)).toBe(0);
+      } finally {
+        await dpool.query(
+          "INSERT IGNORE INTO `app_config` (`config_key`, `value`) VALUES ('game-start', ?)",
+          [typeof saved[0].value === "string" ? saved[0].value : JSON.stringify(saved[0].value)],
+        );
+      }
+    });
+
+    it("names the sink in the settlement report when the account is missing, once", async () => {
+      const a = await holding("wane-nosink-a", 5000);
+      const b = await holding("wane-nosink-b", 5000);
+      await dpool.query("DELETE FROM `token_balances` WHERE `account_id` = ?", [VOICE_DECAY]);
+      await dpool.query("DELETE FROM `ledger_accounts` WHERE `id` = ?", [VOICE_DECAY]);
+      try {
+        const out = await runSettlement(dpool);
+        // `postTransfer` RETURNS a refusal for a missing system account, so
+        // without this the village would wane nothing, silently, forever.
+        expect(out.decay.holders).toBe(0);
+        const named = out.unpayable.filter((p) => p.reason.includes(VOICE_DECAY));
+        // ONE line for two members, and it would be one for four hundred: a
+        // report that repeats itself per member is a report nobody reads.
+        expect(named).toHaveLength(1);
+        expect(named[0].token).toBe(VILLAGE_VOICE);
+        expect(await balanceOf(dpool, memberAccount(a), VILLAGE_VOICE)).toBe(5000);
+        expect(await balanceOf(dpool, memberAccount(b), VILLAGE_VOICE)).toBe(5000);
+      } finally {
+        await dpool.query(
+          "INSERT IGNORE INTO `ledger_accounts` (`id`, `kind`, `user_id`, `label`, `faucet`) VALUES (?,?,NULL,?,0)",
+          [VOICE_DECAY, "system", "Voice that waned"],
+        );
+      }
+    });
+
+    it("publishes what has waned beside what was issued", async () => {
+      const u = await holding("wane-supply", 5000);
+      const before = (await publicSupply(dpool)).tokens.find((t) => t.token === "Village Voice");
+      expect(before).toMatchObject({ issued: 5000, waned: 0, circulating: 5000 });
+
+      await runSettlement(dpool);
+
+      // `issued` counts what came OUT of a faucet and nothing puts it back, so
+      // on its own it would climb every moon while this member's chip fell.
+      const after = (await publicSupply(dpool)).tokens.find((t) => t.token === "Village Voice");
+      expect(after).toMatchObject({ issued: 5000, waned: 50, circulating: 4950 });
+      expect(await balanceOf(dpool, memberAccount(u), VILLAGE_VOICE)).toBe(4950);
+    });
+  });
 });
