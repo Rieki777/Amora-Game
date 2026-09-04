@@ -109,15 +109,20 @@ export function NeedsSetupStep({
       title="What this village is for"
       subtitle="The needs this village is taking on, how far it means to get on each, and for how many."
     >
-      <p className="text-sm text-foreground mb-3">
-        A village is a business designed to meet the needs of the people in it. Setting this up front
-        orients everything after it: meeting one need for a tenth of your members and meeting all ten
-        for all of them are two different economic engines.
-      </p>
-      <p className={`${HINT} mb-4`}>{stepSummaryLine(summary)}</p>
-      <button type="button" onClick={() => onOpenTab("needs-admin")} className={PRIMARY}>
-        Open the six screens
-      </button>
+      {/* Its own ground, for the same reason the panel has one: the wizard
+          around it is painted with frozen light grays, so a responsive token
+          laid straight onto it is near-white text on light gray in dark mode. */}
+      <div className="bg-background text-foreground rounded-lg p-4">
+        <p className="text-sm text-foreground mb-3">
+          A village is a business designed to meet the needs of the people in it. Setting this up front
+          orients everything after it: meeting one need for a tenth of your members and meeting all ten
+          for all of them are two different economic engines.
+        </p>
+        <p className={`${HINT} mb-4`}>{stepSummaryLine(summary)}</p>
+        <button type="button" onClick={() => onOpenTab("needs-admin")} className={PRIMARY}>
+          Open the six screens
+        </button>
+      </div>
     </SetupSection>
   );
 }

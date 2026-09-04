@@ -79,8 +79,10 @@ import {
   type NeedSubject,
 } from "@shared/needs";
 import {
+  coveredSentence,
   draftsFrom,
   needSentence,
+  seatLineWorthSaying,
   seatSentence,
   totalitySentence,
   uncoveredSentence,
@@ -361,7 +363,18 @@ export default function NeedsPanel({
   }
 
   return (
-    <div>
+    /*
+     * THE PANEL CARRIES ITS OWN GROUND, and this is not decoration.
+     *
+     * The Admin shell around it is theme-FROZEN: `client/src/pages/Admin.tsx`
+     * paints the page `bg-gray-50` with no dark variant. A responsive
+     * `text-foreground` on a frozen light surface is near-white text on light
+     * gray the moment a member turns dark mode on, which is the defect
+     * `Profile.tsx` already shipped once. Painting `bg-background` here means
+     * this panel's text and its background move together whatever the shell
+     * does, and the shell's own freeze stays the shell's to fix.
+     */
+    <div className="bg-background text-foreground rounded-xl p-4 -m-1">
       <header className="mb-5">
         <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
           <Heart className="w-5 h-5" aria-hidden="true" />
@@ -375,10 +388,15 @@ export default function NeedsPanel({
 
       <ScreenRail at={screen} onGo={setScreen} />
 
-      <p role="alert" className="text-sm text-destructive min-h-[20px] mb-2">
+      {/* BOTH REGIONS STAY MOUNTED and collapse to nothing when they are empty.
+          A live region inserted at the moment it has something to say is a
+          region some screen readers never announce, and a permanently reserved
+          20px leaves a blank hole above the heading on the screen a founder
+          arrives at. Empty means no height and no margin, never no element. */}
+      <p role="alert" className={`text-sm text-destructive ${refused ? "mb-2" : ""}`}>
         {refused}
       </p>
-      <p role="status" aria-live="polite" className="text-sm text-teal-deep min-h-[20px] mb-4">
+      <p role="status" aria-live="polite" className={`text-sm text-teal-deep ${said ? "mb-4" : ""}`}>
         {said}
       </p>
 
@@ -670,16 +688,12 @@ export default function NeedsPanel({
                       <NeedDot needKey={row.needKey} />
                       {row.label}
                     </p>
-                    {row.uncovered ? (
-                      <p className={`${HINT} mt-1`}>{uncoveredSentence(row.label)}</p>
-                    ) : (
-                      <p className={`${HINT} mt-1`}>
-                        {row.counts.quest} quests, {row.counts.role} seats, {row.counts.sink} places to
-                        spend, {row.counts.stay} stays, {row.counts.event} events and {row.counts.place}{" "}
-                        places on the map are tagged to it.
-                      </p>
-                    )}
-                    {seats ? <p className={`${HINT} mt-0.5`}>{seatSentence(seats)}</p> : null}
+                    <p className={`${HINT} mt-1`}>
+                      {row.uncovered ? uncoveredSentence(row.label) : coveredSentence(row)}
+                    </p>
+                    {seats && seatLineWorthSaying(seats) ? (
+                      <p className={`${HINT} mt-0.5`}>{seatSentence(seats)}</p>
+                    ) : null}
                     {seats && seats.rolesWithNobodyInThem.length > 0 ? (
                       <p className={`${HINT} mt-0.5`}>
                         Nobody holds {seats.rolesWithNobodyInThem.map((r) => r.name).join(", ")}. That is
@@ -691,6 +705,11 @@ export default function NeedsPanel({
               })}
               {report === null ? (
                 <p className={HINT}>The coverage read has not come back, so no count is shown here.</p>
+              ) : report.seatings.every((s) => !seatLineWorthSaying(s)) ? (
+                <p className={HINT}>
+                  No seat is tagged to any of these needs, so there is no seat count to give. The more
+                  needs a village takes on, the more seats its economy needs to meet them.
+                </p>
               ) : null}
             </div>
           )}

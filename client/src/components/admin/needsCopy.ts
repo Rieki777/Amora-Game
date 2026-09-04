@@ -191,12 +191,50 @@ export function uncoveredSentence(label: string): string {
   return `Nothing in this village meets ${label} yet. A quest or a seat tagged to it will show here.`;
 }
 
+/**
+ * What IS tagged to one need, counted by kind, in one sentence.
+ *
+ * KINDS WITH NOTHING IN THEM ARE LEFT OUT. The first version of this screen
+ * printed all six every time ("1 quests, 0 seats, 0 places to spend, 0 stays,
+ * 0 events and 0 places on the map"), which buries the one real number in five
+ * zeroes and reads like a fault. The zeroes are still true and still in the
+ * payload; a founder reading this row wants what meets the need.
+ */
+export function coveredSentence(row: CoverageRow): string {
+  const say = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const parts: string[] = [];
+  if (row.counts.quest) parts.push(say(row.counts.quest, "quest", "quests"));
+  if (row.counts.role) parts.push(say(row.counts.role, "seat", "seats"));
+  if (row.counts.sink) parts.push(say(row.counts.sink, "place to spend", "places to spend"));
+  if (row.counts.stay) parts.push(say(row.counts.stay, "stay", "stays"));
+  if (row.counts.event) parts.push(say(row.counts.event, "event", "events"));
+  if (row.counts.place) parts.push(say(row.counts.place, "place on the map", "places on the map"));
+  const list =
+    parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  const verb = row.total === 1 ? "is" : "are";
+  return `${list} ${verb} tagged to ${row.label}.`;
+}
+
 /** R18 in one line: roles needed, of roles filled, for one need. */
 export function seatSentence(row: SeatingRow): string {
   if (row.seatsNeeded === 0) {
     return `No seat is tagged to ${row.label}, so there is no seat count to give for it.`;
   }
   return `${row.seatsFilled} of the ${row.seatsNeeded} seats tagged to ${row.label} are held.`;
+}
+
+/**
+ * Whether a need's seat line is worth printing at all.
+ *
+ * A village with no seat tagged to anything got `seatSentence`'s "no seat is
+ * tagged" under EVERY need, which is four copies of one fact and reads as four
+ * separate problems. The line earns its place when there are seats to count,
+ * or when a tagged role has nobody in it, which is the R18 fact a founder
+ * needs to see. The village-level version of the same sentence prints once on
+ * the summary.
+ */
+export function seatLineWorthSaying(row: SeatingRow): boolean {
+  return row.seatsNeeded > 0 || row.rolesWithNobodyInThem.length > 0;
 }
 
 /**
