@@ -125,8 +125,7 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `exit:<exitId>:convert:<token>` | `server/lib/exit.ts` |
 | `exit:<exitId>:sweep:<token>` | `server/lib/exit.ts` |
 | `gratitude_pool:<cycleNumber>:<userId>` | `server/index.ts` |
-| `gratitude_received:<id>` | `server/lib/gratitude.ts` |
-| `gratitude.given:<esc(v)>:<esc(noteId)>` | `server/lib/economy.ts` |
+| `gratitude.given:<esc(v)>:<esc(noteId)>` | `server/lib/economy.ts`, `server/lib/gratitude.ts` |
 | `intake:<itemId>` | `server/lib/library.ts` |
 | `intake:li-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/lib/library.ts` |
 | `ladj-<Date.now()>-<Math.random().toString(36).slice(2, 6)>` | `server/index.ts` |
@@ -164,7 +163,7 @@ A key names an OCCURRENCE, never a thing, and `token_ledger.idempotency_key` is 
 | `xstock-<Date.now()>-<Math.random().toString(36).slice(2, 8)>` | `server/index.ts` |
 | `xstock:<slug>:<body>` | `server/index.ts` |
 
-47 distinct shapes across 51 posting site(s), plus 2 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
+46 distinct shapes across 51 posting site(s), plus 2 site(s) that forward a key their caller decided (`mint()` and `mintStayCredits` hand on what they were given, and every caller of those is read above). A shape ending in a timestamp and a random suffix is a key the caller did not make idempotent: the admin mint and the exchange stocking route both fall back to one when no client nonce is sent, so a retried request there is a second posting rather than a no-op.
 <!-- generated:triggers end -->
 
 ---
@@ -354,12 +353,21 @@ in the village while both dials still read as sane numbers.
 `server/lib/voiceClaim.ts` calls `reverse()`, in two places, both for voice, so
 no gratitude posting is ever reversed in this build and that subtraction has
 never returned anything but zero in production. It is correct code with no
-caller, which is different from correct code that works. The two gratitude doors
-also write two different key shapes: `give()` writes
-`gratitude.given:<village>:<noteId>` and the subtraction finds it, while
-`sendGratitude()` writes `gratitude_received:<entryId>` and it does not, so the
-day something reverses a heart sent through the acknowledgement door the
-allowance will not come back. That half is still open.
+caller, which is different from correct code that works. Re-measured on
+2026-09-04 and still two callers, both passing `claim.debit_key`.
+
+**The two doors write ONE key shape now, and they did not.** `give()` has always
+posted under `keys.gratitudeGiven`, which is
+`gratitude.given:<esc(village)>:<esc(noteId)>` and is what the subtraction
+rebuilds. `sendGratitude()` built `gratitude_received:<entryId>` by hand, and
+the subtraction could never find it, so the day something reversed a gift sent
+through the acknowledgement door the giver's allowance would not have come back
+and no surface would have said so. The missing village was the second half of
+the same defect: every other occurrence key in this economy carries the scope,
+and `server/lib/health.ts` narrows the `gratitude_allowance_given` snapshot on
+the same prefix, so the village's own reading of how much it gave was short by
+the same rows. Both doors call the builder as of 2026-09-04, and section 10.33
+carries what happened to the rows already written under the old spelling.
 
 ### Whose allowance a reversal returns (D30, lane AF)
 
@@ -1589,6 +1597,89 @@ nothing on it. The case now asserts that the cap arrives as nothing, that the ru
 pays nobody, and that the warning names the smallest cap that would work. A second
 case at 0.0010 holds the other side of the boundary, so the rule reads as a scale
 rule and not as a refusal of small caps.
+
+### 10.33 Two doors wrote one gift under two keys, so a reversal refunded nobody. Fixed on `wt/econ`, measured.
+
+`sendGratitude()` in `server/lib/gratitude.ts` posted its ledger leg under a
+hand-built `gratitude_received:<noteId>`. `give()` in `server/lib/economy.ts`
+posts under `keys.gratitudeGiven`, which is
+`gratitude.given:<esc(village)>:<esc(noteId)>`, and that is the shape the
+allowance's refund arm rebuilds and the shape `server/lib/health.ts` narrows
+the `gratitude_allowance_given` snapshot on. Both doors write one
+`gratitude_log` row apiece and both spend one allowance, so a gift made through
+the acknowledgement door was charged like any other and refunded like nothing:
+reversing it returned the giver zero, they were out that amount for the rest of
+the cycle, and no surface reported it. The missing village was the second half
+of the same defect, and it is the half that matters in a product where two
+villages run one image.
+
+**Measured before the fix**, in `server/gratitudeKeys.test.ts` against a scratch
+schema: a member sent 3 and 5 through the acknowledgement door, the allowance
+read a spend of 8, and `reverse()` on the key the allowance builds answered
+`there is no such posting to reverse`. Four cases were red that way, and the
+same file's case for `give()` was green, which is the shape of a defect on one
+door and not on a rule.
+
+**Existing rows are REPAIRED, by `drizzle/0154_one_gift_one_key.sql`, and the
+repair moves no value.** It rewrites `idempotency_key` and touches no amount, no
+account and no `source_ref`, so per-token `SUM(balance)` is the same number
+after it as before and `token_balances` stays a cache of rows it did not change.
+A second matcher was the alternative and was refused: two `LIKE` patterns for
+one rule is how `moon-329` came to sit beside `lunar-000329` in one column
+(`drizzle/0105_one_cycle_one_name.sql`), and one member's 130 units of spending
+was then counted against two allowances of 100 and 30 with the missing 30
+reported to nobody.
+
+**A repair that guesses is worse than one that refuses**, so the file repairs
+only what it can prove and every clause of its `WHERE` is a proof obligation:
+
+| It refuses | Why there is no honest answer |
+|---|---|
+| a row whose `source_ref` names no `gratitude_log` row | `token_ledger` has no `village_id` column, so the note is the only witness to which village the gift belonged to |
+| a note id or village id that `esc` would rewrite | rebuilding the percent-escape in SQL would be a second copy of a rule that already has one home, so the file repairs the ids the escape leaves alone and no others |
+| a gift that already carries a reversal mirror | `reverse()` derives its mirror key as `reversal:<village>:<the original key>`, so renaming an original out from under a stored mirror lets a second reversal of that gift collide with nothing and debit the recipient twice. A rename can mint, and that is the direction it mints in here |
+
+Every refusal leaves a key still shaped `gratitude_received:%`, so one query
+finds all of them and nothing else (a clawback of one begins `reversal:`):
+
+```sql
+SELECT `id`, `source`, `source_ref`, `at` FROM `token_ledger`
+  WHERE `idempotency_key` LIKE 'gratitude_received:%';
+```
+
+An operator with rows in that answer has a gift whose reversal will not refund
+its giver. The row names the note, `gratitude_log` names the giver and the
+village, and the correction is a new numbered migration written against those
+two facts, never a second matcher in the allowance.
+
+**The whole class is currently empty and unreachable, and the file ships
+anyway.** `reverse()` has two callers, both in `server/lib/voiceClaim.ts`, and
+both pass a voice-claim debit key, so nothing in this build has ever reversed a
+gratitude posting of either spelling. Section 2 measured `token_ledger` at zero
+entries on 2026-09-03. That census covers ONE instance, thirteen founder
+instances run this image, and the obvious next change is a caller that reverses
+a gift. A rewrite of an unreversed key costs nothing today and is expensive on
+the day somebody writes that caller.
+
+**Run rather than read.** The migration is exercised in
+`server/gratitudeKeys.test.ts` against seeded rows in every shape it claims to
+handle, including an id carrying a capital and a village id carrying a colon,
+with a REAL mirror written by `reverse()` for the case it refuses. First run
+changed 2 rows, second run changed 0 and left all eight keys byte-identical.
+Every seeded posting goes through `postTransfer`, because a raw ledger row would
+fail `checkLedgerInvariants` as cache drift, which is the invariant doing its
+job.
+
+**The engine caveat.** This was measured on MariaDB 12.3.2 under
+`utf8mb4_uca1400_ai_ci`; CI and the fleet run MySQL 8. `idempotency_key` answers
+under a case-insensitive collation, and the two engines differ on trailing
+spaces, so every clause that decides whether a row is escape-neutral compares
+`CAST(... AS BINARY)` and means the same thing on both. What is left
+collation-dependent is the join from `token_ledger.source_ref` to
+`gratitude_log.id`, which under a PAD SPACE collation could match a padded
+`source_ref` to an unpadded id; `sourceRef` is written from the note id and
+cannot carry padding, and the key the file writes is derived byte-wise from the
+key itself, so only the village would be taken from the wrong row.
 
 ---
 

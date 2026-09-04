@@ -392,7 +392,14 @@ check("F10 READER: the hand-written keys the old table omitted are all present",
     "voice-claim-debit:<villageId()>:<claimId>",
     "ord:<orderId>:reversal-leg1",
     "exit:<exitId>:sweep:<token>",
-    "gratitude_received:<id>",
+    // `gratitude_received:<id>` was on this list until 0154. It was the key
+    // `server/lib/gratitude.ts` built by hand, and the allowance's refund arm
+    // could never find it, so a gift made through the acknowledgement door was
+    // reversible and refunded the giver nothing. That door posts under
+    // `keys.gratitudeGiven` now and the shape is gone from the ledger. The
+    // entry is removed rather than replaced: this list exists to prove the
+    // reader sees keys that no builder produces, and there is no longer a
+    // hand-written one in that file to name.
     "loan:<loanId>:settle:release",
     "seat:<eventId>:<occurrenceKey>:<userId>:<chargeSeq>:pay",
     "stay:<id>:night:<night>",
