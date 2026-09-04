@@ -2730,7 +2730,23 @@ here before you work in it, and never write into one you did not create.** If yo
 tree dirty: ask on the wire, give a deadline, and clean it with
 `git stash push --include-untracked -m "unclaimed <date>"` rather than `reset --hard` or
 `checkout --`. The stash reaches the same clean tree and is recoverable; the other two destroy work
-that may belong to a session that is mid-edit right now.
+that may belong to a session that is mid-edit right now. That is what was done, and the tree is
+clean with the work preserved. **Recover a rescue stash with `git stash apply` by SHA, never `pop`,**
+so a second lane reading the same stash cannot consume it out from under the first.
+
+**`git log --author` DOES NOT identify which session did something.** Every lane on this machine
+commits under the same git identity, so an authorship search returns your own commits from an
+unrelated branch and reads as evidence that you were there. Authorship tells you the human. **The
+discriminator is `git worktree list`,** which says which tree each session actually holds, and it is
+how two lanes ruled themselves out of the ECON question in one command each.
+
+**A large deletion-heavy diff is usually a STALE BASE, not a change.** 4736 insertions against
+13665 deletions, including a revert of a fix nobody would deliberately revert, is what a tree looks
+like when its base predates several merges: re-staging everything presents the OLD state as a
+deliberate act. The instinct on seeing thirteen thousand deletions is that somebody did something
+drastic, and the likelier reading is that somebody is simply behind. Same disease as 27h one layer
+up: there, `node_modules` disagreed with the lockfile; here, a working tree disagrees with main.
+Both look like intentional work and neither is.
 
 ### 27c — Claim board (APPEND ONLY — one row per claim, one row per release)
 
