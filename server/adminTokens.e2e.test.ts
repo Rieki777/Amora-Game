@@ -438,15 +438,17 @@ describe.skipIf(!DB_CONFIGURED)("the tokens tab, and what a member sees afterwar
    * is the one they believe.
    *
    * WHAT THIS ASSERTS, and why it is not an assertion about a payload key.
-   * `expect(json.tokenDecimals["village-voice"]).toBe(3)` would pass against a
+   * `expect(json.tokenDecimals["village-voice"]).toBe(2)` would pass against a
    * page that ignores the field, which is exactly the state this fix started
    * from. So every check below ends in the STRING a member reads, produced by
    * the same `formatTokenAmount` the wallet card calls.
    *
    * The control is the last two lines: the same balance formatted at scale 0,
-   * which is what every one of these surfaces did before, reads "10000". If
-   * the payloads stop carrying `decimals`, `decimals ?? 0` makes every
-   * assertion above collapse onto that control and this case fails.
+   * which is what every one of these surfaces did before, reads the raw minor
+   * number. If the payloads stop carrying `decimals`, `decimals ?? 0` makes
+   * every assertion above collapse onto that control and this case fails. It
+   * is written against TEN and not against a literal, so it keeps its meaning
+   * at whatever scale Voice carries.
    *
    * THE AMOUNT AN ADMIN TYPES IS NOW WHOLE TOKENS. This route took ledger
    * units, so a steward typing 10 for Voice minted 0.01, and the paragraph
@@ -458,10 +460,13 @@ describe.skipIf(!DB_CONFIGURED)("the tokens tab, and what a member sees afterwar
   it("shows ten Village Voice as ten on the wallet, the Exchange and the ledger", async () => {
     const VOICE = "village-voice";
     const WHOLE_TEN = 10; // what a steward types on the mint form
-    const TEN = 10_000; // ten Voice, in the thousandths the ledger stores
+    // Ten Voice in the hundredths the ledger stores, written as the arithmetic
+    // and not as a constant: this case is about a human number and a stored
+    // number saying the same thing, so the scale belongs in the expectation.
+    const TEN = WHOLE_TEN * 10 ** 2;
 
-    // Seeded by `seedEconomy` at boot, with decimals 3. If this ever fails the
-    // village has no voice token and the rest of the case is meaningless.
+    // Seeded by `seedEconomy` at boot. If this ever fails the village has no
+    // voice token and the rest of the case is meaningless.
     const registry = await call("GET", "/api/admin/tokens", undefined, founderToken);
     const voiceRow = (registry.json?.tokens ?? []).find((t: any) => t.slug === VOICE);
     expect(voiceRow, "the village voice token is seeded at boot").toBeTruthy();
@@ -517,7 +522,7 @@ describe.skipIf(!DB_CONFIGURED)("the tokens tab, and what a member sees afterwar
 
     // THE CONTROL. This is the sentence the fix was written against: the same
     // balance, rendered with no scale, is what every surface above showed.
-    expect(formatTokenAmount(TEN, 0)).toBe("10000");
-    expect(formatTokenAmount(TEN, 3)).not.toBe("10000");
+    expect(formatTokenAmount(TEN, 0)).toBe(String(TEN));
+    expect(formatTokenAmount(TEN, 2)).not.toBe(String(TEN));
   });
 });

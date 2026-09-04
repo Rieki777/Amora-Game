@@ -40,7 +40,7 @@ if (!configured) {
   console.warn("[tokenScale.migration] TEST_DATABASE_URL not set. This suite SKIPPED.");
 }
 
-const MIGRATION = path.join(process.cwd(), "drizzle", "0162_a_village_spends_in_hundredths.sql");
+const MIGRATION = path.join(process.cwd(), "drizzle", "0162_a_village_spends_its_credits_in_hundredths.sql");
 
 /** The tokens this build ships, and the scale each one must end at. */
 const EXPECTED_SCALE: Record<string, number> = {

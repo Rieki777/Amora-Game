@@ -252,14 +252,14 @@ the modules that register their own token at boot:
 | Slug | Name | Kind | Governed by | Decimals | Faucet | A member may send it |
 | --- | --- | --- | --- | --- | --- | --- |
 | `gratitude` | Gratitude | recognition | the village | 0 | `sys:gratitude-pool` | no: recognition is never handed between members |
-| `credits` | Village Credits | credit | the village | 0 | `sys:cycle-pool` | yes |
-| `library-credit` | Library Credits | credit | the village | 0 | `sys:library-mint` | no: it buys one named thing from the village and cannot be passed on |
-| `stay-credit` | Stay Credits | credit | the village | 0 | `sys:mint` | no: it buys one named thing from the village and cannot be passed on |
-| `village-voice` | Village Voice | voice | the village | 3 | `sys:voice-mint` | no: voice is never handed between members |
+| `credits` | Village Credits | credit | the village | 2 | `sys:cycle-pool` | yes |
+| `library-credit` | Library Credits | credit | the village | 2 | `sys:library-mint` | no: it buys one named thing from the village and cannot be passed on |
+| `stay-credit` | Stay Credits | credit | the village | 2 | `sys:mint` | no: it buys one named thing from the village and cannot be passed on |
+| `village-voice` | Village Voice | voice | the village | 2 | `sys:voice-mint` | no: voice is never handed between members |
 | `equity` | Village Equity | equity | Hypha, on Base | 0 | none, it is read from Base | no: it is governed on Base |
 | `voice` | Voice | voice | Hypha, on Base | 0 | none, it is read from Base | no: it is governed on Base |
 
-7 tokens in a fresh village: 5 minted here, 2 read from Base. The registry rows are seeded by 6 migration file(s) and by the modules that register their own token at boot.
+7 tokens in a fresh village: 5 minted here, 2 read from Base. The registry rows are seeded by 8 migration file(s) and by the modules that register their own token at boot.
 <!-- generated:tokens end -->
 
 `governance` splits the table in two and is the most important column in it.
