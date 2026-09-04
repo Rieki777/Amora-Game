@@ -2766,6 +2766,16 @@ ls /c/Users/taren/Desktop/Amora/*/drizzle/*.sql | grep -oE '[0-9]{4}_' | sort -n
 
 Run them SEPARATELY: the first walks every ref and takes close to two minutes, and chaining them
 behind it inside one two-minute timeout is how you get a confident empty answer from the second.
+
+**A CLAIM IS NOT A RESERVATION, and this section's own claim board proved it within hours.** This
+lane claimed `0144`, held it uncontested, and it became unlandable anyway, because main moved past
+`0159` while the claim sat still. The gate refuses a migration added since the base ref that is
+numbered below what that ref already reached, so a held number expires as soon as the mainline
+overtakes it. **Claim to stop two lanes colliding; take the actual number at LANDING, from a fresh
+scan.** A number written down in advance is a measurement with a timestamp, and this one went stale
+in under a day. The same evening produced the other half of the lesson: one lane renumbered before
+landing and lost nothing, while two others collided at `0156` and both shipped, at which point
+renumbering became impossible rather than merely annoying.
 Measured at `20985d0`: refs reach **0154**, disk holds **0155**. Do not copy those figures forward —
 that is exactly the stale next-free number section 3 deliberately refuses to carry. Take a number
 above BOTH scans, claim it below, and assign it at landing.
@@ -2813,6 +2823,16 @@ that may belong to a session that is mid-edit right now. That is what was done, 
 clean with the work preserved. **Recover a rescue stash with `git stash apply` by SHA, never `pop`,**
 so a second lane reading the same stash cannot consume it out from under the first.
 
+**THE STASH LIST IS SHARED ACROSS EVERY WORKTREE, and the indices RENUMBER.** `refs/stash` lives in
+the common git directory, so a stash made in `ECON` is `stash@{1}` in a completely different lane's
+tree, and any lane's `git stash pop` takes whatever is on top at that instant. Demonstrated by
+accident while writing this paragraph: a throwaway stash from this lane landed at `stash@{0}` ON TOP
+of the ECON rescue, pushing the rescue to `stash@{1}`, and dropping the throwaway moved the rescue
+back to `stash@{0}`. So a note recording "the rescue is `stash@{0}`" is wrong the moment any of eight
+sessions stashes anything. **Record a stash by its SHA, never by its index,** and prefer a branch to
+a stash for anything that must survive: `git stash` is a shared mutable stack with no owner field,
+which is close to the worst possible home for the one copy of somebody's unclaimed work.
+
 **`git log --author` DOES NOT identify which session did something, and it fails in the worst
 possible direction.** Every lane on this machine commits under the same git identity, so an
 authorship search returns the newest commits in the REPOSITORY, not the ones touching the tree you
@@ -2840,6 +2860,9 @@ Both look like intentional work and neither is.
 |---|---|---|---|---|
 | 2026-09-04 | governance (`b7f9ef`) | migration `0144`, `drizzle/0144_the_landing_loop_names_its_own_rows.sql` | `wt/governance-build` | HELD — confirmed mine after the profile lane moved off it |
 | 2026-09-04 | profile lane | migration `0151` | (relayed) | HELD — landed as `3c739ce` |
+| 2026-09-04 | governance (`b7f9ef`) | migration `0144` | `wt/governance-build` | **RELEASED, and the claim above is superseded.** Main now reaches `0159`, so `0144` is a GAP and unlandable by anybody: the gate refuses a migration added since the base ref that is numbered below what that ref reached. Renumbering the file is safe here ONLY because it has never run outside a throwaway test schema. Number to be taken at landing, per the count-not-band rule, never reserved now. |
+| 2026-09-04 | paths lane | migrations `0144`, `0145`, `0146` | (landed) | RELEASED — renumbered to `0156`+ BEFORE landing, which is the correct order and why nothing had to be grandfathered |
+| 2026-09-04 | two sessions | migration `0156` | (landed) | **COLLIDED AND SHIPPED.** Both files ran on production eleven minutes apart, so neither can be renumbered: the applied ledger keys on FILENAME, and renaming makes the file new to every instance that already ran it. Grandfathered with evidence in `b5ed26f`. The list of grandfathered numbers does not grow. |
 | 2026-09-04 | governance (`b7f9ef`) | `docs/GOVERNANCE.md` and `scripts/generate-governance-doc.mjs` | `wt/gb-docs` | HELD — ruling top-up in flight |
 
 ### 27d — Verification: CI runs the full suite, lanes run what they touched
