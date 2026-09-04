@@ -582,7 +582,7 @@ describe.skipIf(!configured)("the seed fallback, and saying it is a seed", () =>
     expect(provenance.variables.source).toBe("live");
     expect(provenance.variables.rows).toBe(0);
     // Every system account the migrations seed is there, and all of them are
-    // empty. Fourteen of them, which is more than the five faucets a token can
+    // empty. Sixteen of them, which is more than the five faucets a token can
     // issue from: the escrows, the sinks and the settled-voice vault are
     // ordinary accounts and they belong in the snapshot for the same reason,
     // which is that a posting into an account the snapshot does not know about
@@ -593,7 +593,11 @@ describe.skipIf(!configured)("the seed fallback, and saying it is a seed", () =>
     // pinned enumeration costs exactly one red per legitimate addition, and
     // the alternative costs an addition nobody notices. It has already earned
     // that once: `sys:voice-decay` arrived with drizzle/0148_voice_that_waned
-    // from the decay lane, and this line is what said so. If you are here
+    // from the decay lane, and this line is what said so. Twice now:
+    // `sys:redemption-hold` and `sys:redeemed` arrived with
+    // drizzle/0155_a_member_redeems_what_they_hold from the redemption lane, and
+    // both belong in the snapshot by the rule above, because a redemption posts
+    // into one of them and then the other. If you are here
     // because you added an account, add it to the list and read the sentence
     // above to check the snapshot should carry it. It almost certainly should.
     expect(Object.keys(snapshot.balances).sort()).toEqual([
@@ -606,6 +610,8 @@ describe.skipIf(!configured)("the seed fallback, and saying it is a seed", () =>
       "sys:library-pool",
       "sys:library-sink",
       "sys:mint",
+      "sys:redeemed",
+      "sys:redemption-hold",
       "sys:treasury",
       "sys:voice-bridge",
       "sys:voice-decay",
