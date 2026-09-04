@@ -1,5 +1,6 @@
 import Layout from "@/components/Layout";
 import { gameFetch } from "@/lib/gameApi";
+import { readStoredJson, writeStoredJson } from "@/lib/safeStorage";
 import { useState, useEffect, useCallback } from "react";
 import {
   BookOpen,
@@ -34,20 +35,12 @@ const TYPE_META: Record<string, { icon: React.ComponentType<{ className?: string
 const STORAGE_KEY = "amora-training-completed";
 
 function loadCompleted(): string[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  const stored = readStoredJson("local", STORAGE_KEY);
+  return stored.status === "value" && Array.isArray(stored.value) ? stored.value.map(String) : [];
 }
 
 function saveCompleted(ids: string[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
-  } catch {
-    // ignore
-  }
+  writeStoredJson("local", STORAGE_KEY, ids);
 }
 
 export default function Training() {

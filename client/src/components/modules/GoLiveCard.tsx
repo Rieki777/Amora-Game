@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { storedText, writeStored } from "@/lib/safeStorage";
 import type { ModuleLifecycle } from "@shared/modules";
 
 interface AdminModule {
@@ -67,7 +68,7 @@ export function GoLiveCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [notYet, setNotYet] = useState(
-    () => sessionStorage.getItem(`golive.notyet.${m.id}`) === "1",
+    () => storedText("session", `golive.notyet.${m.id}`) === "1",
   );
 
   if (m.core || m.lifecycle !== "preview") return null;
@@ -139,7 +140,7 @@ export function GoLiveCard({
         <button
           disabled={busy}
           onClick={() => {
-            sessionStorage.setItem(`golive.notyet.${m.id}`, "1");
+            writeStored("session", `golive.notyet.${m.id}`, "1");
             setNotYet(true);
           }}
           className="min-h-[44px] px-3 text-sm font-medium text-gray-500 underline"

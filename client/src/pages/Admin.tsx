@@ -14,6 +14,7 @@ import {
   type MessageReport, type ReportStatus,
 } from "@/lib/messageReports";
 import { resolutionLine } from "@/lib/reportFeedback";
+import { storedText, writeStored } from "@/lib/safeStorage";
 import { ALL_CAPABILITIES, isDeniable } from "@shared/capabilities";
 import BreathingLoader from "@/components/natural/BreathingLoader";
 import Celebration from "@/components/natural/Celebration";
@@ -527,11 +528,11 @@ function AdminNav({
     () => !open
       && typeof window !== "undefined"
       && window.matchMedia("(hover: none)").matches
-      && !localStorage.getItem("admin.navHintSeen"),
+      && !storedText("local", "admin.navHintSeen"),
   );
   const dismissHint = useCallback(() => {
     setHint(false);
-    localStorage.setItem("admin.navHintSeen", "1");
+    writeStored("local", "admin.navHintSeen", "1");
   }, []);
   useEffect(() => {
     if (!hint) return;
@@ -10482,12 +10483,12 @@ export default function Admin() {
   // in a column too narrow to read — and anything laptop-sized starts open,
   // where there is room for both. A stored choice beats both defaults.
   const [navOpen, setNavOpen] = useState<boolean>(() => {
-    const saved = localStorage.getItem("admin.navOpen");
+    const saved = storedText("local", "admin.navOpen");
     if (saved !== null) return saved === "1";
     return window.innerWidth >= 1024;
   });
   useEffect(() => {
-    localStorage.setItem("admin.navOpen", navOpen ? "1" : "0");
+    writeStored("local", "admin.navOpen", navOpen ? "1" : "0");
   }, [navOpen]);
 
   useEffect(() => {

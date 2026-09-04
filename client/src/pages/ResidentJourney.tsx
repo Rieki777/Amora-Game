@@ -6,6 +6,7 @@ import { useVillageContent } from "@/hooks/useVillageContent";
 import { type MoneyContent } from "@/lib/moneyClaims";
 import { useVillageName } from "@/hooks/useVillageName";
 import { useTokenName } from "@/hooks/useTokenNames";
+import { readStoredJson, writeStoredJson } from "@/lib/safeStorage";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -315,9 +316,12 @@ export default function ResidentJourney() {
   });
 
   useEffect(() => {
-    const saved = localStorage.getItem("amora-resident-progress");
-    if (saved) {
-      setCompletedSteps(JSON.parse(saved));
+    // A blocked store threw here, and a half-written value threw one line
+    // later: JSON.parse had no guard either. Both now read as no progress,
+    // which costs a visitor their ticks and never the page.
+    const saved = readStoredJson("local", "amora-resident-progress");
+    if (saved.status === "value" && Array.isArray(saved.value)) {
+      setCompletedSteps(saved.value.filter((v): v is string => typeof v === "string"));
     }
     fetch("/api/settings")
       .then((r) => (r.ok ? r.json() : null))
@@ -330,7 +334,7 @@ export default function ResidentJourney() {
       ? completedSteps.filter(id => id !== stepId)
       : [...completedSteps, stepId];
     setCompletedSteps(newCompleted);
-    localStorage.setItem("amora-resident-progress", JSON.stringify(newCompleted));
+    writeStoredJson("local", "amora-resident-progress", newCompleted);
   };
 
   const progress = (completedSteps.length / journeySteps.length) * 100;

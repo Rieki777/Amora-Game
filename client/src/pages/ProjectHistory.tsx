@@ -1,6 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useVillageName } from "@/hooks/useVillageName";
 import { authToken } from "@/lib/gameApi";
+import { readStoredJson, writeStoredJson } from "@/lib/safeStorage";
 import { useState, useEffect, FormEvent } from "react";
 import Layout from "@/components/Layout";
 import { Link } from "wouter";
@@ -714,25 +715,27 @@ export default function ProjectHistory() {
   const [newTopic, setNewTopic] = useState("");
 
   useEffect(() => {
-    try {
-      const overridesRaw = localStorage.getItem("amora-timeline-overrides");
-      if (overridesRaw) setStatusOverrides(JSON.parse(overridesRaw));
-      const discRaw = localStorage.getItem("amora-discussions");
-      if (discRaw) setDiscussions(JSON.parse(discRaw));
-    } catch {
-      // ignore
+    // Read separately now. One corrupted value used to skip the other, since
+    // the throw left the second read unreached.
+    const overrides = readStoredJson("local", "amora-timeline-overrides");
+    if (overrides.status === "value" && overrides.value && typeof overrides.value === "object") {
+      setStatusOverrides(overrides.value as Record<string, DeliveryStatus>);
+    }
+    const disc = readStoredJson("local", "amora-discussions");
+    if (disc.status === "value" && Array.isArray(disc.value)) {
+      setDiscussions(disc.value as DiscussionTopic[]);
     }
   }, []);
 
   const setItemStatus = (id: string, status: DeliveryStatus) => {
     const next = { ...statusOverrides, [id]: status };
     setStatusOverrides(next);
-    try { localStorage.setItem("amora-timeline-overrides", JSON.stringify(next)); } catch { /* ignore */ }
+    writeStoredJson("local", "amora-timeline-overrides", next);
   };
 
   const saveDiscussions = (next: DiscussionTopic[]) => {
     setDiscussions(next);
-    try { localStorage.setItem("amora-discussions", JSON.stringify(next)); } catch { /* ignore */ }
+    writeStoredJson("local", "amora-discussions", next);
   };
 
   const addTopic = () => {
