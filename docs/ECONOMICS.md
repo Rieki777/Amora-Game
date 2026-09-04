@@ -1161,14 +1161,74 @@ as a duplicate`.
 **None of these had hurt anyone, because production has zero ledger rows. All
 of them would have landed on the first day more than one person used the thing.**
 
+### The governed numbers a member was told wrong (lane P1)
+
+**The needs floor is the village's, and it is now kept as well as stated.**
+`needs.aggregate_floor` is the smallest number of answers on one need that may appear as a
+count anywhere in the village. It is an open-ring dial, default 3, and until now nothing read
+it: the needs library returned a constant, served that constant as `floor` on the member's own
+needs endpoint, and the card printed it into the sentence promising that a count appears only
+once at least that many members have answered. So a village that voted its privacy floor to 5
+was shown 5 in Game Mechanics, told 3 by the card, and had its counts released at 3. The
+suppression and the sentence are now one read of the dial, taken at the point of use, and 1 is
+the smallest floor the engine honours, because a floor of 0 would suppress nothing while
+claiming to suppress something.
+
+**A need starts where the village said it starts.** `needs.default_depth_target` and
+`needs.default_breadth_pct` are open-ring dials, defaulting to Satisfied and 100 percent, and
+their own registry descriptions used to concede that the scope editor wrote Satisfied and 100
+whatever they said. Both are now read by the scope writer, and only where the caller named
+nothing, so an editor that names a rung or a share still wins. The aggregate reads the same
+voted rung when it judges a need nobody adopted, so a village aiming at Thriving no longer sees
+Satisfied answers counted as having met its target.
+
+**A daily cap states the cap it enforced.** `stay.request_daily_cap` and
+`library.reserve_daily_cap` are both open-ring, and both defaulted to a number the refusal spelt
+as a word: five stay requests, ten reservations. Vote either cap down and the member was refused
+at the new number while being told the old one. Both refusals now take a single read of the dial
+and use it for the limit and for the sentence, in the shape the gratitude refusal has always
+used, down to the singular when a village votes a cap of one.
+
+**The exchange names the rung this village voted.** `progression.unlock.exchange.buy` is an
+open-ring dial whose default is the platform's own stage-unlock entry, and a village may move it
+up the ladder or set it to none and grant buying by role alone. The wallet's caption was a
+literal naming the member stage. The exchange endpoint carries only a boolean for whether this
+member may buy, which is one member's answer and never the rule, so the rung now rides on the
+public game-rules feed and the stage's name comes from the live config. A rung of none gets its
+own sentence, and a payload that has not arrived names no rung at all.
+
+**The quest board promises only what the village voted.** `quest.consent_cap_mode` has three
+settings and only one of them makes the advertised amount the payout; the registry uses the
+sentence about a quest paying what it advertises to describe that one setting. The quest page
+published that guarantee under all three, so a village on the capped mode advertised a contract
+its own consent route would break at a multiple of the posted amount, and a village on the
+unlimited mode advertised a ceiling it had voted away. The mode and its multiplier now come off
+the same rules read, each setting states its own sentence, and nothing is promised while the
+rules have not arrived.
+
+**One twin is deliberately left open.** The exchange buy route refuses with the same literal the
+wallet used to print, three lines under its capability check. It sits inside a ledger-capability
+call site another lane holds this wave, so it is named here rather than fixed quietly: whoever
+holds that region replaces it with the same rung the wallet now reads.
+
 ---
 
 ## 11. Open decisions
 
-1. **Decimals.** Rye ruled 4 across the board. The ledger is empty, which makes
-   now the cheapest moment there will ever be. The work is the caller sweep in
-   section 7, after 10.3 is fixed, and it has to include the admin mint route,
-   which is already wrong about Village Voice.
+1. **Decimals. SETTLED 2026-09-04, and the other way.** Rye had ruled 4 across
+   the board; he has now ruled whole numbers, in his words [Whole numbers, keep
+   code safe], with the earlier 3 on Village Voice described as future potential
+   for micro transactions. So every token carries 0 decimals, the ledger rescale
+   is cancelled, and the caller sweep is kept because scale-aware payloads and one
+   conversion helper are what stop a display and an input disagreeing at any scale.
+   **The migration that lowers Village Voice from 3 to 0 is itself a scale change,
+   downward, and must refuse rather than assume.** A stored 100 meaning 0.100
+   becomes 100 whole units the instant the column changes, so every holder inflates
+   by a thousand. That is safe on this village only by the accident of an empty
+   ledger, and it is not safe by construction. Assert that the token's issued supply
+   is zero before changing its decimals, and if it is not, either rescale in the
+   same transaction or stop and name the village. A fork that has been running for a
+   month is where this quietly becomes a thousandfold gift.
 2. **Whether an audit event is a guarantee.** 62 `void recordEvent` calls post the
    audit trail without awaiting it, so a member who acts and immediately opens the
    audit feed can miss their own action. Fine as best effort, wrong if the feed is

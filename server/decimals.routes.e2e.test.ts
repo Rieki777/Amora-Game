@@ -49,8 +49,16 @@ if (!DB_CONFIGURED) {
 
 const DIST = path.resolve(process.cwd(), "dist/index.js");
 
-/** This suite's port window. `scripts/check-e2e-ports.mjs` proves it is disjoint. */
-const PORT = 30500 + (process.pid % 300);
+/**
+ * This suite's port window. `scripts/check-e2e-ports.mjs` proves it is disjoint.
+ *
+ * It was 30500 + (pid % 300), which sat entirely INSIDE exitLevers' 30402 + (pid % 400).
+ * Two sibling lanes each picked a base that was free when they looked, and neither could
+ * see the other, so the overlap only appeared once both branches were in one tree. Within
+ * a single run the pid is fixed and the two would have differed, which is exactly why the
+ * guard checks windows and not the ports a run happens to compute.
+ */
+const PORT = 31202 + (process.pid % 400);
 const BASE = `http://localhost:${PORT}`;
 const ADMIN = "decimals-routes-admin";
 const WEBHOOK_SECRET = "whsec_decimalsroutes"; // module-review-ok: a throwaway value for the spawned scratch server, never a real credential
