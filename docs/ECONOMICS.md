@@ -34,7 +34,7 @@ day it was measured. A number in a doc is a claim about a moment.
 | 12 to 13 | **the spend side**, and what a member is told when they are refused |
 | 14 | **the exit path** |
 | 15 | **worked examples with real numbers**, posting by posting |
-| 16 | **rulings not yet built** |
+| 16 | **the 2026-09-03 rulings**, and which four of the six are built |
 | 17 | how this document is kept true |
 
 ---
@@ -2210,74 +2210,170 @@ and a written promise that the community will decide.
 
 ---
 
-## 16. Rulings not yet built
+## 16. The 2026-09-03 rulings, and which of them are built
 
-Founder rulings of 2026-09-03, recorded verbatim in brackets. **The code does NOT
-do any of these yet.** They are here so that nobody reads sections 1 to 15 and
-mistakes what is built for what was decided.
+Founder rulings of 2026-09-03, recorded verbatim in brackets. **This section
+used to say the code did none of these. It now does four of the six**, and the
+two that are left are the two worth reading carefully.
+
+**This list rotted silently, which is what a list of absences does.** Two lanes
+found R3 and R4 shipped while this section still called them unbuilt, and a
+sentence saying a thing does not exist is exactly the sentence nobody rechecks:
+there is no compiler error for it, no test, and the guard in section 17 cannot
+read prose. So every entry below was re-measured, not only the two that were
+reported.
+
+**How each one was re-measured, so it can be redone.** A ruling names a noun.
+Follow that noun into the code through three handles that are independent of
+each other, and an entry is only "built" when at least the first two answer:
+
+1. **A dial.** `grep` `shared/gameVariables.ts` for the key the ruling implies
+   (`economy.voice_decay_pct`, `exit.keep_pct.*`, `needs.*`). A behaviour with
+   no dial is either not built or not a village's to set.
+2. **A posting or a table.** `grep` `drizzle/` for the account or the table the
+   ruling needs, and `server/` for the `source` string beside it. Value that
+   moves leaves a ledger row, and a row has a named source.
+3. **A surface.** The route file under `server/routes/` and the component under
+   `client/src/`, so the thing a village can actually reach is named and not
+   assumed from a library function existing.
+
+A ruling that is refused rather than absent gets a fourth reading: the guard
+that refuses it, by function name, so whoever builds it answers the guard
+instead of routing around it.
+
+### Built since this list was written
 
 **R1.** [needs are first-class in economics setup]
 
-Not built. There is no needs concept anywhere in the economy setup. The economy a
-founder configures today is tokens, faucets, mint rules and dials.
+**Built.** The taxonomy is platform copy in `shared/needs.ts` (ten human needs,
+each with a label, a formal name, its expressions and a hue), the scope and the
+links live in `village_needs` and `need_links` from migration 0149, and
+`server/lib/needs.ts` reads and writes both. `server/routes/needs.ts` carries
+the doors: `GET /api/needs/scope` and `/coverage` for any signed-in member,
+`PUT /api/admin/needs/scope`, `POST /api/admin/needs/retire`, the two link
+routes, and a member's own card at `GET|PUT|DELETE /api/needs/mine` with
+`/api/needs/aggregate` beside it. Five dials govern it
+(`needs.totality_target_pct`, `needs.default_depth_target`,
+`needs.default_breadth_pct`, `needs.aggregate_floor`,
+`needs.launch_requirement`). The setup surface is `NeedsSetupStep` and
+`NeedsPanel` in `client/src/components/admin/NeedsPanel.tsx`, wired into the
+admin setup wizard and the completeness rail in `client/src/pages/Admin.tsx`.
 
-**R2.** [voice strictly for contributions, roles being a recurring contribution
-type]
-
-Partly true by accident, not by rule. Both seeded `village-voice` rules do pay
-contributions (`quest.completed`) and seats (`role.cycle`), so the shipped
-defaults happen to match. Nothing enforces it: `queueRuleChange` will move a
-voice rule onto any trigger the schema allows, and the admin hand-mint route will
-grant voice for no reason at all.
+**The half that is load-bearing and easy to misread:** a need link is a
+DESCRIPTION and never a gate. `server/lib/needs.ts` imports neither
+`server/lib/economy.ts` nor `server/lib/ledger.ts` nor `server/lib/spending.ts`,
+so nothing in the needs scope can move a token or refuse a claim. A quest tagged
+to Play pays what its mint rule says and an untagged quest pays the same. Needs
+are first-class in what a village SAYS it is for; they are deliberately not a
+second capability system.
 
 **R3.** [voice decays by a village-set percentage per cycle, default 1 percent]
 
-Not built, and there is no setting to build it on. Verified at `45869ad`: `grep
--rin "decay"` across `server/`, `shared/` and `client/` reaches only
-`server/lib/fxRates.ts` and `server/lib/uploads.ts`, neither of which is about
-voice. `runSettlement` pays seats and does nothing else.
+**Built, and built the way the paragraph below demanded.** `decayVoice` in
+`server/lib/economy.ts` is called from `runSettlement`, deliberately BEFORE the
+rules read, so a village whose only enabled rule is `quest.completed` still
+wanes. The rate is `economy.voice_decay_pct`, default `1`, applied per cycle
+close; `economy.voice_decay_basis` says which Voice it measures against and
+offers one honest answer today, all of it. The sink is `sys:voice-decay`,
+seeded by migration 0148 with the faucet flag at 0, because a faucet flag there
+would say the waning account had ISSUED Voice. The source is `voice_decay`, the
+occurrence key is `voice.decay:<village>:<cycleKey>:<userId>:<token>`, and the
+posting is deliberately NOT on the allow-negative list.
 
-**When it is built, decay must be a ledger POSTING to a sink account, never a
-rewrite of a balance.** `token_balances` is a cache that is recomputed from
-`token_ledger`, so a decay that wrote a balance down would be erased by the next
-`recomputeBalance` on that account and would fail the boot invariant's cache-drift
-check in the meantime. More importantly, conservation is the property that makes
-every other number in this document trustworthy: a decay posting from every holder
-to a named sink keeps each token summing to zero and leaves a row saying what was
-taken and when. A balance rewrite leaves neither.
+Four exemptions ride with it and each is a decision: nothing wanes before the
+launch vote carries (read from the same row the ledger's issuance gate reads,
+because `economyReady` does not provide it), a member with an open exit is left
+alone, an amount too small to reach the token's smallest unit wanes nothing and
+is counted, and a missing sink account is a settlement warning and never a boot
+failure.
+
+**The requirement this section wrote in advance was met.** Waning is a ledger
+POSTING to a named sink and not a balance rewrite, so conservation still holds
+per token and there is a row saying what was taken and when. `publicSupply`
+publishes `waned` and `circulating` beside `issued` for the same reason:
+`issued` counts what came out of a faucet and nothing puts it back, so the
+number alone would have said more Voice was out there every moon while every
+wallet in the village shrank.
 
 **R4.** [exit policy is a set of levers each village composes]
 
-Not built as levers. What exists is one policy document with four prose terms and
-a notice period (section 14), plus the guard that refuses to call the platform's
-words the village's own. There is no composition, no lever set, and no code that
-acts on the terms: they are printed for humans and read by nothing.
+**Built.** Ten levers in the `Exit` category of `shared/gameVariables.ts`:
+`exit.keep_pct.credit`, `.voice`, `.recognition` and `.equity`,
+`exit.remainder_account`, `exit.cooling_days`, `exit.voice_on_exit`,
+`exit.voice_convert_rate`, `exit.vote_over` and `exit.sellback_enabled`. Five of
+them decide what a settlement DOES and `sweepBalances` in `server/lib/exit.ts`
+is where they are read; the keep share is looked up per token KIND and never
+per slug, so a fork naming its own credit token inherits the policy.
+`exitLeverProblem` refuses an incoherent set at save time. Section 14 of this
+document lists them and walks the settlement line by line.
 
-**R5.** [all tokens are buyable including Voice through a money contribution]
-
-Not built, and one live guard actively refuses part of it. The exchange is
-buy-only and recognition-kind tokens are never purchasable, which is a
-long-standing invariant in `server/lib/exchange.ts`.
-
-The governance session reports a weight guard in `server/lib/governanceWeights.ts`
-closed 2026-08-31 that **refuses a purchasable voice-kind token as the governance
-weight token**. That is a report from another lane and it is recorded here as
-theirs. The shape of the conflict is the part worth holding: R5 would make voice
-buyable, and `governance.weight_token` defaults to `gratitude` today, so the two
-only collide when a village points its weight at a voice token AND voice becomes
-purchasable. Whoever builds R5 has to answer that guard rather than route around
-it, because buying governance weight with money is exactly what it was written to
-stop.
+**The trap that shaped the design, worth keeping in view:** the amount changes
+with the dials and the idempotency key does not, so a sweep under one policy,
+a dial change, and a retry is a duplicate that posts nothing while the first
+split silently stands. That is correct, and it is invisible unless the policy
+that actually applied is written down at the moment it applies. So the split is
+captured on `exits.resolution` and every reader prints the captured one. On the
+shipped defaults nothing about a departure changed on the day the levers
+landed, which is pinned against `origin/main`'s own postings.
 
 **R9.** [unspent gratitude that expires at cycle close is shown as
 underutilisation]
 
-Not built, and nothing today could show it. An allowance is never stored, so
-"unspent" is not a row anywhere: it is `total minus spent`, computable only while
-the cycle is open and only per member. At cycle close the pool splits by
-recognition RECEIVED, and an allowance nobody spent simply never becomes a
-`gratitude_log` row. There is no artefact of it to display, which means R9 is a
-measurement to build and not a display to add.
+**Built, as a measurement and not a display.** Three frozen metrics in
+`shared/healthMetrics.ts`: `gratitude_allowance_total`,
+`gratitude_allowance_given` and `gratitude_allowance_unspent`. The entry below
+was right that an allowance is never stored and that "unspent" is computable
+only while the cycle is open, which is why the figures are computed AT CLOSE in
+`server/lib/health.ts` and never recomputed. They are village figures with no
+per-member breakdown anywhere, and they are in the recognition token's minor
+units.
+
+### Still not built
+
+**R2.** [voice strictly for contributions, roles being a recurring contribution
+type]
+
+**Not enforced, and the evidence this entry used to give was wrong.** It said
+`queueRuleChange` would move a voice rule onto any trigger the schema allows.
+It cannot: its change argument is `{ amount?, ceiling?, enabled? }` and it
+writes only `pending_amount`, `pending_ceiling`, `pending_enabled` and
+`pending_from_cycle`, which is exactly what `applyPendingRules` copies across.
+Nothing in this build can move a rule's trigger or its token at all, because
+the only writer of `mint_rules` ROWS is `seedEconomy` at boot.
+
+What is true is the second half. Both seeded `village-voice` rules do pay
+contributions (`quest.completed`) and seats (`role.cycle`), so the shipped
+defaults match the ruling by construction. The open door is the admin hand
+mint: `POST /api/admin/tokens/:slug/mint` grants any platform-governed token,
+Voice included, for any reason string a steward types. It is bounded by
+`ledger.admin_mint_cycle_cap` and by the co-sign threshold
+`ledger.admin_mint_cosign_over`, and by nothing that asks what the grant is
+for. So the rule holds by the shape of the seeds and by the honesty of
+stewards, and not by anything the engine checks.
+
+**R5.** [all tokens are buyable including Voice through a money contribution]
+
+**Not built, and refused harder than this entry used to say.** The old text
+said one guard refused part of it, naming recognition. `tradingProblem` in
+`server/lib/exchange.ts` is now a POSITIVE test: a thing bought with money is a
+credit, and every other kind is refused, with Voice refused by name and in the
+village's own words before the generic sentence is reached. That is deliberate
+and documented as a hole that was closed, because `village-voice` is registered
+with `governance: 'platform'` and had previously passed every check: it could
+be listed, priced, stocked out of `sys:mint` and sold.
+
+The second door is closed from both sides. `weightTokenListingProblem` refuses
+to LIST the token that weighs votes, and `weightTokenProblem` in
+`server/lib/governanceWeights.ts` refuses to WEIGH votes with a token that is
+listed, so a founder cannot reach bought governance weight through an ordinary
+credit either. `governance.weight_token` defaults to `gratitude`, which is
+recognition and refused regardless.
+
+**Whoever builds R5 answers those three functions by name.** The shape of the
+conflict is the part worth holding: buying governance weight with money is
+exactly what they were written to stop, so R5 is a ruling that reopens a hole
+somebody closed on purpose, and it needs the founder's word about what it may
+reopen and what it may not.
 
 ---
 
