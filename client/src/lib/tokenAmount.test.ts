@@ -137,6 +137,12 @@ describe("the send card's actual bug", () => {
 });
 
 describe("smallestUnit", () => {
+  // DO NOT LOOSEN THIS TO toBeCloseTo. These three are exact-equality
+  // assertions on purpose. `smallestUnit` once raised ten to a negative power,
+  // which V8 25 evaluates to 0.0001 and V8 22 evaluates to
+  // 0.00009999999999999999, so this test passed on every dev box here and
+  // failed only on CI, which pins Node 22. A tolerance would have made that
+  // red go away and left a wallet step no member could land on.
   it("gives an input a step a member can actually reach", () => {
     expect(smallestUnit(0)).toBe(1);
     expect(smallestUnit(3)).toBe(0.001);
