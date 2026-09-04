@@ -3332,6 +3332,48 @@ this document holds the economy to: an empty state and a real zero are different
 facts, and a campaign that has raised nothing and a campaign nobody could read
 must never print the same number.
 
+### Three hub-side defects, measured on the far side and landing on this one
+
+**This is the one place in this document where a defect belongs to somebody
+else.** The Crowdpooling session measured all three against a scratch database of
+their own on 2026-09-04 and relayed them here; this side re-verified only its own
+half, which is what our code does with their answers, and it must not be read as
+a description of their mechanics. Two of them made a figure on our page wrong or
+impossible through no fault of any code here, and the third is the opposite and
+is the dangerous one.
+
+1. **`pledgedTotal` is a FLOOR and not a total.** The hub sums a campaign's
+   pledged value filtering on the ACCEPTED status alone, and delivered and
+   thanked are later states of the same lifecycle, so a confirmed delivery takes
+   its value out of the number the gold ring divides. Their trial: accept ten
+   thousand, deliver it, accept five thousand more, and the campaign reports five
+   thousand where the honest figure is fifteen. They recompute in one branch
+   only, so the drop is DEFERRED and lands on a later, unrelated acceptance,
+   which is how a member watching a village do well sees the ring go backwards at
+   a moment that looks like it has nothing to do with the delivery. **Ours does
+   not correct it and does not hide it.** `percentPledged` still divides by the
+   hub's own number, because a computed guess at the delivered value would be
+   worse than an honest gap, and every surface that shows the figure names it as
+   a floor. That is the same rule as the fake-zero rule above, one step further
+   on: an empty state and a real zero are different facts, and so are a floor and
+   a total.
+2. **The three-slot meter can arrive with more delivered than were wanted.**
+   Their fulfil path is not idempotent despite a comment of theirs claiming it
+   is: two stewards confirming at once put delivered on two instead of one, ten
+   trials out of ten. It does not cross to this side as a payout, because this
+   module reads the meter and never the payoff, and section 12's enumeration is
+   untouched by it. It crosses as counts that cannot all be true, and the pieces
+   that draw them now handle that state instead of assuming it away.
+3. **A financial pledge is stored as a total and a financial SUBTOTAL, and three
+   of the hub's own surfaces add the two**, so a ten thousand pledge headlines as
+   twenty thousand on their public gallery. **Our figure is right where their
+   gallery is wrong**, and that is exactly the shape a later lane "fixes" into a
+   defect: open their public page beside `/campaign/:slug`, read our half-sized
+   number as our bug, and make ours match. Nothing about the arithmetic would
+   look wrong afterwards. `server/lib/crowdpoolPledgeNeverSums.test.ts` holds the
+   rule to one spelling across the whole bridge, server and client both, and
+   fails on any expression that adds the two.
+
 ### The fields this side normalises, and the failure they hide
 
 Every normaliser reads NAMED fields off the hub's JSON with `??` fallback chains
@@ -3375,11 +3417,22 @@ it and the sync job will keep reporting success.
   `postTransfer`'s callers keep and for the same reason: a vendor string that
   arrives long is a lost record and not a truncated one.
 
-**A finding, not a wording problem, and out of this lane's zone to fix.** Both
-`server/lib/crowdpool.ts:5` and `docs/modules/crowdpool.md` say **four**
-procedures are read and then list **five**. It is the same defect class as 10.37
-in this file, in two more places, and it is the count a reader integrating against
-this module would take at face value. Neither file is this lane's to edit.
+**That finding is now fixed, and it was the fourth instance in one day.** Both
+`server/lib/crowdpool.ts:5` and `docs/modules/crowdpool.md` said **four**
+procedures were read and then listed **five**. It was the same defect class as
+10.37 in this file, in two more places, and it was the count a reader integrating
+against this module would have taken at face value. Both were corrected on
+2026-09-04, and every other count in that file and in that contract was checked
+against its own list at the same time: the three postures, the three narrated
+verbs, the four answers `normalizeCampaign` assembles, the four parallel reads
+and the nine capital types all match what sits beneath them. The one other
+disagreement found was a LIST and not a count, in the module contract: it named
+six `kind` values where the code carries seven and treats the set as open, so
+`land` was missing from the doc and is there now.
+
+**In every one of the four instances the false line was a confident comment
+beside correct-looking code**, which is precisely what neither repository's tests
+check. That is worth more than the fix.
 
 ### THE SEAM, and it is unconfirmed on the far side
 
@@ -3400,7 +3453,12 @@ mechanics from a read path**:
    commitment, a payment, or an intent.
 3. Whether the nine `capitalType` values are theirs to change, and on what notice.
 4. Whether the `quantityWanted` / `quantityClaimed` / `quantityDelivered` meter
-   is theirs to change, and what the three slots mean when they disagree.
+   is theirs to change, and what the three slots mean when they disagree. **Half
+   answered on 2026-09-04**: they can disagree because their fulfil path is not
+   idempotent, so `quantityDelivered` can exceed `quantityWanted` (defect 2
+   above). What the three slots mean when they disagree for any OTHER reason is
+   still theirs to state, and this side now draws the meter against what was
+   wanted and says out loud when more arrived than that.
 
 **One more thing belongs on the seam, because it is where the boundary would
 move.** The commitments module (D7, designed in

@@ -2,8 +2,13 @@
  * Crowdpool (R44/R45): the bridge between this village's game surface and the
  * hub's public crowdpool campaigns.
  *
- * The hub serves a public, no-auth tRPC API at `/api/trpc` with four reads
- * this module cares about, measured live on 2026-08-22:
+ * The hub serves a public, no-auth tRPC API at `/api/trpc` with five reads
+ * this module cares about, measured live on 2026-08-22. Four of them are the
+ * per-campaign bundle `fetchCampaignBundle` dials in parallel; `campaigns.list`
+ * is the fifth and runs only to resolve a slug that carries no id. This line
+ * said FOUR and listed five from the day it shipped, in this file and in
+ * `docs/modules/crowdpool.md` both, which is the count a reader integrating
+ * against this module would take at face value:
  *
  *   campaigns.list            -> every published campaign (input: {})
  *   campaigns.getById         -> one flat campaign record with items, images,
@@ -40,6 +45,51 @@
  * an app_config document across reboots (snapshotExport/snapshotImport are
  * the seam). Deps are injected the same way agentInbox injects `post`, so the
  * tests dial a local fixture while production dials guardedFetchJson.
+ *
+ * ── TWO HUB-SIDE DEFECTS THIS FILE CANNOT FIX AND MUST NOT HIDE ─────────────
+ *
+ * Both were measured by the Crowdpooling session against a scratch database of
+ * their own on 2026-09-04 and relayed here. This side re-verified only what is
+ * verifiable from this side, which is what OUR code does with the answers.
+ *
+ * 1. `pledgedTotal` IS A FLOOR, NEVER A TOTAL. The hub sums a campaign's
+ *    pledged value filtering on the ACCEPTED status alone, and delivered and
+ *    thanked are later states of the same lifecycle. So the moment a steward
+ *    confirms a delivery, that value leaves the number. Their measurement:
+ *    accept ten thousand, deliver it, accept five thousand more, and the
+ *    campaign reports five thousand where the honest figure is fifteen. They
+ *    also recompute in one branch only, so the drop is DEFERRED and lands
+ *    later, when an unrelated pledge is accepted. A member watching a village
+ *    do well therefore sees the ring go backwards at a moment that looks
+ *    unrelated. It is theirs to fix and they are fixing it. Ours is to stop
+ *    presenting it as our own truth: `percentPledged` below still divides by
+ *    the hub's number, because inventing a correction here would be worse than
+ *    an honest gap, and the client names the figure as a floor everywhere a
+ *    reader meets it (`HUB_PLEDGED_TOTAL_IS_A_FLOOR` in
+ *    `client/src/components/crowdpool/PoolPieces.tsx` is the one switch that
+ *    turns that language off when the hub lands its fix).
+ *
+ * 2. THE THREE-SLOT METER CAN ARRIVE WITH DELIVERED ABOVE WANTED. Their fulfil
+ *    path is not idempotent despite a comment claiming it is: two stewards at
+ *    once put delivered on two instead of one, ten trials out of ten. It does
+ *    not cross to us as a payout, because this file reads the meter and never
+ *    the payoff. It does cross as a need whose `quantityDelivered` exceeds its
+ *    `quantityWanted`. `percentDelivered` below already clamps each need's
+ *    share at 1 so one over-delivered need cannot push the walls past the
+ *    ring; the client makes the same state deliberate where it is drawn.
+ *
+ * ── AND THE ONE THAT IS THEIRS AND WRONG WHERE OURS IS RIGHT ────────────────
+ *
+ * A financial pledge is stored on the hub in TWO fields: `pledgedTotal`, the
+ * campaign total, and `pledgedFinancial`, the financial subtotal INSIDE it.
+ * Three of the hub's own surfaces add the two together, so a ten thousand
+ * pledge reads as twenty thousand on their public gallery headline. This file
+ * reads them as separate fields and divides using the total alone, so our
+ * figure is right where their gallery is wrong. THE HAZARD IS THE OBVIOUS ONE:
+ * a later lane compares our number to the hub's public page, sees a mismatch,
+ * and "fixes" ours to match. `server/lib/crowdpoolPledgeNeverSums.test.ts`
+ * pins the rule to one spelling across the whole bridge, server and client
+ * both, and fails on any line that adds the two.
  */
 
 export interface CrowdpoolCampaignRef {
@@ -78,6 +128,12 @@ export interface CrowdpoolNeed {
   pledgedValue: number;
   quantityWanted: number;
   quantityClaimed: number;
+  /**
+   * CAN EXCEED `quantityWanted`, and does. The hub's fulfil path is not
+   * idempotent (defect 2 at the top of this file), so two stewards confirming
+   * at once put this at two where one was wanted. Nothing here corrects it;
+   * every consumer handles the state instead of assuming it away.
+   */
   quantityDelivered: number;
   needDeadline: string | null;
   priorityPinned: boolean;
@@ -117,8 +173,17 @@ export interface CrowdpoolCampaign {
   status: string;
   currency: string;
   totalValue: number;
+  /**
+   * The hub's campaign-wide pledged value. A FLOOR, never a total: the hub
+   * filters on the accepted status alone, so confirmed deliveries drop out of
+   * it. See defect 1 at the top of this file.
+   */
   pledgedTotal: number;
   financialTarget: number;
+  /**
+   * The financial SUBTOTAL inside `pledgedTotal`, carried separately and
+   * never added to it. See the last block at the top of this file.
+   */
   pledgedFinancial: number;
   /** pledgedTotal over totalValue, 0..100. The gold ring. */
   percentPledged: number;
@@ -277,6 +342,20 @@ const pct = (part: number, whole: number): number =>
  * same clock. `percentDelivered` weights each need's delivered share by its
  * estimated value, so two hundred fence posts cannot outvote a well: the ring
  * is the pledged promise, this is how much of the promise became walls.
+ *
+ * TWO ARITHMETIC RULES HERE ARE LOAD-BEARING, both explained at the top of
+ * this file:
+ *
+ *   `percentPledged` divides by `pledgedTotal` ALONE. `pledgedFinancial` is a
+ *   subtotal inside it, and adding the two double-counts every financial
+ *   pledge. Our figure is right where the hub's own gallery is wrong, so a
+ *   later lane will meet a mismatch and be tempted to make ours match theirs.
+ *   `server/lib/crowdpoolPledgeNeverSums.test.ts` refuses that edit by name.
+ *
+ *   the delivered share clamps each need at 1 (`Math.min` below). The hub's
+ *   fulfil path is not idempotent, so a need can arrive with more delivered
+ *   than were ever wanted; without the clamp one such need would push the
+ *   walls past the ring, which is a state that cannot be true.
  */
 export function normalizeCampaign(
   byId: any,
