@@ -26,8 +26,8 @@ shipped, and so did `server/lib/crowdpool.ts:5`; both were corrected on
   coverImage and contributorsCount embedded
 - `campaigns.getItems` (input `{campaignId}`): the needs, each with the
   three-slot `quantityWanted` / `quantityClaimed` / `quantityDelivered` meter,
-  a `kind` (loan, role, shift, knowledge, item, crypto, land, and the set is
-  open), and one of the hub's nine `capitalType` values
+  a `kind` (item, role, shift, loan, knowledge, crypto, financial_link: seven,
+  and the hub owns the enum, so read it and never assume it), and one of the hub's nine `capitalType` values
 - `campaigns.getActivity` (input `{campaignId}`): the public Pool Ledger
 - `campaigns.getPartnerLinks` (input `{campaignId}`): partner funders with the
   hub's own cached raised, percent and contributor count

@@ -118,7 +118,21 @@ export interface CrowdpoolDeps {
 export interface CrowdpoolNeed {
   id: string;
   name: string;
-  /** loan | role | shift | knowledge | item | crypto | land (open set). */
+  /**
+   * The hub'''s need kind: item, role, shift, loan, knowledge, crypto,
+   * financial_link. Seven, and the hub owns the enum.
+   *
+   * THIS COMMENT HAS BEEN WRONG TWICE AND THE SECOND TIME WAS MINE. It listed
+   * six and called the set open; a lane then added `land` to make seven, and
+   * `land` is not a kind at all. It belongs to a DIFFERENT enum on the same hub
+   * table, `category`, which carries land, equipment, role and resource and is
+   * the taxonomy that predates the needs registry. So the list was seven long
+   * with two members wrong, which is exactly why the length looked right.
+   *
+   * The two enums got conflated here because `normalizeNeed` FALLS BACK from
+   * kind to category, so this field really can hold a category value. See the
+   * note there: the fallback is the reason the confusion was available to make.
+   */
   kind: string;
   category: string;
   /** One of the hub's nine capitals. The page tints with it, never charts it. */
@@ -264,6 +278,20 @@ export function normalizeNeed(it: any): CrowdpoolNeed {
   return {
     id: String(it?.id ?? ""),
     name: needName(it),
+    /*
+     * THE FALLBACK CROSSES TWO TAXONOMIES AND IS KEPT DELIBERATELY, NARROWLY.
+     *
+     * `kind` and `category` are different enums on the hub'''s table. When kind
+     * is absent this writes a CATEGORY value into a kind field, so a need can
+     * arrive labelled `land`, which no kind ever was. That is not a default, it
+     * is a value from another vocabulary, and it is how this file'''s own comment
+     * came to list one.
+     *
+     * Kept because the hub names kind in its stable set, so an absent kind means
+     * a legacy row rather than a rename, and a legacy row with a category reads
+     * better than one reading "item". Not widened: nothing downstream may treat
+     * a kind as a member of a closed set.
+     */
     kind: String(it?.kind ?? it?.category ?? "item").toLowerCase().slice(0, 32),
     category: String(it?.category ?? "").toLowerCase().slice(0, 32),
     capitalType: String(it?.capitalType ?? "material").toLowerCase().slice(0, 32),
