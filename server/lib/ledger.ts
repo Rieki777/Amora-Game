@@ -260,15 +260,32 @@ export interface TransferInput {
 /**
  * Permission to leave a member owing the village, issued by this module.
  *
- * There are exactly three of these and they are exported by name, so the
- * whole set of callers that may create debt is `grep -rn "_DEBT" server/`:
- * five call sites in four files, each one a place where a debt is the
- * truthful state rather than a convenience.
+ * THESE ARE NO LONGER EXPORTED, AND THAT IS THE WHOLE FIX. They used to be
+ * three `export const`s, so the set of callers that could create debt was
+ * every module under `server/` that cared to type an import. A closing proof
+ * that wrote none of this code did exactly that: it imported `CLAWBACK_DEBT`,
+ * `PAYMENT_REVERSAL_DEBT` and `GRACE_NIGHT_DEBT` into a test module and took
+ * one account to -990, -990 and -777 through the ordinary public primitive,
+ * and `checkLedgerInvariants` reported NOTHING in all three cases, because
+ * the debit's own source is allow-negative and so raises the account's lawful
+ * bound by exactly what it just took.
+ *
+ * Forgery was already closed by identity. BORROWING was wide open, and a
+ * capability anybody may borrow is not a capability, it is a global.
+ *
+ * So the proof never leaves this module now. What leaves instead is the three
+ * NARROW OPERATIONS below - {@link postGraceNightBurn},
+ * {@link postPaymentReversalLeg} and {@link postClawbackMirror} - each of
+ * which supplies its own proof internally and pins the `source` that proof
+ * licenses. A caller can ask for the operation; it cannot ask for the
+ * capability and then decide what to spend it on.
  *
  * The brand is a module-private symbol, so this interface cannot be
  * satisfied by a caller writing `{ reason: "reversal" }`, and the runtime
  * gate is identity against `ISSUED_DEBT_PROOFS` rather than shape, so a
- * caller who defeats the type system still gets nothing.
+ * caller who defeats the type system still gets nothing. Both of those stay:
+ * an unexported value is still reachable through a mocked module or a
+ * transpiler's namespace object, and identity is what makes that useless.
  */
 declare const DEBT_PROOF_BRAND: unique symbol;
 export interface DebtProof {
@@ -280,11 +297,11 @@ export interface DebtProof {
 const issueDebtProof = (reason: string): DebtProof => Object.freeze({ reason }) as unknown as DebtProof;
 
 /** A stay night burnt inside the grace window (`server/lib/stays.ts`). */
-export const GRACE_NIGHT_DEBT: DebtProof = issueDebtProof("stay_night");
+const GRACE_NIGHT_DEBT: DebtProof = issueDebtProof("stay_night");
 /** The mechanical leg after a refund or a chargeback (the payment handlers). */
-export const PAYMENT_REVERSAL_DEBT: DebtProof = issueDebtProof("payment_reversal");
+const PAYMENT_REVERSAL_DEBT: DebtProof = issueDebtProof("payment_reversal");
 /** The mirror `reverse()` posts against value a member already spent onward. */
-export const CLAWBACK_DEBT: DebtProof = issueDebtProof("reversal");
+const CLAWBACK_DEBT: DebtProof = issueDebtProof("reversal");
 
 const ISSUED_DEBT_PROOFS: readonly DebtProof[] = Object.freeze([
   GRACE_NIGHT_DEBT,
@@ -332,6 +349,24 @@ export function frozenSet<T>(values: readonly T[]): ReadonlySet<T> {
     set: refuse("assignment"),
     defineProperty: refuse("defineProperty"),
     deleteProperty: refuse("property deletion"),
+    /*
+     * THE HOLE THE OTHER FIVE TRAPS LEFT, and it was the widest of them.
+     *
+     * `Object.setPrototypeOf(S, {has: () => true})` succeeded on the proxy
+     * above: `setPrototypeOf` is its own internal method, so none of the
+     * traps declared here saw it, and the default forwarded it to the inner
+     * `Set`. After it, `S.has(anything)` answered whatever the planted
+     * prototype said, `Array.from(S)` was EMPTY and `S.size` was `undefined`.
+     * Both halves of the keystone read this object: the JS gate asks `has`,
+     * and `checkLedgerInvariants` asks `Array.from`. So one line widened the
+     * allow-negative gate to every source there is, and then emptied the list
+     * the boot check builds its `IN (...)` from, which made the check throw a
+     * SQL syntax error instead of reporting anything.
+     *
+     * Refusing it here makes the declaration's promise complete: this set has
+     * one shape, one prototype and three members, from module load to exit.
+     */
+    setPrototypeOf: refuse("prototype replacement"),
   }) as ReadonlySet<T>;
 }
 
@@ -368,6 +403,54 @@ export function frozenSet<T>(values: readonly T[]): ReadonlySet<T> {
  * equality now, and `validateLeg` refuses the near-miss spellings outright.
  */
 export const ALLOW_NEGATIVE_SOURCES: ReadonlySet<string> = frozenSet(["stay_night", "payment_reversal", "reversal"]);
+
+/**
+ * The sources that ARE a clawback, and so may never be clawed back again.
+ *
+ * `reversal` is the mirror `reverse()` writes. `payment_reversal` is the leg
+ * the refund and dispute handlers write after a bank has taken the money
+ * back, and it is the one a key-prefix guard could never see, because those
+ * postings are keyed `ord:<id>:reversal-leg1` and `pp:<id>:reversal:<period>`
+ * - outside the `reversal:` namespace entirely. `stay_night` is not here:
+ * a burnt grace night is a charge, and a charge can be undone.
+ *
+ * IT LIVES HERE NOW rather than in `server/lib/economy.ts`, because the rule
+ * it expresses is enforced at the WRITE (see {@link clawbackRefusal}) and a
+ * rule enforced in the ledger cannot read its definition out of a module that
+ * imports the ledger. `economy.ts` imports this one, so there is one list.
+ */
+export const CLAWBACK_SOURCES: ReadonlySet<string> = frozenSet(["reversal", "payment_reversal"]);
+
+/**
+ * The mirror namespace, spelled once, byte-exact.
+ *
+ * `keys.reversal(v, K)` in `server/lib/economy.ts` builds `reversal:<esc(v)>:<K>`
+ * and `esc` percent-encodes every colon, so the village segment can never
+ * contain one and the ORIGINAL KEY IS EVERYTHING AFTER THE SECOND COLON. That
+ * makes the derivation total and reversible without the ledger knowing what a
+ * village id is, which is what lets the law below live down here.
+ */
+const REVERSAL_KEY_PREFIX = "reversal:";
+
+/**
+ * The posting a mirror key claims to undo, or null when the key is not a
+ * well-formed mirror key.
+ *
+ * BYTE-EXACT ON THE PREFIX, unlike the namespace test in `validateLeg`, which
+ * is deliberately case- and whitespace-insensitive because the UNIQUE index
+ * is. The two are different questions: "does this key occupy the reserved
+ * namespace" has to be as loose as the index, and "which posting does this
+ * key name" has to be exact or the answer is a guess. A key that is in the
+ * namespace loosely but not exactly names no original, so it is refused.
+ */
+function originalKeyOf(mirrorKey: string): string | null {
+  if (!mirrorKey.startsWith(REVERSAL_KEY_PREFIX)) return null;
+  const rest = mirrorKey.slice(REVERSAL_KEY_PREFIX.length);
+  const cut = rest.indexOf(":");
+  if (cut < 0) return null;
+  const original = rest.slice(cut + 1);
+  return original.length > 0 ? original : null;
+}
 
 export interface TransferResult {
   ok: boolean;
@@ -487,6 +570,47 @@ function validateLeg(input: TransferInput): { tokenType: string; amount: number 
   }
 
   /*
+   * THE PURE HALF OF THE CLAWBACK LAW. The half that needs a connection is
+   * `clawbackRefusal`, which runs inside the transaction under the locks.
+   *
+   * Binding the source to the namespace was never the law; it was the
+   * doorframe. A closing proof walked straight through the open door with
+   * plain `postTransfer`, because the two rules above ask only how a key is
+   * SPELLED and nothing about whether it names anything. Three losses, each
+   * reproduced with `checkLedgerInvariants` returning an empty list:
+   *
+   *  - hand-posting the mirror of a swap's second leg reversed ONE leg of a
+   *    live pair, and the member who had paid 100 ended holding nothing;
+   *  - hand-posting `reversal:local:reversal:local:<K>` after a real clawback
+   *    put the clawed-back 30 credits back on the member;
+   *  - a FUNDED posting at `reversal:local:<K>` squatted the mirror key, so
+   *    the real clawback hit the UNIQUE index and returned
+   *    `{ok: true, duplicate: true}` while the victim kept everything.
+   *
+   * Two of the three are decidable with no read at all, so they are decided
+   * here, before a transaction opens: the key must name an original exactly,
+   * and that original must not itself be a mirror.
+   */
+  if (input.source === "reversal") {
+    const original = originalKeyOf(key);
+    if (original === null) {
+      return {
+        error:
+          `a clawback mirror is keyed "reversal:<village>:<original key>" and ` +
+          `${JSON.stringify(key.slice(0, 60))} names no original posting. The prefix is read ` +
+          "byte for byte here: a key that only collates into the namespace names nothing",
+      };
+    }
+    if (/^\s*reversal:/i.test(original)) {
+      return {
+        error:
+          `a reversal cannot itself be reversed, and ${JSON.stringify(original.slice(0, 60))} is ` +
+          "itself a mirror key. Post the correction as its own occurrence instead",
+      };
+    }
+  }
+
+  /*
    * The debt capability. Refused BEFORE any transaction opens, which is the
    * only refusal worth having: a caller who reaches this with `true`, with a
    * hand-built object, or with the wrong proof for its source moves nothing
@@ -542,6 +666,206 @@ export async function ledgerEntryExists(pool: Pool, idempotencyKey: string): Pro
     [idempotencyKey],
   );
   return rows.length > 0;
+}
+
+/**
+ * WHAT A PAIR LEG IS, since no column says so.
+ *
+ * `postTransferPair` is the platform's both-or-neither primitive and the one
+ * production caller is `executeSwap`, which keys its two legs
+ * `ord:<orderId>:leg1` and `ord:<orderId>:leg2` with the same `source` and
+ * the same `source_ref`. Nothing on the row records the pairing, and adding
+ * a `pair_key` column is a migration, so this DERIVES it from the shape:
+ *
+ *   a posting is a pair leg when its key ends in `:leg1` or `:leg2` and a
+ *   posting exists whose key is the same prefix with the other suffix and
+ *   whose `source` is the same.
+ *
+ * The suffix alone is not enough and that is why the source is in it:
+ * `ord:<orderId>:leg1` is ALSO the key of three ordinary single postings
+ * (a fiat exchange settlement, a stay purchase, a manual stay purchase),
+ * each of which has no sibling row and each of which stays reversible.
+ * `ord:<id>:reversal-leg1` ends in `-leg1`, not `:leg1`, and is not matched.
+ *
+ * A CONFIRMED FALSE POSITIVE, KEPT ON PURPOSE, AND HERE IS THE REASONING.
+ * Two genuinely single postings that happen to share a prefix and a source
+ * under the two leg suffixes are read as a pair and refused. A closing proof
+ * built that shape by hand and no shipped path produces it. It could be
+ * narrowed by also requiring the two rows to share a `source_ref`, which
+ * `executeSwap` does set identically on both legs - and narrowing it is the
+ * wrong trade. Every condition added here makes FEWER things count as a pair,
+ * which makes MORE single-leg reversals legal, which is the direction the
+ * pair-dismantling loss lies in. The cost of the false positive is a refusal
+ * a person can answer by posting the correction as its own occurrence; the
+ * cost of a false negative is a member who paid for a swap keeping nothing.
+ * So it fails closed, and this paragraph is the decision rather than a bug.
+ *
+ * It takes a `Pool` or a `PoolConnection` because the law below asks it
+ * INSIDE the posting's own transaction, and `reverse()` asks it outside one
+ * to give a better message before any transaction opens.
+ *
+ * Returns the sibling's key, so a refusal can name it.
+ */
+export async function pairSiblingKey(
+  db: Pool | PoolConnection,
+  key: string,
+  source: string,
+): Promise<string | null> {
+  const m = /^(.*):leg([12])$/.exec(key);
+  if (!m) return null;
+  const sibling = `${m[1]}:leg${m[2] === "1" ? "2" : "1"}`;
+  const [rows] = await db.query<RowDataPacket[]>(
+    "SELECT `idempotency_key` FROM `token_ledger` WHERE `idempotency_key` = ? AND `source` = ? LIMIT 1",
+    [sibling, source],
+  );
+  // Byte-exact, like every other key read here: the collation would happily
+  // hand back a different key that merely collates equal.
+  return rows.some((r) => String(r.idempotency_key) === sibling) ? sibling : null;
+}
+
+/**
+ * THE CLAWBACK LAW, WHERE THE CLAWBACK IS WRITTEN.
+ *
+ * `reverse()` derived its mirror from a row, checked that the row was not
+ * itself a clawback, and checked that it was not one leg of a pair. Those
+ * were three good rules living BESIDE the ledger instead of in it, and a
+ * rule a call site can follow or skip is a rule with a door next to it. The
+ * door was plain `postTransfer`: it wrote any row at all whose source was
+ * `reversal` so long as the key started with `reversal:`, and asked nothing
+ * else. Every one of the three rules was reproduced as a loss through it.
+ *
+ * So the rules move inside, and this is the whole of them. Five questions,
+ * asked of the DATABASE and not of the caller:
+ *
+ *  1. the key names an original, and that original EXISTS, byte for byte;
+ *  2. the original is not itself a clawback (`CLAWBACK_SOURCES`);
+ *  3. this leg MIRRORS it: the two accounts swapped, the same token, the
+ *     same minor amount. This is the one that ends the mirror-key squat.
+ *     A squatter can no longer occupy the key with a one-unit posting to a
+ *     third party, and a posting that satisfies this IS the reversal, so
+ *     the real clawback reporting `duplicate: true` afterwards is telling
+ *     the truth for the first time;
+ *  4. the original is not already mirrored by some OTHER row;
+ *  5. the original is not one leg of a pair, unless the other leg's mirror
+ *     is being written in this same transaction.
+ *
+ * WHY IT RUNS HERE AND NOT IN A `TransferGuard`. The guard parameter is
+ * optional, and a law a caller may decline to pass is the door again. This
+ * runs unconditionally on every leg whose source is `reversal`, at exactly
+ * the point the guard would have: after both accounts are locked FOR UPDATE
+ * and before the row is written. That placement is what makes 4 and 5
+ * decide-and-write in one atomic step - two concurrent mirrors of one
+ * original touch the SAME two accounts, so they are already serialised by
+ * the locks this function runs under, and the loser reads the winner's
+ * committed row instead of the same stale answer.
+ *
+ * The reads are plain rather than `FOR UPDATE` ON PURPOSE. An exact-match
+ * locking read on a UNIQUE index takes a GAP lock when the row is absent,
+ * which would put a reversal in the way of unrelated postings whose keys
+ * happen to sort nearby. What a stale snapshot can cost here is bounded and
+ * one-directional: a just-committed original that this transaction cannot
+ * yet see refuses a lawful reversal, which fails closed. A second mirror
+ * cannot slip past, because it collides on the mirror key's own UNIQUE index.
+ *
+ * `siblingMirroredHere` is the original key of the OTHER leg of the same
+ * `postTransferPair` call, when that leg is also a mirror. Null everywhere
+ * else, including every single-leg post, which is what closes 5.
+ */
+async function clawbackRefusal(
+  conn: PoolConnection,
+  leg: TransferInput,
+  tokenType: string,
+  amount: number,
+  siblingMirroredHere: string | null,
+): Promise<string | null> {
+  const original = originalKeyOf(leg.idempotencyKey);
+  // `validateLeg` refuses a key that names no original before any of this
+  // runs. Belt to that brace: a future caller of this function gets the same
+  // answer rather than a crash.
+  if (original === null) {
+    return `a clawback mirror is keyed "reversal:<village>:<original key>" and ${JSON.stringify(leg.idempotencyKey.slice(0, 60))} names no original posting`;
+  }
+
+  const [rows] = await conn.query<RowDataPacket[]>(
+    "SELECT `idempotency_key`, `source`, `from_account`, `to_account`, `token_type`, `amount` " +
+      "FROM `token_ledger` WHERE `idempotency_key` = ? LIMIT 1",
+    [original],
+  );
+  const row = rows[0];
+  // BYTE-EXACT: `WHERE idempotency_key = ?` answers under a case-insensitive
+  // PAD SPACE collation, so it happily returns a row whose key is NOT the one
+  // the mirror names, and mirroring a row nobody asked about is the same
+  // invention this law exists to stop.
+  if (!row || String(row.idempotency_key) !== original) {
+    return (
+      `there is no posting keyed ${JSON.stringify(original.slice(0, 80))} to reverse, so this ` +
+      "mirror reverses nothing. A clawback is derived from an exact posting or from nothing"
+    );
+  }
+
+  const source = String(row.source);
+  if (CLAWBACK_SOURCES.has(source)) {
+    return (
+      `${JSON.stringify(original.slice(0, 80))} is itself a clawback (source "${source}"), and ` +
+      "reversing one restores value that was already taken back. Post the correction as its own occurrence instead"
+    );
+  }
+
+  const wantFrom = String(row.to_account);
+  const wantTo = String(row.from_account);
+  const wantToken = String(row.token_type);
+  const wantAmount = Number(row.amount);
+  if (leg.from !== wantFrom || leg.to !== wantTo || tokenType !== wantToken || amount !== wantAmount) {
+    return (
+      `this clawback does not mirror ${JSON.stringify(original.slice(0, 80))}: the mirror of that ` +
+      `posting is ${wantAmount} ${wantToken} from "${wantFrom}" to "${wantTo}", and this one is ` +
+      `${amount} ${tokenType} from "${leg.from}" to "${leg.to}". A mirror is derived from the row, never invented`
+    );
+  }
+
+  /*
+   * ALREADY MIRRORED, asked by SHAPE and answered in JS.
+   *
+   * The mirror key's own UNIQUE index already makes at most one mirror per
+   * (village segment, original key), and that is the enforcement; a replay of
+   * the same key must still reach the INSERT and come back as a duplicate, so
+   * this deliberately ignores the leg's own key. What it adds is the case the
+   * index cannot see: a SECOND mirror of the same original under a different
+   * village segment.
+   *
+   * The two indexed columns come first so `token_ledger_to_idx (to_account,
+   * token_type)` narrows this to one account's rows before anything else is
+   * read; the key comparison is done here rather than in SQL because the
+   * original key can contain `%` (every builder percent-encodes) and a LIKE
+   * over it would need escaping that a collation would then fold anyway.
+   */
+  const [mirrors] = await conn.query<RowDataPacket[]>(
+    "SELECT `idempotency_key` FROM `token_ledger` " +
+      "WHERE `to_account` = ? AND `token_type` = ? AND `from_account` = ? AND `amount` = ? " +
+      "AND CAST(`source` AS BINARY) = 'reversal'",
+    [leg.to, tokenType, leg.from, amount],
+  );
+  const already = mirrors
+    .map((r) => String(r.idempotency_key))
+    .find((k) => k !== leg.idempotencyKey && originalKeyOf(k) === original);
+  if (already) {
+    return (
+      `${JSON.stringify(original.slice(0, 80))} has already been reversed by ` +
+      `${JSON.stringify(already.slice(0, 80))}. Reversing it twice pays the same value back twice`
+    );
+  }
+
+  const sibling = await pairSiblingKey(conn, original, source);
+  if (sibling && sibling !== siblingMirroredHere) {
+    return (
+      `${JSON.stringify(original.slice(0, 80))} is one leg of an atomic pair whose other leg is ` +
+      `keyed ${JSON.stringify(sibling)}. Reversing one leg alone dismantles the both-or-neither ` +
+      "promise the pair exists for: a member who paid for a swap would keep nothing. " +
+      "Reverse both legs in one paired post"
+    );
+  }
+
+  return null;
 }
 
 /**
@@ -670,6 +994,13 @@ export async function postTransferOn(
   // The veto, under the lock the accounts are already holding.
   if (guard) {
     const refusal = await guard(conn);
+    if (refusal) return { ok: false, duplicate: false, toBalance: 0, error: refusal };
+  }
+
+  // The law, under the same lock, and NOT optional the way the veto above is.
+  // A single leg mirrors nothing that has a sibling: that is question 5.
+  if (input.source === "reversal") {
+    const refusal = await clawbackRefusal(conn, input, tokenType, amount, null);
     if (refusal) return { ok: false, duplicate: false, toBalance: 0, error: refusal };
   }
 
@@ -955,6 +1286,27 @@ async function postTransferPairOnce(
       }
     }
 
+    /*
+     * The clawback law, on whichever legs are mirrors, under the same lock.
+     *
+     * THIS IS THE ONLY PLACE QUESTION 5 CAN BE ANSWERED YES. A pair leg's
+     * mirror is legal exactly when the other leg's mirror is written in the
+     * same transaction, so each leg is told the ORIGINAL its neighbour is
+     * undoing, and the law compares that to the sibling it derives from the
+     * ledger. Two mirrors of two unrelated single postings are still fine:
+     * neither has a sibling, so neither asks the question.
+     */
+    for (let i = 0; i < 2; i++) {
+      if (legs[i].source !== "reversal") continue;
+      const other = legs[1 - i];
+      const neighbour = other.source === "reversal" ? originalKeyOf(other.idempotencyKey) : null;
+      const refusal = await clawbackRefusal(conn, legs[i], meta[i].tokenType, meta[i].amount, neighbour);
+      if (refusal) {
+        await conn.rollback();
+        return fail(refusal);
+      }
+    }
+
     try {
       for (let i = 0; i < 2; i++) {
         await conn.query(
@@ -1043,6 +1395,90 @@ async function postTransferPairOnce(
   } finally {
     conn.release();
   }
+}
+
+// ── The narrow doors that carry a debt proof ────────────────────────────────
+
+/**
+ * A leg for one of the three operations below, with the two fields the
+ * OPERATION decides removed from it.
+ *
+ * `source` goes because the whole point is that the caller no longer picks
+ * which debt it is creating: the function name is the choice, and it is made
+ * at the import. `allowNegative` goes because it is not a caller's field any
+ * more - there is no exported value that could be put in it.
+ */
+export type DebtLegInput = Omit<TransferInput, "source" | "allowNegative">;
+
+/**
+ * Burn one stay night inside the grace window, which may leave the member
+ * owing (`server/lib/stays.ts` holds the grace floor, and checks it BEFORE
+ * this posts: how far a member may go is a village dial, and the ledger does
+ * not know about nights).
+ */
+export async function postGraceNightBurn(pool: Pool, input: DebtLegInput): Promise<TransferResult> {
+  return postTransfer(pool, { ...input, source: "stay_night", allowNegative: GRACE_NIGHT_DEBT });
+}
+
+/**
+ * The mechanical leg after a bank has taken money back - a refund or a
+ * dispute - which may leave the member owing tokens they already spent.
+ *
+ * WHAT THIS DOES NOT CLOSE, said plainly, because the paragraph above the
+ * proofs says the opposite about the clawback door and the difference
+ * matters. A module that imports THIS can still create `payment_reversal`
+ * debt of any size, because the ledger cannot check a chargeback: there is no
+ * row in this database that a refund is derived from, the way a clawback is
+ * derived from the posting it mirrors. What the narrowing buys is that the
+ * capability is no longer a value anybody can hold and spend on anything: the
+ * source is pinned, the operation is named for what it is, and the whole set
+ * of modules that can create this debt is the import graph of this function.
+ */
+export async function postPaymentReversalLeg(pool: Pool, input: DebtLegInput): Promise<TransferResult> {
+  return postTransfer(pool, { ...input, source: "payment_reversal", allowNegative: PAYMENT_REVERSAL_DEBT });
+}
+
+/**
+ * The mirror that undoes one posting, against value the member may already
+ * have spent onward.
+ *
+ * This is the door `reverse()` uses, and holding it buys nothing on its own:
+ * {@link clawbackRefusal} derives everything about the row from the original
+ * this key names, inside the transaction. A caller who calls this with an
+ * invented shape gets the same refusal a caller who called `postTransfer`
+ * directly would get, which is the point of putting the law in the ledger
+ * rather than in front of it.
+ */
+export async function postClawbackMirror(pool: Pool, input: DebtLegInput): Promise<TransferResult> {
+  return postTransfer(pool, { ...input, source: "reversal", allowNegative: CLAWBACK_DEBT });
+}
+
+/**
+ * BOTH mirrors of an atomic pair, in one transaction, or neither.
+ *
+ * No debt proof, and that is not an oversight: `postTransferPair` refuses
+ * `allowNegative` outright, because a swap may never create debt and undoing
+ * a swap must not either. A member who has already spent what a swap gave
+ * them cannot have it undone behind their back; the whole pair refuses and a
+ * person settles it. That refusal is the honest one here, unlike a single
+ * clawback, where the negative IS the truth.
+ *
+ * It exists as its own function anyway so the pair case has one door too, and
+ * so `source` is pinned in the same place for both halves of the law.
+ */
+export async function postClawbackMirrorPair(
+  pool: Pool,
+  legs: [DebtLegInput, DebtLegInput],
+  guard?: PairGuard,
+): Promise<PairResult> {
+  return postTransferPair(
+    pool,
+    [
+      { ...legs[0], source: "reversal" },
+      { ...legs[1], source: "reversal" },
+    ],
+    guard,
+  );
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
@@ -1267,15 +1703,29 @@ export async function checkLedgerInvariants(pool: Pool): Promise<InvariantReport
    * exemption the ledger never granted. Byte equality here is the same
    * equality `allowsNegative` applies on the write side.
    */
+  /*
+   * THE EMPTY LIST IS A SQL SYNTAX ERROR, so it is made unreachable twice.
+   *
+   * `IN (?)` with an empty array expands to `IN ()`, which MySQL refuses to
+   * parse, and this check then THREW where it was supposed to report. A
+   * closing proof reached that state by replacing the keystone set's
+   * prototype, which made `Array.from` return nothing; `frozenSet` now traps
+   * `setPrototypeOf`, so the set cannot be emptied at runtime at all. This
+   * is the second lock: a list of N placeholders when there are N sources,
+   * and the literal `NULL` when there are none, which is valid SQL that
+   * matches nothing and reports every negative balance as unlawful. Failing
+   * loud about every member beats failing silent about the check itself.
+   */
   const allowNeg = Array.from(ALLOW_NEGATIVE_SOURCES);
+  const allowNegList = allowNeg.length > 0 ? allowNeg.map(() => "?").join(",") : "NULL";
   const [negatives] = await pool.query<RowDataPacket[]>(
     "SELECT tb.account_id, tb.token_type, tb.balance, COALESCE(d.lawful, 0) AS lawful FROM token_balances tb " +
       "JOIN ledger_accounts a ON a.id = tb.account_id " +
       "LEFT JOIN (SELECT from_account, token_type, SUM(amount) AS lawful FROM token_ledger " +
-      "WHERE CAST(source AS BINARY) IN (?) GROUP BY from_account, token_type) d " +
+      `WHERE CAST(source AS BINARY) IN (${allowNegList}) GROUP BY from_account, token_type) d ` +
       "ON d.from_account = tb.account_id AND d.token_type = tb.token_type " +
       "WHERE a.faucet = 0 AND tb.balance < 0 AND tb.balance < -COALESCE(d.lawful, 0)",
-    [allowNeg],
+    allowNeg,
   );
   for (const r of negatives) {
     // The bound, said in the sentence: how far this account was allowed to go

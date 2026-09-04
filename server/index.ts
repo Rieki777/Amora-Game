@@ -300,7 +300,7 @@ import {
   tokenNameClash, slugFreezeRefusal,
   RECOGNITION_FAUCET,
   balanceOf,
-  balancesFor, PLATFORM_TOKEN, PAYMENT_REVERSAL_DEBT,
+  balancesFor, PLATFORM_TOKEN, postPaymentReversalLeg,
   checkLedgerInvariants,
   CYCLE_POOL_FAUCET,
   entriesForMember,
@@ -6502,13 +6502,12 @@ async function startServer() {
       // MECHANICAL: claw back exactly what that period granted, negative
       // balances included — the same posture as stays. Humans told after.
       if (wasDelivered && row.token_slug && row.token_amount && row.user_id) {
-        const claw = await postTransfer(pool, {
+        const claw = await postPaymentReversalLeg(pool, {
           from: memberAccount(String(row.user_id)), to: TREASURY,
           tokenType: String(row.token_slug), amount: toLedgerUnits(String(row.token_slug), Number(row.token_amount)),
-          source: "payment_reversal", sourceRef: purchaseId,
+          sourceRef: purchaseId,
           description: `Reversal: ${row.product_name} (${periodKey})`,
           idempotencyKey: `pp:${purchaseId}:reversal:${periodKey}`,
-          allowNegative: PAYMENT_REVERSAL_DEBT,
         });
         // Checked, like stays and exchange do. Reporting a clawback that
         // never posted is worse than failing: the humans stand down.
@@ -6591,16 +6590,14 @@ async function startServer() {
         );
         return;
       }
-      const claw = await postTransfer(pool, {
+      const claw = await postPaymentReversalLeg(pool, {
         from: memberAccount(String(p.user_id)),
         to: MINT_FAUCET,
         tokenType: STAY_CREDIT,
         amount: Number(p.credits_granted),
-        source: "payment_reversal",
         sourceRef: orderId,
         description: refund ? "Refund: credits reversed" : "Dispute: credits reversed",
         idempotencyKey: `ord:${orderId}:reversal-leg1`,
-        allowNegative: PAYMENT_REVERSAL_DEBT,
       });
       if (!claw.ok) throw new Error(claw.error ?? "reversal leg failed");
       await pool.query("UPDATE stay_purchases SET status = ? WHERE id = ?", [refund ? "refunded" : "disputed", orderId]);
@@ -6655,16 +6652,14 @@ async function startServer() {
         );
         return;
       }
-      const claw = await postTransfer(pool, {
+      const claw = await postPaymentReversalLeg(pool, {
         from: memberAccount(String(order.user_id)),
         to: TREASURY,
         tokenType: String(order.token_slug),
         amount: toLedgerUnits(String(order.token_slug), Number(order.quantity)),
-        source: "payment_reversal",
         sourceRef: orderId,
         description: refund ? "Refund: tokens returned to stock" : "Dispute: tokens returned to stock",
         idempotencyKey: `ord:${orderId}:reversal-leg1`,
-        allowNegative: PAYMENT_REVERSAL_DEBT,
       });
       if (!claw.ok) throw new Error(claw.error ?? "reversal leg failed");
       await pool.query("UPDATE exchange_orders SET status = ? WHERE id = ? AND kind = 'fiat_purchase'", [refund ? "refunded" : "disputed", orderId]);

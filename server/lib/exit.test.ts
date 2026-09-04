@@ -48,10 +48,10 @@ import { ensureVoiceToken, fromLedgerUnits, toLedgerUnits, VILLAGE_VOICE } from 
 import {
   balanceOf,
   checkLedgerInvariants,
-  GRACE_NIGHT_DEBT,
   loadTokenRegistry,
   memberAccount,
   MINT_FAUCET,
+  postGraceNightBurn,
   postTransfer,
   registerToken,
 } from "./ledger";
@@ -122,13 +122,13 @@ describe.skipIf(!configured)("what a departing member's balance is worth, and in
    * boot invariant would then report as drift instead of as a debt.
    */
   const owe = async (userId: string, token: string, units: number): Promise<void> => {
-    const r = await postTransfer(pool, {
+    // The debt proof is module-private now: `postGraceNightBurn` is the one
+    // door that carries it, and it pins the source it licenses.
+    const r = await postGraceNightBurn(pool, {
       from: memberAccount(userId),
       to: "sys:treasury",
       tokenType: token,
       amount: units,
-      source: "stay_night",
-      allowNegative: GRACE_NIGHT_DEBT,
       idempotencyKey: `exit-test-debt:${userId}:${token}:${++seq}`,
     });
     if (!r.ok) throw new Error(`could not seed a debt in ${token}: ${r.error}`);

@@ -31,10 +31,10 @@ import {
   balanceOf,
   checkLedgerInvariants,
   CYCLE_POOL_FAUCET,
-  GRACE_NIGHT_DEBT,
   loadTokenRegistry,
   memberAccount,
   MINT_FAUCET,
+  postGraceNightBurn,
   postTransfer,
   registerToken,
   TREASURY,
@@ -111,15 +111,13 @@ describe.skipIf(!configured)("a departure on dials a village actually moved", ()
    * ledger disagrees with, which the boot invariant reports as drift.
    */
   const owe = async (userId: string, token: string, units: number): Promise<void> => {
-    const r = await postTransfer(pool, {
+    // The ledger ISSUES the debt proof and no longer exports it, so this is
+    // the one door that carries it and the source is pinned inside.
+    const r = await postGraceNightBurn(pool, {
       from: memberAccount(userId),
       to: TREASURY,
       tokenType: token,
       amount: units,
-      source: "stay_night",
-      // The ledger ISSUES this; a caller cannot forge one, and its reason has
-      // to equal the source it is spent on.
-      allowNegative: GRACE_NIGHT_DEBT,
       idempotencyKey: `exit-split-debt:${userId}:${token}:${++seq}`,
     });
     if (!r.ok) throw new Error(`could not seed a debt in ${token}: ${r.error}`);
