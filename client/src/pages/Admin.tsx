@@ -16,6 +16,7 @@ import {
 import { resolutionLine } from "@/lib/reportFeedback";
 import { ALL_CAPABILITIES, isDeniable } from "@shared/capabilities";
 import BreathingLoader from "@/components/natural/BreathingLoader";
+import { SeatSomebody } from "@/components/power/SeatSomebody";
 import Celebration from "@/components/natural/Celebration";
 import { useMomentWindow } from "@/components/natural/moments";
 import { playMoment } from "@/lib/sound";
@@ -4972,7 +4973,6 @@ function OrgChartTab({ password }: { password: string }) {
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [circleDraft, setCircleDraft] = useState<Record<string, any>>({});
   const [newSeat, setNewSeat] = useState<Record<string, string>>({});
-  const [adding, setAdding] = useState<Record<string, string>>({});
   // Opened per seat, because the point of a journal is reading one node's
   // history before you change it, not scrolling a feed of everything.
   const [journal, setJournal] = useState<Record<string, any[] | "loading">>({});
@@ -5301,21 +5301,13 @@ function OrgChartTab({ password }: { password: string }) {
                       </div>
 
                       <div className="mt-2 flex flex-wrap gap-2 items-end">
-                        <label className="text-xs text-gray-500">Seat someone
-                          <select className={`${inputCls} mt-1`} value={adding[r.id] ?? ""}
-                            onChange={(e) => setAdding({ ...adding, [r.id]: e.target.value })}>
-                            <option value="">Choose a member…</option>
-                            {members.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                          </select>
-                        </label>
-                        <button
-                          className="text-sm bg-teal-deep text-white rounded-lg px-3 py-2 font-medium disabled:opacity-40"
-                          disabled={!adding[r.id]}
-                          onClick={async () => {
-                            const ok = await call(`/admin/org/roles/${r.id}/holders`, { userId: adding[r.id] });
-                            if (ok) { toast.success("Seated"); setAdding({ ...adding, [r.id]: "" }); void load(); }
-                          }}
-                        >Seat</button>
+                        <SeatSomebody
+                          roleId={r.id}
+                          members={members}
+                          call={call}
+                          onSeated={(what) => { toast.success(what); void load(); }}
+                          onFailed={(why) => toast.error(why)}
+                        />
                         <button
                           onClick={() => void openJournal(r.id)}
                           className="text-sm text-gray-500 hover:text-gray-800 px-2 py-2"
