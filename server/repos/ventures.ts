@@ -2,11 +2,15 @@
  * The thing a prosperity creator creates (0146), and the dates that let a
  * ladder position be derived from it.
  *
- * ── PLATFORM, NOT A MODULE ───────────────────────────────────────────────
+ * ── PLATFORM, NOT A MODULE. SETTLED, NOT OBSERVED. ───────────────────────
  * The profile copy this replaces promised that venture details "arrive with
- * the prosperity module", and there is no prosperity module: `shared/modules.ts`
- * is THE registry and none of its ids is this one. The full argument for
- * keeping it platform lives in the head of drizzle/0146. The short form is
+ * the prosperity module". There is no prosperity module, `shared/modules.ts`
+ * is THE registry and none of its ids is this one, and Rye ruled on
+ * 2026-09-04 that there will not be one. So this is a decision to build
+ * against and not a gap somebody should feel invited to fill: a later session
+ * finding "no prosperity module" in the registry is looking at the intended
+ * state. The full argument for keeping it platform lives in the head of
+ * drizzle/0146. The short form is
  * that all four paths are identity in `GAME_CONFIG.paths`, a non-core module
  * ships OFF so one path would go missing on a profile that promises four, and
  * `profiles` is core and cannot be disabled, which makes it the right owner.
