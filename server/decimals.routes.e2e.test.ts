@@ -1,11 +1,19 @@
 /**
  * FOUR DECIMALS, DRIVEN THROUGH THE ROUTES (sweep lane A).
  *
- * The founder ruled that every token moves to four decimals. `postTransfer`
- * takes MINOR units, six of the seven tokens sit at `decimals: 0` today, and
- * so every route that hands it a human number is correct BY ACCIDENT and
- * would pay one ten-thousandth of what it says the moment the registry flips.
- * `server/index.ts` holds twelve of those callers plus the readouts that
+ * WRITTEN UNDER A RULING THAT WAS REVERSED, AND STILL EARNING ITS KEEP.
+ *
+ * The founder ruled every token to four decimals, this suite was built to prove
+ * the routes survived it, and he then ruled the other way: currency-like tokens
+ * at two, everything else whole, Voice down from three to two. So the sentence
+ * that used to open this file was true when written and false by the time
+ * anybody read it again, which is the defect class this build kept meeting.
+ *
+ * The suite outlived the ruling because what it actually proves is scale
+ * INDEPENDENCE. `postTransfer` takes MINOR units, and a route handing it a human
+ * number is correct by accident wherever the scale is 1, so it would pay a
+ * hundredth of what it says at two decimals as surely as a ten-thousandth at
+ * four. `server/index.ts` holds twelve of those callers plus the readouts that
  * carry a ledger number back to a person.
  *
  * WHY THIS FILE EXISTS RATHER THAN AN ASSERTION IN loop.e2e. At `decimals: 0`
