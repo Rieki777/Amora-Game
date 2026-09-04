@@ -14053,8 +14053,11 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
     // the two cannot drift.
     const rows = ALL_CAPABILITIES.map((cap) => {
       const decision = capabilityDecision(cap, ctx);
+      // The rung the GATE compared against, `capabilityDecision`'s own
+      // expression: a village that moved a rung was told the platform's.
+      const rung = ctx.stageUnlockOverrides?.[cap] ?? STAGE_UNLOCKS[cap];
       const source =
-        decision.source === "stage" ? `stage (${STAGE_UNLOCKS[cap] ?? "?"})` : decision.source;
+        decision.source === "stage" ? `stage (${rung ?? "?"})` : decision.source;
       return {
         capability: cap,
         held: decision.allowed,

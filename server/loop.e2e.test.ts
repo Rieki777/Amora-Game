@@ -5589,6 +5589,58 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
   });
 
   /*
+   * THE ADMIN EXPLAINER NAMES THE RUNG THIS VILLAGE SET.
+   *
+   * `GET /api/admin/members/:id/capabilities` is where an admin goes to ask
+   * why somebody can or cannot do a thing, and it renders the deciding step
+   * as `stage (<rung>)`. It read `STAGE_UNLOCKS[cap]` raw while the gate it
+   * reports on read `ctx.stageUnlockOverrides?.[cap] ?? STAGE_UNLOCKS[cap]`,
+   * so on a village that had moved a rung the explainer named a rung the gate
+   * never compared against: a wrong figure styled like a right one, inside the
+   * one function whose header promises it READS the decision instead of
+   * guessing at it. The member-side catalogue above carried the same defect
+   * and was fixed first; this is its admin-side twin.
+   *
+   * The dial is MOVED here on purpose. An assertion against the platform
+   * default passes with the raw read still in place and proves nothing.
+   */
+  it("the admin explainer names the rung this village set, not the platform's", async () => {
+    const vouch = async () => {
+      const why = await api("GET", `/api/admin/members/${doerId}/capabilities`, undefined, founderToken);
+      expect(why.status).toBe(200);
+      const row = (why.json.capabilities ?? []).find((r: any) => r.capability === "member.vouch");
+      expect(row, "member.vouch must appear in the explainer").toBeTruthy();
+      return { held: row.held, source: String(row.source) };
+    };
+    const rung = async (value: string) => {
+      const set = await api("PUT", "/api/admin/variables/progression.unlock.member.vouch",
+        { value }, founderToken);
+      expect(set.status, JSON.stringify(set.json)).toBe(200);
+    };
+
+    // THE PREMISE, MEASURED AND NEVER ASSUMED. No seeded role and no badge in
+    // this run carries member.vouch, so the doer reaches it by climbing and by
+    // nothing else, which is what makes `stage` the deciding step at all.
+    expect(await vouch()).toEqual({ held: true, source: "stage (contributor)" });
+
+    // Move the rung to one the doer still clears. The ANSWER is unchanged and
+    // only the named rung moves, which is precisely the half a raw read of the
+    // platform table gets wrong and no default-valued assertion can see.
+    await rung("co-creator");
+    expect(await vouch()).toEqual({ held: true, source: "stage (co-creator)" });
+
+    // And the other way, so the row is the gate's own answer and never a label
+    // sitting beside it: a rung above the doer closes the door outright.
+    await rung("guide");
+    expect(await vouch()).toEqual({ held: false, source: "not granted" });
+
+    // Back to the platform default. There is no DELETE for a variable, so a
+    // reset is the default written back by hand.
+    await rung("contributor");
+    expect(await vouch()).toEqual({ held: true, source: "stage (contributor)" });
+  });
+
+  /*
    * LANE Q: only the decide route may write the decided shape.
    *
    * Client `meta` was spread AFTER the `{status: "open"}` default on create,
