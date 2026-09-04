@@ -156,6 +156,14 @@ describe.skipIf(!configured)("the economy snapshot of a live village", () => {
     }
   }
 
+  it("answers exactly the four economy fields, and nothing beside them", async () => {
+    // The runtime half of the same claim the source walk makes. The composing
+    // reader spreads this straight into a `VillageSnapshot`, so a fifth key
+    // here lands on the snapshot it asserts the shape of.
+    const snapshot = await read();
+    expect(Object.keys(snapshot).sort()).toEqual(["balances", "mintRules", "tokens", "variables"]);
+  });
+
   it("carries every token in the registry, with the decimals the registry holds", async () => {
     const snapshot = await read();
     const places = decimalsOf(snapshot.tokens);
@@ -414,6 +422,14 @@ describe.skipIf(!configured)("a rule written below its token's own resolution", 
         "VALUES (?,?,?,?,?,?,?,?)",
       ["rd-fine-grain", VILLAGE, "gratitude.given", "fine-grain", "0.0004", "0.0004", "receiver", 1],
     );
+    // A figure the column holds exactly and a double does not. Three places
+    // of village-voice against a four-place column is the only shape in this
+    // build where the two arithmetics can disagree, and this is that shape.
+    await pool.query(
+      "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
+        "VALUES (?,?,?,?,?,?,?,?)",
+      ["rd-half-up", VILLAGE, "gratitude.given", VILLAGE_VOICE, "0.5005", "9", "receiver", 1],
+    );
     // No amount at all: the amount rides on whatever the source posted.
     await pool.query(
       "INSERT INTO `mint_rules` (`id`, `village_id`, `trigger`, `token_slug`, `amount`, `ceiling`, `recipient`, `enabled`) " +
@@ -453,6 +469,24 @@ describe.skipIf(!configured)("a rule written below its token's own resolution", 
     // most: a cap below the token's resolution reads as refuse-everything.
     expect(rule.ceiling).toBe(BigInt(4));
     expect(rule.ceilingRaw).toBe("0.0004");
+  });
+
+  it("scales on the column's text, where a double would land a unit short", async () => {
+    const rule = ruleById(await rules(), "rd-half-up");
+    // 0.5005 at three places is 500.5 minor units, and half goes up, so 501.
+    expect(rule.amount).toBe(BigInt(501));
+    expect(rule.amountRaw).toBe("0.5005");
+    // The same figure through a double, which is what this reader refuses to
+    // do: 0.5005 is not representable, 0.5005 * 1000 is 500.49999999999994,
+    // and the nearest whole number to that is 500. One thousandth of
+    // somebody's Voice, lost to IEEE, on every occurrence this rule fires.
+    //
+    // THIS LINE IS THE POINT OF THE TEST. The two amounts either side of it
+    // were both chosen so the two arithmetics AGREE on them, which means
+    // neither of them can tell a text scaling from a float one. This figure
+    // was found by scanning every four-place decimal against three places
+    // until the two answers parted, and it is the smallest one that does.
+    expect(Math.round(Number(rule.amountRaw) * 1000)).toBe(500);
   });
 
   it("reads a NULL amount as null, with an empty string beside it", async () => {
@@ -716,8 +750,14 @@ describe("the reader cannot write, and the shape of that claim", () => {
   it("answers exactly the four economy fields of the snapshot", () => {
     // The composing reader asserts the key set, so a fifth key here is a red
     // test over there. Provenance is a separate export for that reason.
+    //
+    // ANCHORED AT BOTH ENDS. The first version of this line matched only the
+    // `Pick<...>`, and an intersection welded onto the end of it still
+    // matched: the type gained a fifth key and this test stayed green. The
+    // `;` and the end-of-line are what make it a statement about the whole
+    // declaration.
     expect(
-      /export type EconomySnapshotFields = Pick<VillageSnapshot, "tokens" \| "balances" \| "mintRules" \| "variables">/.test(
+      /^export type EconomySnapshotFields = Pick<VillageSnapshot, "tokens" \| "balances" \| "mintRules" \| "variables">;$/m.test(
         SOURCE,
       ),
     ).toBe(true);
