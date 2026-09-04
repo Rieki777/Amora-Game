@@ -52,6 +52,7 @@ import { register as registerPlayersRoutes } from "./routes/players";
 import { register as registerOrgSeatingRoutes } from "./routes/orgSeatings";
 import { register as registerOrgRoutes } from "./routes/org";
 import { register as registerReviewRoutes } from "./routes/review";
+import { register as registerHoldersRoutes } from "./routes/holders";
 import { register as registerGovernanceWeightRoutes } from "./routes/governanceWeights";
 import { register as registerGovernanceWizardRoutes } from "./routes/governanceWizard";
 import { OG_HEIGHT, OG_WIDTH, register as registerQuestRoutes } from "./routes/quests";
@@ -27541,6 +27542,7 @@ ${inner}
   registerReviewRoutes(app, {
     isAdmin, authedUser, guardCapability, mayAct, adminActor, getPool, members, questsRepo,
   });
+  registerHoldersRoutes(app, { guardCapability, getPool });
 
   // ── Season patterns (0050) ───────────────────────────────────────────────
   //
