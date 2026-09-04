@@ -2756,6 +2756,33 @@ the script for `ci.yml`'s contents,** and when you quote a number, say which nou
 correction is itself the worked example: the paragraph above was published as "run the script and
 you are current", which is the same stale-list defect it was written to prevent, one level up.
 
+**And the CAREFUL method is wrong too, which is the part that will catch a lane who already knows
+better.** `CLAUDE.md` teaches `grep -hoE "node scripts/check-[a-z0-9-]+\.mjs" .github/workflows/*.yml
+| sort -u`. That enumerates the whole directory rather than one file, it is what a diligent lane
+reaches for, and on 2026-09-04 it returned **26** against the script's **35**. The nine it cannot see
+are the gates not NAMED `check-*`, and the five that are plain commands are the ones that bite:
+
+    npx tsc -p tsconfig.tests.json --noEmit
+    node scripts/run-self-tests.mjs
+    node scripts/fork-env-audit.mjs
+    node scripts/generate-token-doc.test.mjs
+    node scripts/dependency-audit.mjs
+
+A regex over a workflow is a guess about a shape. The script parses the file. The danger is not that
+the grep is lazy, it is that it FEELS rigorous: it reads every workflow, it is the method the house
+document prescribes, and it is still short by nine.
+
+The first of those five is the one that would have bitten hardest here. `pnpm check` does not
+typecheck test files, which is precisely why the tests typecheck is its own gate, and this lane had
+added six test files. Run it COLD, deleting the tsbuildinfo first: the incremental cache lies, and a
+warm green is a green about work it never re-checked. One nuance worth having, verified by reading
+`tsconfig.json` rather than assuming: the exclude is `**/*.test.ts`, and that pattern does NOT match
+`.tsx`, so `pnpm check` DOES typecheck a `.test.tsx`. Half of a lane's test files were never
+invisible to it, which makes the gap narrower than it sounds and no less real.
+
+Written by the Admin lane after landing PR #165, having run 26 of the 35 and believed itself
+thorough.
+
 - Lanes run **only their touched suites plus the guards**.
 - The merge agent runs the touched suites and the guards, pushes, and **READS THE RUN**.
 - **At most one full local suite per LANDING**, never per merge step.
