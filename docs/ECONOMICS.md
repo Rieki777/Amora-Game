@@ -1453,7 +1453,7 @@ change to the governance side's own files and its own decision. It is said out
 loud in the function's docstring so the day that channel lands, this is the case
 to move onto it.
 
-### 10.31 The dry-run model rounds its ceiling the same way, and is not fixed here.
+### 10.31 The dry-run model rounded its ceiling the same way. Fixed on `wt/econ`, measured.
 
 `shared/dryRun/economicsModel.ts` clamps in minor units already and its
 `ceilingOutcomeMinor` docstring states the monotonicity argument correctly, so
@@ -1520,6 +1520,22 @@ rules have not arrived.
 wallet used to print, three lines under its capability check. It sits inside a ledger-capability
 call site another lane holds this wave, so it is named here rather than fixed quietly: whoever
 holds that region replaces it with the same rung the wallet now reads.
+
+**CLOSED after the lane that found it reported.** `WrittenAmount` now carries a
+`floored` reading beside its rounded one, and the model's two ceiling decisions
+take it: the clamp in `ceilingOutcomeMinor`, and the `econ_ceiling_rounds_away`
+warning that exists for exactly this case. An amount rounds, because the nearest
+payable figure is what a payment means; a bound may only ever fall.
+
+**One existing test had to be rewritten, and the old assertion WAS the defect
+written down.** It read: rounding half up means 0.0006 on a three-place token
+becomes one thousandth and the cap is real, nothing is flagged because nothing is
+wrong. It asserted a payment of 1 and asserted that `econ_ceiling_rounds_away`
+must stay silent, which required the flag written for this exact input to say
+nothing on it. The case now asserts that the cap arrives as nothing, that the rule
+pays nobody, and that the warning names the smallest cap that would work. A second
+case at 0.0010 holds the other side of the boundary, so the rule reads as a scale
+rule and not as a refusal of small caps.
 
 ---
 

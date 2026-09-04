@@ -238,6 +238,7 @@ export function writtenCeiling(rule: MintRuleSpec, decimals: number): WrittenAmo
     raw: humanUnits(minor, decimals),
     exact: true,
     rounded: minor,
+    floored: minor,
     positive: minor > BigInt(0),
   };
 }
@@ -294,7 +295,13 @@ export function ceilingOutcomeMinor(
     };
   }
   if (asked <= BigInt(0)) return { paid: BigInt(0), refusal: null };
-  return { paid: asked < rule.ceiling ? asked : rule.ceiling, refusal: null };
+  // The FLOORED reading, not `rule.ceiling`, and not the rounded one. The reader
+  // scales the column the way a payment scales, which rounds half up, so a cap of
+  // 0.5 on a whole-unit token arrived here as 1 and the model previewed twice the
+  // cap the village wrote. The engine floors a bound in `ceilingAtScale`; this is
+  // the same decision, so the preview and the run answer alike.
+  const cap = written.floored;
+  return { paid: asked < cap ? asked : cap, refusal: null };
 }
 
 /**
@@ -616,6 +623,16 @@ export interface WrittenAmount {
   exact: boolean;
   /** The written figure in minor units, rounded the way `toLedgerUnits` rounds. */
   rounded: bigint;
+  /**
+   * The written figure in minor units, ROUNDED TOWARD ZERO.
+   *
+   * For a BOUND rather than a payment. An amount rounds, because the nearest
+   * payable figure is what a payment means; a bound may only ever fall, because
+   * a bound rounded up is a bound nobody voted for. The engine settled this in
+   * `ceilingAtScale` (server/lib/economy.ts) and the model has to answer the
+   * same way or the preview promises what the run refuses.
+   */
+  floored: bigint;
   /** True when the written figure is above zero. */
   positive: boolean;
 }
@@ -643,14 +660,18 @@ export function writtenAmount(raw: string, decimals: number): WrittenAmount | nu
   const places = Math.max(0, Math.trunc(decimals));
   const kept = (frac + "0000000000000000000000").slice(0, places);
   const extra = frac.slice(places);
-  let scaled = BigInt(whole === "" ? "0" : whole) * powTen(places) + BigInt(kept === "" ? "0" : kept);
+  const truncated = BigInt(whole === "" ? "0" : whole) * powTen(places) + BigInt(kept === "" ? "0" : kept);
   const exact = /^0*$/.test(extra);
+  let scaled = truncated;
   if (!exact && extra.charAt(0) >= "5") scaled += BigInt(1);
   const positive = !negative && /[1-9]/.test(body);
   return {
     raw: text,
     exact,
     rounded: negative ? -scaled : scaled,
+    // Toward zero on both sides of zero, which is what the string already gives:
+    // the digits past the scale are dropped and the sign is applied after.
+    floored: negative ? -truncated : truncated,
     positive,
   };
 }
@@ -1517,7 +1538,10 @@ function flagsOf(state: SimState, cycle: number, fallback: EconomicsAssumptions)
         });
         continue;
       }
-      if (cap.rounded <= BigInt(0)) {
+      // Floored, for the same reason the clamp is: a cap the token cannot hold
+      // arrives as nothing, and reading it as one would warn about nothing while
+      // the engine refuses.
+      if (cap.floored <= BigInt(0)) {
         out.push({
           code: "econ_ceiling_rounds_away",
           severity: "warning",

@@ -30,6 +30,7 @@ import {
   ECONOMICS_KEY,
   assertConserved,
   ceilingOutcome,
+  ceilingOutcomeMinor,
   economicsModel,
   negativeKey,
   readEconomicsMemo,
@@ -935,6 +936,44 @@ describe("economics model, flags", () => {
     expect(writtenAmount("25.0000", 0)!.rounded).toBe(BigInt(25));
     expect(writtenAmount("", 3)).toBeNull();
 
+    /*
+     * A BOUND FALLS. An amount rounds, because the nearest payable figure is
+     * what a payment means; a cap rounded UP is a cap nobody voted for.
+     *
+     * 10.31: the model read a cap through the same rounding a payment uses, so
+     * a village writing 0.5 on a whole-unit token had it read as 1 and the
+     * preview promised twice the cap. The engine floors in `ceilingAtScale`;
+     * these three rows are the model answering the same way. Each goes red
+     * against the rounded reading with the number the adversary measured.
+     */
+    expect(writtenAmount("0.5", 0)!.floored).toBe(BigInt(0));
+    expect(writtenAmount("0.5", 0)!.rounded).toBe(BigInt(1));
+    expect(writtenAmount("25.5", 0)!.floored).toBe(BigInt(25));
+    expect(writtenAmount("0.0005", 3)!.floored).toBe(BigInt(0));
+    expect(writtenAmount("0.29", 2)!.floored).toBe(BigInt(29));
+
+    const capped = (ceilingRaw: string, ceiling: bigint, decimals: number) =>
+      ceilingOutcomeMinor(
+        {
+          id: "m-floor",
+          trigger: "quest.completed",
+          tokenSlug: "credits",
+          amount: null,
+          amountRaw: "",
+          ceiling,
+          ceilingRaw,
+          recipient: "claimant",
+          enabled: true,
+        } as MintRuleSpec,
+        BigInt(9),
+        decimals,
+      );
+    // 0.6 asked against a 0.5 cap on a whole-unit token: the engine posts 0 and
+    // refuses. Read as rounded, the model paid 1, which is twice the cap.
+    expect(capped("0.5", BigInt(1), 0).paid).toBe(BigInt(0));
+    expect(capped("25.5", BigInt(26), 0).paid).toBe(BigInt(9));
+    expect(capped("0.0005", BigInt(1), 3).paid).toBe(BigInt(0));
+
     const snap = snapshot("lunar");
     snap.mintRules = snap.mintRules.concat([
       {
@@ -1124,16 +1163,53 @@ describe("economics model, flags", () => {
     expect(typo.stepped.balances["mem:u1"]["village-voice"]).toBe(BigInt(10000));
   });
 
-  it("keeps a cap that survives rounding, down to the smallest unit the token holds", () => {
+  it("refuses a cap the token cannot hold, and says so, where it used to round it up into a payment", () => {
     /*
-     * The boundary of the branch above. `toLedgerUnits` rounds half UP, so on
-     * village-voice at three places "0.0006" becomes 1 thousandth and the cap
-     * is real: `min(10.0000, 0.0006)` is 0.0006, which posts as 1. Nothing is
-     * flagged, because nothing is wrong.
+     * REWRITTEN AT 10.31, AND THE OLD ASSERTION WAS THE DEFECT WRITTEN DOWN.
+     *
+     * This case used to read: "`toLedgerUnits` rounds half UP, so on
+     * village-voice at three places 0.0006 becomes 1 thousandth and the cap is
+     * real. Nothing is flagged, because nothing is wrong." It asserted a
+     * payment of 1 and asserted that `econ_ceiling_rounds_away` must NOT fire.
+     *
+     * Something was wrong. 0.0006 is BELOW the smallest amount a token with
+     * three places can express, and rounding a BOUND up hands the member more
+     * than the village wrote. An amount rounds, because the nearest payable
+     * figure is what a payment means; a bound may only ever fall. The engine
+     * settled this in `ceilingAtScale`, and a preview that answered the old way
+     * would promise a payout the run refuses.
+     *
+     * So the cap arrives as nothing, the rule pays nobody, and the flag that
+     * exists for exactly this case fires and names the smallest cap that would
+     * work. That is the whole point of `econ_ceiling_rounds_away`: the previous
+     * assertion required it to stay silent on the one input it was written for.
      */
     const snap = snapshot("lunar");
     snap.mintRules = snap.mintRules.map((r) =>
       r.id === "rule-quest.completed-village-voice" ? { ...r, ceiling: BigInt(1), ceilingRaw: "0.0006" } : r,
+    );
+    const model = economicsModel(ONE_QUEST);
+    const stepped = model.step(initialState(snap), 1, makeRng(SEED));
+    expect(stepped.balances["mem:u1"]?.["village-voice"] ?? BigInt(0)).toBe(BigInt(0));
+    const flags = model.flags(stepped, 1);
+    const codes = flags.map((f) => f.code);
+    expect(codes).toContain("econ_ceiling_rounds_away");
+    expect(codes).not.toContain("econ_rule_ceiling_zero");
+    // And it names the smallest cap that would actually pay, so the village is
+    // told what to write and not merely that what it wrote is wrong.
+    expect(flags.find((f) => f.code === "econ_ceiling_rounds_away")!.actionable).toContain("0.001");
+  });
+
+  it("keeps a cap that survives the scale, down to the smallest unit the token holds", () => {
+    /*
+     * The boundary on the other side, and the one that proves the rule above is
+     * a scale rule and not a refusal of small caps. "0.0010" IS expressible at
+     * three places, so the cap is real, it clamps the rule's own 10.0000 down to
+     * one thousandth, and nothing about the scale is flagged.
+     */
+    const snap = snapshot("lunar");
+    snap.mintRules = snap.mintRules.map((r) =>
+      r.id === "rule-quest.completed-village-voice" ? { ...r, ceiling: BigInt(1), ceilingRaw: "0.0010" } : r,
     );
     const model = economicsModel(ONE_QUEST);
     const stepped = model.step(initialState(snap), 1, makeRng(SEED));
