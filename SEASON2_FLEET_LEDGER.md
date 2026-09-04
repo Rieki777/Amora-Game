@@ -2637,3 +2637,214 @@ CI had no CI run of its own. Verified by pushing the same SHA to a throwaway
 branch: 43 steps, all success, zero skipped, including Build, Test, Bundle
 budget and Dependency audit. **`origin/main` having a commit is not evidence
 that anything checked it.**
+
+---
+
+## 27 · THE LANDING ORDER — read before you touch a contended resource, write after you claim one (2026-09-04)
+
+The founder asked whether a master coordinator should own merging and full-suite runs. The answer
+was no, and this section is what replaces it. A coordinator session serialises every landing behind
+one context, still has to run the same suites, and adds a third place that can hit a session limit
+mid-merge. **This FILE is the coordinator.** It costs a minute to write and it does not sleep, hit a
+limit, or have to be woken up.
+
+The two real coordination failures of 2026-09-03/04 were both caught by lanes telling each other
+what they were about to touch, not by any gate: two lanes holding migration `0144` at once, and one
+lane's exit test asserting a behaviour another lane had deliberately changed. Both would have been
+caught earlier and cheaper by a written claim.
+
+### 27a — How to edit this section without stealing another lane's work
+
+`ga-map` and the sibling worktrees are shared live by several lanes, and a wholesale write to a
+shared file silently reverts whoever wrote last. So:
+
+1. `git pull --rebase` IMMEDIATELY before you edit. Not five minutes before.
+2. **Append your claim row. Never rewrite a row you did not write, and never regenerate the table.**
+3. Commit this file BY PATH — `git commit SEASON2_FLEET_LEDGER.md` — never `git add .`, which
+   sweeps up whatever a sibling lane has in flight in the same worktree.
+4. Push immediately. A claim that sits unpushed protects nobody; a lane's `git log` cannot see it.
+5. Release your claim by appending a RELEASED row. Do not delete the original.
+
+If a claim conflicts on rebase, that is the system working: two lanes wanted the same thing and now
+you know before you have written code, rather than at the merge.
+
+### 27b — The four contended resources, and the check that actually sees other lanes
+
+**The general rule, which matters more than the list: every gate we have compares YOUR TREE to
+`origin/main`, so every one of them is structurally blind to what another in-flight branch is
+doing.** Neither file is on main, so from either branch the resource reads free. That blind spot is
+shaped exactly like the collision a swarm produces. Claim in this file first; run the gate second.
+
+**1. Migration numbers, `drizzle/*.sql`.** `check-migration-numbers --next` told two different lanes
+0144 on the same day, while the real ceiling was already past 0150, held on unfetched remote heads
+AND as untracked files on sibling worktrees, which no git command reaches at all. Remote heads alone
+are NOT enough. Run both of these, every time:
+
+```
+git log --all --name-only --diff-filter=A --format="" -- 'drizzle/*.sql' | grep -oE '[0-9]{4}' | sort -n | tail
+ls /c/Users/taren/Desktop/Amora/*/drizzle/*.sql | grep -oE '[0-9]{4}_' | sort -n | tail
+```
+
+Run them SEPARATELY: the first walks every ref and takes close to two minutes, and chaining them
+behind it inside one two-minute timeout is how you get a confident empty answer from the second.
+Measured at `20985d0`: refs reach **0154**, disk holds **0155**. Do not copy those figures forward —
+that is exactly the stale next-free number section 3 deliberately refuses to carry. Take a number
+above BOTH scans, claim it below, and assign it at landing.
+
+**2. The six ratchet baselines in `scripts/`** — `server-index-size-baseline.json`,
+`file-lines-baseline.json`, `brand-refs-baseline.json`, `image-budget-baseline.json`,
+`tailwind-gray-baseline.json`, `theme-literals-baseline.json`. Two lanes lowering the same number
+from the same start means the second to land is red on arrival, and it reads exactly like a flake,
+because the PUSH run passes while the PULL_REQUEST run fails on the same sha, since only the second
+builds merged with main. Claim the baseline here before you lower it. On collision, **reset the file
+to main's copy and lower from there**: `--update-baseline` REFUSES, because from your branch the
+correct value is a raise. Never clear a red baseline with `--update-baseline` — the gate is red
+about committed work, not about your change.
+
+**Some of those ratchets are PER FILE, and that is the half that bites an extraction.** Moving code
+out of a file carrying a grandfathered allowance into a file that has none turns settled lines into
+new violations with nobody having written a new one. `check-tailwind-gray` took a lane red on two
+lines it had merely relocated, and `check-file-lines` has the same shape. **Match the destination
+directory's convention rather than moving the baseline.** Every lane extracting from
+`server/index.ts` will meet this, on debt it inherited rather than created.
+
+**And a ratchet script measures the worktree the SCRIPT lives in, not the tree you are standing in.**
+It resolves its root from its own file location. So when you are checking whether a red is inherited,
+run the OTHER tree's copy of the script, not yours pointed at it, or you get a confident green about
+the wrong tree.
+
+**3. `server/index.ts`,** 28k lines, touched by every extraction lane. Land it ALONE, never
+alongside another `server/index.ts` change, and rebase it last. This was already rule 5 of section
+5; it is repeated here because it is also a baseline collision (see 2).
+
+**4. `.github/workflows/ci.yml`,** owned by the safety lane. Other lanes' CI steps queue behind it.
+Ask on the claim board rather than editing it.
+
+### 27c — Claim board (APPEND ONLY — one row per claim, one row per release)
+
+| Date | Lane / session | Resource claimed | Branch | State |
+|---|---|---|---|---|
+| 2026-09-04 | governance (`b7f9ef`) | migration `0144`, `drizzle/0144_the_landing_loop_names_its_own_rows.sql` | `wt/governance-build` | HELD — confirmed mine after the profile lane moved off it |
+| 2026-09-04 | profile lane | migration `0151` | (relayed) | HELD — landed as `3c739ce` |
+| 2026-09-04 | governance (`b7f9ef`) | `docs/GOVERNANCE.md` and `scripts/generate-governance-doc.mjs` | `wt/gb-docs` | HELD — ruling top-up in flight |
+
+### 27d — Verification: CI runs the full suite, lanes run what they touched
+
+**Measured, 2026-09-03/04.** A local full suite is 25 minutes on a quiet machine and 46.6 minutes
+under load, costs an agent's entire context, and three were killed mid-run by session limits in one
+day, each losing about two hours with the result unwritten. CI's `verify` job is 8m24s to 10m24s,
+measured independently by two sessions, on a clean machine with the pinned Node and the pinned MySQL
+8 rather than our local MariaDB, and **it now costs nothing, because the repo is public again**.
+
+We adopted local full suites because CI was dead for seven hours, and it was dead because the repo
+was private with the Actions allowance spent and no payment method on file. That reason is gone. The
+habit outliving its reason is the same defect class as a green whose justification rotted, applied
+to our own process, which is why it is written down here rather than left as a preference.
+
+**Never enumerate the guards by hand. Run `node scripts/module-facts.mjs`,** which reads `ci.yml` and
+prints every gate in the order CI runs them, and is therefore right on the day you run it. A lane
+running eleven gates from memory and calling that green is how a pull request reaches CI red on a
+gate nobody had heard of. Any prompt or handoff in this repository that lists gates by hand is a
+list that goes stale in silence. As of `20985d0` the script prints 35 entries, and the reason to run
+it rather than copy that number is exactly that the number moves.
+
+**But the script reads ONE FILE, and five workflows gate a pull request.** `.github/workflows/`
+holds `ci.yml`, `codeql.yml`, `module-intake.yml`, `module-review-agent.yml` and `release.yml` on
+`pull_request` triggers, plus `db-backup.yml` which is not. So `module-facts.mjs` is authoritative
+about `ci.yml`'s steps and structurally blind to the other four. **Enumerate the DIRECTORY, then run
+the script for `ci.yml`'s contents,** and when you quote a number, say which noun it counts. This
+correction is itself the worked example: the paragraph above was published as "run the script and
+you are current", which is the same stale-list defect it was written to prevent, one level up.
+
+- Lanes run **only their touched suites plus the guards**.
+- The merge agent runs the touched suites and the guards, pushes, and **READS THE RUN**.
+- **At most one full local suite per LANDING**, never per merge step.
+- The one deliberate exception is a **pair-merge scratch**, because two branches merged together
+  have no ref for CI to see. Even there, run only the suites the two branches share.
+
+**Three failure shapes, and only reading the run distinguishes them.**
+
+1. **Zero-step refusal.** The billing failures produced runs that died in 2 to 3 seconds having
+   started nothing. A healthy `verify` is 43 to 45 steps. Read the STEP COUNT before the conclusion.
+2. **Cancellation is not a red.** `ci.yml` carries `cancel-in-progress` with a per-ref group, so a
+   burst of pushes leaves cancellations that mean exactly nothing.
+3. **An infrastructure step failing at full step count.** npm's audit endpoint hung while its status
+   page said all systems operational, and every merge in the repository stopped, `Dependency audit`
+   dying on a socket timeout with everything else green. So read WHICH step, not only how many.
+   PR #162 retries and distinguishes an answer from a failure to ask; the shape recurs.
+
+**The trap that arrives in the first hour of following this.** `assertFreshDist` aborts a run whose
+sources moved since the last build, at setup, RC=1, saying "no database-backed file ran". A lane
+that has just switched branches and runs one file sees a red that is not about its code at all.
+Either `pnpm build` first, or `ALLOW_STALE_DIST=1` **and only for suites that never boot the
+bundle**. A client unit test is safe; the 41 e2e suites boot `dist/index.js`, and
+`server/trackerPrivacy.test.ts` asserts on the BUILT chunks, so for those a stale dist means the
+green is about yesterday's code. That is the same false green this change exists to avoid, arriving
+through a different door.
+
+**And a push is not a green.** A direct push to main can skip CI entirely (section 26), so after
+pushing, read the run with `gh`. `origin/main` having a commit is not evidence that anything
+checked it.
+
+### 27e — Rebase and migration order, so lanes stay in sync
+
+1. **Refetch, then rebase on `origin/main`.** The local tree runs behind origin far more often than
+   it feels, and every line number and every "not implemented" claim taken from a stale checkout is
+   suspect. `git fetch origin`, rebase, then re-verify the claims your work rests on.
+2. **Assert the ANCESTRY of every commit your work depends on** before naming a head for a pair
+   merge: `git merge-base --is-ancestor <sha> HEAD` per dependency, and say which ones you checked.
+   Being level with your own remote is a different question, and a branch that merged main days ago
+   does not carry a sibling's precondition that landed after it.
+3. **A commit is done when a REF moved.** Worktrees share one object store, so a relayed SHA can
+   resolve locally while sitting on no remote ref at all. Verify with
+   `git rev-list --left-right --count HEAD...origin/<branch>` reading `0 0`, and quote the REF
+   rather than the directory.
+4. **Reserve migration numbers as a COUNT and assign them at landing**, after the scan in 27b.
+5. **Never rename a migration that has already run.** `_migrations_applied` keys on FILENAME, so a
+   rename runs as a NEW file while the old name stays marked applied, and an `ADD COLUMN` then
+   bricks the boot. Drop and re-provision instead.
+
+### 27f — DESTRUCTIVE, machine-wide: removing a worktree can delete the SHARED `node_modules`
+
+**`git worktree remove --force` on a worktree whose `node_modules` is a junction follows the
+junction and deletes files out of the shared store.** A lane made a scratch worktree, junctioned
+`node_modules` exactly as our own setup instructions say to, then removed the worktree. Git deleted
+`ECON/node_modules/.bin` outright and partially deleted nested packages under `.pnpm` before
+aborting on "Filename too long". **Every lane on this machine lost `npx tsc` and `npx vitest` for
+about twenty minutes.**
+
+**The rule: unlink the junction FIRST, then remove the worktree.**
+
+```
+cmd /c rmdir <worktree>\node_modules
+git worktree remove <worktree>
+```
+
+Our setup instruction creates this trap in every worktree we stand up, so it is the DEFAULT shape
+rather than a rare one. Recovery, if it happens: `pnpm install --frozen-lockfile --force` in the
+damaged root, about three and a half minutes, then run a real suite to confirm rather than trusting
+the exit code.
+
+**The junction has a second, quieter failure: vite refuses to serve `dotenv/config` through a
+junction realpath, and the client tests SKIP rather than fail.** Two lanes were blocked by it while a
+third ran fine, and the third ran fine only because one of its lanes had happened to run a real
+`pnpm install` in a fresh worktree, which every later lane inherited. So the same shape has now
+produced one destructive incident and one silent skip, and no lane chose it either time. **A real
+`node_modules` costs an install and removes both failures.** Prefer it for any worktree that will run
+client tests or that you expect to delete later; keep the junction only for short-lived
+report-only trees.
+
+There are more than forty sibling worktrees under `C:\Users\taren\Desktop\Amora\`. Treat every one of
+them as live and owned by another lane: **never write into a worktree you did not create**, and never
+`git add .` in one, which sweeps up whatever that lane has in flight.
+
+### 27g — Two corrections to standing advice, both of which invalidate something we were repeating
+
+**`pnpm check` DOES typecheck `.test.tsx`.** `tsconfig.json` excludes `"**/*.test.ts"`, and that
+pattern does not match `.tsx`. A component test failed `pnpm check` with TS2802 at the ES5 target on
+a spread of `map.keys()`. This contradicts the tsconfig's own header comment and a note several
+lanes were relying on. Use `Array.from` in a `.test.tsx`, and stop telling lanes their test files are
+invisible to that gate, because half of them are not.
+
+**Run `tsconfig.tests.json` COLD.** The incremental cache lies, so a warm run can be green about
+work it never re-checked.
