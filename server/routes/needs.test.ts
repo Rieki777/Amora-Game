@@ -22,6 +22,7 @@ import mysql from "mysql2/promise";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { provisionTestDb, testDbConfigured, type TestDb } from "../db/testDb";
 import { NEEDS_AGGREGATE_FLOOR } from "../lib/needs";
+import { loadVariables } from "../lib/variables";
 import { register } from "./needs";
 
 type Handler = (req: any, res: any) => Promise<unknown> | unknown;
@@ -514,6 +515,50 @@ describe.skipIf(!configured)("the member's card round trips through the routes",
     expect(out.body.depthLabels.deprived).toBe("Deprived");
     expect(out.body.floor).toBe(NEEDS_AGGREGATE_FLOOR);
     expect(out.body.cycleId).toMatch(/^lunar-\d{6}$/);
+  });
+
+  /**
+   * THE SENTENCE THE MEMBER READS AND THE SUPPRESSION THE SERVER PERFORMS,
+   * off one payload and one vote.
+   *
+   * NeedCard prints `mine.floor` into "A count appears only once at least N
+   * members have answered", so this number IS that sentence. A village that
+   * moved its floor to 5 was told 3 here while the aggregate also released at
+   * 3; both halves now read the same dial. The override is torn down inside
+   * the test because the variables cache is module-level and every case after
+   * this one asserts the untouched default.
+   */
+  it("states the floor the village voted, not the one the platform ships", async () => {
+    try {
+      await pool.query(
+        "INSERT INTO `game_variables` (`config_key`, `value`, `value_type`) VALUES ('needs.aggregate_floor','5','text') " +
+          "ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
+      );
+      await loadVariables(pool);
+
+      const voted = await call(handlers, "GET /api/needs/mine");
+      expect(voted.body.floor).toBe(5);
+
+      await call(handlers, "PUT /api/admin/needs/scope", {
+        body: { needs: [{ needKey: "love", depthTarget: "satisfied" }] },
+      });
+      for (const who of ["m-1", "m-2", "m-3", "m-4"]) {
+        whoami = who;
+        await call(handlers, "PUT /api/needs/mine", { body: { needKey: "love", depth: "satisfied" } });
+      }
+      const four = await call(handlers, "GET /api/needs/aggregate");
+      expect(four.body.floor).toBe(5);
+      expect(four.body.needs.find((n: any) => n.needKey === "love")?.suppressed).toBe(true);
+
+      whoami = "m-5";
+      await call(handlers, "PUT /api/needs/mine", { body: { needKey: "love", depth: "satisfied" } });
+      const five = await call(handlers, "GET /api/needs/aggregate");
+      expect(five.body.needs.find((n: any) => n.needKey === "love")?.suppressed).toBe(false);
+      expect(five.body.needs.find((n: any) => n.needKey === "love")?.answers).toBe(5);
+    } finally {
+      await pool.query("DELETE FROM `game_variables` WHERE `config_key` = 'needs.aggregate_floor'");
+      await loadVariables(pool);
+    }
   });
 
   it("shows one member their own card and nobody else's", async () => {

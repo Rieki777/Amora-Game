@@ -13,10 +13,11 @@
  * visibility control would be promising a setting no release has built.
  *
  * WHERE THE NUMBER IN THE PRIVACY SENTENCE COMES FROM. `floor`, off the same
- * payload. Lane N5 will move it to a `needs.aggregate_floor` dial; until then
- * `aggregateFloor()` in server/lib/needs.ts is the one place it lives. Either
- * way this file never carries its own copy, so the sentence and the rule
- * cannot drift apart.
+ * payload, which is `aggregateFloor()` in server/lib/needs.ts reading the
+ * `needs.aggregate_floor` dial this village voted. The same call decides
+ * which counts the aggregate withholds, so the sentence and the suppression
+ * are one number. This file never carries its own copy, so a village that
+ * moves its floor moves what it is told in the same breath.
  *
  * THE HONEST HALF UNDER EACH NEED comes from `GET /api/needs/coverage`, lane
  * N1's read. A need with nothing tagged to it says so in a sentence. The

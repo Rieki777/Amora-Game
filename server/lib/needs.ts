@@ -34,6 +34,13 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
  * allowed to make one of these strings.
  */
 import { cycleIdFor } from "./gratitude-cycles";
+/*
+ * THE THREE DIALS THIS FILE ACTS ON, read through the same accessor every
+ * other server file uses. server/lib/variables.ts imports mysql2's types and
+ * the registry and nothing else, so it drags neither the ledger nor the mint
+ * behind it and the header's promise above still holds.
+ */
+import { numberVar, stringVar } from "./variables";
 import {
   CUSTOM_NEED_PREFIX,
   depthAtLeast,
@@ -285,8 +292,12 @@ export async function upsertScopeNeed(
   const needKey = input.needKey.trim();
   const isCustom = isCustomNeedKey(needKey);
   const label = needLabelFor(needKey, input.label);
-  const depth: NeedDepth = input.depthTarget ?? "satisfied";
-  const breadth = input.breadthTargetPct === undefined ? 100 : Number(input.breadthTargetPct);
+  // WHAT THE VILLAGE VOTED, and only where the caller said nothing. A scope
+  // editor that names a rung or a share still wins: these two dials are the
+  // starting point for a need adopted without one, which is what their
+  // registry entries say they are.
+  const depth: NeedDepth = input.depthTarget ?? defaultDepthTarget();
+  const breadth = input.breadthTargetPct === undefined ? defaultBreadthPct() : Number(input.breadthTargetPct);
   const note = input.note === undefined || input.note === null ? null : String(input.note).slice(0, 4000);
   const sortOrder =
     input.sortOrder === undefined
@@ -615,28 +626,65 @@ export { CUSTOM_NEED_PREFIX };
  * have to write new SQL to get one.
  * -------------------------------------------------------------------------- */
 
-/**
- * The smallest number of answers on one need that may be shown as a count.
+/* -------------------------------------------------------------------------- *
+ * THE THREE NUMBERS A VILLAGE VOTES, AND THIS FILE OBEYS.
  *
- * THE DIAL IS NOT THIS LANE'S. The design asks for `needs.aggregate_floor` in
- * a new `Needs` category of shared/gameVariables.ts, and lane N5 owns that
- * file. Until it lands there is no dial to read, and a number invented on a
- * screen would be a second copy of the rule. So the floor lives here, once,
- * and `aggregateFloor()` is the seam: N5 changes that one function body to
- * read the variable and every caller follows, including the sentence the card
- * prints, which asks the server for this number and never hardcodes one.
+ * `needs.aggregate_floor`, `needs.default_depth_target` and
+ * `needs.default_breadth_pct` are open-ring dials any member may put on a
+ * ballot. Each of the three constants below is the value the registry
+ * DECLARES as the platform default, kept here so a reader can see it and
+ * pinned against the registry by needs.dials.test.ts. None of the three is
+ * the value this file acts on: the accessors beside them are, and every one
+ * of them reads AT THE POINT OF USE. Reading at module load would freeze the
+ * platform default into the bundle, because the override cache is filled
+ * after the stores initialise, and every village that voted would be served
+ * the number it voted against.
  *
- * WHY 3 AND NOT THE DESIGN'S 5. Neither number is the founder's: he has not
- * answered this question. 3 is the smallest floor at which a count cannot be
+ * WHAT THE FLOOR IS FOR. The smallest number of answers on one need that may
+ * be shown as a count. 3 is the smallest floor at which a count cannot be
  * read back to a person by elimination once two of three answers are known,
  * and it is a floor a village of thirteen can clear on a need only a few
- * people care about. A village that wants 5 sets the dial the day N5 ships.
- */
+ * people care about. A village where four people are identifiable to each
+ * other raises it, and the raise now reaches the SQL and the sentence
+ * together.
+ *
+ * 1 IS THE SMALLEST FLOOR THE ENGINE HONOURS, and the registry agrees (min 1).
+ * A floor of 0 would suppress nothing while claiming to suppress something,
+ * so a value under 1 is clamped here instead of being trusted.
+ * -------------------------------------------------------------------------- */
+
+/** What the registry declares as the platform floor. Never what is enforced. */
 export const NEEDS_AGGREGATE_FLOOR = 3;
 
-/** The floor in force. One seam, so a later dial reaches every caller at once. */
+/** What the registry declares as the platform rung. Never what is written. */
+export const NEEDS_DEFAULT_DEPTH_TARGET: NeedDepth = "satisfied";
+
+/** What the registry declares as the platform share. Never what is written. */
+export const NEEDS_DEFAULT_BREADTH_PCT = 100;
+
+/** The floor in force: this village's dial, clamped to the registry's own min. */
 export function aggregateFloor(): number {
-  return NEEDS_AGGREGATE_FLOOR;
+  const voted = Math.trunc(numberVar("needs.aggregate_floor"));
+  return Number.isFinite(voted) ? Math.max(1, voted) : NEEDS_AGGREGATE_FLOOR;
+}
+
+/**
+ * The rung a need starts at when the village adopts it without choosing one.
+ *
+ * A value the ladder does not name falls back to the declared default. The
+ * registry validates the choice on the way in, so this can only fire on a row
+ * written before a rung was renamed, and a need silently adopted at a rung
+ * nothing names would compare against nothing.
+ */
+export function defaultDepthTarget(): NeedDepth {
+  const voted = stringVar("needs.default_depth_target");
+  return isNeedDepth(voted) ? voted : NEEDS_DEFAULT_DEPTH_TARGET;
+}
+
+/** The share a need aims at when the village adopts it without a figure. */
+export function defaultBreadthPct(): number {
+  const voted = Math.trunc(numberVar("needs.default_breadth_pct"));
+  return Number.isFinite(voted) ? Math.min(100, Math.max(0, voted)) : NEEDS_DEFAULT_BREADTH_PCT;
 }
 
 /**
@@ -849,7 +897,7 @@ export interface NeedAggregateRow {
   needKey: string;
   /** The village's own word for it, when it took the need on. */
   label: string;
-  /** The rung this village aims at, or the platform default when out of scope. */
+  /** The rung this village aims at, or its voted default when out of scope. */
   depthTarget: NeedDepth;
   /** True when this need is one the village said it was for. */
   inScope: boolean;
@@ -890,6 +938,9 @@ export async function needsAggregate(
 ): Promise<{ cycleId: string; floor: number; needs: NeedAggregateRow[] }> {
   const cycleId = opts.cycleId ?? cycleIdFor(opts.at ?? new Date());
   const floor = opts.floor ?? aggregateFloor();
+  // Read ONCE per report, so every out-of-scope need in one payload is judged
+  // against the same rung even when a write lands mid-loop.
+  const fallbackTarget = defaultDepthTarget();
   const scope = await readScope(pool);
   const [rows] = await pool.query<RowDataPacket[]>(
     "SELECT `need_key` AS need_key, `depth` AS depth, COUNT(*) AS n FROM `member_needs` " +
@@ -909,7 +960,7 @@ export async function needsAggregate(
   const out: NeedAggregateRow[] = [];
   for (const key of keys) {
     const inScopeRow = scopeByKey.get(key) ?? null;
-    const target: NeedDepth = inScopeRow?.depthTarget ?? "satisfied";
+    const target: NeedDepth = inScopeRow?.depthTarget ?? fallbackTarget;
     const byDepth = tallies.get(key) ?? new Map<string, number>();
     let atOrAbove = 0;
     let below = 0;
