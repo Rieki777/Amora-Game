@@ -1158,6 +1158,148 @@ own segment`, `keeps two ids that differ only in case apart under a
 case-insensitive index` and `still recognises an already-posted legacy-shaped key
 as a duplicate`.
 
+### 10.17 The clamp was sound and the unit it answered in was not. Fixed on `wt/econ-mintfix`, measured.
+
+An adversarial pass over the mint ceiling found the pure function correct for
+every input it could reach, both mint paths calling it, and the failure closing.
+What broke was the unit. `ceilingOutcome` answered in the rule's own human
+units, both callers then ran `toLedgerUnits` over that answer, and
+`toLedgerUnits` is `Math.round(human * 10 ** decimals)`, which was bounded by
+nothing. `mint_rules.ceiling` is `decimal(18,4)` and six of the seven shipped
+tokens carry 0 decimals, so the column holds places the token cannot. Read off
+`token_ledger` before the fix: amount 0.6 under a ceiling of 0.5 at 0 decimals
+posted 1, which is two hundred percent of the cap; amount 1.5 under a ceiling of
+1.5 posted 2; 25.5 under 25.5 posted 26; at 3 decimals a ceiling of 0.0005
+posted a full thousandth. Every row was reachable through the governed path,
+because the ballot validator accepted any finite non-negative ceiling.
+
+**Moving the clamp into minor units would have fixed none of it**, and that is
+the part worth carrying forward. Rounding is monotone, so `round(min(a, c) * s)`
+and `min(round(a * s), round(c * s))` are the same number for every input on
+that table: converting first and clamping second answers exactly what the old
+order answered. The fix is the DIRECTION. An amount rounds, because the nearest
+payable figure is what a payment means. A bound may only ever fall, because a
+bound rounded up is a bound the village never voted for, and "caps fail closed"
+is this economy's oldest invariant. `ceilingAtScale` in `server/lib/economy.ts`
+floors the ceiling into minor units with an ulp guard, because `0.29 * 100` is
+28.999999999999996 and a bare floor would read a village's 29 hundredths as 28.
+`ceilingOutcome` now takes the scale as an ARGUMENT and never looks it up (R31),
+and answers `units` in the token's minor units; `clampToCeiling` follows, and
+`CeilingRuleLike` is the three fields the decision reads. The defect disappears
+at four decimals, so the registry flip closes it on its own, and the fix does not
+wait for the flip and does not depend on it. Proven by seven rows driven through
+`mintForConfirmedClaim` at 0, 3 and 4 decimals and read back off `token_ledger`.
+A ceiling above zero that falls to nothing at the token's scale is a new refusal
+with its own sentence, because it is a ceiling fact and an "amount too small"
+reading would send the founder to the number that is fine.
+
+### 10.18 Three surfaces published a payout the engine would not make. Fixed on `wt/econ-mintfix`, measured.
+
+With a rule at `amount 25, ceiling 5`, the Mint panel's settlement preview, the
+unauthenticated public rules feed and the dry run all said 25 and the engine paid
+5. At a ceiling of 0 all three still said 25 and the engine paid nothing at all.
+`mintView`'s own comment said the preview must agree exactly with the settlement
+filter or it promises a payout the run will not make, and the preview never
+called `ceilingOutcome`; the public feed printed `mint_rules.amount` straight and
+consulted the ceiling only on the `from_source` branch; and the dry run carried
+`ceiling` on `DryRunRule` and read it only to narrate a queued change, so the one
+screen a founder opens to find out whether a setting works agreed with the two
+that were already wrong. All three reach the number through `ceilingOutcome` now.
+The preview also converts per seat before multiplying, which is a second
+disagreement it carried: the engine posts a whole number of units per seat, so
+0.5 over three seats is three postings of 1 at 0 decimals and never `round(1.5)`.
+The Mint panel prints the clamp and the cap on every rule card, and a rule the
+engine will not honour wears "Paying nobody" where it used to wear a green
+"Paying" badge with no ceiling anywhere on the card.
+
+### 10.19 The mint feed handed the client minor units with no scale. Fixed on `wt/econ-mintfix`, measured.
+
+`mintView.settlementPreview.mints[].units` was `toLedgerUnits(...)`,
+`client/src/pages/Mint.tsx` rendered it directly, and the payload type carried no
+decimals field, so the client could not have converted it if it had tried. At 0
+decimals the panel printed 25 and at 4 it printed 250000 where 25 was meant, and
+this blocked the decimals flip. R31 is applied: a money field in a payload is the
+integer in minor units, the scale it is in, and the slug it is of, and the scale
+travels in the payload and is never looked up from a registry on the client. Each
+preview row carries `decimals`; each rule carries
+`pays: { units, ceilingUnits, decimals }`; and the panel renders through
+`formatTokenAmount`, which is the one place minor units become a number a member
+reads. R31's remaining half is that this helper lives on the client and its home
+should be beside the ledger and the registry, with a source walk asserting no
+other amount formatting anywhere; moving it touches every client surface that
+already imports it and belongs to the wave that owns them.
+
+### 10.20 The claim mint returned a number no row held. Fixed on `wt/econ-mintfix`, measured.
+
+`mintForConfirmedClaim` reported `{ token, amount }` where `amount` was the
+clamp's answer taken BEFORE `toLedgerUnits` ran, while the row held the rounded
+integer. A rule at 0.0015 on a token at three decimals returned 0.0015 and posted
+one thousandth, so a route logging the result told the member a figure that
+exists nowhere in the database. It now returns the row: `{ token, units,
+decimals }`, R31's shape. `SettlementResult.minted` carries the same three fields
+under the same names; before this the two mint paths reported the same idea in
+different units and only a field name said so, which the file's own comment
+called out as a trap and left standing.
+
+### 10.21 A settlement that could pay nothing reported a completed moon. Fixed on `wt/econ-mintfix`, measured.
+
+A `role.cycle` rule whose amount reads from the work passed the payable filter,
+because `r.amount ?? 0` read null as zero and the ceiling check was guarded on
+that zero being positive. The rule reached the seat loop, paid nothing, and the
+run came back `alreadyRun: true` with an empty unpayable list. The comment above
+that line already said that calling a misconfiguration a completed moon is the
+reading that stops anybody looking; it was the right sentence attached to the
+wrong condition, which was `payable.length > 0`. A seat posts no amount, so such
+a rule can never pay and is now named as unpayable in the same words the quest
+path uses. `alreadyRun` asks what it means: was there a payment this run could
+have made, which re-asks the clamp because a rule can be payable and still answer
+zero, and asks the seat count because a payment needs somebody to receive it.
+Both directions of the mistake are one-sided and this is the safe side.
+
+### 10.22 A ballot could vote a rule into an off switch. Fixed on `wt/econ-mintfix`, measured.
+
+`mintRuleValueProblem` checked finiteness and sign and nothing else, and both
+mint-rule columns are `decimal(18,4)`. So a ceiling of 0.00001 stored as 0.0000,
+which is a ceiling that refuses; an amount of 0.00001 stored as 0.0000, which is
+a silent off switch; and both answered `ok`. At 1e14 the value passed every check,
+was queued, and threw an out-of-range error from the driver inside the ballot
+executor, after the village had voted. `mintRuleNumberProblem` is the one numeric
+predicate now, called by the ballot path at raise and by `queueRuleChange` at
+execution, so the two writers cannot come to disagree about what a village may
+vote for. It bounds the value at 900719925474.0991, which is the tighter of what
+the column can hold and what a double can be CHECKED against at four places, and
+it refuses a positive value the column would keep as zero or reshape into a
+different number, naming the number the column would hold.
+
+Rye's standing ruling is that warnings never block and ride the proposal for
+stewards. **All three of these refuse, and the reasoning is that the ruling is
+about a decision a village CAN enact and might regret.** A value the column
+stores as zero is a payment the village voted above zero becoming a rule that
+pays nobody, which nobody decided, and a warning riding a proposal that pays
+nobody is a note attached to a broken rule. A value at 1e14 cannot be applied at
+all. The third case, a value the column would reshape (1.00001 stored as 1), is
+the one that would be a warning the day a warning channel exists: today
+`validateChangeSet` in `server/lib/mechanics.ts` carries `problems` and nothing
+else, and the proposal document renders that list, so a warning channel is a
+change to the governance side's own files and its own decision. It is said out
+loud in the function's docstring so the day that channel lands, this is the case
+to move onto it.
+
+### 10.23 The dry-run model rounds its ceiling the same way, and is not fixed here.
+
+`shared/dryRun/economicsModel.ts` clamps in minor units already and its
+`ceilingOutcomeMinor` docstring states the monotonicity argument correctly, so
+the model looks right and carries the SAME defect one layer up:
+`server/lib/dryRunEconomyReader.ts` scales `mint_rules.ceiling` through
+`writtenAmount`, which ROUNDS half up, so the model's ceiling for 0.5 at 0
+decimals is 1 minor unit and its simulation pays what the engine used to pay. The
+model is a mirror by table and may not import anything under `server/`, so
+closing this means flooring the ceiling in the reader and adding the three rows
+above to the mirror table in `shared/dryRun/economicsModel.test.ts`. Both files
+are outside this lane's zone and neither is edited here. The engine and the model
+therefore DISAGREE at every ceiling the column can hold and the token cannot,
+with the engine now correct, until that lane runs.
+
 **None of these had hurt anyone, because production has zero ledger rows. All
 of them would have landed on the first day more than one person used the thing.**
 
