@@ -11,9 +11,15 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_EXIT_POLICY,
   blankTerms,
+  exitLeverFindings,
+  exitLeverProblem,
+  exitLeverRefusal,
   normalizeExitPolicy,
   platformDefaultTerms,
+  type ExitLeverReading,
+  type ExitLeverToken,
 } from "./exitPolicy";
+import { VARIABLES, VARIABLES_BY_KEY } from "../../shared/gameVariables";
 
 /** A whole policy in the village's own words, as a starting point to spoil. */
 const own = () => ({
@@ -124,5 +130,303 @@ describe("a published policy cannot leave a term empty", () => {
   it("blankTerms names a term that somehow arrived empty", () => {
     const broken = { ...normalizeExitPolicy(own()), restorative: { intakeContactRole: "", steps: [] } };
     expect(blankTerms(broken)).toEqual(["The restorative path"]);
+  });
+});
+
+/*
+ * ── THE EXIT LEVERS: SIX REFUSALS AND ONE WARNING (R4) ─────────────────────
+ *
+ * Every case below is a POLICY a village could describe with the dials and the
+ * engine could not honour. The sentences are asserted whole, never by a
+ * fragment, because the sentence IS the deliverable: a founder meets it on the
+ * save and it has to say what is wrong and what to do instead.
+ *
+ * The coherent case is derived from the REGISTRY and not retyped here. If a
+ * later lane changes an Exit default to something the guard refuses, that test
+ * goes red on the day the default moves rather than on the day a village
+ * upgrades into a refusal it never asked for.
+ *
+ * No database, no registry load, no server. `exitLeverFindings` takes every
+ * fact it needs in its argument, which is the same property `DEFAULT_EXIT_POLICY`
+ * lives in this file for.
+ */
+const platformCredit: ExitLeverToken = {
+  slug: "credits",
+  name: "Village Credits",
+  kind: "credit",
+  governance: "platform",
+  active: true,
+  hasFaucet: true,
+  listedForTrade: false,
+};
+
+/** A fork's own credit token. `faucetFor` knows five slugs and this is not one. */
+const ownCredit: ExitLeverToken = {
+  ...platformCredit,
+  slug: "harvest-credit",
+  name: "Harvest Credit",
+  hasFaucet: false,
+};
+
+/** Governed on Base, mirrored here. `validateLeg` refuses to move it at all. */
+const equityMirror: ExitLeverToken = {
+  ...platformCredit,
+  slug: "village-equity",
+  name: "Village Equity",
+  kind: "equity",
+  governance: "hypha",
+  hasFaucet: false,
+};
+
+/** Retired from the registry. Nothing is issued or burned into it any more. */
+const retired: ExitLeverToken = { ...ownCredit, slug: "old-credit", name: "Old Credit", active: false };
+
+/** On the exchange right now, purchasable or swappable. */
+const buyable: ExitLeverToken = { ...platformCredit, slug: "traded-credit", name: "Traded Credit", listedForTrade: true };
+
+/** The platform's own answers, read off the registry so the two cannot drift. */
+const registryDefaults = (): Record<string, string> =>
+  Object.fromEntries(VARIABLES.filter((v) => v.category === "Exit").map((v) => [v.key, v.default]));
+
+const reading = (
+  over: Record<string, string> = {},
+  tokens: ExitLeverToken[] = [platformCredit],
+  noticePeriodDays = DEFAULT_EXIT_POLICY.voluntary.noticePeriodDays,
+): ExitLeverReading => {
+  const values = { ...registryDefaults(), ...over };
+  return { value: (k) => values[k] ?? "", noticePeriodDays, tokens };
+};
+
+describe("the platform's own defaults describe a policy the engine can honour", () => {
+  it("the ten shipped defaults raise nothing at all, refusal or warning", () => {
+    // Read off VARIABLES, so this is a claim about what actually ships.
+    expect(exitLeverFindings(reading())).toEqual([]);
+    expect(exitLeverProblem(reading())).toBeNull();
+  });
+
+  it("the coherent case is not vacuous: the same reading with one dial moved does refuse", () => {
+    // A guard that returned [] for everything would pass the test above. This
+    // is the control that says the empty array meant something.
+    expect(exitLeverProblem(reading({ "exit.keep_pct.equity": "1" }))).not.toBeNull();
+  });
+});
+
+describe("what a leaver cannot keep, whatever the village types", () => {
+  it("recognition: a share of a record is not a holding", () => {
+    expect(exitLeverProblem(reading({ "exit.keep_pct.recognition": "40" }))).toBe(
+      "Recognition is a record of what happened, not a holding. It stays on the village's books either way, so a share of it is not a thing a leaver can keep.",
+    );
+  });
+
+  it("recognition: one percent is refused the same as forty, and zero is not refused", () => {
+    // "Above 0" is the rule. A village typing 1 has described the same
+    // impossible thing as a village typing 40.
+    expect(exitLeverProblem(reading({ "exit.keep_pct.recognition": "1" }))).toMatch(/^Recognition is a record/);
+    expect(exitLeverProblem(reading({ "exit.keep_pct.recognition": "0" }))).toBeNull();
+  });
+
+  it("equity: this platform never moves it, so it cannot promise a share of it", () => {
+    expect(exitLeverProblem(reading({ "exit.keep_pct.equity": "10" }))).toBe(
+      "Equity is governed on Base under Hypha and this platform never moves it. What happens to it on departure is decided there.",
+    );
+  });
+});
+
+describe("burning back to a faucet that does not exist", () => {
+  it("names the token that has nowhere to go", () => {
+    expect(
+      exitLeverProblem(reading({ "exit.remainder_account": "burn" }, [platformCredit, ownCredit])),
+    ).toBe("Harvest Credit has no faucet, so there is nowhere to burn it back to.");
+  });
+
+  it("names every one of them, and reads as English when there are several", () => {
+    const second: ExitLeverToken = { ...ownCredit, slug: "gift-credit", name: "Gift Credit" };
+    expect(
+      exitLeverProblem(reading({ "exit.remainder_account": "burn" }, [ownCredit, second, platformCredit])),
+    ).toBe("Harvest Credit and Gift Credit have no faucet, so there is nowhere to burn them back to.");
+  });
+
+  it("says nothing when every token the ledger moves has a faucet", () => {
+    expect(exitLeverProblem(reading({ "exit.remainder_account": "burn" }, [platformCredit]))).toBeNull();
+  });
+
+  it("ignores a Hypha mirror and a retired token, because neither is burned into anything", () => {
+    // Both have `hasFaucet: false`. A guard that counted them would refuse
+    // `burn` in every village that has ever retired a token or mirrors equity,
+    // which is a refusal about nothing.
+    expect(
+      exitLeverProblem(reading({ "exit.remainder_account": "burn" }, [platformCredit, equityMirror, retired])),
+    ).toBeNull();
+  });
+
+  it("only fires on burn, and not on the other three destinations", () => {
+    for (const account of ["settlement", "treasury", "cycle-pool"]) {
+      expect(
+        exitLeverProblem(reading({ "exit.remainder_account": account }, [platformCredit, ownCredit])),
+        account,
+      ).toBeNull();
+    }
+  });
+});
+
+describe("the Voice pair", () => {
+  it("convert at a rate of zero is a forfeit with extra steps", () => {
+    expect(
+      exitLeverProblem(reading({ "exit.voice_on_exit": "convert", "exit.voice_convert_rate": "0" })),
+    ).toBe("A conversion at zero is a forfeit. Say forfeit, or set a rate.");
+  });
+
+  it("convert at a real rate is accepted, including a fraction", () => {
+    expect(
+      exitLeverProblem(reading({ "exit.voice_on_exit": "convert", "exit.voice_convert_rate": "0.25" })),
+    ).toBeNull();
+  });
+
+  it("a rate of zero on its own is fine, because forfeit does not read it", () => {
+    // An empty state and a real zero are different facts. The rate at 0 while
+    // the mode says forfeit is the shipped default and describes nothing
+    // impossible.
+    expect(exitLeverProblem(reading({ "exit.voice_convert_rate": "0" }))).toBeNull();
+  });
+
+  it("keeping Voice is refused, and the refusal says what would make it possible", () => {
+    expect(exitLeverProblem(reading({ "exit.voice_on_exit": "keep" }))).toBe(
+      "Keeping Voice needs an account that still exists after the departure, and a resolved exit makes the account a tombstone. This becomes available when a village can record a departure without one.",
+    );
+  });
+});
+
+describe("a cooling period the published policy does not admit to", () => {
+  it("refuses, and names BOTH numbers", () => {
+    expect(exitLeverProblem(reading({ "exit.cooling_days": "45" }, [platformCredit], 30))).toBe(
+      "Your published policy says 30 days of notice and this would hold balances for 45. Change the published term first.",
+    );
+  });
+
+  it("reads the village's own notice period and not the platform's 30", () => {
+    // The whole point of the refusal is the gap between what the page says and
+    // what the engine would do, so the number in the sentence has to come off
+    // the published document.
+    expect(exitLeverProblem(reading({ "exit.cooling_days": "10" }, [platformCredit], 7))).toBe(
+      "Your published policy says 7 days of notice and this would hold balances for 10. Change the published term first.",
+    );
+  });
+
+  it("equal is allowed: the page and the engine agree", () => {
+    expect(exitLeverProblem(reading({ "exit.cooling_days": "30" }, [platformCredit], 30))).toBeNull();
+  });
+
+  it("shorter is allowed", () => {
+    expect(exitLeverProblem(reading({ "exit.cooling_days": "29" }, [platformCredit], 30))).toBeNull();
+  });
+});
+
+describe("the withdrawal window: a warning, and never a refusal", () => {
+  const window = { "exit.keep_pct.credit": "100", "exit.vote_over": "0" };
+
+  it("saves, and says what it is", () => {
+    const found = exitLeverFindings(reading(window, [buyable]));
+    expect(found).toHaveLength(1);
+    expect(found[0].severity).toBe("warning");
+    expect(found[0].message).toBe(
+      "Somebody can buy Traded Credit, open an exit, and take all of it back out with nobody asked. That is a withdrawal window wearing an exit. A village may mean exactly this, so it saves; the test run flags it every time.",
+    );
+    // THE LOAD-BEARING HALF. A village may genuinely mean this, so the save
+    // goes through: `exitLeverProblem` is what the write route reads.
+    expect(exitLeverProblem(reading(window, [buyable]))).toBeNull();
+  });
+
+  it("a vote over any amount closes the window, so nothing is said", () => {
+    expect(exitLeverFindings(reading({ ...window, "exit.vote_over": "1" }, [buyable]))).toEqual([]);
+  });
+
+  it("nothing is said about a credit token nobody can buy", () => {
+    expect(exitLeverFindings(reading(window, [platformCredit]))).toEqual([]);
+  });
+
+  it("nothing is said below a full keep", () => {
+    expect(exitLeverFindings(reading({ ...window, "exit.keep_pct.credit": "99" }, [buyable]))).toEqual([]);
+  });
+});
+
+describe("which sentence a founder meets when two things are wrong at once", () => {
+  const twoWrong = { "exit.keep_pct.recognition": "5", "exit.voice_on_exit": "keep" };
+
+  it("the refusal about the dial being written wins", () => {
+    // A founder editing the Voice mode is told about the Voice mode. Being
+    // handed the recognition sentence instead would send them to a field they
+    // did not touch.
+    expect(exitLeverProblem(reading(twoWrong), "exit.voice_on_exit")).toMatch(/^Keeping Voice needs/);
+    expect(exitLeverProblem(reading(twoWrong), "exit.keep_pct.recognition")).toMatch(/^Recognition is a record/);
+  });
+
+  it("a refusal about a pair answers to either half of it", () => {
+    const pair = { "exit.voice_on_exit": "convert", "exit.voice_convert_rate": "0" };
+    expect(exitLeverProblem(reading(pair), "exit.voice_convert_rate")).toMatch(/^A conversion at zero/);
+    expect(exitLeverProblem(reading(pair), "exit.voice_on_exit")).toMatch(/^A conversion at zero/);
+  });
+
+  it("with no key named, the first in order comes back", () => {
+    expect(exitLeverProblem(reading(twoWrong))).toMatch(/^Recognition is a record/);
+  });
+
+  it("a dial the founder is fixing stops refusing the moment they set it back", () => {
+    expect(exitLeverProblem(reading({ ...twoWrong, "exit.keep_pct.recognition": "0" }), "exit.keep_pct.recognition")).toBeNull();
+  });
+
+  it("TWO bad values do not deadlock each other: either one can be fixed first", () => {
+    /*
+     * THE CASE THAT MADE THIS NARROWING NECESSARY, and it is reachable.
+     * Every Exit dial is Ring 2, and the governance apply path writes through
+     * `setVariable` without passing this guard, so a village can hold two
+     * refused values at once. A route that judged a write against the whole
+     * reading would refuse BOTH repairs: fixing recognition fails on Voice,
+     * fixing Voice fails on recognition, and nobody can go first.
+     */
+    expect(exitLeverProblem(reading(twoWrong), "exit.cooling_days")).toBeNull();
+    const fixVoice = reading({ ...twoWrong, "exit.voice_on_exit": "forfeit" });
+    expect(exitLeverProblem(fixVoice, "exit.voice_on_exit")).toBeNull();
+    const fixRecognition = reading({ ...twoWrong, "exit.keep_pct.recognition": "0" });
+    expect(exitLeverProblem(fixRecognition, "exit.keep_pct.recognition")).toBeNull();
+    // Both are still standing as findings. The write route is silent about
+    // the one it was not asked about; the test run is where it is reported.
+    expect(exitLeverFindings(reading(twoWrong)).map((f) => f.severity)).toEqual(["refusal", "refusal"]);
+  });
+});
+
+describe("the live adapter the write route calls", () => {
+  const raw = (key: string) => VARIABLES_BY_KEY[key]?.default ?? "";
+
+  it("refuses a real incoherent write, reading the shipped defaults for everything else", () => {
+    expect(exitLeverRefusal("exit.keep_pct.recognition", "40", DEFAULT_EXIT_POLICY, raw)).toMatch(
+      /^Recognition is a record/,
+    );
+  });
+
+  it("trims what it was handed, so a value with spaces is judged on its number", () => {
+    expect(exitLeverRefusal("exit.voice_on_exit", " keep ", DEFAULT_EXIT_POLICY, raw)).toMatch(/^Keeping Voice needs/);
+  });
+
+  it("passes a coherent write straight through", () => {
+    expect(exitLeverRefusal("exit.cooling_days", "14", DEFAULT_EXIT_POLICY, raw)).toBeNull();
+  });
+
+  it("reads the published notice period off the policy it is handed", () => {
+    const short = { ...DEFAULT_EXIT_POLICY, voluntary: { ...DEFAULT_EXIT_POLICY.voluntary, noticePeriodDays: 7 } };
+    expect(exitLeverRefusal("exit.cooling_days", "14", short, raw)).toBe(
+      "Your published policy says 7 days of notice and this would hold balances for 14. Change the published term first.",
+    );
+  });
+
+  it("says nothing at all about a key outside the Exit category", () => {
+    // The write route runs this on EVERY save, so the cost of a gratitude
+    // edit passing through here has to be one string comparison.
+    let reads = 0;
+    const counted = (key: string) => {
+      reads += 1;
+      return raw(key);
+    };
+    expect(exitLeverRefusal("gratitude.base_budget", "500", DEFAULT_EXIT_POLICY, counted)).toBeNull();
+    expect(reads).toBe(0);
   });
 });

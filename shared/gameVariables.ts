@@ -20,6 +20,7 @@
 
 import { GAME_CONFIG } from "./gameConfig";
 import { STAGE_UNLOCKS } from "./capabilities";
+import { NEED_DEPTHS, NEED_DEPTH_LABELS } from "./needs";
 
 export type VariableType = "integer" | "decimal" | "percentage" | "boolean" | "choice" | "text";
 
@@ -1735,6 +1736,264 @@ export const VARIABLES: VariableDef[] = [
     min: 0,
     max: 3650,
     unit: "days",
+  },
+
+  // ── Exit: what a departing member keeps, and where the rest goes (R4) ─────
+  //
+  // A new category, because departure is none of the headings already in this
+  // file and the editor groups by `category`. Ring is DERIVED and derives to
+  // `open`: "Exit" is outside FOUNDER_CATEGORIES and none of these ten keys is
+  // in FOUNDER_KEYS. That is the answer to "Ring 1 or Ring 2" for this block,
+  // and it is the community's question to hold: what a leaver keeps is the
+  // most community-shaped number in this file.
+  //
+  // EVERY DEFAULT HERE REPRODUCES TODAY, EXACTLY. `sweepBalances`
+  // (server/lib/exit.ts) posts every positive balance in full to
+  // sys:exit-settlement and reads no game variable at all, so a village that
+  // never opens this panel keeps the departure it already has.
+  // `shared/gameVariables.test.ts` asserts each of the ten defaults by name
+  // against that sentence.
+  //
+  // WHAT ACTS ON THESE TODAY is the save-time guard and nothing else:
+  // `exitLeverProblem` (server/lib/exitPolicy.ts) refuses six incoherent
+  // combinations at the variables write route with one sentence each. The
+  // SETTLEMENT reads them in the lane after this one, and until that lands
+  // every description below says what still happens instead. A dial whose
+  // effect has not arrived says so on itself; that is the same honesty the
+  // write route already applies to the two stays knobs it refuses outright.
+  //
+  // applyTiming is left to derive to `instant` for all ten. None of them is a
+  // settlement basis and a departure is not a cycle close, so none belongs in
+  // CYCLE_APPLY_KEYS. Stated here so a later lane does not add them by reflex.
+  {
+    key: "exit.keep_pct.credit",
+    category: "Exit",
+    label: "Share of credits a leaver keeps",
+    description:
+      "The share of each credit token a departing member keeps when their balance is settled. At 0, where this starts, the whole balance moves to the account named in 'Where the rest of a settled balance goes'. At 40 they keep forty percent of every credit token they hold and the village receives the other sixty. This counts by KIND and never by token name, so a village that mints its own credits gets the same answer as one running the platform's. Works with: 'Where the rest of a settled balance goes' and 'Days of cooling before a balance settles'. The settlement act does not read this yet, so a departure today still moves every positive balance in full and the exit desk records what it moved.",
+    type: "percentage",
+    default: "0",
+    min: 0,
+    max: 100,
+    unit: "% kept",
+  },
+  {
+    key: "exit.keep_pct.voice",
+    category: "Exit",
+    label: "Share of Voice a leaver keeps",
+    description:
+      "The share of a departing member's Voice that 'What happens to Voice at a departure' is applied to. At 0 the whole holding settles the way it does today. Above 0, the shape of what happens to that share is the other dial's answer: forfeit sends it with everything else, keep leaves it where it is, convert turns it into credits at the rate below. Voice that was earned and Voice that was bought are treated alike, because the ledger holds one balance for both. The settlement act does not read this yet, so a departure today still moves the whole holding.",
+    type: "percentage",
+    default: "0",
+    min: 0,
+    max: 100,
+    unit: "% kept",
+  },
+  {
+    key: "exit.keep_pct.recognition",
+    category: "Exit",
+    label: "Share of recognition a leaver keeps",
+    description:
+      "Here so all four kinds of token are visible in one place. Any value above 0 is refused when you save it, and the refusal says why: recognition is a record of what happened between two people, it stays on the village's books whoever leaves, and a share of it is nothing a leaver can hold. Leave it at 0.",
+    type: "percentage",
+    default: "0",
+    min: 0,
+    max: 100,
+    unit: "% kept",
+  },
+  {
+    key: "exit.keep_pct.equity",
+    category: "Exit",
+    label: "Share of equity a leaver keeps",
+    description:
+      "Here so all four kinds of token are visible in one place. Any value above 0 is refused when you save it: equity is governed on Base under Hypha, this platform never moves it, and a boot invariant requires zero equity rows in this ledger. What happens to equity when somebody leaves is decided where it lives. Leave it at 0.",
+    type: "percentage",
+    default: "0",
+    min: 0,
+    max: 100,
+    unit: "% kept",
+  },
+  {
+    key: "exit.remainder_account",
+    category: "Exit",
+    label: "Where the rest of a settled balance goes",
+    description:
+      "The account that receives whatever a departing member does not keep. Exit settlement is where it goes today: a holding account nothing spends, so the village can decide later without deciding now. The treasury is an ordinary vault the village spends from. The last two choices change what a number several pages already print MEANS, and each of them says so on itself. The settlement act does not read this yet, so everything still lands in exit settlement.",
+    type: "choice",
+    default: "settlement",
+    choices: [
+      {
+        value: "settlement",
+        label: "Held in exit settlement, where it goes today",
+        hint: "Nothing spends it. It is a holding account, and the village decides what becomes of it later.",
+      },
+      {
+        value: "treasury",
+        label: "Into the village treasury, which the village can spend",
+        hint: "An ordinary vault. The treasury has to be funded before it can spend anything, by design, and this funds it.",
+      },
+      {
+        value: "cycle-pool",
+        label: "Back into the pool that pays at each cycle close",
+        hint: "Choosing this makes the supply figures on the Mint panel and in the token document read as 'outstanding' instead of 'released to date'. That is a real change to what those numbers mean. Choose it only if you mean it.",
+      },
+      {
+        value: "burn",
+        label: "Back to the faucet that issued it, so the supply shrinks",
+        hint: "Choosing this makes the supply figures on the Mint panel and in the token document read as 'outstanding' instead of 'released to date'. That is a real change to what those numbers mean. Choose it only if you mean it. A token with no faucet has nowhere to go back to, and saving this refuses and names that token.",
+      },
+    ],
+  },
+  {
+    key: "exit.cooling_days",
+    category: "Exit",
+    label: "Days of cooling before a balance settles",
+    description:
+      "How long after a member opens their exit before an admin may settle their balance. At 0, which is today, the sweep is available the moment the exit is open. Above 0 the settle act refuses until that many days have passed and the refusal names the date. This may never exceed the notice period your published exit policy prints, and saving a longer one is refused with both numbers in the sentence, because that page is the highest-stakes copy on the site. The exits table has carried the notice date since the module shipped and no guard has ever read it; this is the dial that gives it meaning, and the guard itself arrives with the settlement lane.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 365,
+    unit: "days",
+  },
+  {
+    key: "exit.voice_on_exit",
+    category: "Exit",
+    label: "What happens to Voice at a departure",
+    description:
+      "Voice is the one holding that is also standing in the village, so it gets its own answer. Forfeit is what happens today. Keep is refused while a resolved exit turns the account into a tombstone, and the refusal says when it becomes available. Convert needs a rate under it, and a conversion at zero is refused as well. Works with: 'Share of Voice a leaver keeps' and 'Credits per Voice when converting'.",
+    type: "choice",
+    default: "forfeit",
+    choices: [
+      {
+        value: "forfeit",
+        label: "It goes with everything else",
+        hint: "The share settles to the account above, which is what a departure does today.",
+      },
+      {
+        value: "keep",
+        label: "The member keeps it",
+        hint: "Refused for now. A resolved exit anonymizes the account, and a tombstone cannot hold voting weight, so this opens once a village can record a departure without one.",
+      },
+      {
+        value: "convert",
+        label: "It becomes credits",
+        hint: "Posted as one pair, so a half-finished conversion cannot leave somebody holding neither. Set the rate below it.",
+      },
+    ],
+  },
+  {
+    key: "exit.voice_convert_rate",
+    category: "Exit",
+    label: "Credits per Voice when converting",
+    description:
+      "How many credits one Voice becomes when 'What happens to Voice at a departure' is set to convert. A rate of 0 with convert chosen is refused when you save it, because a conversion that pays nothing is a forfeit wearing another word. This is read in the convert case alone, so it sits at 0 while the other dial says forfeit.",
+    type: "decimal",
+    default: "0",
+    min: 0,
+    max: 1000,
+    unit: "credits per Voice",
+  },
+  {
+    key: "exit.vote_over",
+    category: "Exit",
+    label: "Value above which a departure needs the village to agree",
+    description:
+      "Measured in the token the village already prices things in, the one chosen under 'Which token the pool pays'. 0 means never, which is today: no departure asks anybody. Above 0, a settlement worth more than this would go to the village before it moved. The ballot subject that would carry such a vote belongs to governance and is not built, so this reads 0 in every village until it is, and the test run says as much in plain words.",
+    type: "integer",
+    default: "0",
+    min: 0,
+    max: 100000000,
+    unit: "in the pool token",
+  },
+  {
+    key: "exit.sellback_enabled",
+    category: "Exit",
+    label: "A leaver may sell kept credits back to the village",
+    description:
+      "Whether a departing member can sell the credits they keep back at the price the exchange posts. Off is today, and off is the whole of what the code can do: the exchange buys in one direction only, the send path allows credit-kind tokens between members alone, and no path anywhere pays fiat or treasury value out to a member. Turning this on records what the village intends and opens nothing on its own.",
+    type: "boolean",
+    default: "false",
+  },
+
+  // ── Needs: what this village says it is for, as numbers (R1) ──────────────
+  //
+  // A new category. A target that is ONE number for the whole village is a
+  // dial; a target that is per need is a row in `village_needs`, because there
+  // are ten to thirty of those and this surface is a flat searchable list.
+  // Ring derives to `open` for the reason the Exit block gives above.
+  //
+  // TWO OF THE FIVE DEFAULTS ARE LIFTED FROM THE STORE, not from the design.
+  // `upsertScopeNeed` (server/lib/needs.ts) hardcodes `depthTarget ??
+  // "satisfied"` and `breadthTargetPct === undefined ? 100`, so those two
+  // literals are what a village adopting a need gets today and those two
+  // literals are the defaults here. Breadth is an INTEGER and not a
+  // `percentage`, because `scopeProblem` refuses a fractional percent by name
+  // and a dial accepting 50.5 would hand the store a number it will not take.
+  //
+  // NOTHING READS THESE FIVE YET. Measured at this ref by grepping every key
+  // across the tree: no file names any of them. The scope editor writes the
+  // two literals above, the member card reads the floor when that lane lands,
+  // and the launch checklist reads the last one when it lands. Every
+  // description below says what is true today.
+  {
+    key: "needs.totality_target_pct",
+    category: "Needs",
+    label: "Share of its members' needs this village aims to meet",
+    description:
+      "What the village is reaching for, taken over every need it has adopted and every member it is designing for. This figure is DESCRIPTIVE. It sizes nothing, budgets nothing and gates nothing: no pool, no allowance, no payout and no launch check reads it, and none is meant to. It is here so a village can say the number out loud, see it on the test run, and be told when what it has built falls short of it. Ten percent is a good neighbour. A hundred percent is a whole world and needs a whole economy behind it. 0 means nobody has said yet, and the test run says exactly that. This is one of four figures a village is meant to settle before it launches and then leave alone; no code freezes it today, so that is a discipline the village keeps and not a lock the platform applies.",
+    type: "percentage",
+    default: "0",
+    min: 0,
+    max: 100,
+    unit: "% of needs",
+  },
+  {
+    key: "needs.default_depth_target",
+    category: "Needs",
+    label: "Rung a need aims for when nobody said otherwise",
+    description:
+      "The depth a need starts at when the village adopts it without choosing one. The ladder runs Deprived, Unmet, Alive, Satisfied, Thriving, lowest first, and most villages aim at Satisfied across the board and reach for Thriving on two or three. Every need can be moved on its own afterwards; this is only where it starts. The scope editor writes Satisfied today whatever this says, so moving it takes effect once that editor reads it.",
+    type: "choice",
+    default: "satisfied",
+    choices: NEED_DEPTHS.map((d) => ({ value: d, label: NEED_DEPTH_LABELS[d] })),
+  },
+  {
+    key: "needs.default_breadth_pct",
+    category: "Needs",
+    label: "Share of members a need aims to reach when nobody said otherwise",
+    description:
+      "How much of the village a need is meant to cover when it is adopted without a figure. 100 means everybody, which is what the scope editor writes today. Lower it where the village is being honest that a need is met for some and unmet for others. Whole percents only, because the scope table refuses a fraction by name. Every need can be moved on its own afterwards.",
+    type: "integer",
+    default: "100",
+    min: 0,
+    max: 100,
+    unit: "% of members",
+  },
+  {
+    key: "needs.aggregate_floor",
+    category: "Needs",
+    label: "Smallest count of members that may be shown",
+    description:
+      "The smallest number of members whose answers may appear as a count anywhere in the village. Under it the village sees nothing at all, because in a small place a count of one is a name and a count of two is a name and a guess. 3 is the floor the member card and the health series both read once those land. Raise it in a village where people know each other well enough for four to be identifiable.",
+    type: "integer",
+    default: "3",
+    min: 1,
+    max: 1000,
+    unit: "members",
+  },
+  {
+    key: "needs.launch_requirement",
+    category: "Needs",
+    label: "Whether saying what the village is for is asked before launch",
+    description:
+      "Whether the launch checklist asks a village to name its needs and its target before the launch vote opens. Recommended puts it on the list beside the items a member will feel the absence of, and the vote still opens. There is deliberately no blocking choice: a village that has not said what it is for may still start its Game, and a platform that held the launch over an unanswered target would be the platform deciding what the village is for. Nothing reads this until the launch check names it.",
+    type: "choice",
+    default: "recommended",
+    choices: [
+      { value: "recommended", label: "Ask for it, and let the vote open anyway" },
+      { value: "none", label: "Do not ask" },
+    ],
   },
 ];
 
