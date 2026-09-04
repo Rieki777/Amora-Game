@@ -41,19 +41,26 @@
  *
  * ── THE CARVE-OUT THE SEAT CANNOT VETO ─────────────────────────────────────
  *
- * Two different carve-outs, and keeping them apart is the fix of 2026-09-03.
+ * ONE CARVE-OUT AND IT TAKES THE VETO ONLY. Section 20.11: seat and unseat of
+ * a steward-capable role, and any edit to the veto map, "keep their timing and
+ * window like any Game change but are NOT vetoable". That is `notVetoable` on
+ * the landing, which keeps the instant, the countdown and the notice and takes
+ * away only the door a steward would otherwise walk through.
  *
- * `role_seat` and `role_unseat` execute AT PASS with no window at all
- * (`NO_WINDOW_SUBJECTS`), because the founder's own R90 asks for a seated
- * steward to act immediately and because a steward whose removal waits inside
- * a window they hold is a seat nobody can remove.
- *
- * An edit to the veto map is the same danger one step removed, and it takes
- * the OTHER carve-out: `notVetoable` on the landing, which keeps the instant,
- * the countdown and the notice and takes away only the door a steward would
- * otherwise walk through. Section 20.11 states it in those words: such a
- * change keeps its timing and its window and is not vetoable. Folding the two
- * into one flag is what let a veto-map edit execute at close with nobody told.
+ * `NO_WINDOW_SUBJECTS` is a different and much narrower thing, and the audit
+ * of 2026-09-04 is why it no longer holds the seat acts. It used to, on the
+ * argument that a steward whose removal waits inside a window they hold is a
+ * seat nobody can remove. `notVetoable` answers that argument already: the
+ * window runs and the seat has no door into it. What the old reading actually
+ * produced was a sentence the platform contradicted in the same breath: the
+ * refusal a steward reads says the decision "waits out its window like any
+ * other Game change", while the arithmetic gave it `executesAtClose` and a
+ * null `lands_at`, so there was no window, no countdown and no notice, and the
+ * veto route answered "This one took effect the moment it carried". It was
+ * also wider than its own argument, because an ordinary seating for a role
+ * carrying no `steward.veto` skipped the window too while the same refusal
+ * called it vetoable. Both now wait, and only the steward-capable one is
+ * beyond stopping.
  */
 
 /** How the two clocks are named everywhere. */
@@ -177,14 +184,14 @@ export function kindOfSet(itemKinds: readonly string[]): GovernanceKind {
 /**
  * SUBJECTS THAT EXECUTE AT PASS WITH NO WINDOW, whatever their kind.
  *
- * Read the header for why. These are the acts the seat itself is subject to,
- * and a window on them is a seat nobody can remove.
+ * ONE ENTRY, and the bar for a second one is that no seat exists yet to use
+ * the window. A decision the seat merely must not be able to STOP is not on
+ * this list; it takes `notVetoable`, which keeps the window and shuts the
+ * door. Read the header for the seat acts that were wrongly here.
  */
 export const NO_WINDOW_SUBJECTS: ReadonlySet<string> = new Set([
-  "role_seat",
-  "role_unseat",
   /*
-   * The Birthing, and it is here for a different reason from the two above.
+   * The Birthing.
    *
    * A window is a door for a seated steward, and before the Birthing there is
    * no seat: the catalysts are seated as stewards BY the launch, at the moment
@@ -268,7 +275,8 @@ export interface Landing {
  *
  * Five rules, and every one of them is the founder's sentence read literally:
  *
- *  1. A subject with no window executes at close, always. (The seat carve-out.)
+ *  1. A subject with no window executes at close, always. Only the Birthing,
+ *     which happens before any seat exists to use a window.
  *  2. A TOKEN_SEND chosen `at_acceptance` executes at close. The steward's brake
  *     on it was their no vote while the ballot was open.
  *  3. A GAME_CHANGE chosen `at_acceptance` still cannot land before its window
@@ -299,7 +307,8 @@ export function landingFor(input: LandingInput): Landing {
       vetoClosesAt: null,
       executesAtClose: true,
       vetoable: false,
-      because: "This one takes effect the moment it carries. A seat is not something the seat can hold on to.",
+      because:
+        "This one takes effect the moment it carries. It is the village's own beginning, and there is no seat yet that a waiting window could be a door for.",
     };
   }
 

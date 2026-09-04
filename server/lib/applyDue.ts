@@ -91,7 +91,7 @@ import { ballotById, votesFor, type BallotRow } from "./ballots";
 import { floorForCriticality, thresholdSettingsFrom, type ThresholdSettings } from "../../shared/ballotSubjects";
 import type { Criticality } from "../../shared/governanceEngine";
 import { numberVar, stringVar } from "./variables";
-import { keyIsVetoMap, recordVeto as recordStewardAct, stewardNoBlocks, stewardsSeated, vetoWatchMarksDue, type VetoWindowVerdict } from "./stewardship";
+import { keyIsVetoMap, recordVeto as recordStewardAct, seatsStewardCapableRole, stewardNoBlocks, stewardsSeated, vetoWatchMarksDue, type VetoWindowVerdict } from "./stewardship";
 /*
  * The digest composer is re-exported from beside the `composeDigest` dep that
  * takes it, so a caller wiring the landing job reaches one module for the job
@@ -200,6 +200,16 @@ export interface StampInput {
    * and Phase 1b conflated them.
    */
   editsVetoMap?: boolean;
+  /**
+   * True when this ballot seats or unseats a role that carries `steward.veto`.
+   *
+   * The SAME carve-out as `editsVetoMap` and fed the same way, because it is
+   * the same rule: 20.11 names the seat acts and the veto-map edits in one
+   * sentence. It was not fed at all until the audit of 2026-09-04, and the
+   * seat acts were carrying `NO_WINDOW_SUBJECTS` instead, so a steward read a
+   * refusal promising a window on a decision that had already happened.
+   */
+  seatsStewardCapableRole?: boolean;
   /** True when the set moves a number the running cycle is being settled against. */
   snapToBoundary?: boolean;
 }
@@ -221,7 +231,7 @@ export function landingOf(deps: LandingDeps, input: StampInput): Landing {
     vetoHours: vetoHoursFrom(deps.vetoHours()),
     nextBoundaryAfter: deps.nextBoundaryAfter,
     noWindow: executesAtPassWithNoWindow(b.subjectType),
-    notVetoable: !!input.editsVetoMap,
+    notVetoable: !!input.editsVetoMap || !!input.seatsStewardCapableRole,
     snapToBoundary: !!input.snapToBoundary,
   });
 }
@@ -1109,6 +1119,7 @@ export async function routeOutcome(
     ballot: b,
     itemKinds,
     editsVetoMap: await editsVetoMap(deps, b),
+    seatsStewardCapableRole: await seatsStewardCapableRole(deps.pool, b),
     snapToBoundary: await snapsToBoundary(deps, b),
   });
   await stampLanding(deps, b, landing);

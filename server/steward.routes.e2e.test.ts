@@ -145,6 +145,23 @@ const seatedIn = async (roleId: string): Promise<Array<{ userId: string; granted
   return rows.map((r) => ({ userId: String(r.user_id), grantedBy: String(r.granted_by ?? "") }));
 };
 
+/**
+ * THE LANDING THE CLOSE STAMPED, read raw off the ballot.
+ *
+ * A NULL `lands_at` means the decision executed at the close with no window,
+ * no countdown and nobody told. That is exactly what a seating used to do
+ * while the platform's own refusal promised a steward it "waits out its
+ * window", so the seat cases below read this column rather than trusting that
+ * the seat arrived.
+ */
+const landingOn = async (ballotId: string): Promise<{ landsAt: unknown; status: string }> => {
+  const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+    "SELECT lands_at, landing_status FROM ballots WHERE id = ?",
+    [ballotId],
+  );
+  return { landsAt: rows[0]?.lands_at ?? null, status: String(rows[0]?.landing_status ?? "") };
+};
+
 /** Every line the VILLAGE can read. Audience public, examples out. */
 const publicPulse = async (): Promise<string[]> => {
   const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
@@ -164,8 +181,15 @@ const publicPulse = async (): Promise<string[]> => {
  * rather than executed there, and a steward may stop it until that instant.
  * Nothing in this file is about the window, so the fixture runs the clock out
  * and calls the landing path, which is what the five-minute job does on its
- * own in a running village. Seating and unseating carry no window at all and
- * take effect at the close, so for those this step finds nothing due.
+ * own in a running village.
+ *
+ * SEATING AND UNSEATING GO THROUGH THE SAME STEP as of 2026-09-04. They used
+ * to execute at the close with no window at all, which contradicted the
+ * refusal the platform prints to a steward about them ("it waits out its
+ * window like any other Game change") and gave the one act nobody can stop
+ * the fastest clock on the platform. Under 20.11 they keep the window and
+ * lose only the door, so `land` finds them due like anything else, and R90's
+ * "immediately act" is measured from the landing rather than from the close.
  */
 async function carry(ballotId: string, outcomeNote: string): Promise<Answer> {
   for (const t of [founderToken, rhodaToken, solToken, tamToken]) {
@@ -486,6 +510,13 @@ describe.skipIf(!DB_CONFIGURED)("the village gives it a power, and seats somebod
     expect(closed.status, JSON.stringify(closed.json)).toBe(200);
     expect(closed.json?.outcome).toBe("passed");
 
+    // 20.11: the seating was STAMPED and waited out a window, and did not
+    // execute at the close. A null instant here is the defect this line
+    // exists to catch, and a green seat below would hide it.
+    const stamped = await landingOn(String(opened.json.ballot.id));
+    expect(stamped.landsAt, "a seating carries a landing instant like any other Game change").not.toBeNull();
+    expect(stamped.status).toBe("applied");
+
     const seats = await seatedIn(ROLE_ID);
     expect(seats.map((s) => s.userId)).toEqual([solId]);
     // The BALLOT is the grantor, because the village seated them. Naming the
@@ -503,6 +534,12 @@ describe.skipIf(!DB_CONFIGURED)("the village gives it a power, and seats somebod
      * immediately act". Nothing extra makes this true. The one gate reads the
      * holder rows and the role's capability list on every request with no
      * cache in between, so the seat landing IS the power arriving.
+     *
+     * "IMMEDIATELY" IS MEASURED FROM THE LANDING and not from the close, since
+     * 20.11 gave the seat acts the same window as any other Game change. The
+     * previous case carried the seating through `carry`, which runs the clock
+     * out and calls the landing path, so by the time this runs the row has
+     * landed and there is still nothing between the seat and the power.
      */
     const acted = await call("POST", "/api/admin/library/adjust", {
       token: solToken,
@@ -552,6 +589,10 @@ describe.skipIf(!DB_CONFIGURED)("voted in means voteable out", () => {
     const closed = await carry(String(opened.json.ballot.id), "Sol asked for this and the village agrees.");
     expect(closed.status, JSON.stringify(closed.json)).toBe(200);
     expect(closed.json?.outcome).toBe("passed");
+    // The unseating waited out a window too, for the same reason.
+    const stamped = await landingOn(String(opened.json.ballot.id));
+    expect(stamped.landsAt, "an unseating carries a landing instant too").not.toBeNull();
+    expect(stamped.status).toBe("applied");
     expect(await seatedIn(ROLE_ID)).toEqual([]);
   });
 

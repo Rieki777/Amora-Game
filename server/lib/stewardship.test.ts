@@ -55,6 +55,14 @@ import {
   STEWARD_VETO,
   VETO_HOURS_KEY,
 } from "./stewardship";
+import { landingOf, type LandingDeps } from "./applyDue";
+import type { BallotRow } from "./ballots";
+import {
+  NO_WINDOW_SUBJECTS,
+  executesAtPassWithNoWindow,
+  kindOfSubject,
+  landingFor,
+} from "../../shared/governanceKinds";
 import { emailCadenceFor, resolveNotifyPrefs } from "./notify";
 import { capabilityDecision } from "../../shared/capabilities";
 import { NOTIFICATION_KINDS } from "../../shared/notificationKinds";
@@ -668,5 +676,96 @@ describe("where this lane's free text lives", () => {
       "ballots.veto_reason",
       "mechanics_proposals.veto_reason",
     ]);
+  });
+});
+
+describe("the seat carve-out says one thing in the copy and in the arithmetic", () => {
+  /*
+   * THE DEFECT THIS PINS. `isVetoable` refused a veto on a steward-capable
+   * seat act with the words "It waits out its window like any other Game
+   * change", while `NO_WINDOW_SUBJECTS` still held `role_seat` and
+   * `role_unseat`, so the same ballot got `executesAtClose` and a null
+   * `lands_at`. There was no window, no countdown and no notice, and the veto
+   * route answered "This one took effect the moment it carried". A member read
+   * a promise of a window on a decision that had already happened.
+   *
+   * The carve-out was also wider than its own argument: an ordinary seating
+   * for a role carrying no `steward.veto` skipped the window too, while
+   * `isVetoable` called that same ballot vetoable.
+   *
+   * Section 20.11 settles which of the two is right: seat and unseat of a
+   * steward-capable role "keep their timing and window like any Game change
+   * but are NOT vetoable". So the window stands for both, and the door shuts
+   * only on the steward-capable one.
+   */
+  const HOUR = 60 * 60 * 1000;
+  const CLOSE = new Date("2026-09-10T00:00:00.000Z");
+  const FAR = new Date("2026-09-30T00:00:00.000Z");
+  const WINDOW_END = new Date(CLOSE.getTime() + 72 * HOUR);
+
+  const shared = (subjectType: string, notVetoable: boolean) =>
+    landingFor({
+      closesAt: CLOSE,
+      kind: kindOfSubject(subjectType),
+      timing: "at_acceptance",
+      vetoHours: 72,
+      nextBoundaryAfter: () => FAR,
+      noWindow: executesAtPassWithNoWindow(subjectType),
+      notVetoable,
+    });
+
+  const landingDeps = { vetoHours: () => 72, nextBoundaryAfter: () => FAR } as unknown as LandingDeps;
+  const seatBallot = (subjectType: string) =>
+    ({
+      id: `bal-${subjectType}`,
+      subjectType,
+      subjectRef: "usr-1@game-steward",
+      closesAt: CLOSE,
+      timing: "at_acceptance",
+    }) as unknown as BallotRow;
+
+  it("gives a steward-capable seat act the window its own refusal promises", () => {
+    const verdict = isVetoable("role_unseat", [], { stewardSubjects: "all", seatsStewardCapableRole: true });
+    expect(verdict.vetoable).toBe(false);
+    expect(verdict.why).toContain("waits out its window");
+
+    // The arithmetic has to say the same thing, or the sentence is a lie.
+    expect(executesAtPassWithNoWindow("role_unseat")).toBe(false);
+    expect(executesAtPassWithNoWindow("role_seat")).toBe(false);
+    const l = shared("role_unseat", true);
+    expect(l.executesAtClose).toBe(false);
+    expect(l.landsAt?.toISOString()).toBe(WINDOW_END.toISOString());
+    expect(l.vetoClosesAt?.toISOString()).toBe(WINDOW_END.toISOString());
+    expect(l.vetoable).toBe(false);
+  });
+
+  it("leaves an ordinary seating both windowed and vetoable, as the copy already says", () => {
+    expect(isVetoable("role_seat", [], { stewardSubjects: "all" }).vetoable).toBe(true);
+    const l = shared("role_seat", false);
+    expect(l.executesAtClose).toBe(false);
+    expect(l.landsAt?.toISOString()).toBe(WINDOW_END.toISOString());
+    expect(l.vetoable).toBe(true);
+  });
+
+  it("carries the seat carve-out into the landing the server actually stamps", () => {
+    /*
+     * The wiring, and it is the half that made the copy false. `landingOf` fed
+     * `notVetoable` from the veto-map reader alone, so a seat act reached the
+     * arithmetic with nothing said about the seat at all.
+     */
+    const held = landingOf(landingDeps, { ballot: seatBallot("role_unseat"), seatsStewardCapableRole: true });
+    expect(held.executesAtClose).toBe(false);
+    expect(held.landsAt?.toISOString()).toBe(WINDOW_END.toISOString());
+    expect(held.vetoable).toBe(false);
+
+    const ordinary = landingOf(landingDeps, { ballot: seatBallot("role_seat"), seatsStewardCapableRole: false });
+    expect(ordinary.executesAtClose).toBe(false);
+    expect(ordinary.landsAt?.toISOString()).toBe(WINDOW_END.toISOString());
+    expect(ordinary.vetoable).toBe(true);
+  });
+
+  it("keeps the Birthing on the no-window list, which is the one act with no seat to hold it", () => {
+    expect(executesAtPassWithNoWindow("village_launch")).toBe(true);
+    expect(Array.from(NO_WINDOW_SUBJECTS)).toEqual(["village_launch"]);
   });
 });

@@ -56,6 +56,7 @@ import {
   seatCatalystsAsStewards,
   stewardVetoStands,
   stewardsSeated,
+  seatsStewardCapableRole,
   subjectIsVetoable,
   subjectTypesSeen,
   termEndsAtFromCycles,
@@ -418,6 +419,28 @@ describe.skipIf(!configured)("the veto on a carried decision", () => {
   it("can still be used on a seating for any other role", async () => {
     const verdict = await subjectIsVetoable(pool, { subjectType: "role_seat", subjectRef: "pr-1@gardeners" });
     expect(verdict.vetoable).toBe(true);
+  });
+
+  it("hands the LANDING path the same fact, so the sentence and the instant agree", async () => {
+    /*
+     * The defect of 2026-09-04 was two modules holding two answers about one
+     * seat act. This function said the decision "waits out its window like any
+     * other Game change" while the landing arithmetic put `role_seat` and
+     * `role_unseat` on the no-window list, so the same ballot got no window,
+     * no countdown and no notice. `landingOf` in server/lib/applyDue.ts now
+     * feeds `notVetoable` from THIS reader, the way it already fed the
+     * veto-map one, so both answers come off one fact.
+     */
+    const held = { subjectType: "role_unseat", subjectRef: `st-1@${STEWARD_ROLE_ID}` };
+    expect(await seatsStewardCapableRole(pool, held)).toBe(true);
+    expect((await subjectIsVetoable(pool, held)).vetoable).toBe(false);
+
+    const ordinary = { subjectType: "role_seat", subjectRef: "pr-1@gardeners" };
+    expect(await seatsStewardCapableRole(pool, ordinary)).toBe(false);
+    expect((await subjectIsVetoable(pool, ordinary)).vetoable).toBe(true);
+
+    // A subject that is not a seating never reaches the roles table at all.
+    expect(await seatsStewardCapableRole(pool, { subjectType: "mechanics", subjectRef: "prop-x" })).toBe(false);
   });
 
   it("can never be used on an advisory vote, which changes nothing", async () => {

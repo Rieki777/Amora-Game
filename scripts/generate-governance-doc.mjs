@@ -3106,12 +3106,14 @@ export function render(f) {
   p();
   p(
     `Read from the code: ${list(f.kinds.noWindowSubjects)} execute the moment they carry, with no window at all. ` +
-      "The ruling of 2026-09-03 asks for something narrower for the two seat acts, which is that they keep their " +
-      "timing and their window like any Game change and that no steward may stop them. The code gives them no window " +
-      "at all, which arrives at the same place by a shorter road, and the difference is written down here because the " +
-      "two are not the same sentence. The Birthing is on that list for a reason of its own: before it carries nobody " +
-      "holds a seat, so a window on it would be hours nobody could use, and it already asks every seat to vote and " +
-      "every seat to say yes.",
+      "The Birthing is the whole of that list, and its reason has nothing to do with stopping anybody: before it " +
+      "carries nobody holds a seat, so a window on it would be hours nobody could use, and it already asks every " +
+      "seat to vote and every seat to say yes. Seating and unseating were on that list until 2026-09-04, on the " +
+      "argument that a steward whose removal waits inside a window they hold is a seat nobody can remove. Not " +
+      "vetoable answers that argument on its own: the window runs and the seat has no door into it. The shorter " +
+      "road cost the village the sentence it was reading, because the refusal a steward gets says the decision " +
+      "waits out its window like any other Game change while the arithmetic was giving it no window, no countdown " +
+      "and no notice. Both seat acts wait now, and only the door is shut.",
   );
   p();
   say("override");

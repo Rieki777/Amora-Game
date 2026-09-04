@@ -109,13 +109,35 @@ describe("when a carried decision lands", () => {
     expect(l.landsAt?.toISOString()).toBe(new Date(CLOSE.getTime() + 168 * HOUR).toISOString());
   });
 
-  it("executes a seating at pass with no window, so a seat cannot hold its own removal", () => {
-    expect(executesAtPassWithNoWindow("role_unseat")).toBe(true);
-    expect(executesAtPassWithNoWindow("role_seat")).toBe(true);
+  it("gives a seating a window like any other Game change, and keeps the Birthing out of one", () => {
+    /*
+     * REWRITTEN 2026-09-04, and the rule it pinned is what was wrong.
+     *
+     * The seat acts used to be here on the argument that a steward whose
+     * removal waits inside a window they hold is a seat nobody can remove.
+     * `notVetoable` answers that on its own: the window runs and the seat has
+     * no door into it. Leaving them here meant the refusal a steward reads
+     * ("it waits out its window like any other Game change") described a
+     * decision that had already happened, and the veto route answered "This
+     * one took effect the moment it carried". 20.11 keeps the window.
+     *
+     * The Birthing stays, for the one reason that has nothing to do with
+     * stopping anybody: there is no seat yet to use the window.
+     */
+    expect(executesAtPassWithNoWindow("role_unseat")).toBe(false);
+    expect(executesAtPassWithNoWindow("role_seat")).toBe(false);
     expect(executesAtPassWithNoWindow("mechanics")).toBe(false);
-    const l = landingFor({ closesAt: CLOSE, kind: "game_change", timing: "next_moon", vetoHours: 72, nextBoundaryAfter: farMoon, noWindow: true });
-    expect(l.executesAtClose).toBe(true);
-    expect(l.landsAt).toBeNull();
+    expect(executesAtPassWithNoWindow("village_launch")).toBe(true);
+
+    const seating = landingFor({ closesAt: CLOSE, kind: "game_change", timing: "next_moon", vetoHours: 72, nextBoundaryAfter: farMoon, notVetoable: true });
+    expect(seating.executesAtClose).toBe(false);
+    expect(seating.landsAt?.toISOString()).toBe(farMoon().toISOString());
+    expect(seating.vetoClosesAt?.toISOString()).toBe(farMoon().toISOString());
+    expect(seating.vetoable).toBe(false);
+
+    const birthing = landingFor({ closesAt: CLOSE, kind: "game_change", timing: "next_moon", vetoHours: 72, nextBoundaryAfter: farMoon, noWindow: true });
+    expect(birthing.executesAtClose).toBe(true);
+    expect(birthing.landsAt).toBeNull();
   });
 });
 

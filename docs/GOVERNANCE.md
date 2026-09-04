@@ -302,7 +302,7 @@ The veto lives on the BALLOT, and a proposal's display of it derives from that p
 <!-- written by a person: notVetoable -->
 **What no steward may stop.** Seating and unseating a role that carries the veto, and any edit to the settings that say what a steward may stop, keep their timing and their window like any Game change and sit outside every steward's reach. A seat that could veto its own removal is a seat nobody can remove. A change set mixing one of those elements with any other kind is refused when it is validated, naming both elements, so the carve-out cannot carry anything else through beside it.
 
-Read from the code: `role_seat`, `role_unseat`, `village_launch` execute the moment they carry, with no window at all. The ruling of 2026-09-03 asks for something narrower for the two seat acts, which is that they keep their timing and their window like any Game change and that no steward may stop them. The code gives them no window at all, which arrives at the same place by a shorter road, and the difference is written down here because the two are not the same sentence. The Birthing is on that list for a reason of its own: before it carries nobody holds a seat, so a window on it would be hours nobody could use, and it already asks every seat to vote and every seat to say yes.
+Read from the code: `village_launch` execute the moment they carry, with no window at all. The Birthing is the whole of that list, and its reason has nothing to do with stopping anybody: before it carries nobody holds a seat, so a window on it would be hours nobody could use, and it already asks every seat to vote and every seat to say yes. Seating and unseating were on that list until 2026-09-04, on the argument that a steward whose removal waits inside a window they hold is a seat nobody can remove. Not vetoable answers that argument on its own: the window runs and the seat has no door into it. The shorter road cost the village the sentence it was reading, because the refusal a steward gets says the decision waits out its window like any other Game change while the arithmetic was giving it no window, no countdown and no notice. Both seat acts wait now, and only the door is shut.
 
 <!-- written by a person: override -->
 **The override.** A proposal that was stopped may be brought back. Passed again at the village's highest set tier, with the relation stated (`renews`, `overrides` or `replaces`) and the ballot actually PRICED at that tier, it lands whatever any steward says. The record links it to the decision that was stopped and the reason stays visible beside it. A renewal may not point at a decision that was stopped.
@@ -2100,8 +2100,6 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     },
     "absentMeans": "game_change",
     "executesAtPassWithNoWindow": [
-      "role_seat",
-      "role_unseat",
       "village_launch"
     ],
     "vetoHoursFloor": 72

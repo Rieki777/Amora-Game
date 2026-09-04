@@ -398,13 +398,32 @@ export async function subjectIsVetoable(
   ballot: { subjectType: string; subjectRef?: string | null },
   elements: readonly { key?: unknown }[] = [],
 ): Promise<VetoableVerdict> {
-  let seatsStewardCapableRole = false;
-  if (ROLE_SEAT_SUBJECTS.includes(ballot.subjectType)) {
-    const roles = await rolesCarryingVeto(pool);
-    const roleId = roleFromSeatRef(ballot.subjectRef);
-    seatsStewardCapableRole = !!roleId && roles.has(roleId);
-  }
-  return isVetoable(ballot.subjectType, elements, { seatsStewardCapableRole });
+  return isVetoable(ballot.subjectType, elements, {
+    seatsStewardCapableRole: await seatsStewardCapableRole(pool, ballot),
+  });
+}
+
+/**
+ * IS THIS BALLOT ABOUT THE SEAT THAT WOULD BE VETOING IT?
+ *
+ * The one fact `isVetoable` cannot read for itself, lifted out of
+ * `subjectIsVetoable` so the LANDING path can ask it too. `landingOf` in
+ * server/lib/applyDue.ts feeds it into `notVetoable` exactly as it feeds the
+ * veto-map reader, because 20.11 names the two in one sentence. Before that
+ * wiring the seat acts were carrying a no-window flag instead, and the refusal
+ * a steward reads promised a window the arithmetic never gave them.
+ *
+ * False for every subject that is not a seating, without touching the roles
+ * table, so the landing path pays nothing on the other subjects.
+ */
+export async function seatsStewardCapableRole(
+  pool: Pool,
+  ballot: { subjectType: string; subjectRef?: string | null },
+): Promise<boolean> {
+  if (!ROLE_SEAT_SUBJECTS.includes(ballot.subjectType)) return false;
+  const roles = await rolesCarryingVeto(pool);
+  const roleId = roleFromSeatRef(ballot.subjectRef);
+  return !!roleId && roles.has(roleId);
 }
 
 // ── The window ──────────────────────────────────────────────────────────────

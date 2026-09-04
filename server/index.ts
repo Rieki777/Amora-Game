@@ -26466,7 +26466,7 @@ ${inner}
       `## What ${firstName(member.name)} would be able to do`,
       "",
       can.length
-        ? `From the day this carries, with no further vote:\n\n${can.map((c) => `- ${c}`).join("\n")}`
+        ? `From the day this lands, with no further vote:\n\n${can.map((c) => `- ${c}`).join("\n")}`
         : `${who} carries no powers today, so this seats somebody in a role that grants nothing yet. If the village later votes ${who} a power, whoever is sitting in it holds that power from that day.`,
       "",
       `## Why this person`,
