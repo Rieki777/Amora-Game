@@ -247,13 +247,22 @@ describe("the ratchet on the one big file", () => {
      * called a green file red by eye.
      */
     const { execFileSync } = await import("child_process");
-    const out = execFileSync(process.execPath, ["scripts/check-server-index-size.mjs", "--json"], {
-      cwd: process.cwd(), encoding: "utf8",
-    });
+    // The guard EXITS NON-ZERO when it fails, and `--json` prints the report
+    // first either way. Reading only the happy path made a deliberate red fail
+    // with "Command failed" and never reach the comparison below, so the two
+    // numbers that matter never appeared. Take stdout from the throw as well.
+    let out = "";
+    try {
+      out = execFileSync(process.execPath, ["scripts/check-server-index-size.mjs", "--json"], {
+        cwd: process.cwd(), encoding: "utf8",
+      });
+    } catch (e: any) {
+      out = String(e?.stdout ?? "");
+    }
     const report = JSON.parse(out.split("\n").find((l) => l.trim().startsWith("{")) ?? "{}");
     expect(typeof report?.current?.lines, "the guard must report a line count").toBe("number");
-    expect(report.current.lines).toBeLessThanOrEqual(report.baseline.lines);
-    expect(report.current.routes).toBeLessThanOrEqual(report.baseline.routes);
+    expect(report.current.lines, "server/index.ts lines against the ratchet").toBeLessThanOrEqual(report.baseline.lines);
+    expect(report.current.routes, "route registrations against the ratchet").toBeLessThanOrEqual(report.baseline.routes);
   });
 });
 
