@@ -694,3 +694,25 @@ export async function recentDrops(pool: Pool, days = 30): Promise<DropCount[]> {
     lastAt: iso(r.last_at),
   }));
 }
+
+/**
+ * Return every proposal that was accepted into one draft to the queue.
+ *
+ * The other half of `withdrawDraft`. Accepting marks each proposal 'accepted'
+ * and stamps `created_ref` with the draft id, so withdrawing that draft
+ * without this would leave those proposals accepted, out of the queue, and
+ * pointing at a draft that no longer applies. The steward would have no way
+ * back to them and the vendor would have no reason to resend: from their side
+ * the records were accepted.
+ *
+ * Scoped to `status = 'accepted'` so a proposal that was rejected, or
+ * superseded by a newer claim while the draft sat open, is left alone.
+ */
+export async function reopenProposalsFor(pool: Pool, createdRef: string): Promise<number> {
+  const [r] = await pool.query<any>(
+    "UPDATE external_proposals SET status = 'proposed', decided_by = NULL, decided_at = NULL, " +
+      "decided_note = NULL, created_ref = NULL WHERE created_ref = ? AND status = 'accepted'",
+    [createdRef],
+  );
+  return Number(r?.affectedRows) || 0;
+}
