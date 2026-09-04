@@ -128,6 +128,16 @@ The dials a village holds, with the ring that says who may move each one and the
 | `governance.veto_hours` | How long a steward has to stop a change | `open` | `72` | 72 to 720 hours | when it is written |
 | `governance.landing_expiry_cycles` | Cycles a passed decision waits before it is written off | `open` | `3` | 1 to 12 cycles | when it is written |
 | `governance.change_cooldown_days` | Cooldown after a governed rule change | `open` | `0` | 0 to 365 days | when it is written |
+| `governance.window_changeset` | When a change to the Game Mechanics can go to the vote | `open` | `always_open` | text | when it is written |
+| `governance.window_mint_rule` | When a change to what the village mints can go to the vote | `open` | `always_open` | text | when it is written |
+| `governance.window_governance_mode` | When a change to how votes are counted can go to the vote | `open` | `always_open` | text | when it is written |
+| `governance.window_role_declare` | When declaring a role can go to the vote | `open` | `always_open` | text | when it is written |
+| `governance.window_role_seat` | When seating a role can go to the vote | `open` | `always_open` | text | when it is written |
+| `governance.window_role_unseat` | When taking a seat back can go to the vote | `open` | `always_open` | text | when it is written |
+| `governance.window_power_transfer` | When moving a power to a role can go to the vote | `open` | `always_open` | text | when it is written |
+| `governance.window_power_grant` | When granting a power can go to the vote | `open` | `always_open` | text | when it is written |
+| `governance.window_power_return` | When handing a power back can go to the vote | `open` | `always_open` | text | when it is written |
+| `governance.window_grace_days` | How long a proposal coming back may open outside its window | `open` | `7` | 0 to 90 days | when it is written |
 | `governance.weight_mode` | How voting weight is assigned | `founder` | `equal` | `equal`, `token`, `custom` | when it is written |
 | `governance.weight_token` | The weight token | `founder` | `gratitude` | text | when it is written |
 | `governance.unity_pct` | Unity needed to pass | `open` | `80` | 50 to 100 % | when it is written |
@@ -151,7 +161,7 @@ The dials a village holds, with the ring that says who may move each one and the
 <!-- written by a person: dialsStorage -->
 Only CHANGED values are stored. An absent row means the platform default in the table above, so a fresh village starts with every one of these and no rows at all.
 
-11 settings across the whole registry wait for a cycle close instead of applying when they are written: `cycle.mode`, `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 31 settings above is one of them, so every governance dial takes effect the moment it is written.
+11 settings across the whole registry wait for a cycle close instead of applying when they are written: `cycle.mode`, `economy.voice_claim_threshold`, `economy.claims_week_days`, `economy.claims_week_starts`, `gratitude.base_budget`, `gratitude.pool_per_cycle`, `gratitude.pool_token`, `gratitude.max_share_per_recipient`, `feed.heart_amount`, `feed.max_hearts_per_recipient_per_cycle`, `ledger.admin_mint_cycle_cap`. The per-stage sending multipliers carry the same timing through their own override, one for each rung of the ladder. None of the 41 settings above is one of them, so every governance dial takes effect the moment it is written.
 
 ## What each kind of decision asks
 
@@ -358,7 +368,6 @@ What is staged: ruled by the founder, described here, and absent from the code. 
 
 - **Catalysts inherit the steward seat at the Birthing, and the seat is re-voted every season** (ruling 2)
 - **Giving up the steward power is reversible, and only the village can fill the seat again** (ruling 3)
-- **Governance week is a default pattern and never a permission check** (ruling 6)
 - **Delegation copies the choice, chains are transitive, and concentration is visible** (ruling 7)
 - **One to three catalysts start a village, and Voice is the only token they may issue before the Game starts** (ruling 10)
 - **The Game Mechanics section is public, always, and after the Birthing every control becomes a proposal** (ruling 12)
@@ -430,7 +439,7 @@ Terms and powers live on two planes that share only a word, and the ruling now h
 
 ### 6. Governance week is a default pattern and never a permission check
 
-**Staged.** Not built. Status computed from the code. Said 2026-08-31.
+**Built**, and the second half of the ruling is withdrawn. Status computed from the code. Said 2026-08-31.
 
 <!-- the founder's own words -->
 > As a default pattern the week before a season ends is the 'governance week' where all the players who want a role in the next season put up proposals for their roles - they play out for the season.
@@ -439,7 +448,7 @@ Terms and powers live on two planes that share only a word, and the ruling now h
 > Players can make proposal at anytime and it's a cultural pattern when and how people will actually show up to vote. So that's for every village to decide but as a default pattern we offer the above.
 
 <!-- written by a person: ruling-6 -->
-No governance dial names a week. The shape the ruling asks for is a pattern that is visible, skippable and named as a default the village can change, and a product that never refuses an action because it is the wrong week. A village running its governance differently should never see a screen implying it is doing it wrong.
+The founder reopened this on 2026-09-03: a village MAY block proposals outside defined governance windows. So the sentence above about a permission check is withdrawn, and the rest of the ruling stands. Ten Governance settings hold one window shape each, one per proposal kind and one for a change set, and every one of them ships always open, so a village that wants the pattern without the gate has it. A shape is always_open, the last N days of every cycle under the active clock (the moon by default), the last N days of every season, or a range of days the village names. The window gates the OPENING alone: a ballot already running is never closed by a window shutting, and a proposal coming back after a veto or an objection opens outside its window for governance.window_grace_days. The refusal names which element of the proposal narrowed the window and when that window next opens.
 
 ### 7. Delegation copies the choice, chains are transitive, and concentration is visible
 
@@ -896,6 +905,116 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "default": "0",
       "min": 0,
       "max": 365,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_changeset",
+      "label": "When a change to the Game Mechanics can go to the vote",
+      "ring": "open",
+      "type": "text",
+      "default": "always_open",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_mint_rule",
+      "label": "When a change to what the village mints can go to the vote",
+      "ring": "open",
+      "type": "text",
+      "default": "always_open",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_governance_mode",
+      "label": "When a change to how votes are counted can go to the vote",
+      "ring": "open",
+      "type": "text",
+      "default": "always_open",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_role_declare",
+      "label": "When declaring a role can go to the vote",
+      "ring": "open",
+      "type": "text",
+      "default": "always_open",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_role_seat",
+      "label": "When seating a role can go to the vote",
+      "ring": "open",
+      "type": "text",
+      "default": "always_open",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_role_unseat",
+      "label": "When taking a seat back can go to the vote",
+      "ring": "open",
+      "type": "text",
+      "default": "always_open",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_power_transfer",
+      "label": "When moving a power to a role can go to the vote",
+      "ring": "open",
+      "type": "text",
+      "default": "always_open",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_power_grant",
+      "label": "When granting a power can go to the vote",
+      "ring": "open",
+      "type": "text",
+      "default": "always_open",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_power_return",
+      "label": "When handing a power back can go to the vote",
+      "ring": "open",
+      "type": "text",
+      "default": "always_open",
+      "min": null,
+      "max": null,
+      "choices": null,
+      "applyTiming": "instant"
+    },
+    {
+      "key": "governance.window_grace_days",
+      "label": "How long a proposal coming back may open outside its window",
+      "ring": "open",
+      "type": "integer",
+      "default": "7",
+      "min": 0,
+      "max": 90,
       "choices": null,
       "applyTiming": "instant"
     },
@@ -1534,7 +1653,7 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "dates": [
         "2026-08-31"
       ],
-      "status": "Staged. Not built.",
+      "status": "Built, and the second half of the ruling is withdrawn.",
       "statusBasis": "computed"
     },
     {

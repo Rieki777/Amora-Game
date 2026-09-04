@@ -26,6 +26,8 @@
  *    change-set block so apply-on-pass never re-parses prose.
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
+// Windows lane: the cross-key rule a window shape has to clear when it is set.
+import { windowSettingProblem } from "./governanceWindows";
 import {
   criticalityOf,
   ringOf,
@@ -577,6 +579,19 @@ export async function validateChangeSet(
     const invalid = validateVariable(def, to);
     if (invalid) {
       problems.push({ key, problem: invalid });
+      continue;
+    }
+    /*
+     * WINDOWS LANE (19E, 20.11). Two settings have to agree with a clock the
+     * registry cannot see from one value. A governance window shorter than the
+     * days a ballot stays open closes that kind of proposal forever, and a
+     * steward window longer than a cycle outruns the landing it counts to.
+     * The registry checks the grammar; these are the cross-key rules, refused
+     * when the value is SET so no village votes itself into either one.
+     */
+    const windowProblem = windowSettingProblem(key, to, Number(effectiveValueOf("governance.vote_days")));
+    if (windowProblem) {
+      problems.push({ key, problem: windowProblem });
       continue;
     }
     const from = effectiveValueOf(key);
