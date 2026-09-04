@@ -31,7 +31,7 @@
  * UNITS: minor everywhere in this file, human only at the route boundary.
  */
 import type { Pool, RowDataPacket, ResultSetHeader } from "mysql2/promise";
-import { balanceOf, memberAccount, postTransfer, tokenDef } from "./ledger";
+import { balanceOf, ledgerEntryExists, memberAccount, postTransfer, tokenDef } from "./ledger";
 import { fromLedgerUnits, keys, reverse, villageId } from "./economy";
 import { numberVar, stringVar, boolVar } from "./variables";
 import {
@@ -438,7 +438,43 @@ export async function settleRedemption(
      * otherwise have the burn try to take tokens out of an account that is
      * empty, or out of a member who has already been debited, depending on
      * which way somebody turned it.
+     *
+     * ── THE HOLD MUST ACTUALLY BE THERE, AND THIS IS NOT PARANOIA ───────────
+     *
+     * `sys:redemption-hold` POOLS every open redemption in the village, and the
+     * burn takes `row.amountUnits` out of it. So a row that SAYS it holds
+     * tokens and does not would burn somebody else's, silently: conservation
+     * would still be zero, the ledger invariants would report nothing, and one
+     * member would find their held tokens gone against a redemption they never
+     * made. `holdReconciliation` would show the drift afterwards, which is a
+     * record of a loss and not a guard against one.
+     *
+     * The window is narrow and it is real. `requestRedemption` commits the row
+     * and posts the hold immediately after, because `postTransfer` opens its
+     * own transaction and cannot join the one that wrote the row. A thrown post
+     * is caught there and marks the row `refused`; a process that dies between
+     * the commit and the post is not, and leaves exactly this shape.
+     *
+     * So the confirm door asks the LEDGER, not the row: does the posting this
+     * row names exist. It is one indexed read on a UNIQUE column, it runs once
+     * per confirmation, and it turns a silent theft into a refusal somebody can
+     * act on. The claim is rolled back so a repaired row can be confirmed
+     * later.
      */
+    if (row.heldAccount && row.holdKey && !(await ledgerEntryExists(pool, row.holdKey))) {
+      await pool.query(
+        "UPDATE `redemptions` SET `state` = 'requested', `decided_by` = NULL, `decided_at` = NULL, " +
+          "`decision_note` = NULL WHERE `id` = ? AND `village_id` = ? AND `state` = 'confirmed'",
+        [input.id, villageId()],
+      );
+      return {
+        ok: false,
+        reason: "burn-failed",
+        error:
+          "nothing was destroyed: this redemption says its tokens are held and the ledger has no " +
+          "posting that took them, so confirming it would destroy somebody else's",
+      };
+    }
     let burn: { ok: boolean; duplicate: boolean; error?: string };
     try {
       burn = await postBurn(pool, row);

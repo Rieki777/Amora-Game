@@ -712,6 +712,77 @@ describe.skipIf(!configured)("turning tokens into something real", () => {
     expect(await conservation(CREDITS)).toBe(0);
   });
 
+  it(
+    "refuses to confirm a row whose hold never posted, so it cannot burn somebody else's",
+    async () => {
+      const wren = await makeMember("rd-phantom");
+      const ash = await makeMember("rd-phantom-2");
+      await giveCredits(ash, 500);
+      // Ash's redemption is real and its 400 are genuinely in the hold account.
+      const real = await ask(ash, 400);
+      expect(real.ok).toBe(true);
+      if (!real.ok) return;
+
+      /*
+       * Wren's is a PHANTOM: the row says 400 are held and no ledger posting
+       * ever took them. This is the shape a process that died between
+       * `requestRedemption`'s commit and its hold posting leaves behind, and it
+       * is written directly because that crash cannot be staged.
+       *
+       * The danger is precise: `sys:redemption-hold` pools every open
+       * redemption, so a burn against this row would take 400 out of it and
+       * those 400 are ASH'S. Conservation would stay at zero and the boot
+       * invariants would report nothing.
+       */
+      const phantomId = "rd-phantom-row";
+      await pool.query(
+        "INSERT INTO `redemptions` (`id`,`village_id`,`user_id`,`token_slug`,`amount`,`asked_for`," +
+          "`state`,`confirmed_by_mode`,`held_account`,`hold_key`,`burn_key`) " +
+          "VALUES (?,?,?,?,?,?,'requested','steward',?,?,?)",
+        [
+          phantomId,
+          villageId(),
+          wren,
+          CREDITS,
+          toLedgerUnits(CREDITS, 400),
+          "a bicycle",
+          REDEMPTION_HOLD,
+          `redemption:${villageId()}:${phantomId}:hold`,
+          `redemption:${villageId()}:${phantomId}:burn`,
+        ],
+      );
+
+      const held = await balanceOf(pool, REDEMPTION_HOLD, CREDITS);
+      const out = await settleRedemption(pool, {
+        id: phantomId,
+        to: "confirmed",
+        actorUserId: "rd-steward",
+        note: "paid",
+      });
+      expect(out.ok).toBe(false);
+      if (!out.ok) {
+        expect(out.error).toContain("nothing was destroyed");
+        expect(out.error).toContain("would destroy somebody else's");
+      }
+      // Nothing left the hold, nothing was retired, and the claim went back so
+      // a repaired row can still be confirmed.
+      expect(await balanceOf(pool, REDEMPTION_HOLD, CREDITS)).toBe(held);
+      expect(await balanceOf(pool, REDEEMED, CREDITS)).toBe(0);
+      expect((await redemptionById(pool, phantomId))?.state).toBe("requested");
+      // And Ash's real redemption still settles, out of tokens that are theirs.
+      const good = await settleRedemption(pool, {
+        id: real.row.id,
+        to: "confirmed",
+        actorUserId: "rd-steward",
+        note: "paid",
+      });
+      expect(good.ok).toBe(true);
+      expect(await balanceOf(pool, REDEEMED, CREDITS)).toBe(toLedgerUnits(CREDITS, 400));
+      expect(await conservation(CREDITS)).toBe(0);
+    },
+    DB_HEAVY,
+  );
+
   // ── What the village can read afterwards ─────────────────────────────────
 
   it("holds exactly what its open rows say it holds", async () => {
