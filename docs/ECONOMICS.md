@@ -1471,7 +1471,7 @@ with the engine now correct, until that lane runs.
 **None of these had hurt anyone, because production has zero ledger rows. All
 of them would have landed on the first day more than one person used the thing.**
 
-### 10.25 The mint cap counted a spent credit as a second issue. Fixed on `wt/econ-mintcap`, measured.
+### 10.32 The mint cap counted a spent credit as a second issue. Fixed on `wt/econ`, measured.
 
 `mintCapGuard` enforced `ledger.admin_mint_cycle_cap` with a SUM of GROSS
 outflow from `sys:mint` since the cycle started, subtracting nothing, while the
