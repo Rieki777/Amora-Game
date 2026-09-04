@@ -120,6 +120,47 @@ check("an administrator gate outranks the rest", () => {
   assert.strictEqual(classifyDoor(body).door, "administrator");
 });
 
+check("a capability held in a constant is reported, resolved through the resolver", () => {
+  // `mayAct(req, STEWARD_VETO)` is the shape the veto routes use. A pattern
+  // matching only the string literal read them as ungated.
+  const body = "async (req, res) => { const verdict = await mayAct(req, STEWARD_VETO); }";
+  assert.deepStrictEqual(classifyDoor(body, "req, res", (n) => (n === "STEWARD_VETO" ? "steward.veto" : null)), {
+    door: "capability",
+    capability: "steward.veto",
+  });
+  // With nothing able to resolve it, the constant's own name is reported. That
+  // is a true statement about the code; a guessed key would not be.
+  assert.strictEqual(classifyDoor(body).capability, "STEWARD_VETO");
+});
+
+check("a gate extracted into a helper is still a gate", () => {
+  // The failure this pins: a route module whose handlers all call one local
+  // `gate(req, res)` leaves each handler's own text mentioning nobody, and the
+  // veto route was published in this document as open to the internet.
+  const handlerAlone = "async (req, res) => { const ok = await gate(req, res); if (!ok) return; }";
+  assert.strictEqual(classifyDoor(handlerAlone).door, "anyone, including a stranger");
+
+  const withHelper =
+    handlerAlone +
+    "\nasync function gate(req, res) { const user = await authedUser(req); if (!user) { res.status(401).json({}); return null; } " +
+    'const verdict = await mayAct(req, "steward.veto"); }';
+  assert.deepStrictEqual(classifyDoor(withHelper), { door: "capability", capability: "steward.veto" });
+});
+
+check("THE REAL VETO ROUTES ARE NOT PUBLISHED AS OPEN TO A STRANGER", () => {
+  const f = collectFacts();
+  for (const path of ["/api/governance/ballots/:id/veto", "/api/governance/ballots/:id/no-objection"]) {
+    const row = f.routes.rows.find((r) => r.path === path);
+    assert.ok(row, `${path} is not in the routes the document publishes`);
+    assert.notStrictEqual(
+      row.door,
+      "anyone, including a stranger",
+      `${path} keeps a session and a capability, and the document must not say otherwise`,
+    );
+    assert.strictEqual(row.capability, "steward.veto", `${path} asks for the veto power by name`);
+  }
+});
+
 check("A DOOR THIS READER CANNOT CLASSIFY SAYS SO AND NEVER GUESSES", () => {
   // The failure this whole classifier exists to avoid: a route that clearly
   // consults who is asking, in a shape none of the rules match. Reporting it

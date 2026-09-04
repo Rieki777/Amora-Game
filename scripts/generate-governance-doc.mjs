@@ -1000,16 +1000,36 @@ export function namedDialProblem(allKeys, named = NAMED_DIALS) {
  * itself refuses in: an administrator check outranks a capability check, and a
  * capability check outranks a sign-in check.
  */
+/**
+ * A capability key, whether it is written as a string or as a constant.
+ *
+ * `mayAct(req, "proposal.decide")` is the common shape and
+ * `mayAct(req, STEWARD_VETO)` is the shape the veto routes use. A pattern that
+ * matched only the literal read four gated routes as ungated, which is the one
+ * kind of mistake this classifier is not allowed to make.
+ */
+const CAP_CALL = /\b(?:mayAct|guardCapability)\s*\(\s*req\s*,\s*(?:"([\w.]+)"|([A-Z][A-Z0-9_]*))/;
+
 const AUTH_SHAPES = [
   { name: "administrator", test: (b) => /\bisAdmin\s*\(\s*req\b/.test(b) || /requireAdmin\b/.test(b) },
   {
     name: "capability",
-    test: (b) => /\bmayAct\s*\(\s*req\s*,\s*"([\w.]+)"/.test(b) || /\bguardCapability\s*\(\s*req\s*,\s*"([\w.]+)"/.test(b),
-    key: (b) => (/\bmayAct\s*\(\s*req\s*,\s*"([\w.]+)"/.exec(b) ?? /\bguardCapability\s*\(\s*req\s*,\s*"([\w.]+)"/.exec(b))[1],
+    test: (b) => CAP_CALL.test(b),
+    key: (b, _params, resolve) => {
+      const m = CAP_CALL.exec(b);
+      if (m[1]) return m[1];
+      const resolved = resolve ? resolve(m[2]) : null;
+      // A constant this reader could not follow is reported as the constant's
+      // own name, which is a true statement about the code and never a guess
+      // at a key that might not exist.
+      return resolved ?? m[2];
+    },
   },
   {
     name: "signed in",
-    test: (b) => /if\s*\(\s*!\s*(?:user|viewer|actor)\s*\)\s*\{?\s*return\s+res\s*\.\s*status\(401\)/.test(b),
+    test: (b) =>
+      /if\s*\(\s*!\s*(?:user|viewer|actor)\s*\)\s*\{?\s*return\s+res\s*\.\s*status\(401\)/.test(b) ||
+      /if\s*\(\s*!\s*(?:user|viewer|actor)\s*\)\s*\{[\s\S]{0,200}?res\s*\.\s*status\(401\)/.test(b),
   },
   { name: "anyone, including a stranger", test: (b) => /\bauthedUser\s*\(\s*req\b/.test(b) },
 ];
@@ -1032,13 +1052,86 @@ const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete"]);
  * The door a handler keeps, from its own text. Pure, so the self-test can put
  * fixtures through the same function the document is rendered from.
  */
-export function classifyDoor(body, params = "req, res") {
+export function classifyDoor(body, params = "req, res", resolve = null) {
   for (const shape of AUTH_SHAPES) {
     if (!shape.test(body, params)) continue;
-    return { door: shape.name, capability: shape.key ? shape.key(body) : null };
+    return { door: shape.name, capability: shape.key ? shape.key(body, params, resolve) : null };
   }
   if (!AUTH_MENTION.test(body)) return { door: "anyone, including a stranger", capability: null };
   return { door: "could not derive", capability: null };
+}
+
+/**
+ * THE HANDLER, PLUS THE SAME-FILE HELPERS IT CALLS.
+ *
+ * A route module that extracts its door into one local `gate(req, res)` and
+ * calls it from every handler leaves each handler's own text mentioning nothing
+ * about who is asking. Classified from that text alone, four gated routes came
+ * out as "anyone, including a stranger", and the veto route (a session plus
+ * `steward.veto`) was published in this document as open to the internet. That
+ * is worse than no reader at all.
+ *
+ * So the text put to the classifier is the handler plus, ONE LEVEL DEEP, the
+ * body of every function it calls that is declared in the same file. That is
+ * the call graph and not a string search, which is the rule this repository
+ * paid for: an absent substring proves nothing, and a door factored into a
+ * well-named helper is what factoring is for.
+ */
+/**
+ * EVERY LOCAL FUNCTION IN A FILE, INDEXED ONCE.
+ *
+ * `functionAnywhere` and `constAnywhere` each walk the whole file. Calling them
+ * per identifier per handler over a 28,000-line file made the self-test take
+ * longer than the whole rest of the suite, so the declarations are indexed once
+ * per file and every handler reads the index.
+ */
+const localFnCache = new Map();
+
+function localFunctions(abs) {
+  if (localFnCache.has(abs)) return localFnCache.get(abs);
+  const index = new Map();
+  eachChild(sourceFile(abs), (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text && !index.has(node.name.text)) {
+      index.set(node.name.text, node.getText());
+      return;
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
+      !index.has(node.name.text)
+    ) {
+      index.set(node.name.text, node.initializer.getText());
+    }
+  });
+  localFnCache.set(abs, index);
+  return index;
+}
+
+function bodyWithHelpers(abs, handler) {
+  const index = localFunctions(abs);
+  const parts = [handler.getText()];
+  const called = new Set();
+  eachChild(handler, (n) => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) called.add(n.expression.text);
+  });
+  for (const name of called) {
+    const text = index.get(name);
+    if (text) parts.push(text);
+  }
+  return parts.join("\n");
+}
+
+/** A `SCREAMING_CASE` capability constant's value, followed into its import. */
+function capabilityConstant(abs, name) {
+  const here = constAnywhere(abs, name);
+  if (here && (ts.isStringLiteral(here) || ts.isNoSubstitutionTemplateLiteral(here))) return here.text;
+  const from = importSource(abs, name);
+  if (!from || !fs.existsSync(from.abs)) return null;
+  const there = constAnywhere(from.abs, from.exported);
+  if (there && (ts.isStringLiteral(there) || ts.isNoSubstitutionTemplateLiteral(there))) return there.text;
+  return null;
 }
 
 function routesIn(root, rel, prefixes) {
@@ -1056,12 +1149,12 @@ function routesIn(root, rel, prefixes) {
     const routePath = first.text;
     if (!prefixes.some((p) => routePath === p || routePath.startsWith(`${p}/`))) return;
     const handler = node.arguments[node.arguments.length - 1];
-    const body = handler ? handler.getText() : "";
+    const body = handler ? bodyWithHelpers(abs, handler) : "";
     const params =
       handler && (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))
         ? handler.parameters.map((p) => p.name.getText()).join(", ")
         : "";
-    const { door, capability } = classifyDoor(body, params);
+    const { door, capability } = classifyDoor(body, params, (name) => capabilityConstant(abs, name));
     out.push({ method: method.toUpperCase(), path: routePath, file: rel, door, capability });
   });
   return out;
@@ -3445,7 +3538,10 @@ export function render(f) {
   p(
     table(
       ["Table or column", "What it holds"],
-      f.schema.shapes.map((sh) => [code(sh.name), sh.what]),
+      // Most names are a table or a column and render as code. Two of them
+      // name a set of enum values, and wrapping an English phrase in backticks
+      // reads as an identifier a reader would then go looking for.
+      f.schema.shapes.map((sh) => [/^[a-z_]+(\.[a-z_]+)?$/.test(sh.name) ? code(sh.name) : sh.name, sh.what]),
     ),
   );
   p();

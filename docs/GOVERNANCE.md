@@ -457,10 +457,10 @@ What a village publishes, read from the route registrations. The door on each ro
 | GET | `/api/governance/ballots/:id` | anyone, including a stranger | none |
 | POST | `/api/governance/ballots/:id/close` | capability | `proposal.decide` |
 | GET | `/api/governance/ballots/:id/landing` | anyone, including a stranger | none |
-| POST | `/api/governance/ballots/:id/no-objection` | anyone, including a stranger | none |
+| POST | `/api/governance/ballots/:id/no-objection` | capability | `steward.veto` |
 | POST | `/api/governance/ballots/:id/objections` | signed in | none |
 | POST | `/api/governance/ballots/:id/objections/:objectionId/rule` | signed in | none |
-| POST | `/api/governance/ballots/:id/veto` | anyone, including a stranger | none |
+| POST | `/api/governance/ballots/:id/veto` | capability | `steward.veto` |
 | POST | `/api/governance/ballots/:id/vote` | signed in | none |
 | POST | `/api/governance/ballots/:id/withdraw` | capability | `proposal.decide` |
 | GET | `/api/governance/concentration` | signed in | none |
@@ -489,7 +489,7 @@ What a village publishes, read from the route registrations. The door on each ro
 | GET | `/api/governance/weights` | signed in | none |
 | GET | `/api/governance/wizard` | signed in | none |
 
-50 routes: 36 under the governance prefix and 14 under the mechanics prefix. 11 of them answer a stranger, 2 ask for a named power, and 0 could not be classified from the code by this reader.
+50 routes: 36 under the governance prefix and 14 under the mechanics prefix. 9 of them answer a stranger, 4 ask for a named power, and 0 could not be classified from the code by this reader.
 
 The routes that answer a stranger are the village's public record. At the module's `public` lifecycle they serve the ballot list, one decision in full and the objection lineage to anybody on the internet, which includes each voter's first name, their choice and their frozen weight. Ruling 22 changes that and is staged.
 
@@ -525,7 +525,7 @@ What is broken today, by name. A document that only described the parts that wor
 
 - **Nothing seats a catalyst as a steward.** The seat, the power, the record, the settings, the window and the landing loop that reads them are all built. The closer that runs when the Birthing carries writes the launch facts and nothing else: no role, no seat, no grant. So a fresh village has a veto window that nobody can use until a steward is seated, which today is an act somebody performs by hand.
 - **A close and its executor are not one transaction.** The ballot is closed by one guarded update and the executor runs after it. An executor that throws leaves a ballot closed and passed with nothing applied, and only the mechanics subject has a second door to apply by hand.
-- **6 reads under the governance prefix answer a stranger**, and at the module's `public` lifecycle that means the whole voter roll with names, choices and weights is served to the internet.
+- **4 reads under the governance prefix answer a stranger**, and at the module's `public` lifecycle that means the whole voter roll with names, choices and weights is served to the internet.
 - **A weight in token mode is displayed in ledger units.** A holding a member reads as 0.1 weighs 100 in the tally, and the hand-mint form takes raw units with no hint, so typing 1 for a 3-decimal token mints a thousandth.
 - **Two tokens are called Voice**, the platform's own and the mirror of what lives on Base, and only the first can weigh a vote. The default weight token is neither of them.
 - **A stored reason on a no vote is shown to nobody.** The widget invites a member to say why and the reader that serves votes drops it.
@@ -1844,8 +1844,8 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     {
       "method": "POST",
       "path": "/api/governance/ballots/:id/no-objection",
-      "door": "anyone, including a stranger",
-      "capability": null,
+      "door": "capability",
+      "capability": "steward.veto",
       "file": "server/routes/governanceVetoes.ts"
     },
     {
@@ -1865,8 +1865,8 @@ The same facts, for anything that would sooner parse than read. Regenerated with
     {
       "method": "POST",
       "path": "/api/governance/ballots/:id/veto",
-      "door": "anyone, including a stranger",
-      "capability": null,
+      "door": "capability",
+      "capability": "steward.veto",
       "file": "server/routes/governanceVetoes.ts"
     },
     {
@@ -2629,8 +2629,8 @@ The tables and columns the rules above rest on. The generator checks every one a
 | `ballots.vetoed_at` | the act of stopping it, on the ballot the veto answers |
 | `ballots.vetoed_by` | who stopped it |
 | `ballots.late_settled_at` | a window already over when the row reached passed |
-| `the landing statuses` | applying and stalled beside applied and vetoed |
-| `the vetoed outcome` | a vetoed decision is not a failed one |
+| the landing statuses | applying and stalled beside applied and vetoed |
+| the vetoed outcome | a vetoed decision is not a failed one |
 | `mechanics_proposals.lands_at` | the same instant on the proposal a village reads |
 | `mechanics_proposals.supersedes_relation` | renews, overrides or replaces, stated rather than guessed |
 | `governance_element_ledger` | one row per element written, keyed on the ballot and the element's place in it |
