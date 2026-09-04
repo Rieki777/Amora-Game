@@ -309,7 +309,7 @@ import {
   memberAccount,
   MINT_FAUCET,
   postTransfer,
-  questCreditsFor,
+  questCreditsFor, refusalForMember,
   registerToken,
   tokenDef,
   TREASURY,
@@ -13119,7 +13119,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>"}`;
         recurring: p.recurring, provider: p.provider,
         zeffyUrl: p.provider === "zeffy" ? p.zeffy_url : undefined,
         manualInstructions: p.provider === "manual" ? p.manual_instructions : undefined,
-        grantsToken: p.token_slug ? { slug: p.token_slug, amount: p.token_amount, name: tokenDef(p.token_slug)?.name ?? p.token_slug } : null,
+        grantsToken: p.token_slug ? { slug: p.token_slug, amount: p.token_amount, name: tokenDef(p.token_slug)?.name ?? p.token_slug, decimals: tokenDef(p.token_slug)?.decimals ?? 0 } : null,
       })),
       stripeConfigured: stripeConfigured(),
     });
@@ -16188,16 +16188,16 @@ Send an empty drafts array when you are still listening. A role payload is {name
       idempotencyKey: `send:${user.id}:${nonce}`,
     });
     if (!r.ok) {
-      // The ledger's own sentence names the token and the balance, which is
-      // more than this handler knows. 409, because the request was well formed
-      // and the state refused it.
-      return res.status(409).json({ error: r.error ?? "That send did not go through" });
+      // Both numbers below leave in the MEMBER's units, never the ledger's, and the ledger's
+      // audit sentence never reaches them: see `refusalForMember` in server/lib/ledger.ts.
+      const holds = fromLedgerUnits(slug, await balanceOf(getPool(), memberAccount(user.id), slug));
+      return res.status(409).json({ error: refusalForMember(r.error, { accountIds: [memberAccount(user.id), memberAccount(recipient.id)], holds: String(holds), tokenName: tokenDef(slug)?.name ?? slug }) });
     }
     if (!r.duplicate) {
       await notify({
         userId: recipient.id,
         type: "wallet",
-        title: `${user.name ?? "Someone"} sent you ${n} ${tokenDef(slug)?.name ?? slug}`,
+        title: `${user.name ?? "Someone"} sent you ${fromLedgerUnits(slug, n)} ${tokenDef(slug)?.name ?? slug}`,
         body: message || undefined,
         link: "/gratitude",
         // One notification per send, keyed on the movement's own key, so a
