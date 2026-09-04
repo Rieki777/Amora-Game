@@ -15,10 +15,10 @@ configurable.
 
 | The ask | State today |
 | --- | --- |
-| an LLM that answers questions | Built. One engine, `server/lib/assistant.ts`, seven modes, three of them already admin-audience. |
+| an LLM that answers questions | Built. One engine, `server/lib/assistant.ts`, seven modes, three of them already admin-audience. Read `ASSISTANT_MODES` for the current list rather than trusting this row. |
 | follows you around admin | Not built. The dock that would do it exists on `/journey-to-launch` and is roughly 80% of the UI. It has no per-tab context. |
 | of your choosing that you set up | **Not true for a village.** A founder can set one Anthropic key. Provider, model and base URL are hardcoded. |
-| fills out forms | Not built, and this is where the cost is. 49 of 50 admin tabs have no machine-readable description of their fields. |
+| fills out forms | Not built, and this is where the cost is. 47 of 50 admin tabs have no machine-readable description of their fields. |
 | gives more support | Partly. The Village Brain grounds the public guide already; nothing grounds an admin guide in what a tab does. |
 
 The honest summary: this is mostly an **integration and safety** job with one
@@ -30,9 +30,9 @@ large content job attached (the form schemas), rather than a new AI feature.
   per-mode daily budgets, a per-IP burst guard, a gated reader registry, a
   keyword router that answers some questions with zero tokens, and a provider
   seam that already speaks both the Anthropic wire and an OpenAI-compatible one.
-- **Three admin modes already exist**: `launch`, `organize`, `studio`. Two are
-  driven from a floating dock on `/journey-to-launch`. `studio` has no browser
-  caller at all.
+- **Admin-audience modes already exist**: `launch`, `organize` and `studio`.
+  Two of them are driven from a floating dock on `/journey-to-launch`, and
+  `studio` has no browser caller at all.
 - **The safety model exists and is the right one.** Her Drafts, which Rye has
   already seen, states it: "Roles and circles your guide proposes land here for
   you to read before they exist. She never creates anything herself." The guide
@@ -99,14 +99,20 @@ someone writes its schema, and three tabs stay unfillable permanently:
 State it as an allowlist. A denylist is wrong the day somebody adds a tab.
 
 **DECISION 3.** Which tabs are in the first tranche? Recommendation:
-`variables` (the only tab with a complete field description already, 122 fields
-in `shared/gameVariables.ts`), `setup`, and `work-with-us`. Ship three that
-work rather than fifty that shrug.
+`variables` (122 described fields already), plus `legal` and `covenant`, which
+now have field specs of their own and are therefore free. `setup` and
+`work-with-us` are the first two that would need schemas written. Ship a
+handful that work rather than fifty that shrug.
 
 ## 4. The cost nobody should discover later
 
-**49 of 50 tabs have no machine-readable field list.** Their fields exist only
-as JSX inside `client/src/pages/Admin.tsx`. `variables` is the sole exception.
+**47 of 50 tabs have no machine-readable field list.** Their fields exist only
+as JSX inside `client/src/pages/Admin.tsx`. There are three exceptions:
+`variables` (122 described fields in `shared/gameVariables.ts`), and `legal`
+and `covenant`, whose field lists landed earlier on this same branch in
+`client/src/components/admin/contentFields.ts`. That file is the second worked
+example of the shape a schema needs: a path, a label, an input kind, and help
+that says what the page does when the box is empty.
 
 Writing those schemas by hand is the single largest line item in this feature,
 larger than the dock, the context envelope and the allowlist combined. Any plan

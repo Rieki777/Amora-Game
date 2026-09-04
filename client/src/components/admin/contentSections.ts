@@ -49,13 +49,15 @@ export const CONTENT_SECTIONS = [
  * instance. The editor needs SOMETHING to put in the box in that case, and
  * the one thing it must never put there is the 404's own body: it used to,
  * and Save then wrote {"error":"Section not found"} into the village as real
- * content. See the load() in client/src/pages/Admin.tsx for the full account.
+ * content. See the load() in client/src/components/admin/ContentEditorTab.tsx for
+ * the full account.
  *
  * `team` is an ARRAY of cards and everything else is an object keyed by
  * field. Getting this wrong is not cosmetic either: the team card editor
  * only renders when the parsed value is an array, so handing it `{}` would
- * silently drop a founder back to raw JSON on the one section that has a
- * friendly editor.
+ * silently drop a founder back to raw JSON. `legal` and `covenant` have field
+ * editors of their own now (client/src/components/admin/contentFields.ts) and
+ * are gated the same way, on their document parsing to an object.
  */
 const ARRAY_SECTIONS = new Set<string>(["team"]);
 

@@ -83,8 +83,8 @@ describe("the involuntary exit form", () => {
     await user.type(screen.getByLabelText(/reason for requesting the removal/i), "Repeated harm after two repair attempts.");
 
     // Answer the first question yes and leave the second untouched.
-    const groups = screen.getAllByRole("radiogroup");
-    await user.click(within(groups[0]).getByRole("radio", { name: "Yes" }));
+    const groups = screen.getAllByRole("group");
+    await user.click(within(groups[0]).getByRole("button", { name: "Yes" }));
 
     await user.click(confirmButton());
 
@@ -125,4 +125,73 @@ describe("the involuntary exit form", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(onCancel).toHaveBeenCalled());
   });
+
+  it("keeps the steward's work when the server refuses", async () => {
+    /*
+     * THE FORM USED TO CLEAR ITSELF ON THE WAY OUT. `reset()` ran before the
+     * async confirm, and the parent keeps this dialog OPEN when the server
+     * refuses, so a steward who hit any of the live 409s (the member is a
+     * seeded example, the departure would strand the last administrator, an
+     * exit is already open) was left staring at an empty form with the
+     * confirm button disabled, having lost a written account of a person.
+     */
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(
+      <InvoluntaryExitDialog open memberName="Wren" grounds={GROUNDS} onCancel={vi.fn()} onConfirm={onConfirm} />,
+    );
+
+    const reason = screen.getByLabelText(/reason for requesting the removal/i);
+    await user.type(reason, "A full account of what happened.");
+    await user.click(within(screen.getAllByRole("group")[0]).getByRole("button", { name: "No" }));
+    await user.click(confirmButton());
+
+    // The parent has NOT closed the dialog: the server said no.
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect((screen.getByLabelText(/reason for requesting the removal/i) as HTMLTextAreaElement).value)
+      .toBe("A full account of what happened.");
+    expect(within(screen.getAllByRole("group")[0]).getByRole("button", { name: "No" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(confirmButton(), "the steward can try again without retyping").not.toBeDisabled();
+  });
+
+  it("clears only once the dialog has actually closed", async () => {
+    const { rerender } = render(
+      <InvoluntaryExitDialog open memberName="Wren" grounds={GROUNDS} onCancel={vi.fn()} onConfirm={vi.fn()} />,
+    );
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText(/reason for requesting the removal/i), "Something.");
+
+    rerender(<InvoluntaryExitDialog open={false} memberName="Wren" grounds={GROUNDS} onCancel={vi.fn()} onConfirm={vi.fn()} />);
+    rerender(<InvoluntaryExitDialog open memberName="Wren" grounds={GROUNDS} onCancel={vi.fn()} onConfirm={vi.fn()} />);
+
+    await waitFor(() =>
+      expect((screen.getByLabelText(/reason for requesting the removal/i) as HTMLTextAreaElement).value).toBe(""),
+    );
+  });
+
+  it("protects the answers from the 2000 character clip", () => {
+    /*
+     * createExit stores note.slice(0, 2000) and the answers are composed
+     * LAST, so a long reason used to push exactly the structured part off the
+     * end. The prose survived and the line saying whether a non-violent
+     * process was attempted did not, which is the part a reviewer needs.
+     */
+    const long = "x".repeat(3000);
+    const note = composeExitNote(long, GROUNDS, ["no", "yes"]);
+
+    expect(note.length).toBeLessThanOrEqual(2000);
+    expect(note, "the answers must survive").toContain(`${GROUNDS[0]} No`);
+    expect(note, "the answers must survive").toContain(`${GROUNDS[1]} Yes`);
+    expect(note, "and the reader must be told the account was cut").toContain("(clipped)");
+  });
+
+  it("does not clip a note that fits", () => {
+    const note = composeExitNote("Short reason.", GROUNDS, ["no", ""]);
+    expect(note).toBe(`Short reason.
+
+${GROUNDS[0]} No`);
+    expect(note).not.toContain("(clipped)");
+  });
 });
+

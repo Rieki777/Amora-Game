@@ -27,7 +27,7 @@
  * overlays in this client are hand-rolled `fixed inset-0` divs instead, and
  * most of them do none of that; this is not going to be a sixth.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -37,7 +37,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-/** Unanswered is a real state and stays distinct from "no" all the way to the record. */
+/**
+ * Unanswered is a real state and stays distinct from "no" all the way to the
+ * record.
+ *
+ * WHICH IS WHY THESE ARE TOGGLES AND NOT RADIOS. They carried `role="radio"`
+ * inside a `role="radiogroup"`, and that made two promises the code did not
+ * keep. A radio is idempotent, so clicking the chosen one should do nothing;
+ * here it cleared the answer, which meant a steward re-clicking "Yes" to
+ * reassure themselves silently deleted that question from the record. And a
+ * radiogroup promises arrow-key navigation with a roving tabindex, which a
+ * screen reader announces ("1 of 3") and which was not implemented, so the
+ * one interaction the announcement named did nothing.
+ *
+ * A group of toggles says what this actually is: three buttons, at most one
+ * pressed, and pressing the pressed one turns it off. That is the behaviour
+ * that was built, it keeps "unanswered" reachable by mouse and keyboard
+ * alike, each button is tabbable on its own, and it promises no keyboard
+ * contract that is not there.
+ */
 export type GroundAnswer = "yes" | "no" | "n/a" | "";
 
 const ANSWERS: Array<{ value: Exclude<GroundAnswer, "">; label: string }> = [
@@ -52,27 +70,42 @@ const ANSWERS: Array<{ value: Exclude<GroundAnswer, "">; label: string }> = [
  * ONE FREE TEXT COLUMN IS ALL THERE IS, and that is deliberate rather than a
  * shortcut. Migrations here are numbered across every worktree and branch in
  * the programme, they apply at boot on thirteen live instances, and a bad one
- * is a village that cannot start. Composing into the existing `note` needs no
- * schema change, and the note is what the Departure record and the member's
- * own notification already show, so the answers land where somebody will
- * actually read them.
+ * is a village that cannot start. Composing into the existing column needs no
+ * schema change, and the Departure record in Admin renders it, which is the
+ * only screen anywhere that shows it. The member's own notification does NOT
+ * carry it: that body is fixed copy pointing at the published exit policy.
+ *
+ * THE ANSWERS ARE PROTECTED FROM THE CLIP, and they had to be. `createExit`
+ * stores `note.slice(0, 2000)`, and the answers are composed LAST, so a
+ * steward who wrote a long account of what happened would have had precisely
+ * the structured part silently truncated away. The record would keep the
+ * prose and lose the line saying whether a non-violent process was attempted,
+ * which is the part a reviewer needs most. The answers are measured first and
+ * the reason is given whatever room remains, marked where it was cut so
+ * nobody reads a clipped account as a complete one.
  *
  * Exported so the test can assert the exact record a given set of answers
  * produces, rather than asserting that a request was sent.
  */
+/** Mirrors the column clip in server/lib/exit.ts. */
+const NOTE_LIMIT = 2000;
+
 export function composeExitNote(reason: string, grounds: string[], answers: GroundAnswer[]): string {
-  const lines: string[] = [String(reason ?? "").trim()];
   const answered = grounds
     .map((q, i) => ({ q, a: answers[i] ?? "" }))
     .filter((x) => x.a !== "");
-  if (answered.length) {
-    lines.push("");
-    for (const { q, a } of answered) {
-      const said = a === "yes" ? "Yes" : a === "no" ? "No" : "Does not apply";
-      lines.push(`${q} ${said}`);
-    }
-  }
-  return lines.join("\n").trim();
+  const tail = answered.length
+    ? "\n\n" + answered
+        .map(({ q, a }) => `${q} ${a === "yes" ? "Yes" : a === "no" ? "No" : "Does not apply"}`)
+        .join("\n")
+    : "";
+
+  const CUT = " (clipped)";
+  let head = String(reason ?? "").trim();
+  const room = NOTE_LIMIT - tail.length;
+  if (head.length > room) head = head.slice(0, Math.max(0, room - CUT.length)).trimEnd() + CUT;
+
+  return (head + tail).trim();
 }
 
 export default function InvoluntaryExitDialog({
@@ -105,12 +138,23 @@ export default function InvoluntaryExitDialog({
 
   const reasonGiven = reason.trim().length > 0;
 
-  const reset = () => { setReason(""); setAnswers([]); };
+  /*
+   * The form clears when the dialog CLOSES, not when it is submitted.
+   *
+   * An effect on `open` is the only place that catches every path: cancel,
+   * Escape and the overlay all run through Radix's onOpenChange, but the
+   * PARENT closing the dialog after a save that landed does not, because it
+   * sets `open` directly. Resetting in the click handler instead is what
+   * threw the steward's work away on a refusal.
+   */
+  useEffect(() => {
+    if (!open) { setReason(""); setAnswers([]); }
+  }, [open]);
 
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => { if (!next) { reset(); onCancel(); } }}
+      onOpenChange={(next) => { if (!next) onCancel(); }}
     >
       <DialogContent className="max-w-xl">
         <DialogHeader>
@@ -151,15 +195,14 @@ export default function InvoluntaryExitDialog({
                 {grounds.map((q, i) => (
                   <div key={q} className="flex flex-wrap items-center justify-between gap-2">
                     <span id={`ground-${i}`} className="text-sm text-muted-foreground flex-1 min-w-[14rem]">{q}</span>
-                    <div role="radiogroup" aria-labelledby={`ground-${i}`} className="flex gap-1.5">
+                    <div role="group" aria-labelledby={`ground-${i}`} className="flex gap-1.5">
                       {ANSWERS.map((a) => {
                         const chosen = answerFor(i) === a.value;
                         return (
                           <button
                             key={a.value}
                             type="button"
-                            role="radio"
-                            aria-checked={chosen}
+                            aria-pressed={chosen}
                             onClick={() => setAnswer(i, chosen ? "" : a.value)}
                             className={
                               "text-xs rounded-full px-3 py-1 border transition-colors " +
@@ -187,7 +230,7 @@ export default function InvoluntaryExitDialog({
         <DialogFooter>
           <button
             type="button"
-            onClick={() => { reset(); onCancel(); }}
+            onClick={onCancel}
             className="text-sm rounded-lg px-4 py-2 border border-border text-muted-foreground"
           >
             Cancel
@@ -195,11 +238,26 @@ export default function InvoluntaryExitDialog({
           <button
             type="button"
             disabled={!reasonGiven || busy}
-            onClick={() => {
-              const note = composeExitNote(reason, grounds, answers);
-              reset();
-              onConfirm(note);
-            }}
+            /*
+             * NO reset() HERE, and that is not tidiness.
+             *
+             * `onConfirm` is asynchronous and the parent keeps this dialog
+             * OPEN when the server refuses, so clearing the form on the way
+             * out threw away the steward's work in exactly the situation
+             * where they most need it back. POST /api/admin/exits has several
+             * live refusals: the member is a seeded example identity, the
+             * departure would strand the last account that can administer the
+             * village, an exit is already open for them, or the request never
+             * arrived. In every one of those the steward was left looking at
+             * an empty form with the confirm button disabled, having lost a
+             * paragraph of reasoning and four answers about a person, with
+             * nothing to do but write it all again from memory.
+             *
+             * The form clears when the dialog CLOSES, which happens on
+             * cancel, on Escape, on the overlay, and on the parent closing it
+             * after a save that actually landed.
+             */
+            onClick={() => onConfirm(composeExitNote(reason, grounds, answers))}
             className="text-sm rounded-lg px-4 py-2 font-medium bg-red-600 text-white disabled:opacity-40"
           >
             {busy ? "Opening…" : "Open involuntary exit"}

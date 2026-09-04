@@ -10,9 +10,11 @@
  * separate on purpose, so keeping the pure filter testable without rendering
  * anything still costs nothing.
  *
- * One character changed in the move: an em dash in the Module Library comment
- * became a colon, because the house writing rules forbid em dashes in new
- * files and this is a new file. Nothing else differs.
+ * It began as a verbatim extraction from that page. It is not one any more:
+ * c9a4535 regrouped and reordered every row so the rail reads top to bottom
+ * as the order a village is actually set up in, and renamed all of the groups
+ * in the process. No tab KEY changed, so every deep link survives; the shape
+ * around them did.
  */
 import type { LucideIcon } from "lucide-react";
 import { Activity, BarChart3, Calendar, Circle, Coins, FileText, GraduationCap, Handshake, HardDrive, HelpCircle, Home, Inbox, KeyRound, LogOut, Mail, MessageSquare, Moon, Scale, Sparkles, ToggleLeft, TrendingUp, Users, Users2 } from "lucide-react";
@@ -30,6 +32,17 @@ import { CONTENT_SECTIONS } from "./contentSections";
  * `setup` moves: a front door while the village is still being set up, an
  * ordinary settings row once it is done.
  */
+/**
+ * The group that holds the Module Library, named once.
+ *
+ * Seven "module is off" messages in Admin.tsx spelled the old group title
+ * into their copy, so renaming the groups sent every one of them to a heading
+ * that no longer existed: a founder read "top of The Game menu" while the
+ * rail in front of them said something else. Interpolating this means the
+ * next reorder cannot leave the copy behind.
+ */
+export const MODULES_GROUP_TITLE = "What your village runs";
+
 export type NavItem = { key: string; label: string; icon: LucideIcon; badge?: TabBadge };
 export type NavGroup = { title: string; items: NavItem[] };
 
@@ -87,7 +100,7 @@ export function navGroups(setupComplete: boolean): NavGroup[] {
       // for which of these exist at all, and the dials that shape them follow
       // immediately, because a founder who has just turned something on wants
       // to tune it in the same visit.
-      title: "What your village runs",
+      title: MODULES_GROUP_TITLE,
       items: [
         { key: "modules", label: "Module Library", icon: ToggleLeft },
         { key: "variables", label: "Game Mechanics", icon: Activity },

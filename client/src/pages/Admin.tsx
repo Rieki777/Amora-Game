@@ -45,7 +45,7 @@ import InvoluntaryExitDialog from "@/components/admin/InvoluntaryExitDialog";
 import ContentEditorTab from "@/components/admin/ContentEditorTab";
 import WorkWithUsTab from "@/components/admin/WorkWithUsTab";
 import { StepListEditor, stalePolicyTerms } from "@/components/admin/exitPolicyEditing";
-import { navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
+import { MODULES_GROUP_TITLE, navGroups, type NavGroup } from "@/components/admin/adminNavGroups";
 import { SETUP_STEPS, measureSetup, setupIsComplete } from "@/components/admin/setupProgress";
 import TokenNamingLink from "@/components/admin/TokenNamingLink";
 import TokensTab from "@/components/admin/TokensTab";
@@ -5440,7 +5440,7 @@ function CirclesMapTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Circles &amp; Map</h2>
-        <p className="text-sm text-gray-500">The How Power Is Held module is off. Turn it on in the Module Library (top of The Game menu) first.</p>
+        <p className="text-sm text-gray-500">The How Power Is Held module is off. Turn it on in the Module Library (top of the {MODULES_GROUP_TITLE} group) first.</p>
       </div>
     );
   }
@@ -5674,7 +5674,7 @@ function ToolsAdminTab({ password }: { password: string }) {
         <h2 className="text-xl font-bold text-gray-900 mb-2">Tools</h2>
         <p className="text-sm text-gray-500">
           The Tools Hub module is off. Enable it (at least to Preview) in
-          Module Library (top of The Game menu), then come back here to add tools.
+          Module Library (top of the {MODULES_GROUP_TITLE} group), then come back here to add tools.
         </p>
       </div>
     );
@@ -5952,7 +5952,7 @@ function StaysAdminTab({ password, onOpenTab }: { password: string; onOpenTab: (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Stays & Payments</h2>
         <p className="text-sm text-gray-500">
-          The Stays module is off. Turn it on in the Module Library (top of The Game menu, it is
+          The Stays module is off. Turn it on in the Module Library (top of the {MODULES_GROUP_TITLE} group, it is
           funds-bearing, and the legal card will walk you through the posture),
           then come back here to post rooms and rates.
         </p>
@@ -6824,7 +6824,7 @@ function BadgesAdminTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Badges</h2>
-        <p className="text-sm text-gray-500">The Badges module is off. Turn it on in the Module Library (top of The Game menu) first.</p>
+        <p className="text-sm text-gray-500">The Badges module is off. Turn it on in the Module Library (top of the {MODULES_GROUP_TITLE} group) first.</p>
       </div>
     );
   }
@@ -7092,7 +7092,7 @@ function LibraryAdminTab({ password, onOpenTab }: { password: string; onOpenTab:
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Material Library</h2>
-        <p className="text-sm text-gray-500">The Material Library module is off. Turn it on in the Module Library (top of The Game menu) first.</p>
+        <p className="text-sm text-gray-500">The Material Library module is off. Turn it on in the Module Library (top of the {MODULES_GROUP_TITLE} group) first.</p>
       </div>
     );
   }
@@ -7342,7 +7342,7 @@ function HealthAdminTab({ password }: { password: string }) {
         <p className="text-sm text-gray-500">
           The Village Health module is off. Snapshot collection runs anyway
           (every cycle close freezes its numbers); enable the module in
-          Module Library (top of The Game menu) when there is enough history
+          Module Library (top of the {MODULES_GROUP_TITLE} group) when there is enough history
           to show, and to record regeneration entries here.
         </p>
       </div>
@@ -7528,6 +7528,26 @@ function ExitsAdminTab({ password }: { password: string }) {
                 </div>
               ))}
             </div>
+            {/* OUTSIDE `!openExit` on purpose: trigger and dialog were siblings
+                inside it, so a successful save unmounted both and Radix had no
+                element left to return focus to. Renders nothing while closed. */}
+            <InvoluntaryExitDialog
+              open={involuntaryOpen}
+              memberName={players.find((p: any) => p.id === selectedUser)?.name ?? ""}
+              /* The village's own questions, from the published policy.
+                 `policyDraft` is what the editor below is holding, so an
+                 unsaved edit is not offered here: `data.policy` is what
+                 the village has actually published. */
+              grounds={Array.isArray(data?.policy?.involuntary?.grounds) ? data.policy.involuntary.grounds : []}
+              busy={involuntaryBusy}
+              onCancel={() => setInvoluntaryOpen(false)}
+              onConfirm={async (note) => {
+                setInvoluntaryBusy(true);
+                const d = await call("/admin/exits", { userId: selectedUser, kind: "involuntary", note });
+                setInvoluntaryBusy(false);
+                if (d) { setInvoluntaryOpen(false); toast.success("Exit opened"); load(); loadState(selectedUser); }
+              }}
+                  />
             <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3">
               {!openExit ? (
                 <>
@@ -7535,23 +7555,6 @@ function ExitsAdminTab({ password }: { password: string }) {
                     className="text-sm bg-teal-deep text-white rounded-lg px-4 py-2 font-medium">Open exit</button>
                   <button onClick={() => setInvoluntaryOpen(true)}
                     className="text-sm border border-red-300 text-red-600 rounded-lg px-4 py-2 font-medium">Open involuntary…</button>
-                  <InvoluntaryExitDialog
-                    open={involuntaryOpen}
-                    memberName={players.find((p: any) => p.id === selectedUser)?.name ?? ""}
-                    /* The village's own questions, from the published policy.
-                       `policyDraft` is what the editor below is holding, so an
-                       unsaved edit is not offered here: `data.policy` is what
-                       the village has actually published. */
-                    grounds={Array.isArray(data?.policy?.involuntary?.grounds) ? data.policy.involuntary.grounds : []}
-                    busy={involuntaryBusy}
-                    onCancel={() => setInvoluntaryOpen(false)}
-                    onConfirm={async (note) => {
-                      setInvoluntaryBusy(true);
-                      const d = await call("/admin/exits", { userId: selectedUser, kind: "involuntary", note });
-                      setInvoluntaryBusy(false);
-                      if (d) { setInvoluntaryOpen(false); toast.success("Exit opened"); load(); loadState(selectedUser); }
-                    }}
-                  />
                 </>
               ) : (
                 <>
@@ -7586,21 +7589,12 @@ function ExitsAdminTab({ password }: { password: string }) {
                 <span className="text-xs text-gray-400"> · opened {new Date(e.openedAt).toLocaleDateString()}{e.resolvedAt ? `, closed ${new Date(e.resolvedAt).toLocaleDateString()}` : ""}</span>
                 {e.agreementRef && <span className="text-xs text-teal-deep"> · agreement: {e.agreementRef}</span>}
               </p>
-              {/*
-                THE REASON, WHICH NOTHING SHOWED.
-
-                Every departure has carried a `resolution` string since the
-                exits table existed: the route selects it, ExitRow declares it,
-                and it has been on the wire this whole time. This record
-                printed the name, the kind, the status and the dates, and never
-                the one field that says WHY, so the note a steward typed into
-                the old browser prompt went into the database and was read by
-                nobody. There is no other screen that shows it.
-
-                `whitespace-pre-line` because the involuntary form composes a
-                reason and then one line per answered question, and that shape
-                is the record.
-              */}
+              {/* THE REASON, WHICH NOTHING SHOWED. `resolution` has been on the
+                  wire since the exits table existed; this record printed name,
+                  kind, status and dates and never the field that says WHY, so
+                  a steward's note went into the database and was read by
+                  nobody. pre-line because the form composes a reason and then
+                  one line per answered question, and that shape is the record. */}
               {e.resolution && (
                 <p className="text-xs text-muted-foreground whitespace-pre-line border-l-2 border-gray-200 pl-3 ml-1 mt-1 mb-2">
                   {e.resolution}
@@ -7874,7 +7868,7 @@ function CallsAdminTab({ password }: { password: string }) {
     return (
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Call Automation</h2>
-        <p className="text-sm text-gray-500">The Call Automation module is off. Turn it on in the Module Library (top of The Game menu) first.</p>
+        <p className="text-sm text-gray-500">The Call Automation module is off. Turn it on in the Module Library (top of the {MODULES_GROUP_TITLE} group) first.</p>
       </div>
     );
   }
@@ -8777,21 +8771,13 @@ function VariablesTab({ password }: { password: string }) {
           evolves. Every value is validated against its bounds before it lands.
         </p>
       </div>
-      {/*
-        ONE PANEL, and there used to be two stacked right here.
-
-        Rye, seeing them together: "there looks to be 2 modules for imputing
-        tokens and contracts." They were not two features. IntegrateDaoPanel
-        took a token NAME, matched it against the same discovery call the
-        Bridge uses, and wrote the address straight into a game variable
-        with no contract read at all. The Bridge lists what the account
-        actually holds and reads name, symbol and decimals back off the
-        contract before binding, which is what catches a token minted to
-        impersonate yours by carrying your exact name.
-
-        The safer path survived and the name lookup became a filter over
-        the holdings it lists.
-      */}
+      {/* ONE PANEL, and two were stacked here. Rye: "there looks to be 2
+          modules for imputing tokens and contracts." IntegrateDaoPanel took a
+          token NAME and wrote the address into a variable with no contract
+          read; the Bridge lists what the account holds and reads name, symbol
+          and decimals off the contract before binding, which is what catches a
+          token minted to carry your exact name. The safer path survived and
+          the name box became a filter over the holdings. */}
       <div className="mb-6">
         <HyphaModulePanel password={password} vars={vars} onVariableSaved={load} />
       </div>
@@ -9235,8 +9221,13 @@ export function SetupWizard({ password, onOpenTab }: { password: string; onOpenT
     fetch(`${API_BASE}/fx/rates`)
       .then((r) => (r.ok ? r.json() : null))
       .then((t) => {
-        if (!alive || !t?.rates) return;
-        setFxCovered([t.base, ...Object.keys(t.rates)].filter(Boolean).sort());
+        if (!alive) return;
+        // ONLY when rates actually arrived. Seeding from `t.base` alone made
+        // `known` true with one entry, so a village whose daily job had not run
+        // was told there is no rate for USD, which is false.
+        const rates = Object.keys(t?.rates ?? {});
+        if (!rates.length) return;
+        setFxCovered([t.base, ...rates].filter(Boolean).sort());
       })
       .catch(() => { /* No table is not an error here; the note stays quiet. */ });
     return () => { alive = false; };
@@ -9348,6 +9339,11 @@ export function SetupWizard({ password, onOpenTab }: { password: string; onOpenT
         <input
           id="project-fiat-currency"
           type="text"
+          // Tied to the box: a bare role="alert" is announced once and is then
+          // unreachable, so tabbing back gives the label and nothing about the
+          // problem. aria-invalid exposes a state the red text cannot.
+          aria-describedby="project-fiat-currency-note"
+          aria-invalid={problem ? true : undefined}
           list="fiat-currency-options"
           maxLength={3}
           value={code}
@@ -9361,14 +9357,14 @@ export function SetupWizard({ password, onOpenTab }: { password: string; onOpenT
           {fxCovered.map((c) => <option key={c} value={c} />)}
         </datalist>
         {problem ? (
-          <p role="alert" className="text-[11px] text-red-600 mt-0.5">{problem}</p>
+          <p id="project-fiat-currency-note" role="alert" className="text-[11px] text-red-600 mt-0.5">{problem}</p>
         ) : code && known && !covered ? (
-          <p className="text-[11px] text-amber-700 mt-0.5">
+          <p id="project-fiat-currency-note" className="text-[11px] text-amber-700 mt-0.5">
             There is no daily rate for {code}, so anyone viewing in another currency sees your
             amounts unconverted until an admin records a rate by hand. Prices themselves are unaffected.
           </p>
         ) : (
-          <p className="text-[11px] text-gray-400 mt-0.5">
+          <p id="project-fiat-currency-note" className="text-[11px] text-gray-400 mt-0.5">
             Platform default: {defaults.project?.fiatCurrency ?? ""}. This sets what every price on the
             site is quoted in, and what a member sees before choosing their own display currency.
           </p>

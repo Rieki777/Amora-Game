@@ -319,6 +319,22 @@ export default function ContentEditorTab({ password, sectionKey, sectionLabel }:
         <div className="text-center py-12 text-gray-400">Loading...</div>
       ) : (
         <>
+          {/*
+            A SYNTAX ERROR IN THE BOX BELOW USED TO DELETE THIS SECTION FROM
+            THE PAGE. `docData` is null whenever the raw JSON does not parse,
+            and the field editor is gated on it, so backspacing over one brace
+            in the advanced box made the intro, every labelled field and the
+            whole repeat group vanish in a single frame with nothing said.
+            `parseError` exists for this and is only ever set by save(), so it
+            was blank at the moment it was needed.
+          */}
+          {spec && !docData && raw.trim() !== "" && (
+            <p role="alert" className="mb-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              The JSON below has a syntax error, so the fields are hidden until it parses again.
+              Nothing is lost: fix the JSON, or press refresh to reload what the server holds.
+            </p>
+          )}
+
           {/* Field editor for document sections. No JSON in sight. */}
           {spec && docData && (
             <div className="mb-6 space-y-5">

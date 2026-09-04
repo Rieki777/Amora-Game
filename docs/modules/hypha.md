@@ -266,7 +266,7 @@ worked and carries no call count. Neither of those is the meter.
 ## Routes
 
 `/api/hypha` mounts whole behind `requireModule("hypha")`. The admin routes sit under
-`/api/admin/hypha` **per route**, because that prefix already carries `/candidates`, which predates
+`/api/admin/hypha` **per route**, because that prefix already carries `/candidates`, which stays ungated for
 this module and which every village reaches from the Hypha Bridge panel today. Mounting the
 prefix wholesale would answer 404 for a working founder surface on the deploy that added this
 module.

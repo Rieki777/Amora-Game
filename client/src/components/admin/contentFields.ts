@@ -8,11 +8,11 @@
  * which keys the public pages read, and to keep the braces balanced while
  * they do it.
  *
- * Every field below was established by reading the page that renders it. The
- * `help` line says what a reader sees, and `whenEmpty` says what the page
- * does with nothing, because that is the question a founder actually has and
- * it is never the same answer twice: some of these fall back to platform
- * wording, some drop the sentence, and one drops an entire block.
+ * Every field below was established by reading the page that renders it, and
+ * each `help` line carries what a reader sees AND what the page does when the
+ * box is empty, because that is the question a founder actually has and the
+ * answer is never the same twice: some fall back to platform wording, some
+ * drop their sentence, and one drops an entire block of cards.
  *
  * A LEGAL CLAIM WITH NO SAFE DEFAULT IS MARKED. `landShareTransferNote` and
  * the membership notes are tax and entity claims about one jurisdiction. The
@@ -63,7 +63,7 @@ const LEGAL: SectionSpec = {
     {
       path: ["jurisdictionOverview", "heading"],
       label: "Heading over the legal and tax section",
-      help: "The big heading on your investor and resident pages.",
+      help: "The big heading on your investor and resident pages. Nothing in this block appears at all until at least one point below has BOTH a title and a body.",
       kind: "text",
     },
     {
@@ -83,7 +83,7 @@ const LEGAL: SectionSpec = {
     {
       path: ["membership", "entityLabel"],
       label: "The legal entity a member joins",
-      help: "Exactly as it appears on the paperwork. It is printed six times on the Love Letter, including the line above the signature.",
+      help: "Exactly as it appears on the paperwork. It is printed six times on the Love Letter, including the line above the signature. Left blank, your village's NAME is printed in its place, which reads as a legal entity and is not one.",
       kind: "text",
       claim: true,
     },
@@ -105,7 +105,7 @@ const LEGAL: SectionSpec = {
     {
       path: ["membership", "footerNote"],
       label: "Fine print under the submit button",
-      help: "The one box here that prints something when you leave it blank: members are told to ask the community how contributions are structured.",
+      help: "Left blank, this does not go quiet: members are told to ask the community how contributions are structured. Read that sentence and decide whether it is true of you.",
       kind: "long",
       rows: 3,
       claim: true,

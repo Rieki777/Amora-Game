@@ -25,6 +25,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Check, RefreshCw, Search } from "lucide-react";
 import { API_BASE, authHeaders, refusal } from "./adminApi";
+import { HYPHA_FIRST_STEPS } from "@shared/hypha";
 
 const card = "border border-gray-200 rounded-xl px-4 py-4 bg-white";
 const btn =
@@ -102,6 +103,19 @@ export default function HyphaModulePanel({ password, vars, onVariableSaved }: {
   const [status, setStatus] = useState<any>(null);
   /** Per-key edits to the Hypha account fields, before they are saved. */
   const [accountDrafts, setAccountDrafts] = useState<Record<string, string>>({});
+  /**
+   * The getting-started steps, kept from whatever the lookup answered.
+   *
+   * They arrive on TWO routes and this panel could only see one of them.
+   * `/status` carries them and is behind requireModule, so on a fresh village
+   * (the module ships OFF) the panel's status is just `{moduleOff:true}` and
+   * `status.firstSteps` is undefined. The card headed "Find your contracts on
+   * Base" then rendered an EMPTY numbered list, in exactly the state this
+   * panel was rebuilt to serve. `/candidates` returns the same constant on
+   * its success body AND on both its 409s, so the first lookup fills this in
+   * even when it refuses.
+   */
+  const [lookupSteps, setLookupSteps] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [hint, setHint] = useState("");
   const [candidates, setCandidates] = useState<any[] | null>(null);
@@ -137,6 +151,8 @@ export default function HyphaModulePanel({ password, vars, onVariableSaved }: {
         body: JSON.stringify({ nameHint: hint.trim() }),
       });
       const d = await res.json();
+      // Kept BEFORE the throw: a 409 is the answer that most needs the steps.
+      if (Array.isArray(d?.firstSteps)) setLookupSteps(d.firstSteps);
       if (!res.ok) throw new Error(refusal(d, "The lookup failed"));
       setCandidates(d.candidates ?? []);
       if ((d.candidates ?? []).length === 0) {
@@ -282,6 +298,17 @@ export default function HyphaModulePanel({ password, vars, onVariableSaved }: {
    * the account holds, and hiding rows by default would be the same mistake
    * the exact-name lookup made.
    */
+  /*
+   * True when the founder has typed a Base address and not saved it. The
+   * lookup route reads the STORED variable, so an unsaved box is invisible
+   * to it.
+   */
+  const founderVar = (vars ?? []).find((row: any) => row.key === FOUNDER_KEY);
+  const founderAddressUnsaved =
+    !!founderVar &&
+    accountDrafts[FOUNDER_KEY] !== undefined &&
+    accountDrafts[FOUNDER_KEY].trim() !== String(founderVar.value ?? "").trim();
+
   const q = hint.trim().toLowerCase();
   const shown = (candidates ?? []).filter((c: any) =>
     !q ||
@@ -323,7 +350,14 @@ export default function HyphaModulePanel({ password, vars, onVariableSaved }: {
             if (!v) return null;
             const current = String(v.value ?? "");
             const draft = accountDrafts[key] ?? current;
-            const dirty = draft !== current;
+            /*
+             * Compared TRIMMED, because the save trims. Typing a trailing
+             * space, saving, and getting the trimmed value back left the box
+             * permanently different from the stored value: Save stayed lit
+             * for a change that had already landed, and pressing it again
+             * did nothing observable.
+             */
+            const dirty = draft.trim() !== current.trim();
             return (
               <div key={key}>
                 <label htmlFor={`hypha-${key}`} className="text-xs font-medium text-foreground block mb-1">
@@ -384,7 +418,7 @@ export default function HyphaModulePanel({ password, vars, onVariableSaved }: {
       <div className={card}>
         <h4 className="font-medium text-gray-900 text-sm">Find your contracts on Base</h4>
         <ol className="text-xs text-gray-500 mt-1 space-y-0.5 list-decimal list-inside max-w-2xl">
-          {(status.firstSteps ?? []).map((s: string) => <li key={s}>{s}</li>)}
+          {(status.firstSteps ?? lookupSteps ?? HYPHA_FIRST_STEPS).map((s: string) => <li key={s}>{s}</li>)}
         </ol>
         <div className="flex flex-wrap items-center gap-2 mt-3">
           <input
@@ -399,6 +433,19 @@ export default function HyphaModulePanel({ password, vars, onVariableSaved }: {
             {busy === "lookup" ? "Looking…" : "List what this account holds"}
           </button>
         </div>
+        {/*
+          THE LOOKUP READS THE SAVED ADDRESS, not the box above.
+          A founder who pastes their address and comes straight down here gets
+          the server's 409 telling them to set an address they can see they
+          have already typed. Say it before they press, rather than refusing
+          them afterwards with a message that looks wrong.
+        */}
+        {founderAddressUnsaved && (
+          <p className="text-xs text-amber-700 mt-2 max-w-2xl">
+            The Base account address above has not been saved yet, and this looks up whatever is
+            saved. Press Save on that field first.
+          </p>
+        )}
         {candidates && (
           <div className="mt-3">
             {/*

@@ -179,12 +179,13 @@ export function normalizeExitPolicy(body: any): ExitPolicy {
        * policy document saved before this field existed looks like. An empty
        * list would leave those villages with a form that asks nothing.
        *
-       * A village that genuinely wants no questions can still have that: it
-       * is a saved list, and `steps()` drops the blank lines, so clearing the
-       * box is indistinguishable from absent. That is the one case this
-       * cannot honour, and it is the right way round: asking too many
-       * questions before removing a person is recoverable, asking none is
-       * not.
+       * A village CANNOT choose to ask nothing, and that is the one case
+       * this deliberately does not honour. `steps()` drops blank lines, so an
+       * emptied box is indistinguishable from a document saved before the
+       * field existed, and both get the seed back. It is the right way round:
+       * asking one question too many before removing a person is recoverable,
+       * and asking none is not. A village that wants different questions
+       * replaces them rather than clearing them.
        */
       grounds: steps(i.grounds).length ? steps(i.grounds) : [...DEFAULT_EXIT_POLICY.involuntary.grounds],
     },
