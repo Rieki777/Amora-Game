@@ -323,7 +323,7 @@ import {
   spendSurfacesFor,
 } from "./lib/spending";
 import { seatChargeFor, seatEscrowDrift, seatPriceFor, settleFinishedSeats } from "./lib/eventSeats";
-import { allowanceFor, applyMintRuleChanges, canConfirm, checkIn, cycleWindow, economyReady, give, HEARTS, mintForConfirmedClaim, mintRulesByIds, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, startEconomyEpoch, villageId, type StageMultiplierFor } from "./lib/economy";
+import { allowanceFor, applyMintRuleChanges, canConfirm, checkIn, cycleWindow, economyReady, fromLedgerUnits, give, HEARTS, mintForConfirmedClaim, mintRulesByIds, mintView, publicRules, publicSupply, queueRuleChange, runSettlement, startEconomyEpoch, toLedgerUnits, villageId, type StageMultiplierFor } from "./lib/economy";
 import { addCharacter, avatarFor, listArchetypes, openPathsFor, partyFor, removeCharacter, setPrimary } from "./lib/characters";
 import { loadGratitude, loadProfile, loadStanding, publicView, userIdForHandle } from "./lib/profile";
 import { seedEconomy, suggestClassTags } from "./lib/economySeed";
@@ -4239,7 +4239,7 @@ function stayPostingHooks() {
         dedupeKey: `stay:${stay.id}:lowbal:${today}`,
       });
     },
-    onStopped: async (stay: { id: string; userId: string }, balance: number) => {
+    onStopped: async (stay: { id: string; userId: string; rateSnapshotToken?: string }, balance: number) => {
       await notify({
         userId: stay.userId,
         type: "stays",
@@ -4248,7 +4248,7 @@ function stayPostingHooks() {
         link: "/stay",
         dedupeKey: `stay:${stay.id}:stopped:${today}`,
       });
-      await notifyAdmins("stays", `A stay is past its grace window (balance ${balance})`, `stay:${stay.id}:stopped:${today}`);
+      await notifyAdmins("stays", `A stay is past its grace window (balance ${fromLedgerUnits(stay.rateSnapshotToken ?? STAY_CREDIT, balance)})`, `stay:${stay.id}:stopped:${today}`);
     },
   };
 }
@@ -4928,7 +4928,7 @@ async function applyAcceptReward(
     const credit = await postTransfer(getPool(), {
       from: RECOGNITION_FAUCET,
       to: memberAccount(match.id),
-      amount,
+      amount: toLedgerUnits(PLATFORM_TOKEN, amount),
       source: "proposal_accepted",
       sourceRef: entry.id,
       description: "Work With Us proposal accepted",
@@ -5682,7 +5682,7 @@ async function startServer() {
    */
   registerJob("seat-fee-settle", 6 * 60 * 60 * 1000, async () => {
     const r = await settleFinishedSeats(getPool());
-    if (r.settled) console.log(`[seats] ${r.settled} seat fee(s) settled to the treasury, ${r.amount} total`);
+    if (r.settled) console.log(`[seats] ${r.settled} seat fee(s) settled to the treasury, ${r.amount} minor units summed across every token`);
   });
 
   async function runLibrarySweep(): Promise<{ settled: number; overdue: number; stalled: number }> {
@@ -6410,7 +6410,7 @@ async function startServer() {
     } else if (row.token_slug && row.token_amount && row.user_id) {
       const r = await postTransfer(pool, {
         from: TREASURY, to: memberAccount(String(row.user_id)),
-        tokenType: String(row.token_slug), amount: Number(row.token_amount),
+        tokenType: String(row.token_slug), amount: toLedgerUnits(String(row.token_slug), Number(row.token_amount)),
         source: "product_grant", sourceRef: purchaseId,
         description: `${row.product_name}, receipt #${row.receipt_no}`,
         idempotencyKey: `pp:${purchaseId}:grant:${periodKey}`,
@@ -6503,7 +6503,7 @@ async function startServer() {
       if (wasDelivered && row.token_slug && row.token_amount && row.user_id) {
         const claw = await postTransfer(pool, {
           from: memberAccount(String(row.user_id)), to: TREASURY,
-          tokenType: String(row.token_slug), amount: Number(row.token_amount),
+          tokenType: String(row.token_slug), amount: toLedgerUnits(String(row.token_slug), Number(row.token_amount)),
           source: "payment_reversal", sourceRef: purchaseId,
           description: `Reversal: ${row.product_name} (${periodKey})`,
           idempotencyKey: `pp:${purchaseId}:reversal:${periodKey}`,
@@ -6556,7 +6556,7 @@ async function startServer() {
       if (!r.ok) throw new Error(r.error ?? "stay credit mint failed");
       await notify({
         userId: String(p.user_id), type: "stays",
-        title: `${p.credits_granted} stay credit(s) arrived, see you soon`,
+        title: `${fromLedgerUnits(STAY_CREDIT, Number(p.credits_granted))} stay credit(s) arrived, see you soon`,
         link: "/stay", dedupeKey: `ord:${orderId}:notify`,
       });
     },
@@ -6658,7 +6658,7 @@ async function startServer() {
         from: memberAccount(String(order.user_id)),
         to: TREASURY,
         tokenType: String(order.token_slug),
-        amount: Number(order.quantity),
+        amount: toLedgerUnits(String(order.token_slug), Number(order.quantity)),
         source: "payment_reversal",
         sourceRef: orderId,
         description: refund ? "Refund: tokens returned to stock" : "Dispute: tokens returned to stock",
@@ -12261,7 +12261,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     // their ledger later.
     res.json({
       success: true, status: outcome.status, goingCount: outcome.goingCount,
-      charged: outcome.charged ?? 0,
+      charged: outcome.tokenType ? fromLedgerUnits(outcome.tokenType, outcome.charged ?? 0) : 0,
       tokenName: outcome.tokenType ? (tokenDef(outcome.tokenType)?.name ?? outcome.tokenType) : null,
     });
   });
@@ -12288,7 +12288,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const back = removed ? await seatChargeFor(getPool(), req.params.id, user.id, occ) : null;
     res.json({
       success: true, removed,
-      refunded: back?.status === "released" ? back.amount : 0,
+      refunded: back?.status === "released" ? fromLedgerUnits(back.tokenType, back.amount) : 0,
       tokenName: back ? (tokenDef(back.tokenType)?.name ?? back.tokenType) : null,
     });
   });
@@ -12338,7 +12338,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     }
     res.json({
       success: true, position: outcome.position, waiting: outcome.waiting,
-      charged: outcome.charged ?? 0,
+      charged: outcome.tokenType ? fromLedgerUnits(outcome.tokenType, outcome.charged ?? 0) : 0,
       tokenName: outcome.tokenType ? (tokenDef(outcome.tokenType)?.name ?? outcome.tokenType) : null,
     });
   });
@@ -12355,7 +12355,7 @@ ALWAYS respond with ONLY a single JSON object: {"reply": "<what you say>", "abou
     const back = removed ? await seatChargeFor(getPool(), req.params.id, user.id, occ) : null;
     res.json({
       success: true, removed,
-      refunded: back?.status === "released" ? back.amount : 0,
+      refunded: back?.status === "released" ? fromLedgerUnits(back.tokenType, back.amount) : 0,
       tokenName: back ? (tokenDef(back.tokenType)?.name ?? back.tokenType) : null,
     });
   });
@@ -16196,7 +16196,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     const refusal = sendRefusal(slug);
     if (refusal) return res.status(400).json({ error: refusal });
 
-    const n = Math.trunc(Number(amount) || 0);
+    const n = Math.trunc(Number(amount) || 0); // ALREADY MINOR: `SendTokensCard.tsx` converts with `toMinorUnits` beside the input that shows the scale, so a `toLedgerUnits` here would post ten thousand times what was typed
     if (n <= 0) return res.status(400).json({ error: "How much are you sending?" });
 
     /*
@@ -16290,7 +16290,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       sent: n,
       tokenName: tokenDef(slug)?.name ?? slug,
       to: recipient.name ?? null,
-      balance: await balanceOf(getPool(), memberAccount(user.id), slug),
+      balance: await balanceOf(getPool(), memberAccount(user.id), slug), balanceDecimals: tokenDef(slug)?.decimals ?? 0, // minor units + scale
     });
   });
 
@@ -16401,7 +16401,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       loans,
       reconciliation: await escrowReconciliation(getPool()),
       supply: await supplyVsBacking(getPool()),
-      poolBalance: await balanceOf(getPool(), "sys:library-pool", LIBRARY_CREDIT),
+      poolBalance: fromLedgerUnits(LIBRARY_CREDIT, await balanceOf(getPool(), "sys:library-pool", LIBRARY_CREDIT)),
       disputeDeadlineDays: numberVar("library.dispute_deadline_days"),
     });
   });
@@ -16624,7 +16624,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: amount > 0 ? LIBRARY_MINT : memberAccount(String(userId)),
       to: amount > 0 ? memberAccount(String(userId)) : LIBRARY_SINK,
       tokenType: LIBRARY_CREDIT,
-      amount: Math.abs(amount),
+      amount: toLedgerUnits(LIBRARY_CREDIT, Math.abs(amount)),
       source: amount > 0 ? "library_manual" : "library_burn",
       sourceRef: id,
       description: String(note ?? "Manual adjustment").slice(0, 255),
@@ -16738,7 +16738,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
             swap.myPairs.push({
               payToken: from.tokenSlug, payTokenName: tokenDef(from.tokenSlug)?.name ?? from.tokenSlug,
               receiveToken: to.tokenSlug, receiveTokenName: tokenDef(to.tokenSlug)?.name ?? to.tokenSlug,
-              yourBalance: held[from.tokenSlug] ?? 0,
+              yourBalance: fromLedgerUnits(from.tokenSlug, held[from.tokenSlug] ?? 0),
             });
           }
         }
@@ -17321,24 +17321,24 @@ Send an empty drafts array when you are still listening. A role payload is {name
    * `sys:mint` row, so they serialise, and the second one counts the first
    * one's committed row. Deciding and writing become one step.
    *
-   * The same guard covers both doors on purpose: two doors with one cap.
+   * The same guard covers all three doors on purpose. UNITS: `units` is MINOR, the number the leg posts, because `minted` is a SUM over `token_ledger.amount`; the dial is human and is converted here, once.
    */
-  function mintCapGuard(slug: string, amt: number): TransferGuard {
-    const cap = numberVar("ledger.admin_mint_cycle_cap");
+  function mintCapGuard(slug: string, units: number): TransferGuard {
+    const capHuman = numberVar("ledger.admin_mint_cycle_cap");
     const since = new Date(currentCycle().startsAt);
     return async (conn) => {
       // Re-read the cap inside the guard: an admin may have lowered it
       // between the request arriving and the lock being granted, and the
       // lower number is the one the village decided on.
-      if (cap <= 0) return "Minting is disabled (ledger.admin_mint_cycle_cap is 0)";
+      if (capHuman <= 0) return "Minting is disabled (ledger.admin_mint_cycle_cap is 0)";
       const [[row]] = await conn.query<any[]>(
         "SELECT COALESCE(SUM(amount), 0) AS minted FROM token_ledger " +
           "WHERE from_account = 'sys:mint' AND token_type = ? AND at >= ?",
         [slug, since],
       );
       const minted = Number(row?.minted ?? 0);
-      if (minted + amt > cap) {
-        return `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`;
+      if (minted + units > toLedgerUnits(slug, capHuman)) {
+        return `This would exceed the per-cycle mint cap: ${fromLedgerUnits(slug, minted)} of ${capHuman} ${slug} already minted this lunation`;
       }
       return null;
     };
@@ -17454,7 +17454,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     if (cap <= 0) return res.status(403).json({ error: "Minting is disabled (ledger.admin_mint_cycle_cap is 0)" });
     // A courteous pre-flight so the admin gets a 409 with numbers instead of
     // a bare refusal. It is NOT the enforcement — the guard below is.
-    const minted = await mintedThisCycle(slug);
+    const minted = fromLedgerUnits(slug, await mintedThisCycle(slug));
     if (minted + amt > cap) {
       return res.status(409).json({
         error: `This would exceed the per-cycle mint cap: ${minted} of ${cap} ${slug} already minted this lunation`,
@@ -17466,7 +17466,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: MINT_FAUCET,
       to: TREASURY,
       tokenType: slug,
-      amount: amt,
+      amount: toLedgerUnits(slug, amt),
       source: "exchange_stock",
       sourceRef: actor ?? undefined,
       description: `Treasury stocked for the exchange`,
@@ -17475,13 +17475,13 @@ Send an empty drafts array when you are still listening. A role payload is {name
       idempotencyKey: String(req.body?.requestId ?? "").trim()
         ? `xstock:${slug}:${String(req.body.requestId).trim().slice(0, 60)}`
         : `xstock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    }, mintCapGuard(slug, amt));
+    }, mintCapGuard(slug, toLedgerUnits(slug, amt)));
     if (!r.ok) return res.status(r.error?.includes("mint cap") ? 409 : 400).json({ error: r.error });
     void recordEvent(getPool(), {
       kind: "audit", text: `exchange:stock:${amt}:${slug}`,
       actorUserId: actor, entityType: "token", entityRef: slug, audience: "admin",
     });
-    res.json({ success: true, treasuryBalance: r.toBalance, remaining: cap - minted - amt });
+    res.json({ success: true, treasuryBalance: fromLedgerUnits(slug, r.toBalance), remaining: cap - minted - amt });
   });
 
   // â”€â”€ S9: the token registry and ledger as admin surfaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
@@ -17688,7 +17688,7 @@ Send an empty drafts array when you are still listening. A role payload is {name
     // A grant already waiting for a second steward is spoken for and counts
     // here, or a hundred requests just under the cap would hold a hundred
     // times it (`pendingMints`).
-    const minted = await mintedThisCycle(slug);
+    const minted = fromLedgerUnits(slug, await mintedThisCycle(slug));
     const waiting = await pendingMints(slug);
     if (minted + waiting + amt > cap) {
       return res.status(409).json({
@@ -17746,14 +17746,14 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: "sys:mint",
       to: memberAccount(target.id),
       tokenType: slug,
-      amount: amt,
+      amount: toLedgerUnits(slug, amt),
       source: "admin_mint",
       sourceRef: adminActor(req)?.id,
       description: String(reason).trim().slice(0, 500),
       idempotencyKey: String(req.body?.requestId ?? "").trim()
         ? `admin_mint:${slug}:${String(req.body.requestId).trim().slice(0, 60)}`
         : `admin_mint:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    }, mintCapGuard(slug, amt));
+    }, mintCapGuard(slug, toLedgerUnits(slug, amt)));
     if (!r.ok) return res.status(r.error?.includes("mint cap") ? 409 : 400).json({ error: r.error });
     // Recognition minted by hand still updates the profile's cached balance.
     if (slug === "gratitude") {
@@ -17884,12 +17884,12 @@ Send an empty drafts array when you are still listening. A role payload is {name
       from: "sys:mint",
       to: memberAccount(target.id),
       tokenType: request.tokenSlug,
-      amount: request.amount,
+      amount: toLedgerUnits(request.tokenSlug, request.amount),
       source: "admin_mint",
       sourceRef: request.id,
       description: request.reason.slice(0, 500),
       idempotencyKey: `admin_mint:req:${request.id}`,
-    }, mintCapGuard(request.tokenSlug, request.amount));
+    }, mintCapGuard(request.tokenSlug, toLedgerUnits(request.tokenSlug, request.amount)));
     if (!r.ok) {
       await getPool().query(
         "UPDATE admin_mint_requests SET status = 'pending', decided_by = NULL, decided_at = NULL WHERE id = ?",
@@ -20550,7 +20550,7 @@ ${inner}
         const credit = await postTransfer(getPool(), {
           from: RECOGNITION_FAUCET,
           to: memberAccount(consented.userId),
-          amount: payout,
+          amount: toLedgerUnits(PLATFORM_TOKEN, payout),
           source: "quest_consent",
           sourceRef: consented.id,
           description:
@@ -20600,7 +20600,7 @@ ${inner}
       if (stayReward > 0) {
         const stayCredit = await mintStayCredits(getPool(), {
           userId: consented.userId,
-          amount: stayReward,
+          amount: toLedgerUnits(STAY_CREDIT, stayReward),
           source: "quest_stay_reward",
           sourceRef: consented.id,
           description: `Work exchange: ${consented.questTitle}`,
@@ -21379,7 +21379,7 @@ ${inner}
             from: CYCLE_POOL_FAUCET,
             to: memberAccount(d.userId),
             tokenType: (d as any).poolToken ?? poolToken,
-            amount: share,
+            amount: toLedgerUnits((d as any).poolToken ?? poolToken, share),
             source: "gratitude_pool",
             sourceRef: cycle.id,
             description: `Cycle pool share: ${d.received} recognition from ${d.distinctSenders} ${d.distinctSenders === 1 ? "person" : "people"}`,
@@ -21443,7 +21443,7 @@ ${inner}
           cycleNumber: cycle.cycleNumber,
           startsAt: String(cycle.startsAt),
           endsAt: String(cycle.endsAt),
-        }, eligible);
+        }, eligible, { stageMultiplierFor: stageMultiplierById });
         // H7: with this lunation frozen, compare it to the one before and
         // tell the stewards what moved. Runs INSIDE the same try as the
         // snapshot on purpose — an alert failure must never unclose a
@@ -22429,7 +22429,7 @@ ${inner}
       // and the `denied` field is on a payload `client/src/pages/GameMechanics.tsx`
       // reads, which belongs to another lane. Removing it is that lane's call.
       isDeniable("mechanics.propose") && (ctx.badgeDenies ?? []).includes("mechanics.propose"),
-      Number(user.recognitionBalance ?? 0),
+      fromLedgerUnits(PLATFORM_TOKEN, Number(user.recognitionBalance ?? 0)),
       Math.max(0, numberVar("governance.hypha_threshold")),
       ctx.isAdmin,
     );

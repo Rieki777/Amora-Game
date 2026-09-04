@@ -596,6 +596,56 @@ takes the human half down twice and quietly stops the chargeback hold holding.
 decimals 4 against a real schema, because at decimals 0 alone each conversion is
 the identity and proves nothing.
 
+### Units at the server's route boundaries (sweep lane A)
+
+`server/index.ts` holds twelve of the postings and every readout that carries a
+ledger figure back to a person. It follows the rule the library lane set:
+convert where the human number enters, convert back where a person reads it,
+and leave `postTransfer` alone.
+
+Ten of the twelve convert on the way in: the proposal-accept award, the
+commerce product grant and its reversal, the exchange reversal,
+`POST /api/wallet/send`, `POST /api/admin/library/adjust`,
+`POST /api/admin/exchange/stock`, `POST /api/admin/tokens/:slug/mint`, its
+co-signed approval, the quest consent credit, the quest work-exchange stay
+release, and the cycle pool share. Two do NOT, and that is the harder half to
+see: the two `stay_purchases.credits_granted` legs post the column
+unconverted, because lane E declared that column MINOR.
+
+`POST /api/wallet/send` also stopped truncating. It ran `Math.trunc` over the
+typed amount, so a send of 0.5 became 0 and met the route's own refusal, which
+is the send four decimals exists to allow. The refusal now fires when the
+amount rounds to nothing at the token's own resolution.
+
+**The mint cap is ONE decision across three doors.** `mintCapGuard` counts
+`SUM(token_ledger.amount)`, so its contract is MINOR; the dial
+`ledger.admin_mint_cycle_cap` is a whole-token number a steward typed, so the
+guard converts it once, inside itself, and its refusal prints whole tokens on
+both sides of the sentence. All three callers hand it minor.
+`admin_mint_requests.amount` STAYS in whole tokens: the co-sign threshold
+compares against it, `pendingMints` sums it into a human pre-flight, and every
+sentence about it is read by a person. `POST /api/admin/tokens/:slug/mint`
+therefore takes WHOLE TOKENS now. It took ledger units, which meant a steward
+typing 10 for Village Voice minted 0.01, and `server/adminTokens.e2e.test.ts`
+had recorded that as a defect it was declining to fix.
+
+**`distributions.credited` STAYS in whole tokens too**, so the cycle pool
+converts at the post. The split is persisted before any value moves and is
+re-read on a retry, and `GET /api/admin/cycles/pending` renders the persisted
+number beside a freshly computed one, so moving the column would put two
+numbers under one field name in two units. The cost is that a share below one
+whole token floors to nothing, which is what the pool does today and is the
+direction that pays less.
+
+One of these is not display at all. `mechanicsStandingFor` compared the cached
+minor `recognitionBalance` against `governance.hypha_threshold`, whose declared
+unit is Gratitude, so at 4 decimals a member holding one whole recognition
+would have cleared a bar set at a hundred. It divides now.
+
+`server/decimals.routes.e2e.test.ts` drives all of it over HTTP against tokens
+moved to a real scale first, because at decimals 0 every one of these
+conversions is the identity and a green there says nothing.
+
 **The material library is the first module swept, and it answers five callers
 plus two readers.** `server/lib/library.ts` converts at each of its five posting
 legs (the intake award in `recordIntake`, the dual-signed award in
