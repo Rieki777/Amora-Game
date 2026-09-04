@@ -85,11 +85,13 @@ Then two members act at the same moment and it fails.
    Refuse a non-whole number of the token's minor units at save time in
    `queueRuleChange`, and have the mint report the units it posted rather than
    the human figure it read.
-7. **The decimals ruling itself.** Rye ruled 4 across the board. It is a sweep of
-   39 of `postTransfer`'s 44 callers, each needing a per-caller decision about
-   whether it holds a human number or minor units, with a test per path. Full
-   reasoning in `docs/ECONOMICS.md` section 6, including the two repairs that
-   look right and are not. Do this AFTER item 4.
+7. **Decimals: OWNED BY THE ECONOMICS ENGINE SESSION (2026-09-04).** Not this
+   plan's to close, and nobody else should change a token's scale. Rye ruled 4
+   across the board, then stopped that work, then clarified he wants 2 decimals
+   for currency-like tokens as the world standard, believing we already had it.
+   We do not: measured on production, `credits` is at 0 and is the only sendable
+   token, and only `village-voice` carries any scale at 3. Full history and the
+   narrowed question in `docs/ECONOMICS.md` section 11.
 
 ### To reach A
 
