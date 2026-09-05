@@ -215,6 +215,20 @@ export default function Circles() {
               stage: String(c.status ?? "active") === "active" ? "today" : "future",
               // The seats a circle carries ARE its focus areas.
               focus: seats.map((s: any) => s.name).filter(Boolean),
+              /*
+               * These two travelled from the admin form into the database and
+               * were then deleted by `/api/org`'s projection, one line before
+               * the wire. Every card on this page drew the fallback swatch and
+               * the fallback glyph however carefully a village had chosen
+               * otherwise, and nothing anywhere reported a problem.
+               *
+               * `shared/circleView.ts` is the projection now and it carries
+               * both, so a colour set once shows up here, on the power map and
+               * in the mini render, which is the whole point of there being
+               * one projection.
+               */
+              icon: c.icon ?? undefined,
+              color: c.color ?? undefined,
               members: heldBy.length
                 ? Array.from(new Set(heldBy)).join(", ")
                 : seats.length
