@@ -213,6 +213,18 @@ does NOT push until told. Scratch goes in the lane own subdirectory, never a sha
   across the worktrees. `check-migration-numbers.mjs` does not flag it; that gate is red on this
   branch for the nine governance files below `origin/main`'s ceiling, and was red the same way
   before this file existed.
+- **governance build, thresholds lane, 2026-09-04: claims 0164** for
+  `drizzle/0164_a_quorum_base_freezes_at_open.sql`. Four nullable columns, three on `ballots`
+  (`quorum_base_weight`, `quorum_nonhuman_included`, `quorum_seats_known`) and one on
+  `ballot_electorate` (`quorum_exclusion`). They freeze the quorum denominator inside the open
+  transaction, which the snapshot law always asked for and only the roll ever got: the two
+  counting dials and `roles.represents_being` were read again at the close, so an admin flipping
+  `governance.nonhuman_in_quorum` mid-ballot moved the bar under a vote already cast. Additive
+  only, so a release rolled back over it reads and writes as before. Measured all three ways
+  before claiming: the directory, `git ls-tree` over every local and remote ref (0163 was the
+  ceiling, held by the dispatcher lane above) and every `drizzle/*.sql` on disk across the
+  worktrees. `check-migration-numbers.mjs` does not flag it; that gate is red on this branch for
+  the same nine files the entry above names, and was red the same way before this one landed.
 - **bridge-primitives lane, 2026-09-02: claims 0140, 0141, 0142 and 0143** for the platform
   primitives under the Amora x Saberra integration. All four are additive only.
   `0140_external_proposals.sql` adds `external_proposals` (the vendor proposal queue, with a

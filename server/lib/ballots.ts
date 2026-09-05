@@ -68,11 +68,15 @@ import {
 // THRESHOLDS LANE (19G): whose weight the quorum counts, and the seat facts
 // that answer it. The clock turns "silent for N cycles" into an instant.
 import {
+  DEFAULT_QUORUM_POLICY,
+  exclusionOf,
   quorumBaseOf,
   quorumPctOn,
   type AbstainPolicy,
+  type ExclusionReason,
   type QuorumArithmetic,
   type QuorumBase,
+  type WeighedSeat,
 } from "../../shared/governanceEngine";
 import { clockFor } from "../../shared/cycleClock";
 import { quorumPolicyFrom, seatFacts, ABSENT_CYCLES_DEFAULT } from "./nonHumanSeats";
@@ -115,6 +119,19 @@ export interface BallotRow {
    */
   supersedesBallotId: string | null;
   supersedesRelation: string | null;
+  /**
+   * THRESHOLDS LANE, 0164: the quorum denominator FROZEN at open.
+   *
+   * `total_weight` is the whole roll. This is the part of it the quorum
+   * percentage is measured against, which is smaller whenever 19G puts a seat
+   * outside the count. Null on a ballot opened before 0164, which reads as
+   * "nothing was excluded" for the reason the migration gives.
+   */
+  quorumBaseWeight: number | null;
+  /** `governance.nonhuman_in_quorum` AS IT STOOD AT OPEN. Null before 0164. */
+  quorumNonHumanIncluded: boolean | null;
+  /** Whether the roles plane could answer at open. Null before 0164. */
+  quorumSeatsKnown: boolean | null;
   outcomeNote: string | null;
   closedBy: string | null;
   closedAt: string | null;
@@ -145,6 +162,17 @@ export function rowToBallot(r: RowDataPacket): BallotRow {
     timing: timingOf(r.timing),
     supersedesBallotId: r.supersedes_ballot_id ?? null,
     supersedesRelation: r.supersedes_relation ?? null,
+    // Null stays null. A missing stamp is "this ballot predates 0164", which is
+    // a different fact from a stamped zero, and only one of the two is a base
+    // nobody may vote against.
+    quorumBaseWeight:
+      r.quorum_base_weight === null || r.quorum_base_weight === undefined ? null : Number(r.quorum_base_weight),
+    quorumNonHumanIncluded:
+      r.quorum_nonhuman_included === null || r.quorum_nonhuman_included === undefined
+        ? null
+        : Number(r.quorum_nonhuman_included) === 1,
+    quorumSeatsKnown:
+      r.quorum_seats_known === null || r.quorum_seats_known === undefined ? null : Number(r.quorum_seats_known) === 1,
     outcomeNote: r.outcome_note ?? null,
     closedBy: r.closed_by ?? null,
     closedAt: r.closed_at === null || r.closed_at === undefined ? null : iso(r.closed_at),
@@ -379,14 +407,47 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
   });
   if (closed) return { ok: false, error: closed };
   const closesAt = new Date(opensAt.getTime() + days * 24 * 60 * 60 * 1000);
+  /*
+   * ── THE QUORUM BASE IS PART OF THE SNAPSHOT (19G, 20.8, migration 0164) ────
+   *
+   * The roll and its weights have always frozen here. Which of those seats sit
+   * OUTSIDE the quorum fraction froze nowhere, and was read again at the close:
+   * `governance.nonhuman_in_quorum` and `governance.absent_cycles` through
+   * `stringVar`, and `roles.represents_being` through a probe. Both are things
+   * a village changes on an ordinary Tuesday, so the denominator of a running
+   * ballot moved when an admin turned a dial or seated a representative, after
+   * people had already voted against the old bar. That is the one thing the
+   * snapshot law exists to forbid.
+   *
+   * So the answer is computed HERE, off the same electorate list the rows below
+   * are written from, and stamped in the same transaction. Every later reader
+   * reads the stamp and asks the roles plane and the dials nothing.
+   *
+   * The read sits just above the transaction rather than inside it because
+   * `seatFacts` takes a pool and the facts belong to `opensAt`, which is
+   * already fixed. Nothing between here and the commit can change them: the
+   * roll is a local array and the values travel into the INSERT below.
+   */
+  const quorumPolicy = quorumPolicyFrom((key) => stringVar(key));
+  const openSeats = await seatFacts(pool, {
+    roll: electorate.map((e) => ({ userId: e.userId, weight: Math.max(0, e.weight) })),
+    absentCycles: Number(numberVar("governance.absent_cycles")) || ABSENT_CYCLES_DEFAULT,
+    clock: clockFor(stringVar("cycle.mode")),
+    at: opensAt,
+  });
+  const quorumBase = quorumBaseOf(openSeats.seats, quorumPolicy);
+  const exclusionAtOpen = new Map<string, ExclusionReason | null>(
+    openSeats.seats.map((seat) => [seat.userId, exclusionOf(seat, quorumPolicy)]),
+  );
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     await conn.query( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
       "INSERT INTO ballots (id, subject_type, subject_ref, open_key, title, doc_markdown, method, " +
         "weight_mode, weight_token, unity_pct, quorum_pct, total_weight, electorate_count, opened_by, " +
-        "opens_at, closes_at, timing, supersedes_ballot_id, supersedes_relation, status) " +
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?, 'open')",
+        "opens_at, closes_at, timing, supersedes_ballot_id, supersedes_relation, " +
+        "quorum_base_weight, quorum_nonhuman_included, quorum_seats_known, status) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')",
       [
         id,
         input.subjectType,
@@ -407,14 +468,16 @@ export async function openBallot(pool: Pool, input: OpenBallotInput): Promise<Op
         input.timing ?? defaultTimingFor(kindOfSubject(input.subjectType)),
         supersedesOf,
         supersedesRelation,
+        quorumBase.baseWeight,
+        quorumPolicy.nonHumanInQuorum ? 1 : 0,
+        openSeats.known ? 1 : 0,
       ],
     );
     for (const e of electorate) {
-      await conn.query("INSERT INTO ballot_electorate (ballot_id, user_id, weight) VALUES (?,?,?)", [ // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
-        id,
-        e.userId,
-        Math.max(0, e.weight),
-      ]);
+      await conn.query( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
+        "INSERT INTO ballot_electorate (ballot_id, user_id, weight, quorum_exclusion) VALUES (?,?,?,?)",
+        [id, e.userId, Math.max(0, e.weight), exclusionAtOpen.get(e.userId) ?? null],
+      );
     }
     if (input.onOpen) await input.onOpen(conn, id);
     await conn.commit();
@@ -713,19 +776,40 @@ export async function objectionsFor(pool: Pool, ballotId: string) {
  * That is 19G's own sentence and it is why the exclusion cannot simply be a
  * zero weight on the frozen electorate row.
  *
- * WHAT THIS READS LIVE, AND WHY IT IS SAID OUT LOUD. The frozen roll and its
- * weights come from `ballot_electorate` and are as immutable as ever. Which
- * seats speak for a being, and the village's own setting, are read at close,
- * because neither `ballots` nor `ballot_electorate` has a column to freeze
- * them into and this lane writes no migration. A lane that does should freeze
- * the quorum base on the ballot row at open and this function should read it;
- * until then, a village that seats a being mid-ballot changes that ballot's
- * denominator, which is a smaller drift than the snapshot law usually allows
- * and is recorded here so nobody has to rediscover it.
+ * ── THIS FUNCTION READS NOTHING LIVE (20.8, migration 0164) ─────────────────
+ *
+ * It used to. `governance.nonhuman_in_quorum` and `governance.absent_cycles`
+ * came through `stringVar` here, and `roles.represents_being` was probed here,
+ * all of it at the close. Both dials are ordinary open-ring settings and
+ * seating a representative is an ordinary act, so the denominator of a running
+ * ballot could be moved by an admin turning a dial or by a village seating
+ * somebody, after people had voted against the old bar and with nothing on the
+ * ballot recording that the base had moved. The frozen roll did not help: the
+ * roll was never the part that moved.
+ *
+ * `openBallot` now answers all three questions at open and stamps them:
+ * `ballots.quorum_base_weight`, `ballots.quorum_nonhuman_included`,
+ * `ballots.quorum_seats_known`, and `ballot_electorate.quorum_exclusion` per
+ * seat. This function replays the stamp and asks the dials and the roles plane
+ * nothing at all, so no later act of any kind can move a bar somebody has
+ * already voted against.
+ *
+ * A BALLOT OPENED BEFORE 0164 carries no stamp, and reads as "nothing was
+ * excluded, and the Game could not tell". That is the answer the live probe
+ * gave every village that has named no beings, and it is a FIXED answer rather
+ * than one that keeps moving, which is the property this whole change is for.
  */
 export interface QuorumFacts {
   arithmetic: QuorumArithmetic;
   base: QuorumBase;
+  /**
+   * The denominator AS THE BALLOT ROW RECORDS IT (`quorum_base_weight`), or
+   * null on a ballot opened before 0164. It reproduces `base.baseWeight` to
+   * the four decimal places the column stores, and it is the value a village
+   * reads back when it wants to know what bar a decision was counted against
+   * without re-adding anybody's weight.
+   */
+  stampedBaseWeight: number | null;
   /**
    * Whether the roles plane could answer at all. False means the flag is not
    * on this database yet, which is "could not tell" and never "no seat speaks
@@ -742,22 +826,41 @@ export async function quorumFactsFor(
   abstainPolicy: AbstainPolicy = "counts_toward_quorum",
 ): Promise<QuorumFacts> {
   const [rollRows] = await pool.query<RowDataPacket[]>( // module-review-ok: the ballot tables' one enumerable home (the intents.ts pattern; no cache sits above them)
-    "SELECT user_id, weight FROM ballot_electorate WHERE ballot_id = ?",
+    "SELECT user_id, weight, quorum_exclusion FROM ballot_electorate WHERE ballot_id = ?",
     [ballot.id],
   );
-  const roll = rollRows.map((r) => ({ userId: String(r.user_id), weight: Number(r.weight) || 0 }));
-  const policy = quorumPolicyFrom((key) => stringVar(key));
-  const facts = await seatFacts(pool, {
-    roll,
-    absentCycles: Number(numberVar("governance.absent_cycles")) || ABSENT_CYCLES_DEFAULT,
-    clock: clockFor(stringVar("cycle.mode")),
+  /*
+   * THE FROZEN REASON IS REPLAYED, NEVER RE-DECIDED. Each seat already carries
+   * WHY it sits outside the count, so it is turned back into the shape that
+   * produces exactly that reason again and read under `DEFAULT_QUORUM_POLICY`,
+   * which is the identity for a seat whose reason is already settled: a seat
+   * stamped `speaks_for_a_being` becomes a non-human seat and the excluding
+   * policy excludes it, a seat stamped `cannot_vote` becomes one that cannot
+   * answer, and an unstamped seat is an ordinary seat inside the count. The
+   * village's own setting is NOT consulted here; it was consulted at open, and
+   * `ballot.quorumNonHumanIncluded` records what it said that day.
+   */
+  const excluded = new Set<string>();
+  const roll: WeighedSeat[] = rollRows.map((r) => {
+    const userId = String(r.user_id);
+    const weight = Number(r.weight) || 0;
+    const reason = r.quorum_exclusion === null || r.quorum_exclusion === undefined ? null : String(r.quorum_exclusion);
+    if (reason !== null) excluded.add(userId);
+    if (reason === "speaks_for_a_being") return { weight, nonHuman: true };
+    if (reason === "cannot_vote") return { weight, canVote: false };
+    return { weight };
   });
-  const base = quorumBaseOf(facts.seats, policy);
-  const excluded = new Set(
-    facts.seats
-      .filter((seat) => (seat.nonHuman && !policy.nonHumanInQuorum) || seat.canVote === false)
-      .map((seat) => seat.userId),
-  );
+  /*
+   * THE ARITHMETIC ADDS UP THE FROZEN ROWS, and `ballots.quorum_base_weight`
+   * is the same number recorded on the ballot rather than a second input to
+   * the sum. Both are frozen, so neither can be moved after the fact and the
+   * finding is closed either way; the rows win because the NUMERATOR is built
+   * out of those same per-seat weights, and a denominator summed anywhere else
+   * can sit a float's last bit away from them. Subtracting one from the other
+   * to get the excluded weight was the version of this that could report a bar
+   * as reduced by 0.0000000000000001 on a ballot excluding nothing.
+   */
+  const base: QuorumBase = quorumBaseOf(roll, DEFAULT_QUORUM_POLICY);
   let answeredWeight = 0;
   if (base.excludedWeight > 0) {
     const countsDelegated = delegatedRowsCountOn({
@@ -780,7 +883,8 @@ export async function quorumFactsFor(
   return {
     arithmetic: { answeredWeight, baseWeight: base.baseWeight },
     base,
-    known: facts.known,
+    stampedBaseWeight: ballot.quorumBaseWeight,
+    known: ballot.quorumSeatsKnown === true,
     reduced: base.excludedWeight > 0,
   };
 }

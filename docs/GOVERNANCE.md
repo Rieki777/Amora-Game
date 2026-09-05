@@ -2187,6 +2187,14 @@ The same facts, for anything that would sooner parse than read. Regenerated with
       "what": "a window already over when the row reached passed"
     },
     {
+      "name": "ballots.quorum_base_weight",
+      "what": "the quorum denominator frozen at open, so no later dial can move it"
+    },
+    {
+      "name": "ballot_electorate.quorum_exclusion",
+      "what": "why a seat's weight sits outside the count, frozen beside that weight"
+    },
+    {
       "name": "the landing statuses",
       "what": "applying and stalled beside applied and vetoed"
     },
@@ -2627,6 +2635,8 @@ The tables and columns the rules above rest on. The generator checks every one a
 | `ballots.vetoed_at` | the act of stopping it, on the ballot the veto answers |
 | `ballots.vetoed_by` | who stopped it |
 | `ballots.late_settled_at` | a window already over when the row reached passed |
+| `ballots.quorum_base_weight` | the quorum denominator frozen at open, so no later dial can move it |
+| `ballot_electorate.quorum_exclusion` | why a seat's weight sits outside the count, frozen beside that weight |
 | the landing statuses | applying and stalled beside applied and vetoed |
 | the vetoed outcome | a vetoed decision is not a failed one |
 | `mechanics_proposals.lands_at` | the same instant on the proposal a village reads |
@@ -2636,7 +2646,7 @@ The tables and columns the rules above rest on. The generator checks every one a
 | `delegations.accepted_at` | a delegation carries a choice only once the delegate accepts it |
 | `role_holder_terms` | a term survives an unrelated appointment |
 
-Checked against the 130 migration files in `drizzle/`.
+Checked against the 131 migration files in `drizzle/`.
 
 ## What this file is made from
 

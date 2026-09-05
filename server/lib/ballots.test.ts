@@ -32,6 +32,9 @@ import {
   type OpenBallotInput,
 } from "./ballots";
 import { setWeight, weightsFor, weightChangeProblem, allWeights } from "./governanceWeights";
+// The open-ring dial an admin can flip mid-ballot, written the way the admin
+// route writes it, so the snapshot test moves the real thing.
+import { setVariable } from "./variables";
 import { NO_QUORUM_ENDED, VILLAGE_LAUNCH } from "../../shared/ballotSubjects";
 
 const configured = testDbConfigured();
@@ -746,6 +749,175 @@ describe.skipIf(!configured)("the quorum a being's seat sits outside of (MySQL)"
     expect(closed.outcome).toBe("failed");
     expect(closed.quorum).toBe(50);
     expect(closed.unity).toBeCloseTo(11.11, 1);
+  });
+
+  /*
+   * -- THE BASE IS PART OF THE SNAPSHOT (20.8, migration 0164) --------------
+   *
+   * Red before this: `quorumFactsFor` read `governance.nonhuman_in_quorum`,
+   * `governance.absent_cycles` and `roles.represents_being` AT THE CLOSE, so
+   * the denominator of a running ballot moved when an admin turned a dial or a
+   * village seated a representative. The roll was frozen and the bar was not.
+   *
+   * Both cases below move the base by an ordinary act, mid-ballot, on a vote
+   * somebody has already cast. Both must leave the arithmetic exactly where it
+   * stood at open.
+   */
+  it("keeps the base the dial set at open when an admin flips the dial mid-ballot", async () => {
+    // The dial is at its shipped default here: a being's seat is EXCLUDED.
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "gmp-being-dial-flip",
+      title: "The dial moves under a running vote",
+      docMarkdown: "# The dial moves under a running vote",
+      method: "custom",
+      weightMode: "custom",
+      unityPct: 80,
+      quorumPct: 30,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [
+        { userId: "u-a", weight: 1 },
+        { userId: "u-b", weight: 1 },
+        { userId: "u-river", weight: 8 },
+      ],
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const id = opened.ballot.id;
+    // The stamp is on the row, not only in the object the open returned.
+    expect(opened.ballot.quorumBaseWeight).toBe(2);
+    expect(opened.ballot.quorumNonHumanIncluded).toBe(false);
+    expect(opened.ballot.quorumSeatsKnown).toBe(true);
+    expect((await castVote(pool, id, "u-a", "yes")).ok).toBe(true);
+
+    // One admin, one PUT, mid-ballot. Nothing about the roll changes.
+    expect((await setVariable(pool, "governance.nonhuman_in_quorum", "true")).ok).toBe(true);
+    try {
+      const stored = await ballotById(pool, id);
+      expect(stored).not.toBeNull();
+      if (!stored) return;
+      const facts = await quorumFactsFor(pool, stored);
+      // Live, this read 10 and the one yes was 10% against a 30% bar.
+      expect(facts.base.baseWeight).toBe(2);
+      expect(facts.base.excludedWeight).toBe(8);
+      expect(facts.reduced).toBe(true);
+      // The ballot row records the same denominator the rows add up to.
+      expect(facts.stampedBaseWeight).toBe(2);
+      expect(facts.arithmetic).toEqual({ answeredWeight: 1, baseWeight: 2 });
+
+      await expire(id);
+      const closed = await closeBallot(pool, {
+        ballotId: id,
+        closedBy: "u-clock",
+        outcomeNote: "Closed on the clock.",
+        closerMayCloseEarly: false,
+      });
+      expect(closed.ok).toBe(true);
+      if (!closed.ok) return;
+      expect(closed.quorum).toBe(50);
+      expect(closed.quorumBase.baseWeight).toBe(2);
+      expect(closed.outcome).toBe("passed");
+    } finally {
+      await setVariable(pool, "governance.nonhuman_in_quorum", "false");
+    }
+  });
+
+  it("keeps the base at open when a being's representative is seated mid-ballot", async () => {
+    // Neither seat speaks for a being at open, so the whole roll is the base.
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "gmp-being-seated-late",
+      title: "A representative is seated under a running vote",
+      docMarkdown: "# A representative is seated under a running vote",
+      method: "custom",
+      weightMode: "custom",
+      unityPct: 80,
+      quorumPct: 30,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [
+        { userId: "u-c", weight: 1 },
+        { userId: "u-d", weight: 9 },
+      ],
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const id = opened.ballot.id;
+    expect(opened.ballot.quorumBaseWeight).toBe(10);
+    expect((await castVote(pool, id, "u-c", "yes")).ok).toBe(true);
+
+    // The village seats u-d as the river's voice while the vote runs. The
+    // column and the role already exist; this is one INSERT on role_holders,
+    // which is what seating somebody is.
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO role_holders (id, role_id, user_id) VALUES (?,?,?)",
+      ["rh-river-late", "the-river", "u-d"],
+    );
+
+    const stored = await ballotById(pool, id);
+    expect(stored).not.toBeNull();
+    if (!stored) return;
+    const facts = await quorumFactsFor(pool, stored);
+    // Live, this read a base of 1 and turned one yes of ten into 100% turnout.
+    expect(facts.base.baseWeight).toBe(10);
+    expect(facts.base.excludedWeight).toBe(0);
+    expect(facts.reduced).toBe(false);
+    expect(facts.stampedBaseWeight).toBe(10);
+
+    await expire(id);
+    const closed = await closeBallot(pool, {
+      ballotId: id,
+      closedBy: "u-clock",
+      outcomeNote: "Closed on the clock.",
+      closerMayCloseEarly: false,
+    });
+    expect(closed.ok).toBe(true);
+    if (!closed.ok) return;
+    // One yes of ten is 10%, which misses the 30% bar it was opened under.
+    expect(closed.quorum).toBe(10);
+    expect(closed.outcome).toBe("no_quorum");
+  });
+
+  /*
+   * A roll of 0.1, 0.2 and 0.3 sums to 0.6000000000000001 in a double and to
+   * 0.6000 in the column. Read the stamped base as the denominator and take the
+   * excluded weight by subtracting it from the roll, and a ballot that excludes
+   * nobody reports a reduced quorum with a hundred-quadrillionth of somebody's
+   * voice outside it, on the arithmetic that decides whether a decision stands.
+   * So the frozen ROWS are what the sum adds up, and the stamp is what the
+   * ballot records beside it.
+   */
+  it("does not read as reduced on a roll whose weights do not sum cleanly", async () => {
+    const opened = await openBallot(pool, {
+      subjectType: "mechanics",
+      subjectRef: "gmp-being-tenths",
+      title: "Three tenths of a voice each",
+      docMarkdown: "# Three tenths of a voice each",
+      method: "custom",
+      weightMode: "custom",
+      unityPct: 80,
+      quorumPct: 30,
+      durationDays: 7,
+      openedBy: "u-proposer",
+      electorate: [
+        { userId: "u-e", weight: 0.1 },
+        { userId: "u-f", weight: 0.2 },
+        { userId: "u-g", weight: 0.3 },
+      ],
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const stored = await ballotById(pool, opened.ballot.id);
+    expect(stored).not.toBeNull();
+    if (!stored) return;
+    const facts = await quorumFactsFor(pool, stored);
+    expect(facts.base.excludedWeight).toBe(0);
+    expect(facts.reduced).toBe(false);
+    expect(facts.base.votablePeople).toBe(3);
+    // The stamp rounds to the column's four places; the sum of the rows does
+    // not have to, and only one of the two may decide the fraction.
+    expect(facts.stampedBaseWeight).toBe(0.6);
   });
 });
 

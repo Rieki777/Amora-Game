@@ -971,6 +971,8 @@ const SCHEMA_SHAPES = [
   { name: "ballots.vetoed_at", what: "the act of stopping it, on the ballot the veto answers", test: /`ballots`\s+ADD COLUMN `vetoed_at`/ },
   { name: "ballots.vetoed_by", what: "who stopped it", test: /`ballots`\s+ADD COLUMN `vetoed_by`/ },
   { name: "ballots.late_settled_at", what: "a window already over when the row reached passed", test: /`ballots`\s+ADD COLUMN `late_settled_at`/ },
+  { name: "ballots.quorum_base_weight", what: "the quorum denominator frozen at open, so no later dial can move it", test: /`ballots`\s+ADD COLUMN `quorum_base_weight`/ },
+  { name: "ballot_electorate.quorum_exclusion", what: "why a seat's weight sits outside the count, frozen beside that weight", test: /`ballot_electorate`\s+ADD COLUMN `quorum_exclusion`/ },
   { name: "the landing statuses", what: "applying and stalled beside applied and vetoed", test: /enum\([^)]*'applying'[^)]*'stalled'[^)]*\)/ },
   { name: "the vetoed outcome", what: "a vetoed decision is not a failed one", test: /'vetoed'/ },
   { name: "mechanics_proposals.lands_at", what: "the same instant on the proposal a village reads", test: /`mechanics_proposals`\s+ADD COLUMN `lands_at`/ },
