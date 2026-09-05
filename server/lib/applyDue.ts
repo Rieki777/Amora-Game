@@ -88,6 +88,8 @@ import {
   type ProposalTiming,
 } from "../../shared/governanceKinds";
 import { ballotById, votesFor, type BallotRow } from "./ballots";
+import { cappedVetoHours } from "./governanceWindows";
+import { activeClock } from "./gratitude-cycles";
 import { floorForCriticality, thresholdSettingsFrom, type ThresholdSettings } from "../../shared/ballotSubjects";
 import type { Criticality } from "../../shared/governanceEngine";
 import { numberVar, stringVar } from "./variables";
@@ -228,7 +230,18 @@ export function landingOf(deps: LandingDeps, input: StampInput): Landing {
     closesAt: new Date(b.closesAt),
     kind,
     timing: timingOfBallot(b, kind),
-    vetoHours: vetoHoursFrom(deps.vetoHours()),
+    /*
+     * FLOORED AND CAPPED, on the ballot's own close instant.
+     *
+     * `vetoHoursFrom` applies the 72-hour floor and no ceiling, so a village
+     * that stored the registry maximum of 720 hours against a lunar cycle of
+     * about 708 pushed a Game change chosen for the new moon a whole moon
+     * past the boundary it was timed to. 20.11 caps the window at one cycle
+     * of the ACTIVE clock and `cappedVetoHours` is that read; until the audit
+     * of 2026-09-04 it was exported and called by nothing. The instant it is
+     * measured on is `closesAt`, because that is where the window starts.
+     */
+    vetoHours: cappedVetoHours(vetoHoursFrom(deps.vetoHours()), new Date(b.closesAt), activeClock()),
     nextBoundaryAfter: deps.nextBoundaryAfter,
     noWindow: executesAtPassWithNoWindow(b.subjectType),
     notVetoable: !!input.editsVetoMap || !!input.seatsStewardCapableRole,
@@ -893,7 +906,12 @@ export const TICK_MS = 5 * 60 * 1000;
  * spending against it exactly as the first stamp would have.
  */
 async function snappedWindowEnd(deps: LandingDeps, b: BallotRow, at: Date): Promise<Date> {
-  const end = new Date(at.getTime() + vetoHoursFrom(deps.vetoHours()) * 60 * 60 * 1000);
+  // Capped like the first stamp (20.11), measured on `at` because that is
+  // where this reopened window starts. A handed-back window longer than a
+  // cycle is the same defect as a first one, arriving on the path a stalled
+  // row takes.
+  const hours = cappedVetoHours(vetoHoursFrom(deps.vetoHours()), at, activeClock());
+  const end = new Date(at.getTime() + hours * 60 * 60 * 1000);
   if (!(await snapsToBoundary(deps, b))) return end;
   const boundary = deps.nextBoundaryAfter(new Date(end.getTime() - 1));
   return boundary.getTime() >= end.getTime() ? boundary : end;

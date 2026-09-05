@@ -4570,6 +4570,24 @@ describe.skipIf(!DB_CONFIGURED)("the coordination loop, end to end", () => {
     // Zero is still settable — the honest value stays reachable.
     expect((await api("PUT", "/api/admin/variables/stay.credit_expiry_days", { value: "0" }, founderToken)).status).toBe(200);
 
+    // ── AND THE TWO CROSS-KEY WINDOW RULES, ON THE SAME DOOR. ──
+    // The change-set validator has always refused a window no longer than the
+    // vote and a steward window longer than a cycle. This route wrote straight
+    // through, so anybody holding dial.set could store a three-day window
+    // against a seven-day vote and every changeset opening after it was
+    // refused: governance by proposal shut, with nothing said.
+    const shutDoor = await api("PUT", "/api/admin/variables/governance.window_changeset", { value: "last_days_of_cycle:3" }, founderToken);
+    expect(shutDoor.status).toBe(409);
+    expect(String(shutDoor.json.error)).toContain("could ever open");
+    // And the registry maximum of 720 hours against a lunar cycle of about 708.
+    const longWindow = await api("PUT", "/api/admin/variables/governance.veto_hours", { value: "720" }, founderToken);
+    expect(longWindow.status).toBe(409);
+    expect(String(longWindow.json.error)).toContain("longer than one cycle");
+    // A rule, not a lock: a window that leaves room for the ballot still sets,
+    // and the dial goes back to its default so no later block inherits it.
+    expect((await api("PUT", "/api/admin/variables/governance.window_changeset", { value: "last_days_of_cycle:10" }, founderToken)).status).toBe(200);
+    expect((await api("PUT", "/api/admin/variables/governance.window_changeset", { value: "always_open" }, founderToken)).status).toBe(200);
+
     const rec2 = await api("GET", "/api/admin/ledger/reconciliation", undefined, founderToken);
     expect(rec2.json.invariants.problems).toEqual([]);
     await api("PUT", "/api/admin/modules/exchange/lifecycle", { lifecycle: "off" }, founderToken);

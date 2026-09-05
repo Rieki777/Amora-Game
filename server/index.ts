@@ -39,7 +39,7 @@ import {
   WIRED_BUT_HELD_BACK,
   type PowerHolder,
 } from "./lib/capabilityRegistry";
-import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar } from "./lib/variables";
+import { allVariables, boolVar, numberVar, rawValue, setVariable, stringVar, unenforcedDialRefusal } from "./lib/variables";
 import { adminGateWasConsulted, markAdminGate } from "./lib/adminGate";
 import { type FaqPathway, register as registerFaqRoutes } from "./routes/faqs";
 import { register as registerLandRoutes } from "./routes/land";
@@ -61,7 +61,7 @@ import { register as registerGovernanceLandingRoutes } from "./routes/governance
 // The dispatcher lane: the landing path, the change-set executor and the roll notice.
 import { applyDueGovernance, autoSettleExpired, digestComposerFor, itemKindsOf, markNotApplicable, overrideDials, routeOutcome, runVetoWatch, vetoWindowOn, type CloseRouting, type LandingDeps, type SubjectCloser } from "./lib/applyDue";
 import { register as registerGovernanceModeRoutes } from "./routes/governanceMode";
-import { changeSetKinds, comingBackFrom, relationProblem, seasonEndInstant, setSeasonWindowReader, supersedeColumns } from "./lib/governanceWindows";
+import { changeSetKinds, comingBackFrom, relationProblem, seasonEndInstant, setSeasonWindowReader, supersedeColumns, windowSettingProblem } from "./lib/governanceWindows";
 import { applyChangeSet, applyMechanicsProposal as applyChangeSetForProposal, changeSetSnapsToBoundary, changeSetWaitsForCycleClose, recordMechanicsChangeRow, UntypedElementError, type ApplySetResult, type ChangesetDeps } from "./lib/changeset";
 import { landingRow } from "./lib/applyDue";
 import { notifyRollRows, type RollNotice } from "./lib/ballotNotices";
@@ -22044,35 +22044,10 @@ ${inner}
     if (WEIGHT_KEYS_AFTER_START.has(req.params.key) && (await readGameStart(getPool())).started) {
       return res.status(409).json({ error: "The village started its Game, so how a vote is weighed is the village's to decide. Raise it as a proposal." });
     }
-    /*
-     * A KNOB THAT CANNOT ACT MUST NOT ACCEPT A VALUE.
-     *
-     * Two stays variables are shipped policy with no enforcement behind them
-     * (V2_PLAN ranks 66, S1+S2) and both are deliberately legal-blocked: the
-     * plan says in terms not to write the expiry sweep before Gate F blesses
-     * it, because "the default of 0 is what keeps the platform out of
-     * escheatment, and building the mechanism creates pressure to use it".
-     *
-     * That reasoning holds. What does not hold is the form silently accepting
-     * "365 days" and leaving an admin believing credits expire when nothing
-     * will ever sweep them — a belief they might pass on to members. Until
-     * the mechanism exists, the honest answer is to refuse the change and say
-     * why, rather than to store a number nobody reads.
-     */
-    const unenforced: Record<string, string> = {
-      "stay.credit_expiry_days":
-        "Credits cannot expire yet. Nothing sweeps them, so any value here would be a promise the platform does not keep. " +
-        "Expiring member-held value is a legal question (gift-certificate and escheatment rules) that has to be answered before the sweep is written, not after. Leave it at 0.",
-      "stay.credits_transferable":
-        "Credit transfers between members are not built, and turning this on would not enable them. " +
-        "Freely transferable credits also drift toward regulated e-money, which is a decision to take with counsel before the surface exists.",
-    };
-    const blocked = unenforced[req.params.key];
-    if (blocked) {
-      const v = String(raw).trim().toLowerCase();
-      const isOff = v === "0" || v === "false" || v === "";
-      if (!isOff) return res.status(409).json({ error: blocked });
-    }
+    // A knob that cannot act must not accept a value. The two stays dials and
+    // the reason they are legal-blocked live beside setVariable now.
+    const blocked = unenforcedDialRefusal(req.params.key, String(raw));
+    if (blocked) return res.status(409).json({ error: blocked });
 
     /*
      * NAMING A HYPHA SPACE IS A PRECONDITION CHECK, NOT JUST A VALUE.
@@ -22107,6 +22082,23 @@ ${inner}
       }
     }
 
+    /*
+     * THE TWO CROSS-KEY WINDOW RULES, ON THIS DOOR TOO (19E, 20.10, 20.11).
+     *
+     * The registry validates one value against its own bounds and cannot see
+     * a second key. `windowSettingProblem` holds the two rules that need
+     * both: a governance window no longer than `governance.vote_days` refuses
+     * every opening of that kind forever, and a steward window longer than a
+     * cycle outruns the landing it counts to. `validateChangeSet` in
+     * server/lib/mechanics.ts has always called it; this route wrote straight
+     * through and so held the only unguarded way in. Anybody with `dial.set`
+     * could store `last_days_of_cycle:3` against a seven-day vote and shut
+     * governance by proposal, with the grammar check saying yes and nothing
+     * telling the village. Same call, same sentence, so the two doors cannot
+     * disagree about what a village may set.
+     */
+    const windowProblem = windowSettingProblem(req.params.key, String(raw), numberVar("governance.vote_days"));
+    if (windowProblem) return res.status(409).json({ error: windowProblem });
     const result = await setVariable(getPool(), req.params.key, String(raw));
     if (!result.ok) return res.status(400).json({ error: result.error });
     if (result.previous !== result.value) {

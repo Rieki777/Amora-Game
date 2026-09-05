@@ -85,6 +85,43 @@ export function allVariables(): Array<
   });
 }
 
+/*
+ * A KNOB THAT CANNOT ACT MUST NOT ACCEPT A VALUE.
+ *
+ * Two stays variables are shipped policy with no enforcement behind them
+ * (V2_PLAN ranks 66, S1+S2) and both are deliberately legal-blocked: the
+ * plan says in terms not to write the expiry sweep before Gate F blesses
+ * it, because "the default of 0 is what keeps the platform out of
+ * escheatment, and building the mechanism creates pressure to use it".
+ *
+ * That reasoning holds. What does not hold is the form silently accepting
+ * "365 days" and leaving an admin believing credits expire when nothing
+ * will ever sweep them, a belief they might pass on to members. Until
+ * the mechanism exists, the honest answer is to refuse the change and say
+ * why, rather than to store a number nobody reads.
+ *
+ * It lives beside `setVariable` rather than inside the admin route because
+ * the route it was written in sits at its size ratchet, and a rule about
+ * what a variable may hold belongs next to the write it guards anyway.
+ */
+const UNENFORCED: Record<string, string> = {
+  "stay.credit_expiry_days":
+    "Credits cannot expire yet. Nothing sweeps them, so any value here would be a promise the platform does not keep. " +
+    "Expiring member-held value is a legal question (gift-certificate and escheatment rules) that has to be answered before the sweep is written, not after. Leave it at 0.",
+  "stay.credits_transferable":
+    "Credit transfers between members are not built, and turning this on would not enable them. " +
+    "Freely transferable credits also drift toward regulated e-money, which is a decision to take with counsel before the surface exists.",
+};
+
+/** Why this key may not be turned on yet, or null. Off is always allowed. */
+export function unenforcedDialRefusal(key: string, raw: string): string | null {
+  const blocked = UNENFORCED[key];
+  if (!blocked) return null;
+  const v = String(raw).trim().toLowerCase();
+  const isOff = v === "0" || v === "false" || v === "";
+  return isOff ? null : blocked;
+}
+
 export interface SetResult {
   ok: boolean;
   error?: string;
