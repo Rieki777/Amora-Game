@@ -310,7 +310,22 @@ async function maybeEmailImmediate(deps: NotifyDeps, n: NotifyInput & { id: stri
   if (!user?.email || !user.passwordHash) return; // tombstones and claim-pending accounts get no email
   const prefs = resolveNotifyPrefs(user.prefs);
   if (emailCadenceFor(n.type, prefs) !== "immediate") return;
-  if (!(await underDailyCap(deps.pool, n.userId))) return;
+  /*
+   * THE DAILY CAP IS THE LAST DOOR THE WINDOW NOTICE FELL THROUGH.
+   *
+   * `STEWARD_WINDOW_TYPES` already outranks the governance preference and the
+   * global `emailsOff` switch, for the reason written above it: these three are
+   * the only warning the one person who can stop a landing ever gets. The cap
+   * was the remaining silent drop, and it is the worst of the three, because it
+   * fires precisely on the busiest stewards and drops the two-hours-left
+   * warning while the decision lands anyway.
+   *
+   * A cap exists to stop a member being flooded. This is not volume: it is at
+   * most three notices per carried decision, each on a deadline the recipient
+   * cannot extend, and a dropped one cannot be caught up by tomorrow's digest
+   * because the thing it warned about has already happened.
+   */
+  if (!STEWARD_WINDOW_TYPES.has(n.type) && !(await underDailyCap(deps.pool, n.userId))) return;
 
   const url = deps.origin() + (n.link ?? "/profile");
   await deps.sendEmail({

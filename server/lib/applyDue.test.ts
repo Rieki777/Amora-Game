@@ -977,3 +977,69 @@ describe.skipIf(!configured)("the three window notices", () => {
     expect(Array.from(new Set(seen))).toEqual([MOMENT_TYPE.two_hours]);
   });
 });
+
+describe.skipIf(!configured)("the window notice and the veto route give the same answer", () => {
+  /**
+   * THE FAILURE: the notice told every steward "unless you stop it before
+   * then" while `recordVeto` refused the veto-locked rows in the same breath.
+   * A steward who trusted the notice waited for a door and found out at the
+   * moment they pushed it.
+   *
+   * The assertion is deliberately NOT that a particular sentence appears. It
+   * is that the PROMISE and the ROUTE agree, checked by making the notice's
+   * claim and then really attempting the veto it describes. A future change
+   * that fixes one side and not the other fails here, which a string test on
+   * either side alone would not catch.
+   */
+  const carryNotice = async (subjectRef: string, itemKinds?: readonly string[]): Promise<{ ballot: BallotRow; body: string }> => {
+    const b = await openOne({ subjectRef });
+    const closed = await carry(b);
+    const bodies: string[] = [];
+    await routeOutcome(
+      deps({ notify: async (i) => { bodies.push(String(i.body)); } }),
+      closed.ballot!, "passed", "carried", "u-a", itemKinds,
+    );
+    expect(bodies.length, "the carry notice must actually go out").toBeGreaterThan(0);
+    return { ballot: b, body: bodies[0]! };
+  };
+
+  it("offers the stop only where the stop works, on both rows, in one run", async () => {
+    await seatSteward("u-steward");
+
+    // ── The ordinary Game change: the notice offers a stop, and it works.
+    const plain = await carryNotice(`notice-plain-${++n}`);
+    const plainOffers = /unless you stop it/.test(plain.body);
+    const plainVeto = await recordVeto(deps(), {
+      ballotId: plain.ballot.id, stewardId: "u-steward", reason: "This needs another look before it lands.",
+    });
+    expect(plainOffers, "an ordinary Game change still offers its window").toBe(true);
+    expect(plainVeto.ok, "and the route still honours it").toBe(true);
+
+    // ── The veto-locked row: the notice must not offer what the route refuses.
+    const ref = `notice-locked-${++n}`;
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "INSERT INTO mechanics_proposals (id, title, rationale, status, proposer_user_id, change_set) VALUES (?,?,?,?,?,?)",
+      [ref, "Who may stop what", "why the village was asked", "onsite_vote", "u-a",
+        JSON.stringify([{ kind: "dial", key: "governance.steward_subjects", to: "mechanics" }])],
+    );
+    const locked = await carryNotice(ref, ["dial"]);
+    const lockedOffers = /unless you stop it/.test(locked.body);
+    const lockedVeto = await recordVeto(deps(), {
+      ballotId: locked.ballot.id, stewardId: "u-steward", reason: "I would rather keep the reach I have.",
+    });
+
+    expect(lockedOffers, `the notice offered a stop the route refuses: ${locked.body}`).toBe(false);
+    expect(lockedVeto.ok, "the route still refuses it, which is the behaviour being described").toBe(false);
+    // It still gets a notice, and the notice still names when it lands. Saying
+    // nothing would leave a steward unable to argue against the one change
+    // they are barred from stopping.
+    expect(locked.body).toContain("It takes effect at");
+    expect(locked.body).toContain("no steward may stop it");
+
+    // THE INVARIANT, stated once over both rows: the promise equals the route.
+    expect(
+      [plainOffers, lockedOffers],
+      "the notice's promise and the veto route's answer must agree on every row",
+    ).toEqual([plainVeto.ok, lockedVeto.ok]);
+  });
+});

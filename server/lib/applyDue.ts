@@ -888,6 +888,28 @@ const MOMENT_TITLE: Readonly<Record<StewardMoment, (title: string) => string>> =
 };
 
 /**
+ * THE SAME MOMENTS, FOR THE ROW NO STEWARD MAY STOP.
+ *
+ * A veto-locked decision keeps its instant, its countdown and these notices,
+ * and the one thing it does not have is the door. Sending the ordinary text
+ * offered a steward a stop that `vetoBallot` refuses in the same breath, which
+ * is worse than telling them nothing: a steward who trusts the notice waits
+ * for a window they cannot use and finds out at the moment they try.
+ *
+ * These say what is true instead. The steward still needs the notice, because
+ * a change to what stewards may stop is exactly the change they should be
+ * reading before it lands, and because knowing early is what lets them argue
+ * for it in the open while it is still a decision the village can revisit.
+ */
+const MOMENT_TITLE_LOCKED: Readonly<Record<StewardMoment, (title: string) => string>> = {
+  carry: (t) => `The village carried this, and it is not yours to stop: ${t}`,
+  halfway: (t) => `Half the wait has gone on: ${t}`,
+  two_hours: (t) => `Two hours until this takes effect: ${t}`,
+  reopened: (t) => `Applying is back on and this is due again: ${t}`,
+  late_settled: (t) => `This was read late, so its wait starts now: ${t}`,
+};
+
+/**
  * STEWARD-VETO LANE: each moment takes its own notification type.
  *
  * All four used to go out as `governance`, which resolves to the governance
@@ -921,13 +943,30 @@ export const MOMENT_TYPE: Readonly<Record<StewardMoment, string>> = {
  * lane wiring email for governance wires it there rather than here.
  */
 export async function tellStewards(deps: LandingDeps, b: BallotRow, landsAt: Date, moment: StewardMoment): Promise<number> {
+  /*
+   * READ THE SAME COLUMN THE REFUSAL READS, rather than taking a flag from the
+   * caller. `vetoBallot` refuses on `ballots.veto_locked` (the row it loads at
+   * `ballotLanding`), so the notice asks that column and nothing else. A flag
+   * computed beside this call and passed in would be a second copy of the
+   * answer, and the defect being fixed here IS a second copy that drifted: the
+   * notice promised a door the route had already been refusing.
+   */
+  const [lockRows] = await deps.pool.query<RowDataPacket[]>(
+    "SELECT veto_locked FROM ballots WHERE id = ?",
+    [b.id],
+  );
+  const locked = Number(lockRows[0]?.veto_locked ?? 0) === 1;
+  const titles = locked ? MOMENT_TITLE_LOCKED : MOMENT_TITLE;
+  const body = locked
+    ? `It takes effect at ${landsAt.toISOString()}. This decision is about what a steward may stop, so no steward may stop it, and it lands when the window shuts.`
+    : `It takes effect at ${landsAt.toISOString()} unless you stop it before then, with a reason the village can read.`;
   const seated = (await stewardsSeated(deps.pool, nowOf(deps))).filter((h) => !h.lapsed);
   for (const holding of seated) {
     await deps.notify({
       userId: holding.userId,
       type: MOMENT_TYPE[moment],
-      title: MOMENT_TITLE[moment](b.title),
-      body: `It takes effect at ${landsAt.toISOString()} unless you stop it before then, with a reason the village can read.`,
+      title: titles[moment](b.title),
+      body,
       link: `/governance/ballots/${b.id}`,
       dedupeKey: `bal:${b.id}:veto-window:${moment}`,
     });

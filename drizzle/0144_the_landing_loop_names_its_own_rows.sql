@@ -79,6 +79,24 @@ ALTER TABLE `governance_element_ledger` ADD COLUMN `proposal_id` varchar(64) NUL
 -- read ("item 2 of 4"); the two are different facts and both are needed, and
 -- the autoincrement id below was quietly doing the second job until now.
 ALTER TABLE `governance_element_ledger` ADD COLUMN `write_seq` int NOT NULL DEFAULT 0;
+-- DEDUPE BEFORE THE KEY, and the reason is that the key is over exactly the
+-- rows the defect above was able to write. A retried landing wrote a second row
+-- for the same element; ADD PRIMARY KEY over two such rows does not warn, it
+-- REFUSES with a duplicate-entry error, and a refusing migration is a village
+-- that cannot boot.
+-- The header argues no instance can hold those rows, because both tables were
+-- created in this same unreleased wave. That is true today and it is an
+-- assumption with an expiry date: it stops being true the moment the wave
+-- ships, and any developer or test database that ran the wave and retried a
+-- landing already holds them now. One statement removes the dependence on it.
+-- The keeper is the HIGHEST id, which is the most recent write and therefore
+-- the one describing the element's final state. It has to run before the
+-- DROP COLUMN below, because `id` is what picks the winner.
+DELETE `l` FROM `governance_element_ledger` `l`
+  JOIN `governance_element_ledger` `keep`
+    ON `keep`.`ballot_id` = `l`.`ballot_id`
+   AND `keep`.`element_index` = `l`.`element_index`
+   AND `keep`.`id` > `l`.`id`;
 ALTER TABLE `governance_element_ledger`
   DROP PRIMARY KEY,
   DROP COLUMN `id`,
@@ -100,8 +118,15 @@ ALTER TABLE `governance_executor_pending`
 -- nothing already vetoed, nothing that never lands.
 UPDATE `ballots` b
   JOIN `mechanics_proposals` p ON p.id = b.subject_ref
-  SET b.lands_at = DATE_ADD(NOW(), INTERVAL 72 HOUR),
-      b.veto_closes_at = DATE_ADD(NOW(), INTERVAL 72 HOUR),
+-- UTC_TIMESTAMP, NEVER NOW. `lands_at` is a plain DATETIME with no timezone
+-- conversion of its own, and every other writer of it puts a UTC instant there
+-- (`sqlInstant` is `toISOString`). `NOW()` returns the SERVER's local time, so
+-- on any database not running at UTC this backfill stamps a window short or
+-- long by the server's offset, and the steward's 72 hours quietly becomes 65 or
+-- 79. It reads correct on a UTC CI box, which is what makes it worth naming
+-- here: the one machine that would have caught it is the one that cannot.
+  SET b.lands_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR),
+      b.veto_closes_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR),
       b.landing_status = 'pending'
   WHERE b.subject_type IN ('mechanics','mint_rule')
     AND b.status = 'passed'
