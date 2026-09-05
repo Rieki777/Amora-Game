@@ -574,4 +574,85 @@ describe.skipIf(!DB_CONFIGURED)("the governance engine, driven", () => {
     );
     expect(Number(rows[0]?.n ?? 0), "a refused relation must not be stored").toBe(0);
   });
+  /**
+   * A RENEWAL MAY NOT POINT AT A VETOED ROW (20.11).
+   *
+   * `supersedesRefusal` was written and unit-tested and then called by nothing,
+   * so the publish route stored `renews` against a decision a steward had
+   * stopped and the vote door opened a ballot on it. The record then said the
+   * village was renewing something it never let stand, at the setting's
+   * ordinary bar, which is the override without the override's price.
+   *
+   * Driven over HTTP for the same reason the two cases above are: the helper
+   * was never the part that was wrong, so a unit test on it passes on the
+   * broken tree.
+   *
+   * The row this points at was stopped by the case two above, so this is the
+   * ordinary shape: the veto is already in the table when the renewal is filed.
+   */
+  it("A RENEWAL OF A STOPPED DECISION IS REFUSED AT THE DOOR, and never stored", async () => {
+    const renewal = await call("POST", "/api/game/mechanics/proposals", {
+      body: {
+        title: "Keep the gratitude budget where the steward stopped it",
+        rationale: "A renewal keeps a running change running, and after a veto there is nothing running to keep.",
+        changes: [{ key: "gratitude.base_budget", to: "135" }],
+        supersedesProposalId: proposalId,
+        supersedesRelation: "renews",
+      },
+    });
+    expect(renewal.status, JSON.stringify(renewal.json)).toBe(400);
+    expect(String(renewal.json?.error ?? ""), "the refusal has to say what happened and where the door is").toContain(
+      "stopped by a steward",
+    );
+    expect(String(renewal.json?.error ?? "")).toContain("override");
+    const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT COUNT(*) AS n FROM mechanics_proposals WHERE supersedes_relation = 'renews'",
+    );
+    expect(Number(rows[0]?.n ?? 0), "a refused renewal must not be stored").toBe(0);
+  });
+
+  /**
+   * AND THE OTHER ORDER, which the raise gate alone cannot see: the renewal is
+   * filed while the decision it points at still stands, and the steward stops
+   * that decision inside its window afterwards. Refusing only at the raise
+   * leaves this row sitting open with a vote door that still works, which is
+   * the same false record arriving a day later.
+   */
+  it("...and one filed BEFORE the veto landed cannot take its ballot to the village either", async () => {
+    const filed = await call("POST", "/api/game/mechanics/proposals", {
+      body: {
+        title: "Keep the gratitude budget, written while the first decision still stood",
+        rationale: "Nothing was stopped on the day this was filed, which is exactly why the vote door has to look again.",
+        changes: [{ key: "gratitude.base_budget", to: "136" }],
+      },
+    });
+    expect(filed.status, JSON.stringify(filed.json)).toBe(200);
+    const filedId = String(filed.json?.id ?? "");
+    expect(filedId).toBeTruthy();
+    // Pointed at the stopped row the way the clock would have done it: the raise
+    // gate never saw this relation, because on the day it was written the
+    // decision it renews had not been stopped.
+    await pool.query( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "UPDATE mechanics_proposals SET supersedes_proposal_id = ?, supersedes_relation = 'renews' WHERE id = ?",
+      [proposalId, filedId],
+    );
+
+    const opened = await call("POST", `/api/governance/mechanics/${filedId}/open-ballot`);
+    expect(opened.status, JSON.stringify(opened.json)).toBe(409);
+    expect(String(opened.json?.error ?? "")).toContain("stopped by a steward");
+    const [rows] = await pool.query<any[]>( // module-review-ok: fixture SQL against the S5 scratch schema, never a production table
+      "SELECT COUNT(*) AS n FROM ballots WHERE subject_type = 'mechanics' AND subject_ref = ?",
+      [filedId],
+    );
+    expect(Number(rows[0]?.n ?? 0), "no ballot may exist on a renewal of a stopped decision").toBe(0);
+    expect(await proposalStatus(filedId), "and the proposal stays where it was").toBe("open");
+
+    // The off-site door is the same door. A village voting on Hypha would end
+    // up with the identical false record, one chain further away from anyone
+    // who could correct it, so it asks the same question.
+    const offsite = await call("POST", `/api/game/mechanics/proposals/${filedId}/to-hypha`);
+    expect(offsite.status, JSON.stringify(offsite.json)).toBe(409);
+    expect(String(offsite.json?.error ?? "")).toContain("stopped by a steward");
+    expect(await proposalStatus(filedId), "and it did not go to Hypha either").toBe("open");
+  });
 });

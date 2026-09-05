@@ -59,7 +59,7 @@ import { register as registerDelegationRoutes } from "./routes/delegation";
 import { register as registerGovernanceVetoRoutes } from "./routes/governanceVetoes";
 import { register as registerGovernanceLandingRoutes } from "./routes/governanceLanding";
 // The dispatcher lane: the landing path, the change-set executor and the roll notice.
-import { applyDueGovernance, autoSettleExpired, digestComposerFor, itemKindsOf, markNotApplicable, overrideDials, routeOutcome, runVetoWatch, vetoWindowOn, type CloseRouting, type LandingDeps, type SubjectCloser } from "./lib/applyDue";
+import { applyDueGovernance, autoSettleExpired, digestComposerFor, itemKindsOf, markNotApplicable, overrideDials, routeOutcome, runVetoWatch, supersedesRefusal, vetoWindowOn, type CloseRouting, type LandingDeps, type SubjectCloser } from "./lib/applyDue";
 import { register as registerGovernanceModeRoutes } from "./routes/governanceMode";
 import { changeSetKinds, comingBackFrom, relationProblem, seasonEndInstant, setSeasonWindowReader, supersedeColumns, windowSettingProblem } from "./lib/governanceWindows";
 import { applyChangeSet, applyMechanicsProposal as applyChangeSetForProposal, changeSetSnapsToBoundary, changeSetWaitsForCycleClose, recordMechanicsChangeRow, UntypedElementError, type ApplySetResult, type ChangesetDeps } from "./lib/changeset";
@@ -22503,14 +22503,15 @@ ${inner}
       cooldown,
       readMintRulesForChangeSet,
     );
-    const badRelation = relationProblem(req.body?.supersedesRelation);
+    const [supersedesOf, supersedesRelation] = supersedeColumns(req.body); // read once, so the gate on the next line sees exactly what the row would store
+    const badRelation = relationProblem(req.body?.supersedesRelation) ?? (await supersedesRefusal(getPool(), supersedesRelation ?? "", supersedesOf)); // 20.11: a renewal may not point at a decision a steward stopped, and refusing at the door is how that row never comes to exist
     if (problems.length || badRelation) return res.status(400).json({ error: badRelation ?? "The change-set has problems", problems });
     const id = `gmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const status = standing.qualified ? "open" : "draft";
     // The proposer's timing (0135; absent means next_moon) and the relation a resubmission states (19E; an unknown word was refused above), both frozen at open.
     await getPool().query(
       "INSERT INTO mechanics_proposals (id, title, rationale, change_set, proposer_user_id, status, timing, supersedes_proposal_id, supersedes_relation) VALUES (?,?,?,?,?,?,?,?,?)",
-      [id, title, rationale, JSON.stringify(normalized), user.id, status, timingOf(req.body?.timing), ...supersedeColumns(req.body)],
+      [id, title, rationale, JSON.stringify(normalized), user.id, status, timingOf(req.body?.timing), supersedesOf, supersedesRelation],
     );
     if (status === "open") {
       await addActivity("governance", `${firstName(user.name)} proposed a change to the game's rules: ${title}`, {
@@ -22617,6 +22618,8 @@ ${inner}
       return res.status(403).json({ error: "Only the proposer takes their proposal to the vote" });
     }
     if (p.status !== "open") return res.status(409).json({ error: `This proposal is ${p.status.replace("_", " ")}, not open` });
+    const stoppedOffsite = await supersedesRefusal(getPool(), p.supersedesRelation ?? "", p.supersedesProposalId); // 20.11: the off-site door is the same door, and a village voting on Hypha would carry the identical false record one chain further from anyone who could correct it
+    if (stoppedOffsite) return res.status(409).json({ error: stoppedOffsite });
     const threshold = Math.max(0, numberVar("governance.proposal_support_threshold"));
     const backers = await backerCounts(getPool(), [p.id]);
     const supports = backers.get(p.id)?.supports ?? 0;
@@ -24602,6 +24605,8 @@ ${inner}
     if (p.proposerUserId !== user.id && !hasCapability("proposal.open", ctx)) {
       return res.status(403).json({ error: "Taking a proposal to the vote is for its proposer or a proposal.open holder" });
     }
+    const stoppedTarget = await supersedesRefusal(getPool(), p.supersedesRelation ?? "", p.supersedesProposalId); // 20.11 in the other order: the target may have been stopped between the raise and the vote, so every door to a vote asks again rather than trusting the gate at the raise
+    if (stoppedTarget) return res.status(409).json({ error: stoppedTarget });
     const threshold = Math.max(0, numberVar("governance.proposal_support_threshold"));
     const backers = await backerCounts(getPool(), [p.id]);
     const supports = backers.get(p.id)?.supports ?? 0;
