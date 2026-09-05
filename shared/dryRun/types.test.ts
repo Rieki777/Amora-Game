@@ -105,7 +105,7 @@ describe("the import guard", () => {
 
   /** The complete import list of the three files the economics session ships. */
   const EXACT: Record<string, string[]> = {
-    "types.ts": ["../cycleClock"],
+    "types.ts": ["../cycleClock", "../governanceKinds"],
     "rng.ts": ["./types"],
     "simulate.ts": ["../cycleClock", "./rng", "./types"],
   };
@@ -187,10 +187,15 @@ describe("the import guard", () => {
     }
   });
 
-  it("proves those three name nothing outside this directory but the clock", () => {
+  it("proves those three name nothing outside this directory but two leaf modules", () => {
+    // `../governanceKinds` earns its place the same way `../cycleClock` does:
+    // it imports nothing at all, so naming it drags no engine in behind it,
+    // and `ProposalTiming` is read from the file whose `landingFor` consumes
+    // it rather than from a structurally identical copy somewhere else.
+    const LEAVES = ["../cycleClock", "../governanceKinds"];
     for (const file of Object.keys(EXACT)) {
       const outside = specifiersIn(file).filter((spec) => !spec.startsWith("./"));
-      expect(outside, file).toEqual(outside.filter((spec) => spec === "../cycleClock"));
+      expect(outside, file).toEqual(outside.filter((spec) => LEAVES.includes(spec)));
     }
   });
 });

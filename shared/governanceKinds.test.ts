@@ -12,6 +12,9 @@
  *  - the seat carve-out executes at pass with no window at all;
  *  - a veto at the landing instant is too late.
  */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   ADVISORY_SUBJECT,
@@ -264,5 +267,80 @@ describe("weight_allocation is a Game change, and the table says so once", () =>
     expect(kindOfItem("weight_allocation")).toBe("game_change");
     expect(kindOfSet(["weight_allocation"])).toBe("game_change");
     expect(kindOfSet(["token_send", "weight_allocation"])).toBe("game_change");
+  });
+});
+
+/**
+ * ONE IMPLEMENTATION OF ONE INSTANT.
+ *
+ * `shared/cycleClock.ts` once carried a second `landingFor` beside this one,
+ * with its own `PROPOSAL_TIMINGS`, `DEFAULT_PROPOSAL_TIMING`,
+ * `VETO_HOURS_FLOOR`, `vetoClosesAt` and `effectiveVetoHours`. Nothing in
+ * production called it, and that was the danger rather than the comfort: it
+ * encoded the WITHDRAWN Phase 1b arithmetic, took `isGameChange` instead of a
+ * kind, knew nothing of `noWindow`, `notVetoable` or `snapToBoundary`, and its
+ * `Landing` carried no `vetoable`. The two `ProposalTiming` unions were
+ * structurally identical, so `tsc` said nothing while `shared/dryRun/types.ts`
+ * took its timing vocabulary from the clock and the arithmetic that consumes
+ * it from here.
+ *
+ * A later lane writing `import { landingFor } from "../../shared/cycleClock"`
+ * would have got the withdrawn rules with no compile error. These tests read
+ * both files off disk so that import cannot come back.
+ */
+describe("the landing arithmetic lives in exactly one file", () => {
+  const read = (rel: string): string =>
+    fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), rel), "utf8");
+
+  const exportsOf = (source: string): string[] => {
+    const found: string[] = [];
+    const pattern = /^export\s+(?:declare\s+)?(?:const|let|function|interface|type|class|enum)\s+([A-Za-z_$][\w$]*)/gm;
+    let match = pattern.exec(source);
+    while (match) {
+      found.push(match[1]);
+      match = pattern.exec(source);
+    }
+    return found;
+  };
+
+  /** Everything the withdrawn copy exported, by the name a lane would import. */
+  const WITHDRAWN = [
+    "landingFor",
+    "PROPOSAL_TIMINGS",
+    "ProposalTiming",
+    "DEFAULT_PROPOSAL_TIMING",
+    "VETO_HOURS_FLOOR",
+    "VETO_HOURS_DEFAULT",
+    "vetoClosesAt",
+    "effectiveVetoHours",
+    "LandingInput",
+    "Landing",
+  ];
+
+  it("finds the clock's real exports, so a green below is not an empty read", () => {
+    const clockExports = exportsOf(read("./cycleClock.ts"));
+    expect(clockExports).toContain("termEndAfter");
+    expect(clockExports).toContain("cyclesRemaining");
+    expect(clockExports).toContain("LUNAR_CLOCK");
+  });
+
+  it("leaves the clock exporting none of the withdrawn landing vocabulary", () => {
+    const clockExports = exportsOf(read("./cycleClock.ts"));
+    expect(clockExports.filter((name) => WITHDRAWN.includes(name))).toEqual([]);
+  });
+
+  it("keeps every one of those names here, so the deletion moved nothing off the map", () => {
+    const kindsExports = exportsOf(read("./governanceKinds.ts"));
+    for (const name of ["landingFor", "PROPOSAL_TIMINGS", "ProposalTiming", "VETO_HOURS_FLOOR", "LandingInput", "Landing"]) {
+      expect(kindsExports, name).toContain(name);
+    }
+  });
+
+  it("has the dry run read its timing vocabulary from here, beside the arithmetic that consumes it", () => {
+    const source = read("./dryRun/types.ts");
+    const fromClock = /import\s+type\s*\{([^}]*)\}\s*from\s*["']\.\.\/cycleClock["']/.exec(source);
+    const fromKinds = /import\s+type\s*\{([^}]*)\}\s*from\s*["']\.\.\/governanceKinds["']/.exec(source);
+    expect(fromKinds?.[1] ?? "", "types.ts must take ProposalTiming from governanceKinds").toContain("ProposalTiming");
+    expect(fromClock?.[1] ?? "", "types.ts must not take ProposalTiming from the clock").not.toContain("ProposalTiming");
   });
 });

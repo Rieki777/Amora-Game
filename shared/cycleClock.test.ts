@@ -23,17 +23,13 @@ import {
   cycleModeSwitchProblem,
   cycleSettingsProblem,
   cyclesRemaining,
-  effectiveVetoHours,
   formatCalendarCycleId,
   formatLunarCycleId,
   hasArrived,
   joiningCycle,
-  landingFor,
   msRemaining,
   parseId,
   termEndAfter,
-  vetoClosesAt,
-  VETO_HOURS_DEFAULT,
   CYCLE_SETTING_READERS,
 } from "./cycleClock";
 import { TRUE_CLOCK_FROM_CYCLE, cycleBoundsByNumber, cycleBoundsFor, cycleStartMs } from "./lunar";
@@ -260,61 +256,27 @@ describe("the boot assertion 0108 retired a dial for", () => {
   });
 });
 
-describe("governance instants: three days means 72 hours", () => {
-  const closes = new Date("2026-09-03T10:00:00Z");
-
-  it("shuts the window 72 hours after the close", () => {
-    expect(vetoClosesAt(closes).toISOString()).toBe("2026-09-06T10:00:00.000Z");
-    expect(VETO_HOURS_DEFAULT).toBe(72);
-  });
-
-  it("never gives a steward less than 72 hours, whatever a village types", () => {
-    expect(effectiveVetoHours(1)).toBe(72);
-    expect(effectiveVetoHours(0)).toBe(72);
-    expect(effectiveVetoHours(-500)).toBe(72);
-    expect(effectiveVetoHours(null)).toBe(72);
-    expect(effectiveVetoHours(Number.NaN)).toBe(72);
-    expect(effectiveVetoHours(168)).toBe(168);
-  });
-
-  it("executes a token send at the close when the proposal chose acceptance", () => {
-    const l = landingFor({ closesAt: closes, timing: "at_acceptance", isGameChange: false });
-    expect(l.executesAtClose).toBe(true);
-    expect(l.landsAt.getTime()).toBe(closes.getTime());
-  });
-
-  it("still holds a Game change chosen at acceptance until its window shuts", () => {
-    const l = landingFor({ closesAt: closes, timing: "at_acceptance", isGameChange: true });
-    expect(l.executesAtClose).toBe(false);
-    expect(l.landsAt.toISOString()).toBe("2026-09-06T10:00:00.000Z");
-    expect(l.vetoClosesAt.getTime()).toBe(l.landsAt.getTime());
-  });
-
-  it("lands a new-moon choice at the later of the next boundary and the window", () => {
-    const l = landingFor({ closesAt: closes, timing: "next_moon", isGameChange: true, clock: LUNAR_CLOCK });
-    const boundary = LUNAR_CLOCK.nextBoundaryAfter(closes);
-    const window = vetoClosesAt(closes);
-    expect(l.landsAt.getTime()).toBe(Math.max(boundary.getTime(), window.getTime()));
-    expect(l.landsAt.getTime()).toBeGreaterThanOrEqual(window.getTime());
-  });
-
-  it("gives a vote that carries near a boundary its full window, the late-carry jump", () => {
-    const boundary = LUNAR_CLOCK.nextBoundaryAfter(closes);
-    const oneMinuteBefore = new Date(boundary.getTime() - 60_000);
-    const l = landingFor({ closesAt: oneMinuteBefore, timing: "next_moon", isGameChange: true, clock: LUNAR_CLOCK });
-    // The boundary is a minute away, so the window is what decides.
-    expect(l.landsAt.getTime()).toBe(vetoClosesAt(oneMinuteBefore).getTime());
-  });
+/**
+ * The countdown, and nothing about WHEN a proposal lands.
+ *
+ * The veto window and the landing instant are computed in
+ * `shared/governanceKinds.ts` and are proven in its own test file. This clock
+ * used to carry a second copy of that arithmetic, encoding the WITHDRAWN
+ * Phase 1b rules, and these tests used to prove the copy. They now prove the
+ * two helpers that survived, over an instant handed in from outside, which is
+ * exactly how the server and the page use them.
+ */
+describe("one countdown over an instant somebody else computed", () => {
+  const landsAt = new Date("2026-09-06T10:00:00Z");
 
   it("counts down with the same arithmetic the server tests due-ness with", () => {
-    const l = landingFor({ closesAt: closes, timing: "at_acceptance", isGameChange: true });
-    const halfway = new Date(closes.getTime() + 36 * 3_600_000);
-    expect(msRemaining(halfway, l.landsAt)).toBe(36 * 3_600_000);
-    expect(hasArrived(halfway, l.landsAt)).toBe(false);
-    expect(msRemaining(l.landsAt, l.landsAt)).toBe(0);
-    expect(hasArrived(l.landsAt, l.landsAt)).toBe(true);
+    const halfway = new Date(landsAt.getTime() - 36 * 3_600_000);
+    expect(msRemaining(halfway, landsAt)).toBe(36 * 3_600_000);
+    expect(hasArrived(halfway, landsAt)).toBe(false);
+    expect(msRemaining(landsAt, landsAt)).toBe(0);
+    expect(hasArrived(landsAt, landsAt)).toBe(true);
     // Past the instant the countdown reads zero, never a negative number.
-    expect(msRemaining(new Date(l.landsAt.getTime() + 9_999), l.landsAt)).toBe(0);
+    expect(msRemaining(new Date(landsAt.getTime() + 9_999), landsAt)).toBe(0);
   });
 });
 

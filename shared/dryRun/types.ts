@@ -37,9 +37,18 @@
  * The economics session builds its model on a branch cut from `main`, and the
  * governance vocabulary this file used to borrow does not exist there yet.
  * A contract that only compiles beside its author is not a shared contract.
- * So `types.ts` names ONE other file, `shared/cycleClock.ts`, and every other
- * vocabulary it needs is declared here as a `const` list with the type read
- * off it. `rng.ts` and `simulate.ts` hold to the same rule.
+ * So `types.ts` names TWO other files and every other vocabulary it needs is
+ * declared here as a `const` list with the type read off it. `rng.ts` and
+ * `simulate.ts` hold to the same rule.
+ *
+ * The two are `shared/cycleClock.ts` for the clock mode and
+ * `shared/governanceKinds.ts` for `ProposalTiming`. Both are leaves: neither
+ * imports anything, so neither drags the engine in behind it. `ProposalTiming`
+ * is named from the file that OWNS it, because `landingFor` reads it there.
+ * The clock carried a copy of that union until it was deleted, and a preview
+ * typed against a copy while the arithmetic read the original is drift with a
+ * clean compile: the unions were structurally identical, so nothing failed
+ * until the day one of them grew a third member.
  *
  * A copied list can drift from the list it copied, so neither copy is left to
  * a comment: `types.test.ts` imports the engine's own arrays and fails the
@@ -66,7 +75,8 @@
  * back nor argued with. Same object in, same object out: the engine never
  * copies it, never edits it, and never invents a default for it.
  */
-import type { ClockMode, ProposalTiming } from "../cycleClock";
+import type { ClockMode } from "../cycleClock";
+import type { ProposalTiming } from "../governanceKinds";
 
 /**
  * The vocabularies a change set is written in. This file declares them and

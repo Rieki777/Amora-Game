@@ -469,90 +469,27 @@ export function cycleSettingsProblem(
   );
 }
 
-// ── Governance instants ─────────────────────────────────────────────────────
+// ── Governance countdowns ───────────────────────────────────────────────────
 
 /**
- * THREE DAYS MEANS 72 HOURS.
+ * THE VETO WINDOW AND THE LANDING INSTANT LIVE IN `shared/governanceKinds.ts`,
+ * AND NOWHERE ELSE.
  *
- * The founder's words were "a steward is given 3 days minimum" and later "72
- * hours from close and a countdown on it". Those are the same rule stated
- * twice, and the build keeps the second wording because it is the one that
- * cannot drift: three civil days is 71, 72 or 73 hours depending on where a
- * village keeps its clocks and whether daylight saving fell inside the
- * window, and a steward's right to object must not be shorter in March than
- * it is in June.
+ * This file used to carry a second `landingFor` beside that one, with its own
+ * `PROPOSAL_TIMINGS`, `DEFAULT_PROPOSAL_TIMING`, `VETO_HOURS_FLOOR`,
+ * `vetoClosesAt` and `effectiveVetoHours`. Nothing in production ever called
+ * it, which is exactly why it was dangerous: it froze the WITHDRAWN Phase 1b
+ * arithmetic, took an `isGameChange` boolean instead of a kind, knew nothing
+ * of `noWindow`, `notVetoable` or `snapToBoundary`, and returned a `Landing`
+ * with no `vetoable` on it. The two `ProposalTiming` unions were structurally
+ * identical, so the typechecker had nothing to say, and a lane importing
+ * `landingFor` from the clock by name would have got the withdrawn rules and a
+ * clean compile.
  *
- * The floor is the same number. A village may give its stewards longer and
- * can never give them less.
+ * What stays here is the clock, and two countdown helpers over an instant
+ * somebody else computed. `shared/governanceKinds.test.ts` reads this file off
+ * disk and fails if any of those names come back.
  */
-export const VETO_HOURS_DEFAULT = 72;
-export const VETO_HOURS_FLOOR = 72;
-
-const HOUR_MS = 3_600_000;
-
-/** The window a village actually gets, whatever it typed. */
-export function effectiveVetoHours(configured: number | null | undefined): number {
-  const n = Number(configured);
-  if (!Number.isFinite(n)) return VETO_HOURS_DEFAULT;
-  return Math.max(VETO_HOURS_FLOOR, Math.floor(n));
-}
-
-/** When the veto window on a ballot that closed at `closesAt` shuts. */
-export function vetoClosesAt(closesAt: Date, vetoHours: number = VETO_HOURS_DEFAULT): Date {
-  return new Date(closesAt.getTime() + effectiveVetoHours(vetoHours) * HOUR_MS);
-}
-
-/**
- * WHEN A PROPOSAL CARRIES ITS CHOICE, per 19F. Every proposal picks one, and
- * the default is `next_moon` "to carry a pattern of new activities starting
- * then".
- */
-export const PROPOSAL_TIMINGS = ["at_acceptance", "next_moon"] as const;
-export type ProposalTiming = (typeof PROPOSAL_TIMINGS)[number];
-export const DEFAULT_PROPOSAL_TIMING: ProposalTiming = "next_moon";
-
-export interface LandingInput {
-  /** The frozen instant the ballot's window ended. Never a human press. */
-  closesAt: Date;
-  timing: ProposalTiming;
-  /** True when the decision changes the Game rather than sending tokens. */
-  isGameChange: boolean;
-  vetoHours?: number;
-  /** The village's clock. `next_moon` means this clock's next boundary. */
-  clock?: CycleClock;
-}
-
-export interface Landing {
-  /** When it takes effect. Null means the moment the ballot closed. */
-  landsAt: Date;
-  /** When a steward can no longer veto. Equal to landsAt for a Game change. */
-  vetoClosesAt: Date;
-  /** True when nothing waits: a token send chosen at acceptance. */
-  executesAtClose: boolean;
-}
-
-/**
- * THE ONE PIECE OF ARITHMETIC BEHIND THE VETO WINDOW AND THE COUNTDOWN.
- *
- * A token send chosen `at_acceptance` executes at the close, and a seated
- * steward stops it by voting no while the ballot is still OPEN. Everything
- * else waits: a Game change chosen `at_acceptance` still cannot land before
- * its window shuts, and anything chosen `next_moon` lands at the later of the
- * village's next cycle boundary and the window's close.
- */
-export function landingFor(input: LandingInput): Landing {
-  const clock = input.clock ?? LUNAR_CLOCK;
-  const windowShuts = vetoClosesAt(input.closesAt, input.vetoHours ?? VETO_HOURS_DEFAULT);
-  if (!input.isGameChange && input.timing === "at_acceptance") {
-    return { landsAt: input.closesAt, vetoClosesAt: input.closesAt, executesAtClose: true };
-  }
-  if (input.timing === "at_acceptance") {
-    return { landsAt: windowShuts, vetoClosesAt: windowShuts, executesAtClose: false };
-  }
-  const boundary = clock.nextBoundaryAfter(input.closesAt);
-  const landsAt = new Date(Math.max(boundary.getTime(), windowShuts.getTime()));
-  return { landsAt, vetoClosesAt: landsAt, executesAtClose: false };
-}
 
 /**
  * Milliseconds left on a window, never negative. The member's countdown and
