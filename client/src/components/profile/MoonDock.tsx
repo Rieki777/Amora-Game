@@ -30,6 +30,25 @@
  * for reduced motion gets the same moon, still. Not the same animation at 1ms,
  * which lands on an arbitrary frame; the composition without the motion.
  *
+ * ── WHERE IT SITS, AND WHY THAT DIFFERS ON A PHONE ───────────────────────
+ *
+ * Bottom right on a wide screen. On a phone that corner is already taken: the
+ * shortcuts FAB is there, and the tab bar owns the bottom edge. A QA pass at a
+ * real 390px viewport showed the dock hidden entirely below `sm`, which made
+ * the whole feature desktop-only for the members most likely to want a glance
+ * at the moon.
+ *
+ * So on a phone it moves to the bottom LEFT and lifts clear of the tab bar,
+ * and the panel opens from that side. Same control, same name, one corner
+ * over, and the same SIZE as the FAB so the two read as a pair.
+ *
+ * The offset is copied from MobileFab deliberately, expression and all:
+ * `max(calc(env(safe-area-inset-bottom, 0px) + 3.5rem), 3.5rem)`. A plain
+ * `bottom-20` measured right on the test device and would have drifted into
+ * the tab bar on a notched phone, because the bar grows by the inset and a
+ * fixed rem does not. Sharing the expression means the safe area cancels on
+ * both and they stay level on every device.
+ *
  * ── REACHABLE WITHOUT A MOUSE ────────────────────────────────────────────
  *
  * The dock is a `<button>` with an accessible name that says the phase and the
@@ -141,14 +160,15 @@ export default function MoonDock() {
   };
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-40 hidden sm:block" aria-hidden={false}>
+    <div className="pointer-events-none fixed inset-0 z-40" aria-hidden={false}>
       {open && (
         <div
           ref={panel}
           role="dialog"
           aria-modal="false"
           aria-label={`${name}. This moon's calendar.`}
-          className="pointer-events-auto absolute bottom-28 right-6 max-h-[60vh] w-80 overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl"
+          style={{ bottom: "max(calc(env(safe-area-inset-bottom, 0px) + 9rem), 9rem)" }}
+          className="pointer-events-auto absolute left-4 right-4 max-h-[55vh] overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl sm:left-auto sm:right-6 sm:w-80"
         >
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -198,7 +218,8 @@ export default function MoonDock() {
         // The breath, and the still version for anyone who asked for one.
         animate={reduced ? undefined : { scale: [1, 1.045, 1] }}
         transition={reduced ? undefined : { duration: 20, repeat: Infinity, ease: "easeInOut" }}
-        className="pointer-events-auto absolute bottom-6 right-6 inline-flex h-16 w-16 items-center justify-center rounded-full border border-border bg-card shadow-lg hover:border-notice"
+        style={{ bottom: "max(calc(env(safe-area-inset-bottom, 0px) + 3.5rem), 3.5rem)" }}
+        className="pointer-events-auto absolute left-4 inline-flex h-14 w-14 items-center justify-center rounded-full border border-border bg-card shadow-lg hover:border-notice sm:left-auto sm:right-6 sm:h-16 sm:w-16"
       >
         <MoonGlyph phase={lunar.phase} size={38} hemisphere={answer?.hemisphere ?? "north"} />
       </motion.button>

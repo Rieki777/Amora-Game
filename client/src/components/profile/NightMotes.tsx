@@ -14,6 +14,20 @@
  * `requestAnimationFrame` that draws about forty circles. Reach for SVG or
  * DOM when the shapes carry meaning; these carry none.
  *
+ * ── IT IS THE VIEWPORT, NOT THE PAGE, AND THAT WAS A DEFECT FIRST ───────
+ *
+ * This was `absolute inset-0` over the whole scrolling page, and a real 390px
+ * mobile viewport showed what that costs: the canvas came out 390 by 9418 CSS
+ * pixels, a 780 by 7802 backing store, 6.1 megapixels and 23 MB of memory for
+ * decoration. Worse, `h-full` stretched the ELEMENT to the full page while the
+ * backing store had been sized from a smaller rect, so every mote was drawn at
+ * the wrong vertical scale.
+ *
+ * Fixed to the viewport instead: 390 by 844 on that phone, 1.3 megapixels, and
+ * the air travels with the reader rather than being a tall picture they scroll
+ * past. Nothing on this page transforms an ancestor, which was checked rather
+ * than assumed, so `fixed` resolves against the viewport as intended.
+ *
  * ── IT STOPS WHEN NOBODY IS LOOKING ──────────────────────────────────────
  *
  * Three ways, and all three matter on a laptop battery:
@@ -89,8 +103,11 @@ export default function NightMotes() {
     const fit = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const rect = el.getBoundingClientRect();
-      w = Math.max(1, Math.floor(rect.width));
-      h = Math.max(1, Math.floor(rect.height));
+      // Clamped to the viewport as well as measured from the element. The
+      // measurement is right today and a stray `h-full` under a taller parent
+      // is all it took to make it wrong before, so the ceiling stays.
+      w = Math.max(1, Math.min(Math.floor(rect.width), window.innerWidth));
+      h = Math.max(1, Math.min(Math.floor(rect.height), window.innerHeight));
       el.width = Math.floor(w * dpr);
       el.height = Math.floor(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -154,7 +171,7 @@ export default function NightMotes() {
       aria-hidden="true"
       // `text-foreground` is here to be READ, not to paint: it is what
       // getComputedStyle resolves the ink from above.
-      className="pointer-events-none absolute inset-0 h-full w-full text-foreground"
+      className="pointer-events-none fixed inset-0 h-full w-full text-foreground"
     />
   );
 }
