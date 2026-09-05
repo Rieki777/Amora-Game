@@ -34,6 +34,7 @@ import { motion } from "framer-motion";
 import { wrapLabel, type NestedLayout } from "@shared/mapLayout";
 import { transition, viewBoxFor, viewFor, type CameraTarget, type CameraView } from "./camera";
 import SeatGlyph, { seatStateWords } from "./SeatGlyph";
+import { captionSize, fitLabelToScreen } from "./labelFit";
 import { TermArc, SeasonRing } from "./TermMarkers";
 import RelationLines, { RelationArrowDef } from "./RelationLines";
 import type { Filters, PowerData, PowerSeat, Selection } from "./types";
@@ -41,6 +42,63 @@ import { anyFilterOn, seatPassesFilters } from "./types";
 
 /** Faces stop drawing outside the focus past this many seats (spec 13). */
 const AVATAR_SEAT_CAP = 400;
+
+/*
+ * ── HOW BIG THIS PICTURE ACTUALLY DRAWS, AND WHY IT WAS HALF SIZE ──────────
+ *
+ * The layout is a circle PACKING, so its content is a disc and its canvas is
+ * the square that hugs that disc. The SVG then fits that square into the
+ * element's real box with `xMidYMid meet`, which scales to whichever side is
+ * smaller. On a desktop column the box is landscape (measured 864x533), so
+ * the height wins, the whole drawing renders at 0.51x, and 331px of width
+ * (38% of the canvas) sits empty on either side of the disc.
+ *
+ * The viewBox was asking for the LAYOUT's aspect, which is 1 by construction
+ * and therefore told the browser nothing about the space available. Handing
+ * it the CONTAINER's aspect does two things: the world coordinate system now
+ * covers the full box, and the space beside the disc becomes addressable
+ * world space instead of dead margin. That space is where a name too long for
+ * its circle goes.
+ *
+ * It does NOT on its own make the disc bigger. A disc in a short wide box is
+ * height-limited whatever the viewBox says, which is why `md:h-[74vh]` moved
+ * too: the stage was capped at 533px while 864px wide.
+ */
+function useMeasuredBox(el: SVGSVGElement | null): { w: number; h: number } {
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const read = () => {
+      const r = el.getBoundingClientRect();
+      // Round before comparing: a fractional resize that changes nothing
+      // visible would otherwise re-render on every scroll on some browsers.
+      const next = { w: Math.round(r.width), h: Math.round(r.height) };
+      setBox((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
+    };
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return box;
+}
+
+/**
+ * The smallest a circle's name is allowed to render, in SCREEN pixels.
+ *
+ * `wrapLabel` sizes a label in WORLD units and floors it at 9, which becomes
+ * 4.6px on screen at 0.51x. Measured live, a "forming" caption was rendering
+ * 6px tall. Nothing about the layout was wrong; the label simply inherited
+ * whatever scale the camera happened to be at.
+ *
+ * So the floor belongs in the space legibility lives in, which is the screen.
+ * A label under this size is scaled up until it clears it, and the scale is
+ * capped at what the circle can hold so a rescued label never runs out over
+ * its neighbours. A name that cannot clear the floor inside its own circle
+ * goes OUTSIDE, on a leader line into the gutter the aspect fix just opened.
+ */
+// The label floor lives in `labelFit.ts` so it can be tested without a
+// browser. See that file for why a world-unit floor was the wrong floor.
 
 const TONE: Record<string, string> = {
   sage: "var(--color-sage)",
@@ -196,13 +254,42 @@ export default function PowerMap({
   };
 
   const drawVillageRing = shape !== "pyramid";
-  const aspect = layout.height / layout.width;
+
+  // The CONTAINER's aspect, measured, not the layout's (which is 1 by
+  // construction). See useMeasuredBox above for what this was costing.
+  const [svgEl, setSvgEl] = useState<SVGSVGElement | null>(null);
+  const box = useMeasuredBox(svgEl);
+  const aspect = box.w > 0 && box.h > 0 ? box.h / box.w : layout.height / layout.width;
+  /*
+   * THE VIEW WIDTH HAS TO GROW WITH A LANDSCAPE BOX, OR THE DISC IS CUT.
+   *
+   * `viewFor` asks for a world region `2r + margin` WIDE, and means a square
+   * region: the thing it is framing is a disc. Handing that width to a
+   * viewBox whose aspect is 0.62 asks for a region 38% SHORTER than it is
+   * wide, and the top and bottom of the village ring fall outside the
+   * picture. Correct aspect, cropped map, which is a worse bug than the one
+   * being fixed and would have looked like a layout error.
+   *
+   * So the region is widened until its HEIGHT covers the square the camera
+   * meant. The scale is unchanged by this (a disc in a short box is
+   * height-limited whatever the viewBox says); what it buys is that the
+   * space either side of the disc becomes addressable world space instead of
+   * dead margin, which is where a name too long for its circle now goes.
+   */
+  const fittedView: CameraView = aspect < 1 ? [view[0], view[1], view[2] / aspect] : view;
+  // Screen pixels per world unit, at the camera's current width. Everything
+  // that has to hold a fixed size on screen divides by this.
+  const pxPerWorld = box.w > 0 ? box.w / fittedView[2] : 0;
 
   return (
     <>
       <svg
-        ref={svgRef}
-        viewBox={viewBoxFor(view, aspect)}
+        ref={(el) => {
+          setSvgEl(el);
+          // `svgRef` is the caller's handle (export, print). Keep feeding it.
+          if (svgRef) (svgRef as { current: SVGSVGElement | null }).current = el;
+        }}
+        viewBox={viewBoxFor(fittedView, aspect)}
         className="w-full h-full"
         preserveAspectRatio="xMidYMid meet"
         role="group"
@@ -272,11 +359,19 @@ export default function PowerMap({
           const dimForFilter = filtersOn && !circleAnyPass(pos.id) ? 0.2 : 1;
           const opacity = Math.min(dimForFocus, dimForFilter) * (forming ? 0.6 : 1);
           const isFocus = pos.id === focusId;
-          const label = wrapLabel(c?.name ?? pos.id, pos.r, pos.depth);
+          const wrapped = wrapLabel(c?.name ?? pos.id, pos.r, pos.depth);
+          // The world-unit size the layout asked for, converted to something
+          // legible on THIS screen at THIS zoom. See fitLabelToScreen.
+          const fit = fitLabelToScreen(wrapped, pos.r, pxPerWorld);
+          const label = { lines: wrapped.lines, fontSize: fit.fontSize, lineHeight: fit.lineHeight };
           const hasChildren = data.circles.some((o) => o.parentCircleId === pos.id && posById.has(o.id));
-          const labelTop = hasChildren
-            ? pos.y - pos.r + 24
-            : pos.y - ((label.lines.length - 1) * label.lineHeight) / 2 + (forming ? -6 : 0);
+          const labelTop = fit.outside
+            ? // Above the disc, clear of its seat ring, where the circle's own
+              // width stops constraining the name.
+              pos.y - pos.r - 6 - (label.lines.length - 1) * label.lineHeight
+            : hasChildren
+              ? pos.y - pos.r + 24
+              : pos.y - ((label.lines.length - 1) * label.lineHeight) / 2 + (forming ? -6 : 0);
 
           return (
             <motion.g key={pos.id} animate={{ opacity }} transition={morph}>
@@ -322,7 +417,22 @@ export default function PowerMap({
                   transition={morph}
                   textAnchor="middle"
                   className="fill-foreground font-semibold pointer-events-none"
-                  style={{ fontSize: label.fontSize }}
+                  style={{
+                    fontSize: label.fontSize,
+                    // A label pushed outside its circle crosses whatever is
+                    // behind it, so it carries the page's own ground as a
+                    // halo. `paint-order` puts that stroke UNDER the glyphs;
+                    // without it the stroke is drawn over them and the text
+                    // thins out to nothing at small sizes.
+                    ...(fit.outside
+                      ? {
+                          paintOrder: "stroke" as const,
+                          stroke: "var(--background)",
+                          strokeWidth: 3.5,
+                          strokeLinejoin: "round" as const,
+                        }
+                      : null),
+                  }}
                 >
                   {label.lines.map((ln, i) => (
                     <tspan key={ln + i} x={pos.x} dy={i === 0 ? 0 : label.lineHeight}>
@@ -337,7 +447,12 @@ export default function PowerMap({
                   y={labelTop + (label.lines.length - (hasChildren ? 0 : 1)) * label.lineHeight + (hasChildren ? 14 : 16)}
                   textAnchor="middle"
                   className="fill-muted-foreground pointer-events-none"
-                  style={{ fontSize: Math.max(9, label.fontSize - 4) }}
+                  style={{
+                    // This caption was the worst offender on the live page: a
+                    // hard floor of 9 WORLD units measured 6px on screen. Its
+                    // floor is a screen size now, like the name above it.
+                    fontSize: captionSize(label.fontSize, pxPerWorld),
+                  }}
                 >
                   forming
                 </text>

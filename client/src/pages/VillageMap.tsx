@@ -432,7 +432,14 @@ export default function VillageMap() {
                   accordion IS the page, with the card as a bottom sheet. */}
               {!listMode && (
                 <div className="hidden sm:flex gap-6 items-start">
-                  <div className="relative flex-1 min-w-0 aspect-square md:aspect-auto md:h-[74vh] md:min-h-[520px]" data-power-map-box>
+                  {/* The stage is HEIGHT-driven and the drawing is a disc, so
+                      this number is the one that decides how big the picture
+                      renders. At 74vh on a 720px screen the canvas was 533px
+                      tall inside an 864px-wide column: the disc fitted to the
+                      height, drew at 0.51x, and left 331px of width empty.
+                      Taller stage, bigger disc, and the width beside it is
+                      the gutter a long name is now allowed to use. */}
+                  <div className="relative flex-1 min-w-0 aspect-square md:aspect-auto md:h-[86vh] md:min-h-[560px] md:max-h-[980px]" data-power-map-box>
                     <PowerMap
                       data={data}
                       layout={layout}
@@ -483,10 +490,15 @@ export default function VillageMap() {
               {/* The list: the phone's whole page, the tablet's under-map
                   companion, and the desktop's choice (spec 12). */}
               <div className={`${listMode ? "" : "sm:hidden"} space-y-4 mt-2`}>
-                {/* Spec 12(a): below 480 the accordion IS the page; from 480
-                    to sm the SVG rides above it. */}
+                {/* A PHONE GETS THE MAP TOO.
+                    This was `hidden min-[480px]:block`, so every handset
+                    narrower than 480 (which is most of them: 375 and 390 are
+                    the common widths) got the accordion and no picture at
+                    all. The map was measured live at 375px and drew nothing.
+                    A square stage is a good phone stage, and the label floor
+                    in PowerMap is what makes it readable at this size. */}
                 {!listMode && (
-                  <div className="relative aspect-square hidden min-[480px]:block" data-power-map-box>
+                  <div className="relative aspect-square block" data-power-map-box>
                     <PowerMap
                       data={data}
                       layout={layout}
